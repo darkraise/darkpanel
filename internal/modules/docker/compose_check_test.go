@@ -16,6 +16,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/docker/compose"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
@@ -734,5 +735,18 @@ func TestW12bValidationEngineErrorWithoutAKey(t *testing.T) {
 	coded := errcode.From(err)
 	if want := "the Docker Engine answered HTTP 500 while checking an object of kind image"; coded.Code != errcode.Unavailable || coded.Detail != want {
 		t.Errorf("error %s %q, want %s %q", coded.Code, coded.Detail, errcode.Unavailable, want)
+	}
+}
+
+// TestW12dComposeKeyFollowsValidateOrder: Validate asks about one service's
+// container_name and then its references before the next service, so the
+// service named in an Engine failure is the first one in that order.
+func TestW12dComposeKeyFollowsValidateOrder(t *testing.T) {
+	cfg := compose.Config{Services: map[string]compose.Service{
+		"api": {ContainerRefs: []string{"shared"}},
+		"web": {ContainerName: "shared"},
+	}}
+	if got := composeKey("shop", cfg, "container", "shared"); got != "api" {
+		t.Errorf("composeKey = %q, want api, the service Validate asks about first", got)
 	}
 }

@@ -507,12 +507,8 @@ func composeKey(project string, cfg compose.Config, kind, name string) string {
 		}
 	case "container":
 		for _, key := range services {
-			if cfg.Services[key].ContainerName == name {
-				return key
-			}
-		}
-		for _, key := range services {
-			if slices.Contains(cfg.Services[key].ContainerRefs, name) {
+			s := cfg.Services[key]
+			if s.ContainerName == name || slices.Contains(s.ContainerRefs, name) {
 				return key
 			}
 		}
