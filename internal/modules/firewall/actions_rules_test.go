@@ -316,6 +316,42 @@ func TestW12cKeepManual(t *testing.T) {
 			t.Errorf("diff\n%s\nwants the IPv6 rule added", diff)
 		}
 	})
+	t.Run("a rule of both families is held only when both families hold it", func(t *testing.T) {
+		both := `{"label":"npm","add":[` + kmRule(kmID443V4, "443", model.FamilyBoth) + `],"keepManual":true}`
+		host := func(rules6 []string) (fw, core.Env) {
+			h, f, env := kmHost(t, []string{kmManual4}, rules6)
+			r := model.Rule{ID: kmID443V4, Action: model.ActionAllow, Direction: model.DirIn, Proto: model.ProtoTCP, From: model.Any,
+				To: model.Any, ToPort: "443", Family: model.FamilyBoth, Comment: "npm"}
+			h.ufw[strings.Join(model.AddArgs(r), " ")] = func(s *fhState) int {
+				for fam, lines := range map[model.Family]*[]string{model.FamilyV4: &s.Rules4, model.FamilyV6: &s.Rules6} {
+					tagged := kmTuple("443", fam, model.Tag(kmID443V4, "npm"))
+					if i := slices.IndexFunc(*lines, func(l string) bool { return strings.Contains(l, " tcp 443 ") && !strings.Contains(l, "comment=") }); i >= 0 {
+						(*lines)[i] = tagged
+					} else {
+						*lines = append(*lines, tagged)
+					}
+				}
+				return 0
+			}
+			return f, env
+		}
+		f, env := host([]string{kmManual6})
+		out, err := plan(t, f, env, both)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if diff := strings.Join(acDiff(out), "\n"); !strings.Contains(diff, "rule "+kmID443V4+" left out: manual rule ") {
+			t.Errorf("held in both families: diff\n%s\nwants the rule left out", diff)
+		}
+		f, env = host(nil)
+		out, err = plan(t, f, env, both)
+		if diff := strings.Join(acDiff(out), "\n"); strings.Contains(diff, "left out") {
+			t.Errorf("held in IPv4 only: diff\n%s\nwants the rule not left out", diff)
+		}
+		if err != nil && errcode.From(err).Code != errcode.FirewallManualRequired {
+			t.Errorf("held in IPv4 only: plan = %v, want an add or the manual-rule refusal", err)
+		}
+	})
 	t.Run("the four rules already present plan no change (A3)", func(t *testing.T) {
 		var rules4, rules6 []string
 		var add []string
