@@ -423,3 +423,54 @@ func TestW12eUpgradeUndoChecksForwards(t *testing.T) {
 		f.restored()
 	})
 }
+
+// TestW12eVerifyHeldNames: forwarded names are resolved again after the start, and a failed inspection or lookup
+// reports the check unverified while keeping the disconnects already made.
+func TestW12eVerifyHeldNames(t *testing.T) {
+	ctx := context.Background()
+	// The name answered another address when the targets were read.
+	name := forwardTarget{where: "proxy host 2", host: "up.invalid", name: true, addr: netip.MustParseAddr("203.0.113.9")}
+	literal := forwardTarget{where: "proxy host 1", host: "172.30.0.9", addr: netip.MustParseAddr("172.30.0.9")}
+	onAppNet := func(t *testing.T, s *upSetup) bool {
+		t.Helper()
+		c, _ := s.h.docker.container(s.inst.ContainerID)
+		return c.NetworkSettings.Networks[upAppNet] != nil
+	}
+	t.Run("a name that now answers a held address", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		s.n.d.resolve = w12eAnswer("172.30.0.9")
+		res, err := instanceUpgradeHandler{n: s.n}.verifyHeld(ctx, s.env, s.inst.ContainerID, []forwardTarget{name})
+		if err != nil || res.Unverified != nil {
+			t.Fatalf("error %v, unverified %v; want neither", err, res.Unverified)
+		}
+		coded := errcode.From(res.Hit)
+		if want := "proxy host 2 forwards to 172.30.0.9, which darkpanel-npm took on network app-net when it started; it was disconnected from app-net"; coded.Code != errcode.NPMReserved || coded.Detail != want {
+			t.Errorf("hit %v, want npm.reserved with detail %q", res.Hit, want)
+		}
+		if len(res.Dropped) != 1 || res.Dropped[0] != upAppNet || onAppNet(t, s) {
+			t.Errorf("dropped %v, still on app-net %v; want app-net left", res.Dropped, onAppNet(t, s))
+		}
+	})
+	t.Run("a lookup that fails", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		s.n.d.resolve = func(context.Context, string) ([]netip.Addr, error) { return nil, errors.New("the resolver is down") }
+		res, err := instanceUpgradeHandler{n: s.n}.verifyHeld(ctx, s.env, s.inst.ContainerID, []forwardTarget{literal, name})
+		if err != nil || res.Unverified == nil {
+			t.Fatalf("error %v, unverified %v; want no error and the check unverified", err, res.Unverified)
+		}
+		if errcode.From(res.Hit).Code != errcode.NPMReserved || len(res.Dropped) != 1 || res.Dropped[0] != upAppNet || onAppNet(t, s) {
+			t.Errorf("hit %v, dropped %v; want the literal's hit kept and app-net left", res.Hit, res.Dropped)
+		}
+	})
+	t.Run("an inspection that fails", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		s.h.docker.Fail("InspectContainer", errors.New("engine down"))
+		res, err := instanceUpgradeHandler{n: s.n}.verifyHeld(ctx, s.env, s.inst.ContainerID, []forwardTarget{literal})
+		if err != nil || res.Unverified == nil {
+			t.Fatalf("error %v, unverified %v; want no error and the check unverified", err, res.Unverified)
+		}
+		if res.Hit != nil || len(res.Dropped) != 0 || nwCalls(s.h, "DisconnectNetwork") != 0 {
+			t.Errorf("hit %v, dropped %v after %d disconnects; want nothing compared", res.Hit, res.Dropped, nwCalls(s.h, "DisconnectNetwork"))
+		}
+	})
+}

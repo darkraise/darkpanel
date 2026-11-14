@@ -49,14 +49,20 @@ func w12eAnswer(addr string) func(context.Context, string) ([]netip.Addr, error)
 	}
 }
 
-func w12eNoChange(t *testing.T, h *thHost, user dockerapi.Network) {
+// w12eNoChange fails the test unless the refused attach left NPM off the network with no claim, and journaled
+// connects effects, each recorded skipped.
+func w12eNoChange(t *testing.T, h *thHost, user dockerapi.Network, connects int) {
 	t.Helper()
 	if nwEndpoint(t, h, user.ID) != nil || len(nwClaims(t, h, nwNet)) != 0 {
 		t.Error("a refused attach left NPM on the network or recorded a claim")
 	}
-	for _, e := range h.journal.effects() {
-		if e.State == core.EffectMade {
-			t.Errorf("effect %s was recorded made", e.Resource)
+	effects := h.journal.effects()
+	if len(effects) != connects {
+		t.Errorf("%d effects journaled, want %d", len(effects), connects)
+	}
+	for _, e := range effects {
+		if e.State != core.EffectSkipped {
+			t.Errorf("effect %s was recorded %s, want skipped", e.Resource, e.State)
 		}
 	}
 }
@@ -88,7 +94,7 @@ func TestW12eAttachReloadsBeforeJoin(t *testing.T) {
 			if nwCalls(h, "ConnectNetwork") != 0 {
 				t.Error("the refused attach connected NPM")
 			}
-			w12eNoChange(t, h, user)
+			w12eNoChange(t, h, user, 0)
 		})
 	}
 }
@@ -192,7 +198,7 @@ func TestW12eAttachUnconfirmedReloadDisconnects(t *testing.T) {
 		if want := "nginx could not be reloaded after darkpanel-npm joined network appnet: nginx's configuration test failed; it was disconnected again"; coded.Detail != want {
 			t.Errorf("detail %q, want %q", coded.Detail, want)
 		}
-		w12eNoChange(t, h, user)
+		w12eNoChange(t, h, user, 1)
 	})
 	t.Run("NPM's API does not answer the second reload", func(t *testing.T) {
 		h, user := nwSetup(t)
@@ -208,34 +214,46 @@ func TestW12eAttachUnconfirmedReloadDisconnects(t *testing.T) {
 			!strings.HasSuffix(coded.Detail, "; it was disconnected again") {
 			t.Errorf("detail %q, want the unanswered reload after the join named", coded.Detail)
 		}
-		w12eNoChange(t, h, user)
+		w12eNoChange(t, h, user, 1)
 	})
-	t.Run("the held address is forwarded", func(t *testing.T) {
-		h, user := nwSetup(t)
-		w12aSubnet(t, h, user)
-		w12aSeed(h, "up.invalid", 81)
-		n := h.nm()
-		// The handler holds its own copy of n, so the hook changes the answer the resolver reads, not n.d.resolve.
-		var mu sync.Mutex
-		answer := "203.0.113.9"
-		n.d.resolve = func(context.Context, string) ([]netip.Addr, error) {
-			mu.Lock()
-			defer mu.Unlock()
-			return []netip.Addr{netip.MustParseAddr(answer)}, nil
-		}
-		n.d.docker = w12eConnectHook{h.docker, func() {
-			mu.Lock()
-			defer mu.Unlock()
-			answer = "10.9.0.7"
-		}}
-		h.addChange("c1", "npm.network.attach")
-		_, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, in))
-		coded := nwRefused(t, err, errcode.NPMReserved)
-		if want := "proxy host 1 forwards to up.invalid, which resolves to 10.9.0.7, the address darkpanel-npm took on network appnet; it was disconnected again"; coded.Detail != want {
-			t.Errorf("detail %q, want %q", coded.Detail, want)
-		}
-		w12eNoChange(t, h, user)
-	})
+	for _, tc := range []struct {
+		name string
+		in   AttachInput
+	}{
+		{"the held address is forwarded", in},
+		// The Engine picks the address, so only the endpoint NPM got, not the input, names it.
+		{"the held address an Engine-chosen join took is forwarded", AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, user := nwSetup(t)
+			w12aSubnet(t, h, user)
+			w12aSeed(h, "up.invalid", 81)
+			if !tc.in.Address.IsValid() {
+				h.docker.pin(nwNet, netip.MustParseAddr("10.9.0.7"))
+			}
+			n := h.nm()
+			// The handler holds its own copy of n, so the hook changes the answer the resolver reads, not n.d.resolve.
+			var mu sync.Mutex
+			answer := "203.0.113.9"
+			n.d.resolve = func(context.Context, string) ([]netip.Addr, error) {
+				mu.Lock()
+				defer mu.Unlock()
+				return []netip.Addr{netip.MustParseAddr(answer)}, nil
+			}
+			n.d.docker = w12eConnectHook{h.docker, func() {
+				mu.Lock()
+				defer mu.Unlock()
+				answer = "10.9.0.7"
+			}}
+			h.addChange("c1", "npm.network.attach")
+			_, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, tc.in))
+			coded := nwRefused(t, err, errcode.NPMReserved)
+			if want := "proxy host 1 forwards to up.invalid, which resolves to 10.9.0.7, the address darkpanel-npm took on network appnet; it was disconnected again"; coded.Detail != want {
+				t.Errorf("detail %q, want %q", coded.Detail, want)
+			}
+			w12eNoChange(t, h, user, 1)
+		})
+	}
 	t.Run("the disconnect fails", func(t *testing.T) {
 		h, user := nwSetup(t)
 		w12aSubnet(t, h, user)
