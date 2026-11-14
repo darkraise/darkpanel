@@ -407,7 +407,14 @@ func controllerSessionFlows(s *flowSet, f facts, local map[netip.Addr]bool) {
 		if !heldBy(so, f.controller) || !inbound(f.sockets, so) || fromHere(so.Remote.Addr(), local) {
 			continue
 		}
-		s.add(flow{label: "controller session", pkt: newPacket("input", so.Remote.Addr(), unknownPort, so.Local.Addr(), so.Local.Port(), "tcp")})
+		p := newPacket("input", so.Remote.Addr(), unknownPort, so.Local.Addr(), so.Local.Port(), "tcp")
+		// A session to the runtime listener comes from a container of the
+		// panel bridge, so its packets enter there, as the listener's flow
+		// does; the rule that admits it names that bridge.
+		if _, onBridge := panelProxy(f.ifaces, so.Local.Addr().Unmap()); onBridge {
+			p.InIface = panelBridge
+		}
+		s.add(flow{label: "controller session", pkt: p})
 	}
 }
 

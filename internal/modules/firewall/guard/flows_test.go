@@ -198,6 +198,17 @@ func TestBuildFlows(t *testing.T) {
 			},
 		},
 		{
+			name: "a session to the runtime listener enters on the panel bridge",
+			f: facts{ifaces: append(gIfaces(), netstat.Interface{Index: 6, Name: "dp-panel", Up: true, Running: true,
+				Addrs: []netip.Prefix{netip.MustParsePrefix("172.30.0.1/16")}}), controller: 4242, sockets: []netstat.Socket{
+				flSock(tcp, listen, "172.30.0.1:8080", "", "darkpanel-contr", 4242),
+				flSock(tcp, est, "172.30.0.1:8080", "172.30.0.2:51000", "darkpanel-contr", 4242),
+			}},
+			want: []flow{
+				{label: "controller session", pkt: flOn("dp-panel", flPkt("input", "172.30.0.2", 0, "172.30.0.1", 8080, "tcp"))},
+			},
+		},
+		{
 			name: "the local controller's listening sockets",
 			f: facts{ifaces: ckIfaces(), controller: 4242, sockets: []netstat.Socket{
 				flSock(tcp, listen, "0.0.0.0:7443", "", "darkpanel-contr", 4242),
