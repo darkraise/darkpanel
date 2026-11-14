@@ -556,3 +556,53 @@ func TestW12eUndoRetryAfterTheUpgradedContainerLeft(t *testing.T) {
 		})
 	}
 }
+
+// TestW12eRestoreSavesTheRowBeforeVerifying: a restore whose verification fails with the original left running
+// still records that container in the instance row.
+func TestW12eRestoreSavesTheRowBeforeVerifying(t *testing.T) {
+	names := func(t *testing.T, f *urFixture) {
+		t.Helper()
+		row, _, err := loadInstance(context.Background(), f.h.db.Read())
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, ok := f.h.docker.container(containerName)
+		if !ok || !c.State.Running || row.ContainerID != c.ID || row.Image != urFrom {
+			t.Errorf("the row names %s running %s; want the running original %s (found %v, running %v)", row.ContainerID, row.Image, c.ID, ok, c.State.Running)
+		}
+	}
+	recreating := func(t *testing.T, f *urFixture) {
+		t.Helper()
+		if err := setUpgradePhase(context.Background(), f.h.db, urChange, "recreating", "", f.archives(), f.h.clock.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("a hit on darkpanel-npm", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{{Where: "proxy host 1", Host: "172.20.0.50", Addr: netip.MustParseAddr("172.20.0.50")}})
+		recreating(t, f)
+		f.h.docker.pin(networkName, netip.MustParseAddr("172.20.0.50"))
+		out, err := f.recover()
+		if err != nil || out.State != core.RecoveryNeedsRepair || !strings.Contains(out.Reason, "it stays on darkpanel-npm") {
+			t.Fatalf("recovery %+v, error %v; want needs repair naming the hit on darkpanel-npm", out, err)
+		}
+		names(t, f)
+	})
+	t.Run("a row written before w12e whose API does not answer", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, w12eAppNet(), nil)
+		recreating(t, f)
+		w12eListing(f, func(context.Context, npmAPI) ([]npmapi.ProxyHost, error) {
+			return nil, errors.New("npmapi: connection refused")
+		})
+		var out core.RecoveryOutcome
+		var err error
+		upDrive(t, f.h, func() { out, err = f.recover() })
+		if err != nil || out.State != core.RecoveryNeedsRepair || !strings.Contains(out.Reason, "unverified") {
+			t.Fatalf("recovery %+v, error %v; want needs repair naming the unverified start", out, err)
+		}
+		names(t, f)
+	})
+}

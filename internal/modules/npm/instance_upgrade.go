@@ -897,10 +897,10 @@ func (h instanceUpgradeHandler) restore(ctx context.Context, env core.Env, u upg
 	if _, err := docker.StartContainer(ctx, id); err != nil {
 		return nil, fmt.Errorf("npm: start container %s: %w", u.Config.Name, engineCoded(err))
 	}
-	if dropped, err = h.verifyStart(ctx, env, u, id); err != nil {
-		return dropped, err
-	}
-	return dropped, env.DB.Write(ctx, func(tx *sql.Tx) error {
+	// The row is saved before the verification, which can fail with the original left running: a row still naming the
+	// removed container reports NPM as down and refuses every later upgrade, while the failed transaction has nothing
+	// left to undo.
+	saveErr := env.DB.Write(ctx, func(tx *sql.Tx) error {
 		row, ok, err := loadInstance(ctx, tx)
 		if err != nil {
 			return err
@@ -911,6 +911,11 @@ func (h instanceUpgradeHandler) restore(ctx context.Context, env core.Env, u upg
 		row.ContainerID, row.Image, row.UpdatedAt = id, u.FromImage, env.Clock.Now()
 		return saveInstance(ctx, tx, row)
 	})
+	dropped, err = h.verifyStart(ctx, env, u, id)
+	if saveErr != nil {
+		return dropped, errors.Join(err, saveErr)
+	}
+	return dropped, err
 }
 
 // Observe reads the image of the running instance container; a missing container is the null state.
