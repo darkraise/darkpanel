@@ -237,12 +237,14 @@ func (p proxyHostEdit) checkRestored(ctx context.Context, env core.Env, body npm
 
 // checkRestoredLocation refuses a custom location the forward host check can show is reserved. A custom location is
 // the operator's and the undo only restores what NPM held, so one whose forward host is empty, holds an nginx variable
-// or is a name with no answer is written back as it was.
+// or is a name with no answer is written back as it was. NPM proxies to the part before the first '/' and sends the
+// rest as the path, so that part is what is checked.
 func (p proxyHostEdit) checkRestoredLocation(ctx context.Context, env core.Env, l npmapi.Location) error {
-	if l.ForwardHost == "" || strings.Contains(l.ForwardHost, "$") {
+	host, _, _ := strings.Cut(l.ForwardHost, "/")
+	if host == "" || strings.Contains(host, "$") {
 		return nil
 	}
-	_, err := p.n.checkForward(ctx, env, ProxyHostInput{ForwardHost: l.ForwardHost, ForwardPort: l.ForwardPort})
+	_, err := p.n.checkForward(ctx, env, ProxyHostInput{ForwardHost: host, ForwardPort: l.ForwardPort})
 	if core.IsDefinite(err) && errcode.From(err).Code == errcode.InvalidInput {
 		return nil
 	}

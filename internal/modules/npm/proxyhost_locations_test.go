@@ -13,7 +13,8 @@ import (
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
-func TestW11c01UndoKeepsLocationsItCannotCheck(t *testing.T) {
+// TestW12eRestoredLocationCutAtSlash checks that an undo keeps locations it cannot check and checks the host before the first /.
+func TestW12eRestoredLocationCutAtSlash(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
 		name, host string
@@ -25,6 +26,9 @@ func TestW11c01UndoKeepsLocationsItCannotCheck(t *testing.T) {
 		{"a name with no answer", "only-the-container", 9000, ""},
 		{"a bracketed IPv6 literal", "[2001:db8::1]", 9000, ""},
 		{"a reserved upstream", "127.0.0.1", 81, errcode.NPMReserved},
+		{"a reserved upstream followed by a path", "127.0.0.1/x", 81, errcode.NPMReserved},
+		{"a reserved upstream followed by an nginx variable", "127.0.0.1/$request_uri", 81, errcode.NPMReserved},
+		{"a path alone", "/x", 9000, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTHHost(t)
