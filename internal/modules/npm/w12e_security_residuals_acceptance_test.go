@@ -3,15 +3,20 @@ package npm
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/npm/fake"
+	"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
@@ -951,4 +956,120 @@ func TestA6b_AnUpgradeUndoAndRecoveryThatHoldNoForwardTargetBehaveAsToday(t *tes
 			t.Errorf("recovered container is on app-net %v after %d disconnects", c.NetworkSettings.Networks[upAppNet] != nil, nwCalls(s.h, "DisconnectNetwork"))
 		}
 	})
+}
+
+// TestA11_UndoingAProxyHostChangeRefusesALocationForwardingToAnNPMAddressWithAPath: the forward host of a restored
+// location is an address of NPM followed by "/" and a path, including "/$request_uri"; NPM proxies to the part before
+// the first "/", so the undo is refused with npm.reserved. Locations the undo cannot check are still restored.
+func TestA11_UndoingAProxyHostChangeRefusesALocationForwardingToAnNPMAddressWithAPath(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		host string
+		want errcode.Code // "" when the location is restored as it was
+	}{
+		{"127.0.0.1/x", errcode.NPMReserved},
+		{"127.0.0.1/", errcode.NPMReserved},
+		{"127.0.0.1/$request_uri", errcode.NPMReserved},
+		{"172.20.0.2/x", errcode.NPMReserved},
+		{"172.20.0.2/$request_uri", errcode.NPMReserved},
+		{"198.51.100.5/$request_uri", ""},
+		{"198.51.100.5/x", ""},
+		{"$upstream/x", ""},
+	} {
+		seed := func(t *testing.T) (*thHost, nm, int) {
+			t.Helper()
+			h := newTHHost(t)
+			h.deployed()
+			h.addChange("c0", "npm.admin.expose")
+			body := proxyHostBody(puInput(), "")
+			body.Locations = append(body.Locations, qaLocation(tc.host))
+			host := h.npm.SeedProxyHost(puHostOf(body))
+			n := h.nm()
+			resolve := n.d.resolve
+			n.d.resolve = func(ctx context.Context, name string) ([]netip.Addr, error) {
+				if name != "app" {
+					return nil, nil
+				}
+				return resolve(ctx, name)
+			}
+			return h, n, host.ID
+		}
+		check := func(t *testing.T, h *thHost, err error) {
+			t.Helper()
+			if tc.want != "" {
+				if errcode.From(err).Code != tc.want || !core.IsDefinite(err) {
+					t.Fatalf("inverse = %v, want a definite %s", err, tc.want)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("inverse = %v, want the location restored", err)
+			}
+			hosts := puHosts(t, h)
+			if len(hosts) != 1 || hosts[0].Locations[len(hosts[0].Locations)-1].ForwardHost != tc.host {
+				t.Errorf("NPM holds %+v, want the location forwarding to %q", hosts, tc.host)
+			}
+		}
+		t.Run("update, "+tc.host, func(t *testing.T) {
+			h, n, id := seed(t)
+			h.addChange("c1", "npm.proxyhost.update")
+			def := n.proxyhostUpdate()
+			next := puInput(func(in *ProxyHostInput) { in.ForwardPort = 9090 })
+			if _, err := def.Handler.Apply(ctx, h.env("c1"), puJSON(t, ProxyHostUpdateInput{ID: id, ProxyHostInput: next})); err != nil {
+				t.Fatalf("the update refused a kept location: %v", err)
+			}
+			effects := h.journal.effects()
+			_, err := def.Handler.Inverse(ctx, h.env("c1"), effects[len(effects)-1])
+			check(t, h, err)
+		})
+		t.Run("removal, "+tc.host, func(t *testing.T) {
+			h, n, id := seed(t)
+			h.addChange("c1", "npm.proxyhost.remove")
+			def := n.proxyhostRemove()
+			if _, err := def.Handler.Apply(ctx, h.env("c1"), puJSON(t, ProxyHostRemoveInput{ID: id})); err != nil {
+				t.Fatal(err)
+			}
+			e := puEffects(t, h)[0]
+			e.UndoTo = &core.StateDoc{State: e.Before.State}
+			_, err := def.Handler.Inverse(ctx, h.env("c1"), e)
+			check(t, h, err)
+		})
+	}
+}
+
+func qaLocation(host string) npmapi.Location {
+	return npmapi.Location{Path: "/api", ForwardScheme: "http", ForwardHost: host, ForwardPort: 81}
+}
+
+// TestA12_EveryFixHasItsNamedRegressionTest: the nine tests the spec names exist, each in the package of its fix.
+func TestA12_EveryFixHasItsNamedRegressionTest(t *testing.T) {
+	want := map[string][]string{
+		".": {"TestW12eAttachReloadsBeforeJoin", "TestW12eAttachReloadsAfterJoin", "TestW12eAttachUnconfirmedReloadDisconnects",
+			"TestW12eUpgradeUndoChecksForwards", "TestW12eUpgradeLateForwardCheck", "TestW12eStartVerifiesHeldAddresses",
+			"TestW12eRestoredLocationCutAtSlash"},
+		"../firewall/guard": {"TestW12eLinkLocalOnlyHostGuardsIPv6443"},
+		"../tailscale":      {"TestW12eTailnetClientOfAnExposure"},
+	}
+	for dir, names := range want {
+		fset := token.NewFileSet()
+		pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool { return strings.HasSuffix(fi.Name(), "_test.go") }, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		declared := map[string]bool{}
+		for _, pkg := range pkgs {
+			for _, f := range pkg.Files {
+				for _, d := range f.Decls {
+					if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil {
+						declared[fn.Name.Name] = true
+					}
+				}
+			}
+		}
+		for _, name := range names {
+			if !declared[name] {
+				t.Errorf("%s: no test function %s", dir, name)
+			}
+		}
+	}
 }
