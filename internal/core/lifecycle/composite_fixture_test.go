@@ -51,6 +51,7 @@ type cstHost struct {
 	gates    map[string]string
 	failures map[string]int // the next n applies of a name fail before they change anything
 	blocked  bool           // cst.item.add's free guard fails while set
+	note     string         // appended to cst.item.add's free guard message
 	onPlan   func(name string)
 	onApply  func(name string)
 }
@@ -73,6 +74,12 @@ func (h *cstHost) setBlocked(v bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.blocked = v
+}
+
+func (h *cstHost) setNote(v string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.note = v
 }
 
 func (h *cstHost) planning(name string) {
@@ -168,7 +175,7 @@ func (x cstAdd) Plan(_ context.Context, _ core.Env, in cstIn) (core.PlanOutcome,
 	}
 	return core.PlanOutcome{
 		Diff:      diff,
-		Guards:    []core.Guard{{ID: "free", OK: !x.h.blocked, Message: "the host is blocked"}},
+		Guards:    []core.Guard{{ID: "free", OK: !x.h.blocked, Message: "the host is blocked" + x.h.note}},
 		StateHash: "item=" + x.h.items[in.Name],
 	}, nil
 }

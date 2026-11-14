@@ -76,9 +76,33 @@ func TestCompositePlanStateHash(t *testing.T) {
 	if len(first) != 64 || first != second {
 		t.Fatalf("state hashes %q and %q, want one SHA-256 for one state", first, second)
 	}
+	f.host.setNote(" (3 checked)")
+	if third := hash(); third != first {
+		t.Error("the state hash changed when only a dry-run's guard message did")
+	}
+	f.host.setBlocked(true)
+	if fourth := hash(); fourth == first {
+		t.Error("the state hash did not change when a dry-run's guard flipped")
+	}
+	f.host.setBlocked(false)
 	f.host.setItem("web-a", "0")
-	if third := hash(); third == first {
+	if fifth := hash(); fifth == first {
 		t.Error("the state hash did not change when a dry-run's state did")
+	}
+}
+
+// TestCompositeApplyAfterAGuardMessageChange: a guard message that changes
+// between plan and apply while the guard passes, as the firewall lockout
+// guard's flow count does, does not refuse the apply.
+func TestCompositeApplyAfterAGuardMessageChange(t *testing.T) {
+	f := newCfxFixture(t)
+	pl, err := f.planC(refCfxAdd, `{"name":"web"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.host.setNote(" (3 checked)")
+	if _, err := f.ctrl.Apply(context.Background(), cfxRoot, pl.PlanID, core.ApplyOptions{}); err != nil {
+		t.Fatalf("Apply = %v, want the apply to start", err)
 	}
 }
 

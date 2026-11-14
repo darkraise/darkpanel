@@ -74,7 +74,8 @@ type plannedStep struct {
 // reference as p. The dry-runs' guards join the composite's, prefixed with
 // the step id, and their diff lines carry "[<step id>]". The state hash is
 // SHA-256 over the input and each dry-run's input hash, diff and guards,
-// which stand for its state hash because a plan view does not carry one.
+// which stand for its state hash because a plan view does not carry one;
+// a guard enters by its id, outcome and override, never its message.
 // Dry-run plans are never applied; they expire unused.
 func (e *Engine) compositePlan(ctx context.Context, p core.Principal, def core.ActionDef, input json.RawMessage) (core.PlanOutcome, []plannedStep, error) {
 	kids, err := e.kids()
@@ -123,11 +124,22 @@ func (e *Engine) compositePlan(ctx context.Context, p core.Principal, def core.A
 				g.ID = s.Step.ID + "/" + g.ID
 				out.Guards = append(out.Guards, g)
 			}
+			// A guard counts by its id and outcome: its message may carry live
+			// detail, such as the lockout guard's count of checked flows, which
+			// differs between plan and apply on an unchanged host.
+			type guardPrint struct {
+				ID             string
+				OK, Overridden bool
+			}
+			guards := make([]guardPrint, 0, len(v.Guards))
+			for _, g := range v.Guards {
+				guards = append(guards, guardPrint{g.ID, g.OK, g.Overridden})
+			}
 			fp, err := json.Marshal(struct {
 				InputHash string
 				Diff      []core.DiffLine
-				Guards    []core.Guard
-			}{v.InputHash, v.Diff, v.Guards})
+				Guards    []guardPrint
+			}{v.InputHash, v.Diff, guards})
 			if err != nil {
 				return core.PlanOutcome{}, nil, fmt.Errorf("lifecycle: encode the dry-run of step %s: %w", s.Step.ID, err)
 			}
