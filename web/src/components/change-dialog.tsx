@@ -370,7 +370,7 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
         shownError === null && <Spinner aria-label="Planning the change" />
       ) : (
         <div className="flex min-w-0 flex-col gap-4">
-          <pre aria-label="Planned changes" className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">
+          <pre aria-label="Planned changes" tabIndex={0} className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">
             {plan.diff.map((d, i) => (
               <div key={i} className={d.op === "+" ? "text-success" : d.op === "-" ? "text-destructive" : undefined}>
                 {`${d.op} ${d.text}`}
