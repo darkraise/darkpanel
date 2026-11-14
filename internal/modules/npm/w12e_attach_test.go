@@ -167,7 +167,7 @@ func TestW12eAttachReloadsAfterJoin(t *testing.T) {
 		}
 		n.d.resolve = w12eAnswer("10.9.0.7")
 		_, err := n.networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint)
-		nwRefused(t, err, errcode.NPMReserved)
+		_ = nwRefused(t, err, errcode.NPMReserved)
 		if nwEndpoint(t, h, user.ID) != nil {
 			t.Error("a repeat whose held address is forwarded left NPM on the network")
 		}
