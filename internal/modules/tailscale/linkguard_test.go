@@ -495,3 +495,48 @@ func TestLgCurrentLinkPrefsReportsAFailedRead(t *testing.T) {
 		t.Errorf("error %v, want a tailscale: error wrapping the cause", err)
 	}
 }
+
+// TestW12eTailnetClientOfAnExposure: the client of an NPM exposure gets a flow to each public binding, so a change that
+// takes the Tailscale link down is refused for a tailnet client; a host-address client and a tunnel's client add none.
+func TestW12eTailnetClientOfAnExposure(t *testing.T) {
+	via := func(kind string) *core.ProxyPath {
+		return &core.ProxyPath{ExposureID: "e1", Kind: kind, ProxyAddr: netip.MustParseAddr("172.30.0.2"),
+			ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"), Public: lgAddrs("0.0.0.0:443")}
+	}
+	guarded := func(client, kind string) core.Guarded {
+		return core.Guarded{Guard: &core.GuardContext{Complete: true,
+			Client: &core.Peer{Addr: netip.MustParseAddr(client), Port: 51000}, Via: via(kind)}}
+	}
+	for _, tc := range []struct {
+		name   string
+		routes map[string]string
+		in     core.Guarded
+		wantOK bool
+		wantIn []string
+	}{
+		{"a tailnet client of an NPM exposure fails a logout", map[string]string{"100.64.0.9": "tailscale0", "172.30.0.2": "dp-panel"},
+			guarded("100.64.0.9", "npm"), false, []string{"panel", "100.64.0.9"}},
+		{"a host-address client of an NPM exposure adds no flow", map[string]string{"172.30.0.2": "dp-panel"},
+			guarded("172.30.0.1", "npm"), true, nil},
+		{"a tailnet client of a tunnel exposure adds no flow", map[string]string{"100.64.0.9": "tailscale0", "172.30.0.2": "dp-panel"},
+			guarded("100.64.0.9", "tunnel"), true, nil},
+		{"a client whose route leaves eth0 passes", map[string]string{"100.64.0.9": "eth0", "172.30.0.2": "dp-panel"},
+			guarded("100.64.0.9", "npm"), true, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, tsv := lgHost(t, lgWorld{controller: true, routes: tc.routes})
+			g, err := tsv.linkGuard(context.Background(), h.env(""), tc.in, lgPrefs(nil), lgLogout)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g.OK != tc.wantOK {
+				t.Fatalf("guard OK %v (%s), want %v", g.OK, g.Message, tc.wantOK)
+			}
+			for _, want := range tc.wantIn {
+				if !strings.Contains(g.Message, want) {
+					t.Errorf("message %q does not name %q", g.Message, want)
+				}
+			}
+		})
+	}
+}

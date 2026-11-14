@@ -176,12 +176,21 @@ func linkRawFlows(f linkFacts, plan, refresh *core.GuardContext) []linkRaw {
 			isRequest := g == request
 			switch {
 			case g.Via != nil:
-				// The context's Client is then the proxy's address, so it adds no flow of its own.
 				if g.Via.ListenerAddr.Addr().IsValid() && g.Via.ProxyAddr.IsValid() {
 					add(linkRaw{label: "panel", inbound: true, local: g.Via.ListenerAddr.Addr().Unmap(),
 						remote: g.Via.ProxyAddr.Unmap(), request: isRequest})
 				} else {
 					add(linkRaw{label: "panel", unknown: "the exposure has no proxy or listener address"})
+				}
+				// A browser reaches an NPM exposure on one of this host's published bindings, so its flow can ride the
+				// tailnet. A tunnel's client reaches the tunnel's edge, never this host, so it has no flow here.
+				if g.Via.Kind == "npm" && g.Client != nil && g.Client.Addr.IsValid() {
+					client := g.Client.Addr.Unmap()
+					for _, b := range g.Via.Public {
+						if dst, ok := linkListenFor(client, b.Addr(), f.host); ok {
+							add(linkRaw{label: "panel", inbound: true, local: dst, remote: client, request: isRequest})
+						}
+					}
 				}
 			case g.Client != nil && g.Client.Addr.IsValid():
 				client := g.Client.Addr.Unmap()
