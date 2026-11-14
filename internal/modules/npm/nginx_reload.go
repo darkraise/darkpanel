@@ -14,8 +14,8 @@ const nginxReloadWait = 10 * time.Second
 // reloadNginx makes NPM test and reload nginx by sending the enabled proxy host with the lowest id back unchanged: NPM
 // regenerates that host's file, runs nginx -t and reloads nginx on every update of an enabled host, and answers
 // meta.nginx_online false when the test failed. With no enabled host there is nothing nginx holds that a reload would
-// re-read, so it reports false with no error and writes nothing. Any other failure is the error, whose text is the
-// reason.
+// re-read, so it reports false with no error and writes nothing. Any other failure is the error. NPM's nginx_err text
+// never reaches it: that is raw nginx -t output, naming other proxy hosts' files, hosts and upstreams.
 func (n nm) reloadNginx(ctx context.Context, env core.Env) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, nginxReloadWait)
 	defer cancel()
@@ -42,7 +42,7 @@ func (n nm) reloadNginx(ctx context.Context, env core.Env) (bool, error) {
 	}
 	if online := answer.Meta.NginxOnline; online != nil && !*online {
 		if reason := answer.Meta.NginxErr; reason != nil && *reason != "" {
-			return false, errors.New(*reason)
+			return false, errors.New("nginx's configuration test failed")
 		}
 		return false, errors.New("nginx did not come online")
 	}

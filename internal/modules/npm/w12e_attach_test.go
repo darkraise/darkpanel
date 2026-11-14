@@ -82,7 +82,7 @@ func TestW12eAttachReloadsBeforeJoin(t *testing.T) {
 			h.addChange("c1", "npm.network.attach")
 			_, err := n.networkAttach().Handler.Apply(context.Background(), h.env("c1"), nwJSON(t, tc.in))
 			coded := nwRefused(t, err, errcode.NPMReserved)
-			if want := `nginx could not be reloaded before darkpanel-npm joins network appnet: host not found in upstream "up.invalid"`; coded.Detail != want {
+			if want := `nginx could not be reloaded before darkpanel-npm joins network appnet: nginx's configuration test failed`; coded.Detail != want {
 				t.Errorf("detail %q, want %q", coded.Detail, want)
 			}
 			if nwCalls(h, "ConnectNetwork") != 0 {
@@ -189,7 +189,7 @@ func TestW12eAttachUnconfirmedReloadDisconnects(t *testing.T) {
 		h.addChange("c1", "npm.network.attach")
 		_, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, in))
 		coded := nwRefused(t, err, errcode.NPMReserved)
-		if want := "nginx could not be reloaded after darkpanel-npm joined network appnet: boom; it was disconnected again"; coded.Detail != want {
+		if want := "nginx could not be reloaded after darkpanel-npm joined network appnet: nginx's configuration test failed; it was disconnected again"; coded.Detail != want {
 			t.Errorf("detail %q, want %q", coded.Detail, want)
 		}
 		w12eNoChange(t, h, user)
