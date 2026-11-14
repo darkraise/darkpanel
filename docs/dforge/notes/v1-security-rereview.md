@@ -40,3 +40,38 @@ Residuals raised by one reviewer only, or graded differently, were verified the 
 
 - Fable: other modules still copy a stderr line into errors (`internal/modules/tailscale/deps.go`, `internal/modules/firewall/effects.go`, `internal/modules/firewall/restore.go`, `internal/modules/derp/server_install.go`); `internal/modules/derp/binary_update.go` wraps a raw TLS probe error into the change's error; under the `npm.admin.expose` parent `CheckUpstream` allows every port of NPM and the loopback, not only 81.
 - Low notes on closed rows (rows 7, 8, 9, 10, 11, 12) are in the Fable report.
+
+# v1 security re-review of rows 1 and 6, 2026-11-14
+
+Re-review of rows 1 and 6 of `docs/dforge/registers/2026-11-06-v1-security-review.md` at `main` 10a0973a (last code commit d4f6281b, after w12a to w12d merged), run on the owner's ruling of 2026-11-14 because the last panel result on both rows (4172841) was PARTIAL from both reviewers. The reviewers worked from one shared brief, independently and read-only:
+
+- Fable (`dforge:judge-fable`): `v1-security-rereview-w12d-fable.md` (its report-file write was refused; the reply is saved verbatim)
+- Codex `gpt-6-astra`: `v1-security-rereview-w12d-codex.md`
+- Verifier of the disputed residuals (`dforge:judge-opus`, read-only, against the code): `v1-security-rereview-w12d-verifier.md` (reply saved verbatim)
+
+## Verdicts
+
+| Row | Severity | Fable | Codex | Verifier | Result |
+|---|---|---|---|---|---|
+| 1 | high | PARTIAL | PARTIAL | residual A confirmed, high; B partly, high conditional; C confirmed, high | open: fix or owner acceptance needed |
+| 6 | high | CLOSED (low residual) | PARTIAL (high residual) | residual confirmed, not an accepted limit, high | open: fix or owner acceptance needed |
+
+Every original scenario of both rows is fixed, each with a regression test that fails on revert. The residuals are sibling paths.
+
+## Residuals
+
+- **Row 1, A (new, Fable only, high).** An `operate` caller gives a container X an alias and address A on a network N, attaches NPM to N, adds a proxy host forwarding the alias at port 3000 or 81 (the check passes: A is not NPM's), disconnects X, detaches NPM, then re-attaches NPM with `address: A`. `forwardTargets` skips a name with no answer (`internal/modules/npm/network_claims.go:962`, comment at 823-826), so NPM takes A while nginx still holds the old answer (inference) and forwards to NPM's API or admin UI. Every step needs only `operate`; no race, no Engine choice. The skip's premise, "a name with no answer can reach NPM only after it is re-pointed", is false here. `TestW12aAttachResolvesForwardHostNames` pins the skip.
+- **Row 1, B (high, conditional).** Undoing a finished `npm.instance.upgrade` runs `restore` (`instance_upgrade.go:661-711`), which reconnects NPM with no forward check (comment at 112). The owner rulings (W12a-R1) accept this because a refusing rollback would leave NPM down, which holds for the rollback of a failed upgrade but not for a requested undo of a done upgrade. It needs the Engine to pick the freed address (or a race), and a static endpoint address defeats it. Not in the threat model's owner-accepted list.
+- **Row 1, C (high; register row 142 recorded low).** `docker.container.stop` and `docker.network.disconnect` take the docker lock, the upgrade holds only the npm lock, so a caller can free a forwarded address between `forwardCheck` (`instance_upgrade.go:217`) and the new container's start (`:336`). Row 142 is re-graded high.
+- **Row 1, accepted.** The DNS re-pointing risk (security row 2) still reaches the effect; it stays the accepted risk.
+- **Row 6 (high; Fable graded it low).** On a host whose only IPv6 addresses are link-local, `npmPublicFlows` (`internal/modules/firewall/guard/flows.go:420-425`) builds no IPv6 flow, so a change that drops IPv6 TCP 443 passes without the override. A same-link client that sends the exposure's hostname to the host's link-local address reaches NPM through Docker's userland proxy; a browser practically cannot. The w12b design (spec line 54) carries the predicate over without naming it as a risk, so it is not an accepted limit, and `docs/security/threat-model.md` lines 215 and 229 ("checked on both families", "every unicast source") are not accurate for such a host. The 60-second auto-revert does not change the grade.
+
+## Other observations
+
+- `internal/modules/tailscale/linkguard.go:178-185` gives a tailnet client of an NPM exposure no flow of its own (stale comment since `clientPeer`); the verifier confirmed it. Low; whether the controller's Tailscale-address listener masks it is unverified.
+- `internal/modules/npm/proxyhost_edit.go:241-250`: the undo's location check does not cut the forward host at its first `/`, so `<NPM address>/x` is restored unchecked. Low; writing such a location needs an NPM administrator.
+- Security register row 1's note says both reviewers closed it at 4172841 and row 6's says both rated it PARTIAL in the same pass; the tracked record is the 2026-11-12 note above, so row 1's wording is wrong.
+
+## Register changes
+
+Rows 1 and 6 stay open with this result; row 142 goes back to open as high; new rows record residuals A and B and the two low observations.
