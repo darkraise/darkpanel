@@ -6,11 +6,13 @@ import (
 	"fmt"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
 // Inverse undoes the upgrade of change e.ChangeID through the same rollback a failed upgrade runs. It refuses, having
-// changed nothing, an upgrade that never finished, and a finished one whose archives cannot restore the original.
+// changed nothing, an upgrade that never finished, and a finished one whose archives cannot restore the original or
+// whose original, recreated, could take a forwarded address.
 func (h instanceUpgradeHandler) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	if e.Resource != instanceUpgradeResource() {
 		return core.InverseResult{}, core.Definite(fmt.Errorf("npm: %q is not a resource npm.instance.upgrade changes", e.Resource))
@@ -30,6 +32,14 @@ func (h instanceUpgradeHandler) Inverse(ctx context.Context, env core.Env, e cor
 		if err := h.checkArchives(u); err != nil {
 			return core.InverseResult{}, core.Definite(err)
 		}
+		// The image is made available before the check, so a caller who removes the unused original image cannot
+		// stretch the time between the check and the restore by a pull.
+		if err := h.pull(ctx, u.Config.Create.Image); err != nil {
+			return core.InverseResult{}, core.Definite(err)
+		}
+		if err := h.undoForwardCheck(ctx, env, u); err != nil {
+			return core.InverseResult{}, err
+		}
 		if err := h.rollback(ctx, env, u); err != nil {
 			return core.InverseResult{}, err
 		}
@@ -38,6 +48,36 @@ func (h instanceUpgradeHandler) Inverse(ctx context.Context, env core.Env, e cor
 		return core.InverseResult{}, core.Definite(fmt.Errorf("npm: the upgrade of change %s is in phase %q, which has nothing to undo",
 			e.ChangeID, u.Phase))
 	}
+}
+
+// undoForwardCheck refuses, Definite, the undo of the finished upgrade u while the original, recreated from u's
+// configuration, could take a forwarded address; the upgraded container's addresses count as free. Unlike a failed
+// upgrade's rollback, a requested undo may refuse: NPM keeps running the upgraded container. When that container is
+// gone (an undo cut off after the restore removed it), the targets come from the list u records, since NPM's API is
+// down with it; a row with no list reads them through the API.
+func (h instanceUpgradeHandler) undoForwardCheck(ctx context.Context, env core.Env, u upgradeRow) error {
+	c, err := h.n.d.docker.InspectContainer(ctx, containerName)
+	var freeID string
+	switch {
+	case err == nil:
+		freeID = c.ID
+	case !dockerapi.IsNotFound(err):
+		return core.Definite(fmt.Errorf("npm: inspect container %s: %w", containerName, engineCoded(err)))
+	case u.Config.Targets != nil:
+		targets := make([]forwardTarget, 0, len(*u.Config.Targets))
+		for _, r := range *u.Config.Targets {
+			targets = append(targets, r.target())
+		}
+		return h.forwardCheckConfig(ctx, env, u.Config, targets, "")
+	}
+	targets, err := h.n.forwardTargets(ctx, env)
+	if err != nil {
+		if coded := errcode.From(err); coded.Code == errcode.NPMUnhealthy {
+			err = errcode.Wrap(errcode.NPMUnhealthy, err, coded.Detail+"; start Nginx Proxy Manager and retry, or remove and redeploy the instance")
+		}
+		return core.Definite(err)
+	}
+	return h.forwardCheckConfig(ctx, env, u.Config, targets, freeID)
 }
 
 // checkArchives runs the checks the restore makes of u's archives, their count, volumes and checksums, without

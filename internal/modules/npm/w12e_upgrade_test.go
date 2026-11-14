@@ -3,12 +3,14 @@ package npm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
@@ -173,5 +175,116 @@ func TestW12eVerifyHeldFailures(t *testing.T) {
 		if code := errcode.From(res.Hit).Code; code != errcode.NPMReserved || len(res.Dropped) != 1 || res.Dropped[0] != upAppNet {
 			t.Errorf("hit %v (code %s), dropped %v; want npm.reserved and app-net", res.Hit, code, res.Dropped)
 		}
+	})
+}
+
+// w12eDone records change urChange as a finished upgrade whose original container joined networks with the targets,
+// and puts app-net with its subnet on the Engine.
+func w12eDone(t *testing.T, f *urFixture, networks map[string]*dockerapi.EndpointSettings, targets *[]recordedTarget) {
+	t.Helper()
+	ctx := context.Background()
+	f.h.docker.putNetwork(thNetwork(upAppNet, thSubnet("172.30.0.0/24", "172.30.0.1")))
+	err := insertUpgrade(ctx, f.h.db, upgradeRow{ChangeID: urChange, FromImage: urFrom, ToImage: urTo,
+		Config:    containerConfig{Create: instanceCreate(urFrom), Name: containerName, Networks: networks, Targets: targets},
+		UpdatedAt: f.h.clock.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setUpgradePhase(ctx, f.h.db, urChange, "done", "", f.archives(), f.h.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func w12eAppNet() map[string]*dockerapi.EndpointSettings {
+	return map[string]*dockerapi.EndpointSettings{upAppNet: {}}
+}
+
+// w12eListing makes NPM's listing call list.
+func w12eListing(f *urFixture, list func(ctx context.Context, live npmAPI) ([]npmapi.ProxyHost, error)) {
+	inner := f.n.d.api
+	f.n.d.api = func(ctx context.Context, env core.Env) (npmAPI, error) {
+		live, err := inner(ctx, env)
+		if err != nil {
+			return nil, err
+		}
+		return w12dListingAPI{npmAPI: live, list: func(ctx context.Context) ([]npmapi.ProxyHost, error) { return list(ctx, live) }}, nil
+	}
+}
+
+func TestW12eUpgradeUndoChecksForwards(t *testing.T) {
+	t.Run("a free address of a network the upgraded container left", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{})
+		w12aSeed(f.h, "172.30.0.20", 3000)
+		mark := f.mark()
+		sawPull := false
+		w12eListing(f, func(ctx context.Context, live npmAPI) ([]npmapi.ProxyHost, error) {
+			// The original image is made available by an inspection of it, or a pull when it is missing; either comes
+			// after the mark and before this listing.
+			since := f.callsSince(mark)
+			sawPull = urCalled(since, "InspectImage") || urCalled(since, "PullImage")
+			return live.ProxyHosts(ctx)
+		})
+		coded := nwRefused(t, f.inverse(urResource), errcode.NPMReserved)
+		if want := "proxy host 1 forwards to 172.30.0.20, an address darkpanel-npm could take on network app-net"; coded.Detail != want {
+			t.Errorf("detail %q, want %q", coded.Detail, want)
+		}
+		if !sawPull {
+			t.Error("the forwards were listed before the original image was made available")
+		}
+		if c, ok := f.h.docker.container(urNewID); !ok || !c.State.Running || f.phase() != "done" {
+			t.Errorf("container %s found %v running %v in phase %q; want the upgraded one running and the change done", urNewID, ok, c.State.Running, f.phase())
+		}
+	})
+	t.Run("a network of the original container no longer exists", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, map[string]*dockerapi.EndpointSettings{"gone-net": {}}, &[]recordedTarget{})
+		mark := f.mark()
+		err := f.inverse(urResource)
+		coded := nwRefused(t, err, errcode.NotFound)
+		if want := "network gone-net of the original container no longer exists"; coded.Detail != want {
+			t.Errorf("detail %q, want %q", coded.Detail, want)
+		}
+		if urCalled(f.callsSince(mark), "RemoveContainer") || f.phase() != "done" {
+			t.Errorf("the refused undo removed a container or changed phase done to %q", f.phase())
+		}
+	})
+	t.Run("NPM's API does not answer", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{})
+		w12eListing(f, func(context.Context, npmAPI) ([]npmapi.ProxyHost, error) {
+			return nil, errors.New("npmapi: connection refused")
+		})
+		_ = nwRefused(t, f.inverse(urResource), errcode.NPMUnhealthy)
+		if f.phase() != "done" {
+			t.Errorf("phase %q, want done", f.phase())
+		}
+	})
+	t.Run("a retry after the container was removed uses the recorded list", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace("")
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{{Where: "proxy host 1", Host: "172.30.0.20", Addr: netip.MustParseAddr("172.30.0.20")}})
+		w12eListing(f, func(context.Context, npmAPI) ([]npmapi.ProxyHost, error) {
+			return nil, fmt.Errorf("npmapi: the API is down")
+		})
+		coded := nwRefused(t, f.inverse(urResource), errcode.NPMReserved)
+		if want := "proxy host 1 forwards to 172.30.0.20, an address darkpanel-npm could take on network app-net"; coded.Detail != want {
+			t.Errorf("detail %q, want %q", coded.Detail, want)
+		}
+	})
+	t.Run("a retry with an empty recorded list restores the original", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace("")
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{})
+		w12eListing(f, func(context.Context, npmAPI) ([]npmapi.ProxyHost, error) {
+			return nil, fmt.Errorf("npmapi: the API is down")
+		})
+		if err := f.inverse(urResource); err != nil {
+			t.Fatal(err)
+		}
+		f.restored()
 	})
 }
