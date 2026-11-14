@@ -35,12 +35,13 @@ var networkNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`
 // records the claimant that needs the attachment.
 func (n nm) networkAttach() core.ActionDef {
 	return core.DefineMutating[AttachInput, Attachment](core.ActionSpec{
-		Name:     "npm.network.attach",
-		Summary:  "Attach Nginx Proxy Manager to a network.",
-		Version:  1,
-		Class:    core.ClassCompensable,
-		Side:     core.SideAgent,
-		LockKeys: []string{lockKey},
+		Name:         "npm.network.attach",
+		Summary:      "Attach Nginx Proxy Manager to a network.",
+		Version:      1,
+		Class:        core.ClassCompensable,
+		Side:         core.SideAgent,
+		LockKeys:     []string{lockKey},
+		ApplyTimeout: 45 * time.Second,
 	}, networkAttachHandler{networkClaims{n: n}})
 }
 
@@ -377,10 +378,16 @@ func (h networkAttachHandler) Apply(ctx context.Context, env core.Env, in Attach
 		if in.Address.IsValid() {
 			settings = &dockerapi.EndpointSettings{IPAMConfig: &dockerapi.EndpointIPAMConfig{IPv4Address: in.Address}}
 		}
+		if err := h.reloadBeforeJoin(ctx, env, name); err != nil {
+			return Attachment{}, err
+		}
 		e := npmEffect(core.EffectModify, resource, obs.Current.State, commitWait)
 		err = h.n.run(ctx, env, e, h.n.observeEngine, func(ctx context.Context) (string, error) {
 			if err := h.n.d.docker.ConnectNetwork(ctx, ck.network.ID, ck.container.ID, settings); err != nil {
 				return "", fmt.Errorf("npm: connect %s to network %s: %w", containerName, name, engineCoded(err))
+			}
+			if err := h.afterJoin(ctx, env, name); err != nil {
+				return "", err
 			}
 			return resource, nil
 		})
@@ -767,15 +774,22 @@ func (c networkClaims) networkUndoConnect(ctx context.Context, env core.Env, e c
 
 // networkUndoDisconnect reconnects NPM to the network e left. The Engine assigns the address; a static address the
 // endpoint had is not restored. The reconnect is refused while a proxy host forwards to an address the Engine could
-// pick there. A refused reconnect while NPM is on the network is done: an earlier run whose answer was lost already
-// made it.
+// pick there, and it reloads nginx before and after the join as the attach does. NPM already on the network, found
+// first or after a refused reconnect, is an earlier run whose answer was lost: the address it holds is checked and
+// nginx reloaded once before the undo answers done.
 func (c networkClaims) networkUndoDisconnect(ctx context.Context, env core.Env, network string) (core.InverseResult, error) {
 	on, err := c.npmOnNetwork(ctx, network)
 	if err != nil {
 		return core.InverseResult{}, fmt.Errorf("npm: inspect container %s: %w", containerName, engineCoded(err))
 	}
-	if on {
+	joined := func() (core.InverseResult, error) {
+		if err := c.afterJoin(ctx, env, network); err != nil {
+			return core.InverseResult{}, err
+		}
 		return core.InverseResult{Resource: resourceOf(nounEndpoint, network)}, nil
+	}
+	if on {
+		return joined()
 	}
 	nw, err := c.n.d.docker.InspectNetwork(ctx, network)
 	if err != nil {
@@ -784,13 +798,16 @@ func (c networkClaims) networkUndoDisconnect(ctx context.Context, env core.Env, 
 	if err := c.n.forwardGuard(ctx, env, nw, netip.Addr{}); err != nil {
 		return core.InverseResult{}, err
 	}
+	if err := c.reloadBeforeJoin(ctx, env, network); err != nil {
+		return core.InverseResult{}, err
+	}
 	err = c.n.d.docker.ConnectNetwork(ctx, network, containerName, nil)
 	switch {
 	case err == nil:
-		return core.InverseResult{Resource: resourceOf(nounEndpoint, network)}, nil
+		return joined()
 	case refused(err):
 		if on, inspectErr := c.npmOnNetwork(ctx, network); inspectErr == nil && on {
-			return core.InverseResult{Resource: resourceOf(nounEndpoint, network)}, nil
+			return joined()
 		}
 		return core.InverseResult{}, core.Definite(fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, err))
 	default:
@@ -810,6 +827,90 @@ func (c networkClaims) npmOnNetwork(ctx context.Context, network string) (bool, 
 	return ct.NetworkSettings.Networks[network] != nil, nil
 }
 
+// nginxDisconnectWait bounds the disconnect that takes back a join nginx or the forward hosts did not allow.
+const nginxDisconnectWait = 10 * time.Second
+
+// reloadBeforeJoin reloads nginx before NPM joins network, so a name nginx resolved when it last loaded its
+// configuration is resolved again before NPM can take the address it held. A reload that is not confirmed refuses the
+// join, Definite: nothing has changed yet.
+func (c networkClaims) reloadBeforeJoin(ctx context.Context, env core.Env, network string) error {
+	if _, err := c.n.reloadNginx(ctx, env); err != nil {
+		return core.Definite(errcode.New(errcode.NPMReserved, fmt.Sprintf(
+			"nginx could not be reloaded before %s joins network %s: %s", containerName, network, err)))
+	}
+	return nil
+}
+
+// afterJoin checks the address NPM holds on network against every forward target and then reloads nginx, so nginx
+// resolves its names again with NPM on the network. On a forwarded address, an unconfirmed reload or a check that
+// could not be made it disconnects NPM again and refuses. The refusal is Definite once NPM is off the network; when
+// the disconnect fails, NPM stays joined, so the refusal carries neither the Definite mark nor an errcode cause.
+func (c networkClaims) afterJoin(ctx context.Context, env core.Env, network string) error {
+	problem, refusal := c.joinedProblem(ctx, env, network)
+	if problem == "" {
+		return nil
+	}
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), nginxDisconnectWait)
+	defer cancel()
+	if err := c.disconnectAgain(dctx, network); err != nil {
+		return fmt.Errorf("npm: %s stays on network %s: %w", containerName, network,
+			errors.New(problem+"; disconnecting it again failed: "+err.Error()))
+	}
+	if refusal {
+		return core.Definite(errcode.New(errcode.NPMReserved, problem+"; it was disconnected again"))
+	}
+	return core.Definite(fmt.Errorf("npm: %s; it was disconnected again", problem))
+}
+
+// joinedProblem is why NPM may not stay on network, "" when it may. refusal is true for a forwarded address or an
+// unconfirmed reload, false for a check that could not be made.
+func (c networkClaims) joinedProblem(ctx context.Context, env core.Env, network string) (problem string, refusal bool) {
+	ct, err := c.n.d.docker.InspectContainer(ctx, containerName)
+	if err != nil {
+		return fmt.Sprintf("inspect container %s: %v", containerName, engineCoded(err)), false
+	}
+	var held []netip.Addr
+	if ep := ct.NetworkSettings.Networks[network]; ep != nil {
+		for _, a := range []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address} {
+			if a.IsValid() {
+				held = append(held, a.Unmap())
+			}
+		}
+	}
+	targets, err := c.n.forwardTargets(ctx, env)
+	if err != nil {
+		return fmt.Sprintf("read the forward hosts of NPM's proxy hosts: %v", err), false
+	}
+	for _, t := range targets {
+		if !slices.Contains(held, t.addr.Unmap()) {
+			continue
+		}
+		if t.name {
+			return fmt.Sprintf("%s forwards to %s, which resolves to %s, the address %s took on network %s",
+				t.where, t.host, t.addr, containerName, network), true
+		}
+		return fmt.Sprintf("%s forwards to %s, the address %s took on network %s", t.where, t.addr, containerName, network), true
+	}
+	if _, err := c.n.reloadNginx(ctx, env); err != nil {
+		return fmt.Sprintf("nginx could not be reloaded after %s joined network %s: %s", containerName, network, err), true
+	}
+	return "", false
+}
+
+// disconnectAgain takes NPM off network; NPM already off it counts as done.
+func (c networkClaims) disconnectAgain(ctx context.Context, network string) error {
+	err := c.n.d.docker.DisconnectNetwork(ctx, network, containerName, false)
+	switch {
+	case err == nil, dockerapi.IsNotFound(err):
+		return nil
+	case refused(err):
+		if on, inspectErr := c.npmOnNetwork(ctx, network); inspectErr == nil && !on {
+			return nil
+		}
+	}
+	return err
+}
+
 // forwardTarget is one address a proxy host or custom location forwards to. where names the forward: "proxy host <id>"
 // or "location <path> of proxy host <id>". host is the forward host as NPM holds it; name is true when it is a name and
 // addr one of its answers.
@@ -822,8 +923,9 @@ type forwardTarget struct {
 
 // forwardTargets reads every address NPM's proxy hosts and their custom locations forward to, in proxy host order. A
 // forward host is read up to its first "/", as nginx reads a proxy_pass host. A name is resolved as checkForward
-// resolves it; a name with no answer adds nothing, since it can reach NPM only after it is re-pointed, and a host
-// holding an nginx variable is resolved by nginx per request, so no address can be read from it.
+// resolves it; a name with no answer still adds nothing here, because every join of NPM reloads nginx before and after
+// it, so nginx holds no older answer of the name than the one read here, and a host holding an nginx variable is
+// resolved by nginx per request, so no address can be read from it.
 func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, error) {
 	api, err := n.d.api(ctx, env)
 	if err != nil {

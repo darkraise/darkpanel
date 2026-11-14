@@ -299,6 +299,7 @@ type thDocker struct {
 	called     []string
 	created    int
 	version    string
+	pinned     map[string]netip.Addr // by network name
 }
 
 func newTHDocker(clock core.Clock) *thDocker {
@@ -311,7 +312,20 @@ func newTHDocker(clock core.Clock) *thDocker {
 		archives:   map[string][]byte{},
 		faults:     map[string][]error{},
 		version:    "29.9.1",
+		pinned:     map[string]netip.Addr{},
 	}
+}
+
+// pin makes every later endpoint on network without a static IPv4 address, from ConnectNetwork or CreateContainer,
+// take addr; the zero Addr clears the pin.
+func (d *thDocker) pin(network string, addr netip.Addr) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !addr.IsValid() {
+		delete(d.pinned, network)
+		return
+	}
+	d.pinned[network] = addr
 }
 
 // Fail queues err as the answer of the next call of the method op; the call changes nothing.
@@ -527,6 +541,8 @@ func (d *thDocker) CreateContainer(_ context.Context, cfg dockerapi.ContainerCre
 		e.NetworkID, e.EndpointID = n.ID, thID("endpoint:"+c.ID+"@"+n.ID)
 		if e.IPAMConfig != nil && e.IPAMConfig.IPv4Address.IsValid() {
 			e.IPAddress = e.IPAMConfig.IPv4Address
+		} else if a, ok := d.pinned[n.Name]; ok {
+			e.IPAddress = a
 		}
 		if c.NetworkSettings.Networks == nil {
 			c.NetworkSettings.Networks = map[string]*dockerapi.EndpointSettings{}
@@ -727,6 +743,8 @@ func (d *thDocker) ConnectNetwork(_ context.Context, network, container string, 
 	e.NetworkID, e.EndpointID = n.ID, thID("endpoint:"+c.ID+"@"+n.ID)
 	if e.IPAMConfig != nil && e.IPAMConfig.IPv4Address.IsValid() {
 		e.IPAddress = e.IPAMConfig.IPv4Address
+	} else if a, ok := d.pinned[n.Name]; ok {
+		e.IPAddress = a
 	}
 	if c.NetworkSettings.Networks == nil {
 		c.NetworkSettings.Networks = map[string]*dockerapi.EndpointSettings{}
