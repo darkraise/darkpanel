@@ -57,6 +57,9 @@ func New(socket string) *Client {
 			var d net.Dialer
 			conn, err := d.DialContext(ctx, "unix", socket)
 			if err != nil {
+				if ctx.Err() != nil {
+					return nil, err
+				}
 				return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 			}
 			return conn, nil

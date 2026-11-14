@@ -1,6 +1,7 @@
 package tslocal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -309,5 +310,18 @@ func TestLoginInteractive(t *testing.T) {
 	var ae *APIError
 	if err := c.LoginInteractive(t.Context()); !errors.As(err, &ae) || ae.StatusCode != http.StatusForbidden || ae.Message != "login access denied" || calls.Load() != 2 {
 		t.Fatalf("refused login-interactive = %v (calls %d), want an APIError 403 with the message", err, calls.Load())
+	}
+}
+
+// TestCancelledDialIsNotUnavailable: a dial its caller cancelled is the
+// caller's context error; only a failed dial means tailscaled is down.
+func TestCancelledDialIsNotUnavailable(t *testing.T) {
+	c := New(filepath.Join(t.TempDir(), "none.sock"))
+	defer c.Close()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := c.hc.Transport.(*http.Transport).DialContext(ctx, "unix", "")
+	if !errors.Is(err, context.Canceled) || errors.Is(err, ErrUnavailable) {
+		t.Errorf("dial with a cancelled context = %v, want context.Canceled and not ErrUnavailable", err)
 	}
 }
