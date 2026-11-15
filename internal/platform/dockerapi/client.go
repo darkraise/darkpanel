@@ -106,6 +106,11 @@ func (f Filters) set(q url.Values) error {
 	return nil
 }
 
+// errZeroClient is what a Client not made by New returns: it has no
+// transport, and its nil negotiation channel would block every caller until
+// its context ends.
+var errZeroClient = errors.New("dockerapi: Client must be created with New")
+
 // Client talks to one daemon. It negotiates the API version on first use
 // and is safe for concurrent use.
 type Client struct {
@@ -146,6 +151,9 @@ func (c *Client) Close() { c.hc.CloseIdleConnections() }
 // negotiation after the daemon became unreachable, since it may have been
 // replaced by another version.
 func (c *Client) APIVersion(ctx context.Context) (string, error) {
+	if c.negotiating == nil {
+		return "", errZeroClient
+	}
 	if v := c.cachedVersion(); v != "" {
 		return v, nil
 	}
@@ -240,7 +248,21 @@ func (c *Client) do(ctx context.Context, r request) (*http.Response, error) {
 		return nil, err
 	}
 	r.path = "/v" + v + r.path
-	return c.send(ctx, r)
+	res, err := c.send(ctx, r)
+	if tooNew(err) {
+		// A daemon that restarted as an older Engine between two calls
+		// refuses the cached version without a dial failure; the next call
+		// negotiates again.
+		c.forgetVersion()
+	}
+	return res, err
+}
+
+// tooNew reports whether err is the daemon's 400 answer to a request whose
+// API version is newer than the daemon supports.
+func tooNew(err error) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.StatusCode == http.StatusBadRequest && strings.Contains(ae.Message, "is too new")
 }
 
 func (c *Client) send(ctx context.Context, r request) (*http.Response, error) {

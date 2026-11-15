@@ -35,9 +35,18 @@ func TestDockerLive(t *testing.T) {
 	labels := map[string]string{"darkpanel.live": prefix}
 	t.Cleanup(func() {
 		bg := context.Background()
-		_ = c.RemoveContainer(bg, prefix, RemoveContainerOptions{Force: true})
-		_ = c.RemoveNetwork(bg, prefix)
-		_ = c.RemoveVolume(bg, prefix, true)
+		for _, rm := range []struct {
+			kind string
+			err  error
+		}{
+			{"container", c.RemoveContainer(bg, prefix, RemoveContainerOptions{Force: true})},
+			{"network", c.RemoveNetwork(bg, prefix)},
+			{"volume", c.RemoveVolume(bg, prefix, true)},
+		} {
+			if rm.err != nil && !IsNotFound(rm.err) {
+				t.Logf("cleanup: %s %s may be leaked: %v", rm.kind, prefix, rm.err)
+			}
+		}
 	})
 
 	v, err := c.APIVersion(ctx)

@@ -326,6 +326,46 @@ func TestNegotiationRepeatsAfterDaemonUnavailable(t *testing.T) {
 	}
 }
 
+func TestNegotiationRepeatsAfterDaemonRestartsOlder(t *testing.T) {
+	var current atomic.Value
+	current.Store("1.54")
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /version", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"ApiVersion":%q}`, current.Load()) //nolint:gosec // G705: a test fake answering JSON
+	})
+	mux.HandleFunc("GET /{version}/info", func(w http.ResponseWriter, r *http.Request) {
+		got, newest := strings.TrimPrefix(r.PathValue("version"), "v"), current.Load().(string)
+		if cmp, _ := compareVersions(got, newest); cmp > 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprintf(w, `{"message":"client version %s is too new. Maximum supported API version is %s"}`, got, newest) //nolint:gosec // G705: a test fake answering JSON
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"ServerVersion":%q}`, got) //nolint:gosec // G705: a test fake answering JSON
+	})
+	c := newFakeDaemon(t, "", mux)
+
+	if info, err := c.Info(t.Context()); err != nil || info.ServerVersion != "1.49" {
+		t.Fatalf("first daemon: %+v, %v", info, err)
+	}
+	current.Store("1.45")
+	if _, err := c.Info(t.Context()); !IsClientError(err) {
+		t.Fatalf("restarted daemon: err = %v, want the daemon's 400", err)
+	}
+	if info, err := c.Info(t.Context()); err != nil || info.ServerVersion != "1.45" {
+		t.Fatalf("next call: %+v, %v; want a fresh negotiation to 1.45", info, err)
+	}
+}
+
+func TestZeroValueClientFailsInsteadOfHanging(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	var c Client
+	_, err := c.APIVersion(ctx)
+	if err == nil || ctx.Err() != nil {
+		t.Fatalf("APIVersion on a zero-value Client: err = %v, ctx.Err = %v; want an immediate error", err, ctx.Err())
+	}
+}
+
 func TestStreamBoundsOneValue(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1.49/events", func(w http.ResponseWriter, _ *http.Request) {
