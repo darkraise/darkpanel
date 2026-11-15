@@ -396,6 +396,42 @@ func TestW12eUpgradeUndoChecksForwards(t *testing.T) {
 			t.Errorf("the refused undo removed a container or changed phase done to %q", f.phase())
 		}
 	})
+	refusedUnchanged := func(t *testing.T, f *urFixture, mark int) {
+		t.Helper()
+		if urCalled(f.callsSince(mark), "RemoveContainer") || f.phase() != "done" {
+			t.Errorf("the refused undo removed a container or changed phase done to %q", f.phase())
+		}
+		if c, ok := f.h.docker.container(urNewID); !ok || !c.State.Running {
+			t.Errorf("container %s found %v running %v; want the upgraded one running", urNewID, ok, c.State.Running)
+		}
+	}
+	t.Run("the inspection of darkpanel-npm fails", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{})
+		mark := f.mark()
+		f.h.docker.Fail("InspectContainer", dockerapi.ErrUnavailable)
+		err := f.inverse(urResource)
+		nwRefused(t, err, errcode.DockerEngineUnavailable)
+		if !strings.Contains(err.Error(), "inspect container "+containerName) {
+			t.Errorf("error %q does not name the inspection of %s", err, containerName)
+		}
+		refusedUnchanged(t, f, mark)
+	})
+	t.Run("the pull of the original image fails", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{})
+		mark := f.mark()
+		f.h.docker.Fail("InspectImage", &dockerapi.APIError{StatusCode: 404, Message: "no such image: " + urFrom})
+		f.h.docker.Fail("PullImage", dockerapi.ErrUnavailable)
+		err := f.inverse(urResource)
+		nwRefused(t, err, errcode.DockerEngineUnavailable)
+		if !strings.Contains(err.Error(), "pull "+urFrom) {
+			t.Errorf("error %q does not name the pull of %s", err, urFrom)
+		}
+		refusedUnchanged(t, f, mark)
+	})
 	t.Run("NPM's API does not answer", func(t *testing.T) {
 		f := urSetup(t)
 		f.replace(urTo)
