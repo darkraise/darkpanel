@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/npm"
 	"github.com/darkraise/darkpanel/internal/paths"
@@ -244,6 +245,11 @@ const (
 	// m6nEchoScript answers every request with its raw header lines, in
 	// order, as a JSON array of alternating names and values.
 	m6nEchoScript = `require("http").createServer((q, r) => r.end(JSON.stringify(q.rawHeaders))).listen(8080)`
+	// m6nMovedName is the container reloadFollowsName moves the name m6n-echo
+	// to; it answers every request with m6nMovedBody.
+	m6nMovedName   = "m6n-a3a-moved"
+	m6nMovedBody   = "m6n-a3a-moved"
+	m6nMovedScript = `require("http").createServer((q, r) => r.end("` + m6nMovedBody + `")).listen(8080)`
 	// m6nPebbleConfig is Pebble's own test configuration with its validation
 	// ports moved to 80 and 443, where NPM listens.
 	m6nPebbleConfig = `{
@@ -510,6 +516,7 @@ func TestM6NPM(t *testing.T) {
 		{"reserved-upstreams", false, r.reservedUpstreams},
 		{"expose", true, r.expose},
 		{"headers", false, r.headers},
+		{"reload-follows-name", false, r.reloadFollowsName},
 		{"expose-remove", true, r.exposeRemove},
 		{"upgrade", true, r.upgrade},
 		{"expose-remove-last", false, r.exposeRemoveLast},
@@ -913,6 +920,100 @@ func (r *m6nRun) headers(t *testing.T) {
 		if got := h.Values("X-Darkpanel-Client"); !slices.Equal(got, []string{scannerIPv4}) {
 			t.Errorf("%s: the target received X-Darkpanel-Client %q, want exactly %q", c.name, got, scannerIPv4)
 		}
+	}
+}
+
+// reloadFollowsName is spec w12e A3a against the pinned NPM: the echo
+// exposure's "/" location proxies to the static name m6n-echo, which nginx
+// resolves when it loads. With the name moved to another container, the
+// reload npm.network.attach makes before and after its join leads nginx to
+// the new answer. With the name left without an answer, that reload fails and
+// the attach is refused, so the caller tells it from success.
+func (r *m6nRun) reloadFollowsName(t *testing.T) {
+	v := r.f.agent
+	const claimant = "m6n-a3a"
+	nets := []string{"m6n-a3a-1", "m6n-a3a-2"}
+	for _, n := range nets {
+		m3dDocker(r.ctx, t, v, "network", "create", n)
+	}
+	t.Cleanup(func() {
+		m3Run(r.ctx, t, v, "sudo docker rm -f "+m6nMovedName+" >/dev/null 2>&1 || true")
+		m3Run(r.ctx, t, v, "sudo docker network connect "+m6nAppNet+" "+m6nEchoName+" >/dev/null 2>&1 || true")
+		for _, n := range nets {
+			ch, err := m4ApplySettled(r.ctx, r.f.api, "", "npm.network.detach", npm.DetachInput{Network: n, Claimant: claimant})
+			if err != nil || ch.State != core.StateCompleted {
+				t.Errorf("npm.network.detach %s: %v %s %+v, want completed", n, err, ch.State, ch.Error)
+			}
+			m3Run(r.ctx, t, v, "sudo docker network rm "+n+" >/dev/null 2>&1 || true")
+		}
+	})
+	attach := func(network string) (Change, error) {
+		return m4ApplySettled(r.ctx, r.f.api, "", "npm.network.attach", npm.AttachInput{Network: network, Claimant: claimant})
+	}
+	get := func(ctx context.Context) (m6nResponse, error) { return m6nGet(ctx, r.f.scanner, m6nEchoHost, "/", nil) }
+
+	m3Run(r.ctx, t, v, m6nRunCmd(m6nRunSpec{
+		Name: m6nMovedName, Image: npm.Image, Network: m6nAppNet, Entrypoint: "node", Args: []string{"-e", m6nMovedScript},
+	}))
+	m3dWaitRunning(r.ctx, t, v, m6nMovedName)
+	m3dDocker(r.ctx, t, v, "network", "disconnect", m6nAppNet, m6nEchoName)
+	m3dDocker(r.ctx, t, v, "network", "disconnect", m6nAppNet, m6nMovedName)
+	m3dDocker(r.ctx, t, v, "network", "connect", "--alias", m6nEchoName, m6nAppNet, m6nMovedName)
+	if resp, err := get(r.ctx); err == nil && string(resp.Body) == m6nMovedBody {
+		t.Fatal("nginx followed the moved name before any reload, so the step cannot show what the reload does")
+	}
+
+	ch, err := attach(nets[0])
+	switch {
+	case err != nil:
+		t.Fatal(err)
+	case ch.State != core.StateCompleted:
+		t.Fatalf("npm.network.attach %s with the name answering ended %s: %+v, want completed", nets[0], ch.State, ch.Error)
+	}
+	err = eventually(r.ctx, 30*time.Second, func(ctx context.Context) error {
+		resp, err := get(ctx)
+		if err != nil {
+			return err
+		}
+		if string(resp.Body) != m6nMovedBody {
+			return fmt.Errorf("harness: GET / answered %d %.80q, want %q from the name's new answer", resp.Status, resp.Body, m6nMovedBody)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Errorf("after the reload: %v", err)
+	}
+
+	m3dDocker(r.ctx, t, v, "network", "disconnect", m6nAppNet, m6nMovedName)
+	ch, err = attach(nets[1])
+	want := "nginx could not be reloaded before " + m6nNPMName + " joins network " + nets[1]
+	switch {
+	case err != nil:
+		t.Errorf("npm.network.attach %s with the name unanswered: %v, want a refused change", nets[1], err)
+	case ch.State == core.StateCompleted || ch.Error == nil || ch.Error.Code != string(errcode.NPMReserved) || !strings.Contains(ch.Error.Message, want):
+		t.Errorf("npm.network.attach %s with the name unanswered ended %s: %+v, want %s naming %q", nets[1], ch.State, ch.Error, errcode.NPMReserved, want)
+	}
+	if members := m6nNetworkMembers(r.ctx, t, v, nets[1]); slices.Contains(members, m6nNPMName) {
+		t.Errorf("network %s holds %v after the refused attach, want it without %s", nets[1], members, m6nNPMName)
+	}
+
+	m3dDocker(r.ctx, t, v, "rm", "-f", m6nMovedName)
+	m3dDocker(r.ctx, t, v, "network", "connect", m6nAppNet, m6nEchoName)
+	if ch, err := attach(nets[1]); err != nil || ch.State != core.StateCompleted {
+		t.Fatalf("npm.network.attach %s with the name restored: %v %s %+v, want completed", nets[1], err, ch.State, ch.Error)
+	}
+	err = eventually(r.ctx, 30*time.Second, func(ctx context.Context) error {
+		resp, err := get(ctx)
+		if err != nil {
+			return err
+		}
+		if _, err := m6nRawHeaders(resp.Body); resp.Status != http.StatusOK || err != nil {
+			return fmt.Errorf("harness: GET / answered %d %.80q, want %s's header lines", resp.Status, resp.Body, m6nEchoName)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Errorf("after the name was restored: %v", err)
 	}
 }
 

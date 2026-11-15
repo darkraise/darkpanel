@@ -116,25 +116,9 @@ func m4Settle(ctx context.Context, api *API, id string) (Change, error) {
 // completed. It serves long-running and synchronous actions alike.
 func m4ApplyAsync(ctx context.Context, t *testing.T, api *API, host, action string, input any) Change {
 	t.Helper()
-	p, err := m4Plan(ctx, api, host, action, input)
+	ch, err := m4ApplySettled(ctx, api, host, action, input)
 	if err != nil {
 		t.Fatal(err)
-	}
-	path, err := actionPath(host, action+"/v1", "apply")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := map[string]any{"planId": p.PlanID}
-	if p.Confirmation != "" {
-		body["confirmation"] = p.Confirmation
-	}
-	var applied Change
-	if err := api.do(ctx, http.MethodPost, path, body, &applied); err != nil {
-		t.Fatalf("apply %s: %v", action, err)
-	}
-	ch, err := m4Settle(ctx, api, applied.ID)
-	if err != nil {
-		t.Fatalf("change %s of %s: %v", applied.ID, action, err)
 	}
 	if ch.State != core.StateCompleted {
 		detail := "no error recorded"
@@ -144,6 +128,32 @@ func m4ApplyAsync(ctx context.Context, t *testing.T, api *API, host, action stri
 		t.Fatalf("change %s of %s ended %s, want %s: %s", ch.ID, action, ch.State, core.StateCompleted, detail)
 	}
 	return ch
+}
+
+// m4ApplySettled plans version 1 of action on host, applies the plan with its
+// confirmation and returns the change once it settled, in whatever state.
+func m4ApplySettled(ctx context.Context, api *API, host, action string, input any) (Change, error) {
+	p, err := m4Plan(ctx, api, host, action, input)
+	if err != nil {
+		return Change{}, err
+	}
+	path, err := actionPath(host, action+"/v1", "apply")
+	if err != nil {
+		return Change{}, err
+	}
+	body := map[string]any{"planId": p.PlanID}
+	if p.Confirmation != "" {
+		body["confirmation"] = p.Confirmation
+	}
+	var applied Change
+	if err := api.do(ctx, http.MethodPost, path, body, &applied); err != nil {
+		return Change{}, fmt.Errorf("apply %s: %w", action, err)
+	}
+	ch, err := m4Settle(ctx, api, applied.ID)
+	if err != nil {
+		return Change{}, fmt.Errorf("change %s of %s: %w", applied.ID, action, err)
+	}
+	return ch, nil
 }
 
 // m4xUndoSettled is nil for a reverted change and an *m4UndoError otherwise.
