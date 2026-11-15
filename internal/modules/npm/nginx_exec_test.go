@@ -22,6 +22,7 @@ type fakeExec struct {
 	exits      map[string]int
 	hang       map[string]bool
 	noCode     map[string]bool
+	gone       map[string]bool
 	workers    []string
 	after      []string
 	created    []string
@@ -36,7 +37,7 @@ type fakeExec struct {
 
 func newFakeExec() *fakeExec {
 	return &fakeExec{
-		exits: map[string]int{}, hang: map[string]bool{}, noCode: map[string]bool{}, ids: map[string]string{}, started: map[string]bool{},
+		exits: map[string]int{}, hang: map[string]bool{}, noCode: map[string]bool{}, gone: map[string]bool{}, ids: map[string]string{}, started: map[string]bool{},
 		workers: []string{"11"}, after: []string{"12"},
 	}
 }
@@ -75,6 +76,10 @@ func (f *fakeExec) ExecInspect(_ context.Context, id string) (dockerapi.ExecInsp
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	line := f.ids[id]
+	if f.gone[line] {
+		delete(f.gone, line)
+		return dockerapi.ExecInspect{}, &dockerapi.APIError{StatusCode: 404, Message: "No such exec instance: " + id}
+	}
 	switch {
 	case f.hang[line]:
 		return dockerapi.ExecInspect{ID: id, Running: true}, nil
@@ -204,5 +209,22 @@ func TestNginxReloaderRefusesWhileAnEarlierExecRuns(t *testing.T) {
 	delete(f.hang, testCmd)
 	if err := r.Reload(context.Background()); err != nil {
 		t.Fatalf("after the earlier exec ended: %v", err)
+	}
+}
+
+func TestNginxReloaderForgetsAPendingExecTheEngineNoLongerKnows(t *testing.T) {
+	f := newFakeExec()
+	f.hang[testCmd] = true
+	r := quickReloader(f)
+	if err := r.Reload(context.Background()); err == nil {
+		t.Fatal("a hung test was confirmed")
+	}
+	delete(f.hang, testCmd)
+	f.gone[testCmd] = true
+	if err := r.Reload(context.Background()); err != nil {
+		t.Fatalf("the reload after the Engine forgot the pending exec = %v, want nil", err)
+	}
+	if r.pending != "" {
+		t.Errorf("pending = %q after a confirmed reload, want none", r.pending)
 	}
 }

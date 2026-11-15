@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -111,6 +112,45 @@ func TestW12gReconcileReportsTheSameHitOnNPMsOwnNetworkOnce(t *testing.T) {
 	}
 	if applies != 1 {
 		t.Errorf("the same hit was applied %d times, want once", applies)
+	}
+}
+
+// TestW12gReconcileAppliesAgainOnceTheRememberedHitWentAway: a pass with no hit forgets the remembered hit on NPM's own
+// network, so the same hit coming back is applied, and reported, again.
+func TestW12gReconcileAppliesAgainOnceTheRememberedHitWentAway(t *testing.T) {
+	h, _ := nwSetup(t)
+	own, _ := h.docker.network(networkName)
+	ep := nwEndpoint(t, h, own.ID)
+	if ep == nil {
+		t.Fatal("NPM is not on its own network")
+	}
+	w12aSeed(h, "own.example", 3000)
+	answer := ep.IPAddress.String()
+	n := h.nm()
+	n.d.resolve = func(ctx context.Context, host string) ([]netip.Addr, error) {
+		if answer == "" {
+			return w12eNoAnswer(ctx, host)
+		}
+		return []netip.Addr{netip.MustParseAddr(answer)}, nil
+	}
+	task := n.reconcileTask()
+	applies := 0
+	pass := func() {
+		t.Helper()
+		err := w12gTask(t, h, task, n, &applies)
+		var coded *errcode.Error
+		if err != nil && (!errors.As(err, &coded) || coded.Code != errcode.NPMReserved) {
+			t.Fatalf("pass error %v", err)
+		}
+	}
+	pass()
+	pass()
+	answer = ""
+	pass()
+	answer = ep.IPAddress.String()
+	pass()
+	if applies != 2 {
+		t.Errorf("the hit was applied %d times, want twice: once before and once after the pass with no hit", applies)
 	}
 }
 

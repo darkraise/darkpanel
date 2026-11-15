@@ -34,6 +34,36 @@ func TestW12gUpgradeRefusesAnUnansweredStaticForward(t *testing.T) {
 	}
 }
 
+// TestW12gUpgradeChecksTheForwardsAgainAfterThePull: a static forward name that answers at the first check and loses
+// its answer during the pull is refused by the second check, before NPM is stopped.
+func TestW12gUpgradeChecksTheForwardsAgainAfterThePull(t *testing.T) {
+	s := w12aUpSetup(t)
+	w12aSeed(s.h, "app.example.net", 8080, w12gLoc("/x", "gone.invalid"))
+	pulled := false
+	s.dock.missing[Image] = true // the pinned image must be pulled
+	s.dock.trace = func(call string) {
+		if call == "PullImage" {
+			pulled, s.dock.missing[Image] = true, false
+		}
+	}
+	s.n.d.resolve = func(ctx context.Context, host string) ([]netip.Addr, error) {
+		if pulled {
+			return w12eNoAnswer(ctx, host)
+		}
+		return []netip.Addr{netip.MustParseAddr("203.0.113.9")}, nil
+	}
+	_, err := s.apply()
+	if !pulled {
+		t.Fatal("the upgrade did not pull the image")
+	}
+	if coded := nwRefused(t, err, errcode.NPMForwardUnanswered); coded.Detail != w12gUnansweredDetail {
+		t.Errorf("apply detail %q, want %q", coded.Detail, w12gUnansweredDetail)
+	}
+	if s.dock.counts["StopContainer"] != 0 || len(s.dock.created) != 0 {
+		t.Error("an upgrade refused after the pull stopped NPM or created a container")
+	}
+}
+
 func TestW12gUpgradeAllowsAnUnansweredDefaultForward(t *testing.T) {
 	s := w12aUpSetup(t)
 	w12aSeed(s.h, "gone.invalid", 8080)
