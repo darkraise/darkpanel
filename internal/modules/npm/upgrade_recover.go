@@ -54,9 +54,10 @@ func (h instanceUpgradeHandler) Inverse(ctx context.Context, env core.Env, e cor
 // configuration, could take a forwarded address; the addresses of the container named darkpanel-npm count as free,
 // because the restore removes it. Unlike a failed upgrade's rollback, a requested undo may refuse: NPM keeps running
 // the upgraded container. Only the upgraded container, the one the instance row names, serves NPM's API, so only then
-// are the targets read through it. Otherwise an earlier undo was cut off after the restore removed that container, and
-// the targets come from the list u records; a row with no list is not checked here, since the verification after the
-// restored original starts reads them through its API.
+// are the targets read through it, and a custom location whose static forward name has no answer refused, as the
+// upgrade refuses it. Otherwise an earlier undo was cut off after the restore removed that container, and the targets
+// come from the list u records; a row with no list is not checked here, since the verification after the restored
+// original starts reads them through its API.
 func (h instanceUpgradeHandler) undoForwardCheck(ctx context.Context, env core.Env, u upgradeRow) error {
 	c, err := h.n.d.docker.InspectContainer(ctx, containerName)
 	var freeID string
@@ -71,11 +72,14 @@ func (h instanceUpgradeHandler) undoForwardCheck(ctx context.Context, env core.E
 		return core.Definite(err)
 	}
 	if freeID != "" && ok && freeID == row.ContainerID {
-		targets, err := h.checkedTargets(ctx, env)
+		targets, us, err := h.checkedTargets(ctx, env)
 		if err != nil {
 			return err
 		}
-		return h.forwardCheckConfig(ctx, env, u.Config, targets, freeID)
+		if err := h.forwardCheckConfig(ctx, env, u.Config, targets, freeID); err != nil {
+			return err
+		}
+		return unansweredRefusal(us)
 	}
 	if u.Config.Targets == nil {
 		return nil
@@ -156,7 +160,7 @@ func (h instanceUpgradeHandler) recoverOriginal(ctx context.Context, env core.En
 		}
 	}
 	// An original that already runs is verified too: the cut-off run may have started it and not got further.
-	dropped, err := h.verifyStart(ctx, env, u, c.ID)
+	held, err := h.verifyStart(ctx, env, u, c.ID)
 	var unverified unverifiedStart
 	if errors.As(err, &unverified) {
 		return core.RecoveryOutcome{State: core.RecoveryNeedsRepair, Reason: err.Error()}, nil
@@ -164,7 +168,7 @@ func (h instanceUpgradeHandler) recoverOriginal(ctx context.Context, env core.En
 	if err != nil {
 		return core.RecoveryOutcome{}, err
 	}
-	if err := setUpgradePhase(ctx, env.DB, env.ChangeID, "rolled_back", droppedResult(dropped), nil, env.Clock.Now()); err != nil {
+	if err := setUpgradePhase(ctx, env.DB, env.ChangeID, "rolled_back", startedResult(held), nil, env.Clock.Now()); err != nil {
 		return core.RecoveryOutcome{}, err
 	}
 	return core.RecoveryOutcome{State: core.RecoveryRolledBack}, nil

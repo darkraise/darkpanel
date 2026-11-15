@@ -99,9 +99,9 @@ func TestA9_ANameNamedByManyHostsAndLocationsIsResolvedOnceByAnUpgradeCheck(t *t
 	a9Seed(s.h)
 	c := &a9Counter{answer: a9NotFound}
 	s.n.d.resolve = c.resolve
-	if _, err := s.n.instanceUpgrade().Handler.Plan(context.Background(), s.h.env(""), json.RawMessage(`{}`)); err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	// Every location's name has no answer, so the upgrade refuses; the names are still resolved once.
+	_, err := s.n.instanceUpgrade().Handler.Plan(context.Background(), s.h.env(""), json.RawMessage(`{}`))
+	_ = nwRefused(t, err, errcode.NPMForwardUnanswered)
 	a9Once(t, c.snapshot())
 }
 

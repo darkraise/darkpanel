@@ -1123,25 +1123,36 @@ func unresolvedRefusal(refs []forwardRef, err error) error {
 // join of NPM runs nginx -t and nginx -s reload in the container, confirmed by a new worker, before the connect and
 // again after the first check of the address NPM took, so nginx holds no older answer of the name than one read here.
 func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, error) {
+	targets, _, err := n.forwardsAndUnanswered(ctx, env)
+	return targets, err
+}
+
+// forwardsAndUnanswered is forwardTargets together with the unanswered static forwards, read from the same listing and
+// lookups, so that a check needing both lists the proxy hosts and resolves each name once.
+func (n nm) forwardsAndUnanswered(ctx context.Context, env core.Env) ([]forwardTarget, []unansweredForward, error) {
 	refs, err := n.forwardRefs(ctx, env)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	answers, err := n.forwardAnswers(ctx, refNames(refs))
 	if err != nil {
-		return nil, unresolvedRefusal(refs, err)
+		return nil, nil, unresolvedRefusal(refs, err)
 	}
 	var out []forwardTarget
+	var us []unansweredForward
 	for _, f := range refs {
 		if f.literal.IsValid() {
 			out = append(out, forwardTarget{where: f.where, host: f.host, addr: f.literal})
 			continue
 		}
+		if f.location && f.resolvable() && len(answers[f.host]) == 0 {
+			us = append(us, unansweredForward{Where: f.where, Host: f.host})
+		}
 		for _, a := range answers[f.host] {
 			out = append(out, forwardTarget{where: f.where, host: f.host, name: true, addr: a})
 		}
 	}
-	return out, nil
+	return out, us, nil
 }
 
 // unansweredForward is a custom location whose static forward host has no answer: nginx resolves such a name when it
