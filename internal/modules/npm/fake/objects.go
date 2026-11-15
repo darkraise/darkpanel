@@ -87,14 +87,6 @@ func (s *Server) SeedProxyHost(h npmapi.ProxyHost) npmapi.ProxyHost {
 	return cloneHost(h)
 }
 
-// SetNginxOnline sets what every later proxy-host create and update answers in meta: nginx_online, and when it is
-// false, nginx_err as errText. A new server answers nginx online with no error.
-func (s *Server) SetNginxOnline(online bool, errText string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.nginxOffline, s.nginxErr = !online, errText
-}
-
 // DisableProxyHost makes the proxy host with id answer enabled false; an unknown id fails the test.
 func (s *Server) DisableProxyHost(id int) {
 	s.mu.Lock()
@@ -106,15 +98,11 @@ func (s *Server) DisableProxyHost(id int) {
 	s.hosts[i].Enabled = false
 }
 
-// nginxMeta is the meta a proxy-host create or update answers; the caller holds the lock.
+// nginxMeta is the meta a proxy-host create or update answers: nginx online, as NPM answers when nginx took the
+// configuration.
 func (s *Server) nginxMeta() npmapi.ProxyHostMeta {
-	online := !s.nginxOffline
-	m := npmapi.ProxyHostMeta{NginxOnline: &online}
-	if s.nginxOffline {
-		reason := s.nginxErr
-		m.NginxErr = &reason
-	}
-	return m
+	online := true
+	return npmapi.ProxyHostMeta{NginxOnline: &online}
 }
 
 // SeedAccessList stores l under the next id, ignoring l.ID, without validation, and returns the stored copy. An empty

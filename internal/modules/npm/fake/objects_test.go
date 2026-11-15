@@ -280,14 +280,6 @@ func TestW12eNginxOnlineAndEnabled(t *testing.T) {
 	if !bool(a.Enabled) || a.Meta.NginxOnline == nil || !*a.Meta.NginxOnline {
 		t.Errorf("created %+v, want enabled and nginx online", a)
 	}
-	s.SetNginxOnline(false, `host not found in upstream "up.invalid"`)
-	b, err := c.UpdateProxyHost(ctx, a.ID, fkHost("a.example.com"))
-	if err != nil {
-		t.Fatalf("an update whose nginx test fails is still a success: %v", err)
-	}
-	if b.Meta.NginxOnline == nil || *b.Meta.NginxOnline || b.Meta.NginxErr == nil || *b.Meta.NginxErr != `host not found in upstream "up.invalid"` {
-		t.Errorf("updated %+v, want nginx offline with the reason", b.Meta)
-	}
 	s.DisableProxyHost(a.ID)
 	hosts, err := c.ProxyHosts(ctx)
 	if err != nil || len(hosts) != 1 || bool(hosts[0].Enabled) {

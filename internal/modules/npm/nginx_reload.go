@@ -8,7 +8,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
-// reloadNginx tests and reloads nginx in darkpanel-npm (nginxReloader.Reload); no proxy host is sent to NPM.
+// reloadNginx tests and reloads nginx in darkpanel-npm (nginxReloader.Reload).
 func (n nm) reloadNginx(ctx context.Context) error {
 	return n.d.reload(ctx)
 }

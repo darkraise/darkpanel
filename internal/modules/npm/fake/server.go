@@ -52,9 +52,6 @@ type Server struct {
 	listSeq int
 	certs   []npmapi.Certificate
 	certSeq int
-
-	nginxOffline bool
-	nginxErr     string
 }
 
 type adminUser struct{ email, password string }

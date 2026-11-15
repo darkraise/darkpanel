@@ -223,7 +223,7 @@ func TestA2_AConfirmedAttachReloadsOnceBeforeAndOnceAfterTheConnect(t *testing.T
 			t.Error("NPM is not on the network after the undo")
 		}
 	})
-	t.Run("the already-on-the-network answer reloads first", func(t *testing.T) {
+	t.Run("the already-on-the-network answer reloads once", func(t *testing.T) {
 		h, user, endpoint := detached(t)
 		w12aSeed(h, "up.invalid", 81)
 		n := h.nm()

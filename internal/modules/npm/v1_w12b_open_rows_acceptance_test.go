@@ -250,7 +250,7 @@ func TestA10_AFailedListingMakesAnUpgradeUnhealthyAtPlanAndApply(t *testing.T) {
 
 const a11Detail = "proxy host 1 forwards to %s, which could not be resolved: the resolver did not answer; a stopped or removed container's name is a usual cause"
 
-func TestA11_ATransientResolverFailureRefusesAnAttachWithUnavailable(t *testing.T) {
+func TestA11_ATransientResolverFailureRefusesAnAttachWithForwardUnresolved(t *testing.T) {
 	for _, apply := range []bool{false, true} {
 		t.Run(fmt.Sprintf("apply=%v", apply), func(t *testing.T) {
 			h, user := nwSetup(t)
@@ -283,7 +283,7 @@ func a11Check(t *testing.T, err error, host string) {
 	}
 }
 
-func TestA11_ATransientResolverFailureRefusesAnUpgradeWithUnavailable(t *testing.T) {
+func TestA11_ATransientResolverFailureRefusesAnUpgradeWithForwardUnresolved(t *testing.T) {
 	s := w12aUpSetup(t)
 	w12aSeed(s.h, "flaky.example.net", 3000)
 	s.n.d.resolve = func(_ context.Context, host string) ([]netip.Addr, error) { return nil, a9Timeout(host) }
