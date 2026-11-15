@@ -393,12 +393,11 @@ func (h networkAttachHandler) Apply(ctx context.Context, env core.Env, in Attach
 		e := npmEffect(core.EffectModify, resource, obs.Current.State, commitWait)
 		err = h.n.run(ctx, env, e, h.n.observeEngine, func(ctx context.Context) (string, error) {
 			if err := h.n.d.docker.ConnectNetwork(ctx, ck.network.ID, ck.container.ID, settings); err != nil {
+				connectErr := fmt.Errorf("npm: connect %s to network %s: %w", containerName, name, engineCoded(err))
 				if !refused(err) {
-					if joinedErr := h.lostJoin(ctx, env, name, targets); joinedErr != nil {
-						return "", joinedErr
-					}
+					return "", h.lostJoin(ctx, env, name, targets, connectErr)
 				}
-				return "", fmt.Errorf("npm: connect %s to network %s: %w", containerName, name, engineCoded(err))
+				return "", connectErr
 			}
 			if err := h.afterJoin(ctx, env, name, targets); err != nil {
 				return "", err
@@ -838,10 +837,8 @@ func (c networkClaims) networkUndoDisconnect(ctx context.Context, env core.Env, 
 			return core.InverseResult{}, core.Definite(fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, err))
 		}
 	default:
-		if joinedErr := c.lostJoin(ctx, env, network, targets); joinedErr != nil {
-			return core.InverseResult{}, joinedErr
-		}
-		return core.InverseResult{}, fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, engineCoded(err))
+		return core.InverseResult{}, c.lostJoin(ctx, env, network, targets,
+			fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, engineCoded(err)))
 	}
 	if err := c.afterJoin(ctx, env, network, targets); err != nil {
 		return core.InverseResult{}, err
@@ -941,18 +938,24 @@ func (c networkClaims) afterJoin(ctx context.Context, env core.Env, network stri
 	return nil
 }
 
-// lostJoin checks a join a connect's lost answer may hide: NPM found on network is checked as afterJoin checks it. It
-// returns afterJoin's error only when NPM stayed on the network; otherwise the caller returns the connect's error.
-func (c networkClaims) lostJoin(ctx context.Context, env core.Env, network string, targets []forwardTarget) error {
+// lostJoin checks a join that connectErr, a connect's lost answer, may hide: NPM found on network is checked as afterJoin
+// checks it. It returns afterJoin's error when NPM stayed on the network, and otherwise connectErr, naming afterJoin's
+// refusal when the check took NPM off the network again. The refusal is added as text only, so the error keeps
+// connectErr's classification.
+func (c networkClaims) lostJoin(ctx context.Context, env core.Env, network string, targets []forwardTarget, connectErr error) error {
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lostJoinWait)
 	defer cancel()
 	if on, err := c.npmOnNetwork(wctx, network); err != nil || !on {
-		return nil
+		return connectErr
 	}
-	if err := c.afterJoin(wctx, env, network, targets); err != nil && !core.IsDefinite(err) {
-		return err
+	err := c.afterJoin(wctx, env, network, targets)
+	switch {
+	case err == nil:
+		return connectErr
+	case core.IsDefinite(err):
+		return fmt.Errorf("%w; %s", connectErr, err.Error())
 	}
-	return nil
+	return err
 }
 
 // heldTarget describes the first target at an address NPM holds on network, "" when there is none.

@@ -330,8 +330,14 @@ func TestW12gAttachWhoseConnectAnswerIsLostChecksTheAddress(t *testing.T) {
 	n := h.nm()
 	n.d.docker = tr
 	n.d.resolve = w12eAnswer("203.0.113.9")
-	if err := w12gAttach(t, h, n, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}); err == nil {
+	err := w12gAttach(t, h, n, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+	if err == nil {
 		t.Fatal("an attach whose connect answer was lost succeeded")
+	}
+	for _, want := range []string{"connection reset by peer", "the address " + containerName + " took on network " + nwNet, "it was disconnected again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not say %q", err, want)
+		}
 	}
 	if nwEndpoint(t, h, user.ID) != nil {
 		t.Error("NPM stayed on a network where it holds a forwarded address after a lost connect answer")
