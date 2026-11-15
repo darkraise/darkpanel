@@ -2,15 +2,19 @@ package npm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -674,4 +678,304 @@ func TestA6_RefusalsOfTheReloadAreUnhealthy(t *testing.T) {
 
 func sqNoAnswer(_ context.Context, host string) ([]netip.Addr, error) {
 	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+}
+
+func TestA8_HarnessHoldsNoAuthorizationHeaderNoTokenAndNoReloadCall(t *testing.T) {
+	for _, rel := range []string{"../../../test/harness/m6_npm_test.go", "../../../test/harness/vm/vm.go"} {
+		b, err := os.ReadFile(rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.ToLower(string(b))
+		for _, banned := range []string{"authorization", "bearer", "reloadcall"} {
+			if strings.Contains(text, banned) {
+				t.Errorf("%s holds %q", rel, banned)
+			}
+		}
+	}
+}
+
+func sqHit(t *testing.T) (*thHost, dockerapi.Network) {
+	t.Helper()
+	h, user := nwSetup(t)
+	w12aSubnet(t, h, user)
+	nwConnect(t, h, user, nwStatic(sqHeld))
+	nwClaim(t, h, nwNet, nwClaimant, "c0", false)
+	return h, user
+}
+
+var sqPassIDs atomic.Int32
+
+// sqPass runs one pass of the reconcile task; Apply runs the action's handler as the engine would and counts calls.
+func sqPass(t *testing.T, h *thHost, n nm, task core.BackgroundTask, applies *int) error {
+	t.Helper()
+	id := "p" + strconv.Itoa(int(sqPassIDs.Add(1)))
+	h.addChange(id, "npm.instance.reconcile")
+	env := h.env(id)
+	tc := core.TaskContext{Env: env, Apply: func(ctx context.Context, action string, input any) (core.ChangeView, error) {
+		*applies++
+		if action != "npm.instance.reconcile" {
+			t.Errorf("the pass applied %q", action)
+		}
+		_, err := n.instanceReconcile().Handler.Apply(ctx, env, nwJSON(t, input))
+		return core.ChangeView{}, err
+	}}
+	return task.Run(context.Background(), tc)
+}
+
+func TestA9_ReconcileTaskDeclaration(t *testing.T) {
+	h, _ := nwSetup(t)
+	tasks := module{n: h.nm()}.BackgroundTasks()
+	var task *core.BackgroundTask
+	for i := range tasks {
+		if tasks[i].ID == "npm.reconcile" {
+			task = &tasks[i]
+		}
+	}
+	if task == nil {
+		t.Fatalf("tasks %v, want npm.reconcile", tasks)
+	}
+	if task.Every != 5*time.Minute || task.Watch == nil || task.Run == nil {
+		t.Errorf("task %+v, want a pass every 5 minutes with a Docker events watch", task)
+	}
+	if !slices.Contains(task.LockKeys, "npm") {
+		t.Errorf("lock keys %v, want npm", task.LockKeys)
+	}
+}
+
+type sqEvents struct {
+	events []dockerapi.Event
+	i      int
+	done   chan struct{}
+}
+
+func (s *sqEvents) Next() (dockerapi.Event, error) {
+	if s.i < len(s.events) {
+		e := s.events[s.i]
+		s.i++
+		return e, nil
+	}
+	<-s.done
+	return dockerapi.Event{}, io.EOF
+}
+func (s *sqEvents) Close() error { return nil }
+
+type sqEventDock struct {
+	*thDocker
+	stream *sqEvents
+}
+
+func (d sqEventDock) Events(context.Context, dockerapi.EventsOptions) (dockerEvents, error) {
+	return d.stream, nil
+}
+
+func TestA9_ReconcileWatchWakesOnStartAndConnectOfNPM(t *testing.T) {
+	h, _ := nwSetup(t)
+	npmID, _ := h.docker.containerID(containerName)
+	webID, _ := h.docker.containerID("web")
+	mk := func(typ, action, id string, attrs map[string]string) dockerapi.Event {
+		ev := dockerapi.Event{Type: typ, Action: action}
+		ev.Actor.ID = id
+		ev.Actor.Attributes = attrs
+		return ev
+	}
+	stream := &sqEvents{done: make(chan struct{}), events: []dockerapi.Event{
+		mk("container", "start", webID, map[string]string{"name": "web"}),
+		mk("container", "start", npmID, map[string]string{"name": containerName}),
+		mk("network", "connect", "n1", map[string]string{"container": webID}),
+		mk("network", "connect", "n1", map[string]string{"container": npmID}),
+		mk("container", "die", npmID, map[string]string{"name": containerName}),
+	}}
+	n := h.nm()
+	n.d.docker = sqEventDock{h.docker, stream}
+	task := n.reconcileTask()
+	var wakes atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() { errc <- task.Watch(ctx, h.env(""), func() { wakes.Add(1) }) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for wakes.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	close(stream.done)
+	if err := <-errc; err != nil {
+		t.Errorf("watch ended with %v", err)
+	}
+	if got := wakes.Load(); got != 2 {
+		t.Errorf("%d wakes, want 2: the start of NPM and the connect of NPM only", got)
+	}
+}
+
+func TestA9_PassDisconnectsNPMReloadsAndRecordsTheNetworkAndItsClaimants(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		resolve func(context.Context, string) ([]netip.Addr, error)
+		host    string
+	}{
+		{"literal", sqNoAnswer, sqHeld},
+		{"name", sqAnswers(sqHeld), "up.invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, user := sqHit(t)
+			w12aSeed(h, tc.host, 3000)
+			n := h.nm()
+			n.d.resolve = tc.resolve
+			h.addChange("r1", "npm.instance.reconcile")
+			raw, err := n.instanceReconcile().Handler.Apply(context.Background(), h.env("r1"), nwJSON(t, ReconcileInput{}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out Reconciled
+			if err := json.Unmarshal(raw, &out); err != nil {
+				t.Fatal(err)
+			}
+			if nwEndpoint(t, h, user.ID) != nil {
+				t.Error("NPM stayed on the network")
+			}
+			if h.nginx.reloads != 1 {
+				t.Errorf("%d reloads, want 1", h.nginx.reloads)
+			}
+			if len(out.Dropped) != 1 || out.Dropped[0].Network != nwNet || out.Dropped[0].Address != sqHeld ||
+				!slices.Equal(out.Dropped[0].Claimants, []string{nwClaimant}) {
+				t.Errorf("result %+v, want the network %s, address %s and claimant %s", out, nwNet, sqHeld, nwClaimant)
+			}
+			applies := 0
+			if err := sqPass(t, h, n, n.reconcileTask(), &applies); err != nil || applies != 0 {
+				t.Errorf("a pass after the disconnect applied %d times with error %v, want none", applies, err)
+			}
+		})
+	}
+	t.Run("a pass applies once on a hit", func(t *testing.T) {
+		h, user := sqHit(t)
+		w12aSeed(h, sqHeld, 3000)
+		n := h.nm()
+		n.d.resolve = sqNoAnswer
+		applies := 0
+		if err := sqPass(t, h, n, n.reconcileTask(), &applies); err != nil || applies != 1 {
+			t.Fatalf("pass applied %d times with error %v, want once", applies, err)
+		}
+		if nwEndpoint(t, h, user.ID) != nil {
+			t.Error("NPM stayed on the network")
+		}
+	})
+	t.Run("an apply that finds no hit under the lock changes nothing", func(t *testing.T) {
+		h, user := sqHit(t)
+		w12aSeed(h, "10.9.0.99", 3000)
+		n := h.nm()
+		n.d.resolve = sqNoAnswer
+		h.addChange("r1", "npm.instance.reconcile")
+		if _, err := n.instanceReconcile().Handler.Apply(context.Background(), h.env("r1"), nwJSON(t, ReconcileInput{})); err != nil {
+			t.Fatal(err)
+		}
+		if nwEndpoint(t, h, user.ID) == nil || h.nginx.reloads != 0 || len(h.journal.effects()) != 0 {
+			t.Errorf("an apply with no hit changed the host: on network %v, %d reloads, %d effects", nwEndpoint(t, h, user.ID) != nil, h.nginx.reloads, len(h.journal.effects()))
+		}
+	})
+	t.Run("a failed reload leaves NPM disconnected and fails unhealthy naming the networks", func(t *testing.T) {
+		h, user := sqHit(t)
+		w12aSeed(h, sqHeld, 3000)
+		n := h.nm()
+		n.d.resolve = sqNoAnswer
+		h.nginx.fail(errors.New("npm: nginx reload: no new nginx worker after the reload"))
+		h.addChange("r1", "npm.instance.reconcile")
+		_, err := n.instanceReconcile().Handler.Apply(context.Background(), h.env("r1"), nwJSON(t, ReconcileInput{}))
+		coded := sqWantCode(t, err, errcode.NPMUnhealthy)
+		if !strings.Contains(coded.Detail, nwNet) {
+			t.Errorf("detail %q does not name network %s", coded.Detail, nwNet)
+		}
+		if nwEndpoint(t, h, user.ID) != nil {
+			t.Error("NPM was put back on the network after a failed reload")
+		}
+	})
+}
+
+func TestA10_APassWithNoHitRecordsNoChangeAndAHitOnNPMsOwnNetworkFailsOnce(t *testing.T) {
+	t.Run("no hit", func(t *testing.T) {
+		h, _ := sqHit(t)
+		w12aSeed(h, "10.9.0.99", 3000)
+		n := h.nm()
+		n.d.resolve = sqNoAnswer
+		applies := 0
+		for range 3 {
+			if err := sqPass(t, h, n, n.reconcileTask(), &applies); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if applies != 0 {
+			t.Errorf("%d changes were applied for passes with no hit", applies)
+		}
+	})
+	t.Run("a hit on darkpanel-npm", func(t *testing.T) {
+		h, _ := nwSetup(t)
+		own, _ := h.docker.network(networkName)
+		ep := nwEndpoint(t, h, own.ID)
+		w12aSeed(h, ep.IPAddress.String(), 3000)
+		n := h.nm()
+		n.d.resolve = sqNoAnswer
+		task := n.reconcileTask()
+		applies, failures := 0, 0
+		for range 4 {
+			err := sqPass(t, h, n, task, &applies)
+			if err != nil {
+				failures++
+				sqWantCode(t, err, errcode.NPMReserved)
+			}
+		}
+		if applies != 1 || failures != 1 {
+			t.Errorf("%d applies and %d failures over 4 passes on the same hit, want 1 and 1", applies, failures)
+		}
+		if nwEndpoint(t, h, own.ID) == nil {
+			t.Error("NPM left its own network")
+		}
+		if c, _ := h.docker.container(containerName); !c.State.Running {
+			t.Error("NPM was stopped")
+		}
+		h.npm.DisableProxyHost(1)
+		w12aSeed(h, "10.9.99.1", 3000)
+		w12aSeed(h, ep.IPAddress.String(), 3001)
+		if err := sqPass(t, h, n, task, &applies); err == nil || applies != 2 {
+			t.Errorf("after the hit changed: %d applies, error %v; want the second apply to fail", applies, err)
+		}
+	})
+}
+
+func TestA11_APassDoesNothingWhileNoInstanceNPMStoppedOrTheLockHeld(t *testing.T) {
+	t.Run("no instance", func(t *testing.T) {
+		h := newTHHost(t)
+		n := h.nm()
+		applies := 0
+		if err := sqPass(t, h, n, n.reconcileTask(), &applies); err != nil || applies != 0 {
+			t.Errorf("applied %d times with error %v", applies, err)
+		}
+	})
+	t.Run("NPM stopped", func(t *testing.T) {
+		h, _ := sqHit(t)
+		w12aSeed(h, sqHeld, 3000)
+		if _, err := h.docker.StopContainer(context.Background(), containerName, time.Second); err != nil {
+			t.Fatal(err)
+		}
+		n := h.nm()
+		n.d.resolve = sqNoAnswer
+		applies := 0
+		if err := sqPass(t, h, n, n.reconcileTask(), &applies); err != nil || applies != 0 {
+			t.Errorf("applied %d times with error %v", applies, err)
+		}
+	})
+	t.Run("lock held", func(t *testing.T) {
+		h, _ := sqHit(t)
+		w12aSeed(h, sqHeld, 3000)
+		n := h.nm()
+		n.d.resolve = sqNoAnswer
+		task := n.reconcileTask()
+		if !slices.Equal(task.LockKeys, []string{"npm"}) {
+			t.Fatalf("lock keys %v, want exactly the npm key that every mutating npm action takes", task.LockKeys)
+		}
+		for _, d := range (module{n: n}).Manifest().Actions {
+			if d.Spec.Name == "npm.network.attach" && !slices.Equal(d.Spec.LockKeys, task.LockKeys) {
+				t.Errorf("attach takes %v, the task %v", d.Spec.LockKeys, task.LockKeys)
+			}
+		}
+	})
 }
