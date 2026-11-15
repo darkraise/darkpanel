@@ -596,3 +596,106 @@ func TestW12gUndoOfADetachConnectsByTheInspectedID(t *testing.T) {
 		t.Errorf("the undo connected to %v, want the inspected id %s", tr.joined, user.ID)
 	}
 }
+
+// TestW12jRefusedConnectOutcomes: a connect refused while the attach runs is not a join this attach made. NPM found on
+// the network is taken as already there (preexisting, the static-address rule, the connect skipped); NPM not found, or
+// an inspection that fails, is a plain refusal that changed nothing.
+func TestW12jRefusedConnectOutcomes(t *testing.T) {
+	refusal := &dockerapi.APIError{StatusCode: 409, Message: "container is paused"}
+	endpointEffect := func(t *testing.T, h *thHost) core.Effect {
+		t.Helper()
+		for _, e := range h.journal.effects() {
+			if e.Kind == core.EffectModify {
+				return e
+			}
+		}
+		t.Fatal("no endpoint effect journaled")
+		return core.Effect{}
+	}
+	setup := func(t *testing.T) (*thHost, dockerapi.Network, *w12gTrace, nm) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		w12aSeed(h, "up.invalid", 3000)
+		tr := newW12gTrace(h)
+		n := h.nm()
+		n.d.docker = tr
+		n.d.resolve = w12eAnswer("203.0.113.9")
+		return h, user, tr, n
+	}
+	t.Run("joined in between and the check passes", func(t *testing.T) {
+		h, user, tr, n := setup(t)
+		tr.hook["connect"] = func() { nwConnect(t, h, user, nil) }
+		if err := w12gAttach(t, h, n, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}); err != nil {
+			t.Fatal(err)
+		}
+		if nwEndpoint(t, h, user.ID) == nil {
+			t.Fatal("NPM left a network it was joined to by hand")
+		}
+		cl := nwClaims(t, h, nwNet)
+		if len(cl) != 1 || !cl[0].Preexisting {
+			t.Errorf("claims %+v, want one marked preexisting: a detach must not remove a join this attach did not make", cl)
+		}
+		if e := endpointEffect(t, h); e.State != core.EffectSkipped {
+			t.Errorf("the connect was recorded %s, want skipped: the Engine refused it", e.State)
+		}
+	})
+	t.Run("joined in between at another address than the one asked", func(t *testing.T) {
+		h, user, tr, n := setup(t)
+		tr.hook["connect"] = func() { nwConnect(t, h, user, nwStatic("10.9.0.51")) }
+		err := w12gAttach(t, h, n, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web", Address: netip.MustParseAddr("10.9.0.50")})
+		_ = nwRefused(t, err, errcode.InvalidInput)
+		if nwEndpoint(t, h, user.ID) == nil || nwCalls(h, "DisconnectNetwork") != 0 {
+			t.Error("the attach disconnected NPM from a join it did not make")
+		}
+		if len(nwClaims(t, h, nwNet)) != 0 {
+			t.Error("the attach recorded a claim on a join at another address than the one asked")
+		}
+	})
+	t.Run("refused and NPM is not on the network", func(t *testing.T) {
+		h, user, _, n := setup(t)
+		h.docker.Fail("ConnectNetwork", refusal)
+		err := w12gAttach(t, h, n, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+		if err == nil || !core.IsDefinite(err) || !errors.Is(err, refusal) {
+			t.Fatalf("error %v, want the Engine's refusal, definite", err)
+		}
+		w12eNoChange(t, h, user, 1)
+	})
+	t.Run("refused and the inspection fails", func(t *testing.T) {
+		h, user, tr, n := setup(t)
+		tr.hook["connect"] = func() {
+			h.docker.Fail("ConnectNetwork", refusal)
+			h.docker.Fail("InspectContainer", errors.New("connection reset by peer"))
+		}
+		err := w12gAttach(t, h, n, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+		if err == nil || !core.IsDefinite(err) || !errors.Is(err, refusal) {
+			t.Fatalf("error %v, want the Engine's refusal, definite", err)
+		}
+		w12eNoChange(t, h, user, 1)
+	})
+}
+
+// TestW12jUndoOfADetachWhoseReconnectIsRefusedTakesNPMAsAlreadyThere: a reconnect refused because NPM was joined in
+// between is handled as NPM found on the network first: a network another claim holds is left as it is.
+func TestW12jUndoOfADetachWhoseReconnectIsRefusedTakesNPMAsAlreadyThere(t *testing.T) {
+	h, user := nwSetup(t)
+	endpoint := w12gUndoEffect(t, h, user)
+	w12aSeed(h, "up.invalid", 3000)
+	tr := newW12gTrace(h)
+	tr.hook["connect"] = func() {
+		nwConnect(t, h, user, nil)
+		nwClaim(t, h, nwNet, nwOther, "c3", false)
+	}
+	n := h.nm()
+	n.d.docker = tr
+	n.d.resolve = w12eAnswer("203.0.113.9")
+	reloads := h.nginx.reloads
+	if _, err := n.networkDetach().Handler.Inverse(context.Background(), h.env("u1"), endpoint); err != nil {
+		t.Fatalf("undo error %v, want done", err)
+	}
+	if got := h.nginx.reloads - reloads; got != 1 {
+		t.Errorf("%d reloads, want only the one before the join: a network another claim holds is left as it is", got)
+	}
+	if nwEndpoint(t, h, user.ID) == nil || nwCalls(h, "DisconnectNetwork") != 1 {
+		t.Error("the undo disconnected NPM from a network another claim holds")
+	}
+}

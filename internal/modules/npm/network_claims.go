@@ -365,8 +365,9 @@ func (h networkAttachHandler) Plan(ctx context.Context, env core.Env, in AttachI
 }
 
 // Apply connects NPM to the network when it is not there and records the claim when the claimant has none. A join
-// reloads nginx, reads the network and the forward targets again and only then connects. NPM already on a network that
-// has no claim, which an apply cut off after its connect leaves, is checked as after a fresh join.
+// reloads nginx, reads the forward targets and then the network again and only then connects. NPM already on a network
+// that has no claim, which an apply cut off after its connect or a join made by hand leaves, is checked as after a fresh
+// join; so is NPM found on the network after a refused connect, which is taken as already there.
 func (h networkAttachHandler) Apply(ctx context.Context, env core.Env, in AttachInput) (Attachment, error) {
 	ck, err := h.check(ctx, env, in, false)
 	if err != nil {
@@ -397,20 +398,30 @@ func (h networkAttachHandler) Apply(ctx context.Context, env core.Env, in Attach
 				if !refused(err) {
 					return "", h.lostJoin(ctx, env, name, targets, connectErr)
 				}
-				// A refusal with NPM on the network is a join made in between, checked as this one would be.
 				if on, inspectErr := h.npmOnNetwork(ctx, name); inspectErr != nil || !on {
 					return "", connectErr
 				}
+				return "", core.Definite(errJoinedMeanwhile)
 			}
 			if err := h.afterJoin(ctx, env, name, targets); err != nil {
 				return "", err
 			}
 			return resource, nil
 		})
-		if err != nil {
+		if errors.Is(err, errJoinedMeanwhile) {
+			// The refused connect found NPM on the network: a join this attach did not make, taken as one that was
+			// there before it, so the check below marks it preexisting and holds it to the static-address rule.
+			if ck, err = h.check(ctx, env, in, false); err != nil {
+				return Attachment{}, err
+			}
+			if ck.connect {
+				return Attachment{}, core.Definite(fmt.Errorf("npm: %s joined network %s and left it again while the attach ran", containerName, name))
+			}
+		} else if err != nil {
 			return Attachment{}, err
 		}
-	} else if len(ck.claims) == 0 {
+	}
+	if !ck.connect && len(ck.claims) == 0 {
 		targets, err := h.n.forwardTargets(ctx, env)
 		if err != nil {
 			return Attachment{}, core.Definite(err)
@@ -810,21 +821,7 @@ func (c networkClaims) networkUndoDisconnect(ctx context.Context, env core.Env, 
 		return core.InverseResult{}, fmt.Errorf("npm: inspect container %s: %w", containerName, engineCoded(err))
 	}
 	if on {
-		all, err := claims(ctx, env.DB.Read(), network)
-		if err != nil {
-			return core.InverseResult{}, err
-		}
-		if len(all) > 0 {
-			return done, nil
-		}
-		targets, err := c.n.forwardTargets(ctx, env)
-		if err != nil {
-			return core.InverseResult{}, core.Definite(err)
-		}
-		if err := c.afterJoin(ctx, env, network, targets); err != nil {
-			return core.InverseResult{}, err
-		}
-		return done, nil
+		return c.undoFoundJoined(ctx, env, network, done)
 	}
 	if err := c.reloadBeforeJoin(ctx, env, network); err != nil {
 		return core.InverseResult{}, err
@@ -840,9 +837,30 @@ func (c networkClaims) networkUndoDisconnect(ctx context.Context, env core.Env, 
 		if on, inspectErr := c.npmOnNetwork(ctx, network); inspectErr != nil || !on {
 			return core.InverseResult{}, core.Definite(fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, err))
 		}
+		return c.undoFoundJoined(ctx, env, network, done)
 	default:
 		return core.InverseResult{}, c.lostJoin(ctx, env, network, targets,
 			fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, engineCoded(err)))
+	}
+	if err := c.afterJoin(ctx, env, network, targets); err != nil {
+		return core.InverseResult{}, err
+	}
+	return done, nil
+}
+
+// undoFoundJoined settles the undo of a detach that found NPM on the network: a network with a claim is left as it is;
+// with no claim the address NPM holds is checked as after a join.
+func (c networkClaims) undoFoundJoined(ctx context.Context, env core.Env, network string, done core.InverseResult) (core.InverseResult, error) {
+	all, err := claims(ctx, env.DB.Read(), network)
+	if err != nil {
+		return core.InverseResult{}, err
+	}
+	if len(all) > 0 {
+		return done, nil
+	}
+	targets, err := c.n.forwardTargets(ctx, env)
+	if err != nil {
+		return core.InverseResult{}, core.Definite(err)
 	}
 	if err := c.afterJoin(ctx, env, network, targets); err != nil {
 		return core.InverseResult{}, err
@@ -861,6 +879,9 @@ func (c networkClaims) npmOnNetwork(ctx context.Context, network string) (bool, 
 	}
 	return ct.NetworkSettings.Networks[network] != nil, nil
 }
+
+// errJoinedMeanwhile is a refused connect that found NPM on the network: a join made in between, not by this attach.
+var errJoinedMeanwhile = errors.New("npm: " + containerName + " joined the network while the attach ran")
 
 // nginxDisconnectWait bounds the disconnect that takes back a join nginx or the forward hosts did not allow.
 const nginxDisconnectWait = 10 * time.Second
