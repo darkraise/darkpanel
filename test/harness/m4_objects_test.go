@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
@@ -332,6 +333,7 @@ func m4dImages(ctx context.Context, t *testing.T, f *fleet) {
 		t.Errorf("the pull stream of change %s: %v", ch.ID, err)
 	}
 	m4Docker(ctx, t, f.agent, "image", "inspect", ref)
+	m4dPrune(ctx, t, f, ref)
 
 	m4dRefused(ctx, t, f, "docker.image.remove", map[string]any{"image": ""}, errcode.InvalidInput)
 	p, err := m4Plan(ctx, f.api, f.agentID, "docker.image.remove", map[string]any{"image": ref})
@@ -345,12 +347,54 @@ func m4dImages(ctx context.Context, t *testing.T, f *fleet) {
 	if _, err := f.agent.Run(ctx, "sudo docker image inspect "+m3dxShell(ref)); err == nil {
 		t.Error("the image is still present after docker.image.remove")
 	}
-	prune, err := m4Plan(ctx, f.api, f.agentID, "docker.image.prune", map[string]any{})
+}
+
+// m4dPrune leaves one dangling image that no container uses, checks that the
+// prune plan names it and asks for the confirmation prune, applies the prune,
+// and checks that the image is gone and the change's output names it. It runs
+// while ref is still present, as the image is committed from a container of
+// ref.
+func m4dPrune(ctx context.Context, t *testing.T, f *fleet, ref string) {
+	t.Helper()
+	const src = "m4-prune-src"
+	m4Docker(ctx, t, f.agent, "create", "--name", src, ref)
+	id := strings.TrimSpace(m4Docker(ctx, t, f.agent, "commit", "-c", "LABEL m4=prune", src))
+	m4Docker(ctx, t, f.agent, "rm", src)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		_, _ = f.agent.Run(ctx, "sudo docker rm -f "+m3dxShell(src))
+		_, _ = f.agent.Run(ctx, "sudo docker image rm -f "+m3dxShell(id))
+	})
+
+	p, err := m4Plan(ctx, f.api, f.agentID, "docker.image.prune", map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prune.Confirmation != "prune" {
-		t.Errorf("prune asks for the confirmation %q, want prune", prune.Confirmation)
+	if p.Confirmation != "prune" {
+		t.Errorf("prune asks for the confirmation %q, want prune", p.Confirmation)
+	}
+	if !slices.ContainsFunc(p.Diff, func(d core.DiffLine) bool { return d.Op == "-" && strings.Contains(d.Text, id) }) {
+		t.Errorf("the prune plan's diff %v does not remove the dangling image %s", p.Diff, id)
+	}
+	ch := m4ApplyAsync(ctx, t, f.api, f.agentID, "docker.image.prune", map[string]any{})
+	var pruned struct {
+		Images []struct {
+			ID string `json:"id"`
+		} `json:"images"`
+	}
+	if err := json.Unmarshal(ch.Output, &pruned); err != nil {
+		t.Fatalf("the prune's output is %s: %v", ch.Output, err)
+	}
+	named := false
+	for _, i := range pruned.Images {
+		named = named || i.ID == id
+	}
+	if !named {
+		t.Errorf("the prune's output %s does not name the dangling image %s", ch.Output, id)
+	}
+	if _, err := f.agent.Run(ctx, "sudo docker image inspect "+m3dxShell(id)); err == nil {
+		t.Errorf("the dangling image %s is still present after docker.image.prune", id)
 	}
 }
 
@@ -392,6 +436,9 @@ func m4dNetworksVolumes(ctx context.Context, t *testing.T, f *fleet) {
 		t.Error("the undo of volume.create left the volume")
 	}
 	m4ApplyAsync(ctx, t, f.api, f.agentID, "docker.volume.create", vol)
+	m4dRun(ctx, t, f, "m4-vc", "-v", "m4-vol:/data")
+	m4dRefused(ctx, t, f, "docker.volume.remove", map[string]any{"volume": "m4-vol"}, errcode.DockerInUse)
+	m4Docker(ctx, t, f.agent, "rm", "-f", "m4-vc")
 	m4ApplyAsync(ctx, t, f.api, f.agentID, "docker.volume.remove", map[string]any{"volume": "m4-vol"})
 	if _, err := f.agent.Run(ctx, "sudo docker volume inspect m4-vol"); err == nil {
 		t.Error("the volume is still present after docker.volume.remove")
