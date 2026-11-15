@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -1334,4 +1336,127 @@ func TestA17_AFailedCheckOfTheStartedOriginalIsWrittenToTheRowAndNPMStaysRunning
 			t.Error("NPM is not running after the rollback")
 		}
 	})
+}
+
+func TestA19_AFreedAddressNeverLeavesNPMOnTheNetworkWhoeverFreedIt(t *testing.T) {
+	ctx := context.Background()
+	frees := map[string]func(t *testing.T, w *sqWorld){
+		"a container removed": func(t *testing.T, w *sqWorld) { w.freeHolder(t) },
+		"a container stopped": func(t *testing.T, w *sqWorld) {
+			if _, err := w.h.docker.StopContainer(ctx, "holder", time.Second); err != nil {
+				t.Error(err)
+			}
+			if err := w.h.docker.DisconnectNetwork(ctx, nwNet, "holder", true); err != nil {
+				t.Error(err)
+			}
+		},
+	}
+	for name, free := range frees {
+		t.Run("before the network re-read, "+name, func(t *testing.T) {
+			w := sqNewWorld(t, sqAnswers("203.0.113.9"))
+			w.holder()
+			w12aSeed(w.h, sqHeld, 3000)
+			w.h.docker.pin(nwNet, netip.MustParseAddr(sqHeld))
+			w.h.nginx.onReload = func() {
+				w.log.add("reload")
+				free(t, w)
+			}
+			sqWantCode(t, w.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}), errcode.NPMReserved)
+			if nwEndpoint(t, w.h, w.user.ID) != nil {
+				t.Error("NPM stayed on the network")
+			}
+		})
+		t.Run("after the network re-read, "+name, func(t *testing.T) {
+			w := sqNewWorld(t, sqAnswers("203.0.113.9"))
+			w.holder()
+			w12aSeed(w.h, sqHeld, 3000)
+			w.h.docker.pin(nwNet, netip.MustParseAddr(sqHeld))
+			w.dock.before["connect"] = func() { free(t, w) }
+			sqWantCode(t, w.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}), errcode.NPMReserved)
+			if nwEndpoint(t, w.h, w.user.ID) != nil {
+				t.Error("NPM stayed on the network")
+			}
+		})
+	}
+	t.Run("the threat model states the remaining exposure with the owner's acceptance", func(t *testing.T) {
+		b, err := os.ReadFile("../../../docs/security/threat-model.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		for _, want := range []string{"from the connect until the disconnect", "The owner accepted this at the spec review of 2026-11-15"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("the threat model does not hold %q", want)
+			}
+		}
+	})
+}
+
+func TestA20_AnAttachUnwindsToUndoneAfterADockerChangeRanInBetween(t *testing.T) {
+	ctx := context.Background()
+	w := sqNewWorld(t, sqAnswers("203.0.113.9"))
+	w12aSeed(w.h, "up.invalid", 3000)
+	if err := w.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	if nwEndpoint(t, w.h, w.user.ID) == nil || len(nwClaims(t, w.h, nwNet)) != 1 {
+		t.Fatal("the attach did not join NPM and record the claim")
+	}
+	w.h.docker.putContainer(thContainer("later", func(c *dockerapi.ContainerJSON) {
+		c.NetworkSettings.Networks = map[string]*dockerapi.EndpointSettings{nwNet: {NetworkID: w.user.ID}}
+	}))
+	effects := w.h.journal.effects()
+	if len(effects) < 2 {
+		t.Fatalf("%d effects journaled, want the join and the claim", len(effects))
+	}
+	for i := len(effects) - 1; i >= 0; i-- {
+		if _, err := w.n.networkAttach().Handler.Inverse(ctx, w.h.env("c1"), effects[i]); err != nil {
+			t.Fatalf("undo of effect %d (%s): %v", i, effects[i].Resource, err)
+		}
+	}
+	if nwEndpoint(t, w.h, w.user.ID) != nil {
+		t.Error("NPM is still on the network after the unwind")
+	}
+	if len(nwClaims(t, w.h, nwNet)) != 0 {
+		t.Error("the claim is still recorded after the unwind")
+	}
+	if _, ok := w.h.docker.container("later"); !ok {
+		t.Error("the unwind removed the container another change made")
+	}
+}
+
+func TestA23_EveryNamedRegressionTestInTheEvidenceNoteExistsAndHasItsRevertLine(t *testing.T) {
+	note, err := os.ReadFile("../../../docs/dforge/notes/w12g-evidence.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, section, ok := strings.Cut(string(note), "## Revert check")
+	if !ok {
+		t.Fatal("the evidence note has no Revert check section")
+	}
+	row := regexp.MustCompile("(?m)^\\| `(Test\\w+)` \\| (.+) \\| `([^`]+)` ")
+	rows := row.FindAllStringSubmatch(section, -1)
+	if len(rows) < 6 {
+		t.Fatalf("%d revert rows in the note, want one per fix", len(rows))
+	}
+	files, err := filepath.Glob("*_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		source.Write(b)
+	}
+	for _, r := range rows {
+		if !strings.Contains(source.String(), "func "+r[1]+"(") {
+			t.Errorf("the note names %s, which no test file declares", r[1])
+		}
+		if !strings.Contains(r[3], ".go:") {
+			t.Errorf("%s: the failing line %q has no file and line", r[1], r[3])
+		}
+	}
 }
