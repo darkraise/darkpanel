@@ -240,10 +240,9 @@ func TestW12gReconcileWatchWakesOnStartAndConnect(t *testing.T) {
 	}
 }
 
-// TestW12gReconcileRetriesAnExternalHitWhoseVerifyFailed: a pass whose Apply missed a name hit, since its lookup failed,
-// fails at Verify with npm.reserved; that hit is not on darkpanel-npm, so the next pass applies again instead of
-// skipping it as a remembered failure.
-func TestW12gReconcileRetriesAnExternalHitWhoseVerifyFailed(t *testing.T) {
+// TestW12gReconcileRetriesAnExternalHitWhoseLookupFailed: a pass whose Apply could not resolve the name of a hit fails
+// with npm.forward_unresolved; the next pass applies again at once instead of skipping it as a remembered failure.
+func TestW12gReconcileRetriesAnExternalHitWhoseLookupFailed(t *testing.T) {
 	h, user := nwSetup(t)
 	w12aSubnet(t, h, user)
 	nwConnect(t, h, user, nwStatic(w12gAddr))
@@ -262,13 +261,63 @@ func TestW12gReconcileRetriesAnExternalHitWhoseVerifyFailed(t *testing.T) {
 	applies := 0
 	err := w12gTask(t, h, task, n, &applies)
 	var coded *errcode.Error
-	if !errors.As(err, &coded) || coded.Code != errcode.NPMReserved {
-		t.Fatalf("first pass error %v, want npm.reserved from Verify", err)
+	if !errors.As(err, &coded) || coded.Code != errcode.NPMForwardUnresolved {
+		t.Fatalf("first pass error %v, want npm.forward_unresolved from Apply", err)
 	}
 	if err := w12gTask(t, h, task, n, &applies); err != nil {
 		t.Fatalf("second pass: %v", err)
 	}
 	if applies != 2 || nwEndpoint(t, h, user.ID) != nil {
 		t.Errorf("applied %d times and NPM is on the network %v; want twice and no", applies, nwEndpoint(t, h, user.ID) != nil)
+	}
+}
+
+// TestW12jReconcileThrottlesAHitWhoseLookupKeepsFailing: once the same hits failed twice in a row with
+// npm.forward_unresolved, a pass that finds them again within reconcileEvery applies nothing and returns no error, so
+// the runner's failure count does not hold back wakes; after reconcileEvery it applies again, and hits that went away
+// and came back apply at once.
+func TestW12jReconcileThrottlesAHitWhoseLookupKeepsFailing(t *testing.T) {
+	h, user := nwSetup(t)
+	w12aSubnet(t, h, user)
+	nwConnect(t, h, user, nwStatic(w12gAddr))
+	nwClaim(t, h, nwNet, nwClaimant, "c0", false)
+	w12aSeed(h, "app.example.net", 3000)
+	n := h.nm()
+	lookups := 0
+	fail := map[int]bool{}
+	answer := w12gAddr
+	n.d.resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+		lookups++
+		if fail[lookups] {
+			return nil, a9Timeout(host)
+		}
+		return []netip.Addr{netip.MustParseAddr(answer)}, nil
+	}
+	task := n.reconcileTask()
+	applies := 0
+	pass := func(wantApplies int, wantCode errcode.Code) {
+		t.Helper()
+		err := w12gTask(t, h, task, n, &applies)
+		if got := errcode.From(err).Code; (err == nil) != (wantCode == "") || (err != nil && got != wantCode) {
+			t.Fatalf("pass error %v, want code %q", err, wantCode)
+		}
+		if applies != wantApplies {
+			t.Fatalf("%d applies, want %d", applies, wantApplies)
+		}
+	}
+	fail[2], fail[4] = true, true // the Apply of the first two passes
+	pass(1, errcode.NPMForwardUnresolved)
+	pass(2, errcode.NPMForwardUnresolved)
+	pass(2, "") // throttled: the scan's lookup is the 5th
+	h.clock.Advance(reconcileEvery)
+	fail[7] = true
+	pass(3, errcode.NPMForwardUnresolved)
+	pass(3, "")
+	answer = "10.9.0.99" // the hit goes away
+	pass(3, "")
+	answer = w12gAddr
+	pass(4, "")
+	if nwEndpoint(t, h, user.ID) != nil {
+		t.Error("NPM stayed on the network once the lookup answered")
 	}
 }

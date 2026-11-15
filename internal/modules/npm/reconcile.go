@@ -75,27 +75,33 @@ func (n nm) reconcileHits(ctx context.Context, env core.Env) ([]reconcileHit, er
 // nothing. When the lookups fail, only the literal forwards are compared and the failure is logged: a hit found from
 // them is still a hit.
 func (n nm) reconcileScan(ctx context.Context, env core.Env) ([]reconcileHit, dockerapi.ContainerJSON, error) {
+	hits, c, _, err := n.reconcileScanLookups(ctx, env)
+	return hits, c, err
+}
+
+// reconcileScanLookups is reconcileScan that also returns the lookup failure it logged, nil when the names resolved.
+func (n nm) reconcileScanLookups(ctx context.Context, env core.Env) ([]reconcileHit, dockerapi.ContainerJSON, error, error) {
 	if _, ok, err := loadInstance(ctx, env.DB.Read()); err != nil || !ok {
-		return nil, dockerapi.ContainerJSON{}, err
+		return nil, dockerapi.ContainerJSON{}, nil, err
 	}
 	c, err := n.d.docker.InspectContainer(ctx, containerName)
 	switch {
 	case dockerapi.IsNotFound(err):
-		return nil, dockerapi.ContainerJSON{}, nil
+		return nil, dockerapi.ContainerJSON{}, nil, nil
 	case err != nil:
-		return nil, dockerapi.ContainerJSON{}, fmt.Errorf("npm: inspect container %s: %w", containerName, engineCoded(err))
+		return nil, dockerapi.ContainerJSON{}, nil, fmt.Errorf("npm: inspect container %s: %w", containerName, engineCoded(err))
 	case !c.State.Running:
-		return nil, c, nil
+		return nil, c, nil, nil
 	}
 	refs, err := n.forwardRefs(ctx, env)
 	if err != nil {
-		return nil, c, err
+		return nil, c, nil, err
 	}
-	answers, err := n.forwardAnswers(ctx, refNames(refs))
-	if err != nil {
+	answers, lookupErr := n.forwardAnswers(ctx, refNames(refs))
+	if lookupErr != nil {
 		answers = nil
 		if env.Log != nil {
-			env.Log.Warn("npm: the forward names could not be resolved; only the literal forwards were compared", "error", err)
+			env.Log.Warn("npm: the forward names could not be resolved; only the literal forwards were compared", "error", lookupErr)
 		}
 	}
 	targets, _ := forwardsOf(refs, answers)
@@ -119,7 +125,7 @@ func (n nm) reconcileScan(ctx context.Context, env core.Env) ([]reconcileHit, do
 			}
 		}
 	}
-	return hits, c, nil
+	return hits, c, lookupErr, nil
 }
 
 func reconcileStateHash(hits []reconcileHit, c dockerapi.ContainerJSON) string {
@@ -158,11 +164,16 @@ func (h instanceReconcileHandler) Plan(ctx context.Context, env core.Env, _ Reco
 }
 
 // Apply finds the hits again under the lock, since an attach, a detach or an upgrade may have finished since the plan,
-// takes NPM off each network of a hit other than darkpanel-npm and reloads nginx. The claims stay.
+// takes NPM off each network of a hit other than darkpanel-npm and reloads nginx. The claims stay. A scan whose lookups
+// failed and found no hit does not show that the pass's hits went away: it refuses, Definite, as nothing changed.
 func (h instanceReconcileHandler) Apply(ctx context.Context, env core.Env, _ ReconcileInput) (Reconciled, error) {
-	hits, c, err := h.n.reconcileScan(ctx, env)
+	hits, c, lookupErr, err := h.n.reconcileScanLookups(ctx, env)
 	if err != nil {
 		return Reconciled{}, err
+	}
+	if lookupErr != nil && len(hits) == 0 {
+		return Reconciled{}, core.Definite(errcode.New(errcode.NPMForwardUnresolved,
+			"the forward names could not be resolved under the lock, so no hit was checked: "+lookupErr.Error()))
 	}
 	out := Reconciled{Dropped: []DroppedNetwork{}}
 	var own *reconcileHit
@@ -255,12 +266,19 @@ const (
 
 // reconcileTask declares npm.reconcile. A pass reads the host and the proxy hosts and applies npm.instance.reconcile
 // only on a hit. A hit on darkpanel-npm, which NPM never leaves, fails with npm.reserved; a pass whose hits are all on
-// it is remembered in memory, so the same hit is reported once, and once more after an agent restart. Any other
-// failure is returned unremembered, so the runner's backoff retries it. The engine reports a change that failed in its handler through
+// it is remembered in memory, so the same hit is reported once, and once more after an agent restart. Hits whose change
+// failed twice in a row with npm.forward_unresolved are applied again at most once per reconcileEvery: a pass in
+// between returns nil, so the runner's failure count does not hold back wakes. Any other failure is returned
+// unremembered, so the runner's backoff retries it. The engine reports a change that failed in its handler through
 // the returned view, not through the error.
 func (n nm) reconcileTask() core.BackgroundTask {
 	var mu sync.Mutex
 	var failedKey string
+	var unresolved struct {
+		key   string
+		count int
+		at    time.Time
+	}
 	run := func(ctx context.Context, tc core.TaskContext) error {
 		hits, err := n.reconcileHits(ctx, tc.Env)
 		if err != nil {
@@ -270,6 +288,7 @@ func (n nm) reconcileTask() core.BackgroundTask {
 		defer mu.Unlock()
 		if len(hits) == 0 {
 			failedKey = ""
+			unresolved.key, unresolved.count = "", 0
 			return nil
 		}
 		var b strings.Builder
@@ -281,12 +300,25 @@ func (n nm) reconcileTask() core.BackgroundTask {
 			return nil
 		}
 		failedKey = ""
+		now := tc.Env.Clock.Now()
+		if key == unresolved.key && unresolved.count >= 2 && now.Sub(unresolved.at) < reconcileEvery {
+			return nil
+		}
 		v, err := tc.Apply(ctx, "npm.instance.reconcile", ReconcileInput{})
 		if err == nil && v.Error != nil && (v.State == core.StateFailed || v.State == core.StateNeedsRepair) {
 			err = errcode.New(errcode.Code(v.Error.Code), v.Error.Message)
 		}
+		code := errcode.From(err).Code
+		switch {
+		case err == nil || code != errcode.NPMForwardUnresolved:
+			unresolved.key, unresolved.count = "", 0
+		case key == unresolved.key:
+			unresolved.count, unresolved.at = unresolved.count+1, now
+		default:
+			unresolved.key, unresolved.count, unresolved.at = key, 1, now
+		}
 		if err != nil {
-			if errcode.From(err).Code == errcode.NPMReserved && onOwnNetwork(hits) {
+			if code == errcode.NPMReserved && onOwnNetwork(hits) {
 				failedKey = key
 			}
 			return err

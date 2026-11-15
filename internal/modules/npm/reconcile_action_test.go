@@ -210,3 +210,39 @@ func TestW12gReconcileActionDeclaration(t *testing.T) {
 		t.Errorf("action spec %+v, want npm.instance.reconcile, compensable, forward-only, converging, admin, 45s, the npm key", spec)
 	}
 }
+
+// TestW12jReconcileApplyRefusesWhenItsLookupsFail: Apply's own scan compares only the literal forwards when its lookups
+// fail. Finding no hit then does not show the pass's hit went away, so Apply refuses, definite, instead of answering
+// done for Verify to fail; a literal hit it can still find is dropped as before.
+func TestW12jReconcileApplyRefusesWhenItsLookupsFail(t *testing.T) {
+	apply := func(t *testing.T, h *thHost) error {
+		t.Helper()
+		n := h.nm()
+		n.d.resolve = func(_ context.Context, host string) ([]netip.Addr, error) { return nil, a9Timeout(host) }
+		h.addChange("r1", "npm.instance.reconcile")
+		_, err := n.instanceReconcile().Handler.Apply(context.Background(), h.env("r1"), nwJSON(t, ReconcileInput{}))
+		return err
+	}
+	t.Run("no literal hit", func(t *testing.T) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		nwConnect(t, h, user, nwStatic(w12gAddr))
+		w12aSeed(h, "app.example.net", 3000)
+		_ = nwRefused(t, apply(t, h), errcode.NPMForwardUnresolved)
+		if nwEndpoint(t, h, user.ID) == nil {
+			t.Error("NPM left a network on which no hit was found")
+		}
+	})
+	t.Run("a literal hit", func(t *testing.T) {
+		h, user := nwSetup(t)
+		w12aSubnet(t, h, user)
+		nwConnect(t, h, user, nwStatic(w12gAddr))
+		w12aSeed(h, w12gAddr, 3000, w12gLoc("/n", "app.example.net"))
+		if err := apply(t, h); err != nil {
+			t.Fatalf("Apply = %v, want the literal hit dropped", err)
+		}
+		if nwEndpoint(t, h, user.ID) != nil {
+			t.Error("NPM stayed on a network where a literal forward holds its address")
+		}
+	})
+}
