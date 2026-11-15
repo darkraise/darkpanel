@@ -254,9 +254,9 @@ const (
 )
 
 // reconcileTask declares npm.reconcile. A pass reads the host and the proxy hosts and applies npm.instance.reconcile
-// only on a hit. A hit on darkpanel-npm, which NPM never leaves, fails with npm.reserved; those hits are remembered in
-// memory, so the same hit is reported once, and once more after an agent restart. Any other failure is returned
-// unremembered, so the runner's backoff retries it. The engine reports a change that failed in its handler through
+// only on a hit. A hit on darkpanel-npm, which NPM never leaves, fails with npm.reserved; a pass whose hits are all on
+// it is remembered in memory, so the same hit is reported once, and once more after an agent restart. Any other
+// failure is returned unremembered, so the runner's backoff retries it. The engine reports a change that failed in its handler through
 // the returned view, not through the error.
 func (n nm) reconcileTask() core.BackgroundTask {
 	var mu sync.Mutex
@@ -286,7 +286,7 @@ func (n nm) reconcileTask() core.BackgroundTask {
 			err = errcode.New(errcode.Code(v.Error.Code), v.Error.Message)
 		}
 		if err != nil {
-			if errcode.From(err).Code == errcode.NPMReserved {
+			if errcode.From(err).Code == errcode.NPMReserved && onOwnNetwork(hits) {
 				failedKey = key
 			}
 			return err
@@ -300,6 +300,17 @@ func (n nm) reconcileTask() core.BackgroundTask {
 		Run:      run,
 		Watch:    n.reconcileWatch,
 	}
+}
+
+// onOwnNetwork reports whether every hit is on darkpanel-npm, the one network NPM never leaves. A Verify that fails on
+// a hit elsewhere, which Apply missed when its lookups failed, is retried rather than remembered.
+func onOwnNetwork(hits []reconcileHit) bool {
+	for _, hit := range hits {
+		if hit.Network != networkName {
+			return false
+		}
+	}
+	return true
 }
 
 // reconcileWatch wakes the task on a start of NPM's container and on a join of it to a network, until ctx ends (nil)

@@ -18,8 +18,8 @@ import (
 // w12gChanges numbers the changes the passes of w12gTask add, since a change id is a primary key.
 var w12gChanges atomic.Int32
 
-// w12gTask runs one pass of the reconcile task against h. Apply runs the action's own handler, as the engine would, and
-// counts the calls.
+// w12gTask runs one pass of the reconcile task against h. Apply runs the action's own Apply and Verify, as the engine
+// would, and counts the calls.
 func w12gTask(t *testing.T, h *thHost, task core.BackgroundTask, n nm, applies *int) error {
 	t.Helper()
 	change := fmt.Sprintf("r%d", w12gChanges.Add(1))
@@ -30,7 +30,12 @@ func w12gTask(t *testing.T, h *thHost, task core.BackgroundTask, n nm, applies *
 		if action != "npm.instance.reconcile" {
 			t.Errorf("the task applied %q, want npm.instance.reconcile", action)
 		}
-		if _, err := n.instanceReconcile().Handler.Apply(ctx, env, nwJSON(t, input)); err != nil {
+		handler := n.instanceReconcile().Handler
+		out, err := handler.Apply(ctx, env, nwJSON(t, input))
+		if err == nil {
+			err = handler.Verify(ctx, env, nwJSON(t, input), out)
+		}
+		if err != nil {
 			coded := errcode.From(err)
 			return core.ChangeView{ID: change, State: core.StateFailed,
 				Error: &core.ChangeError{Code: string(coded.Code), Message: coded.Detail}}, nil
@@ -232,5 +237,38 @@ func TestW12gReconcileWatchWakesOnStartAndConnect(t *testing.T) {
 	wg.Wait()
 	if got := wakes.Load(); got != 2 {
 		t.Errorf("%d wakes, want 2 (NPM's start and NPM's connect)", got)
+	}
+}
+
+// TestW12gReconcileRetriesAnExternalHitWhoseVerifyFailed: a pass whose Apply missed a name hit, since its lookup failed,
+// fails at Verify with npm.reserved; that hit is not on darkpanel-npm, so the next pass applies again instead of
+// skipping it as a remembered failure.
+func TestW12gReconcileRetriesAnExternalHitWhoseVerifyFailed(t *testing.T) {
+	h, user := nwSetup(t)
+	w12aSubnet(t, h, user)
+	nwConnect(t, h, user, nwStatic(w12gAddr))
+	nwClaim(t, h, nwNet, nwClaimant, "c0", false)
+	w12aSeed(h, "app.example.net", 3000)
+	n := h.nm()
+	lookups := 0
+	n.d.resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+		lookups++
+		if lookups == 2 { // the first pass's Apply
+			return nil, a9Timeout(host)
+		}
+		return []netip.Addr{netip.MustParseAddr(w12gAddr)}, nil
+	}
+	task := n.reconcileTask()
+	applies := 0
+	err := w12gTask(t, h, task, n, &applies)
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.NPMReserved {
+		t.Fatalf("first pass error %v, want npm.reserved from Verify", err)
+	}
+	if err := w12gTask(t, h, task, n, &applies); err != nil {
+		t.Fatalf("second pass: %v", err)
+	}
+	if applies != 2 || nwEndpoint(t, h, user.ID) != nil {
+		t.Errorf("applied %d times and NPM is on the network %v; want twice and no", applies, nwEndpoint(t, h, user.ID) != nil)
 	}
 }
