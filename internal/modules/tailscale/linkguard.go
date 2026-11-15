@@ -184,11 +184,11 @@ func linkRawFlows(f linkFacts, plan, refresh *core.GuardContext) []linkRaw {
 				}
 				// A browser reaches an NPM exposure on one of this host's published bindings, so its flow can ride the
 				// tailnet. A tunnel's client reaches the tunnel's edge, never this host, so it has no flow here.
+				if g.Via.Kind == core.ProxyKindNPM && len(g.Via.Public) == 0 {
+					add(linkRaw{label: "panel", unknown: "the exposure has no public bindings"})
+				}
 				if g.Via.Kind == core.ProxyKindNPM && g.Client != nil && g.Client.Addr.IsValid() {
 					client := g.Client.Addr.Unmap()
-					if len(g.Via.Public) == 0 {
-						add(linkRaw{label: "panel", unknown: "the exposure has no public bindings"})
-					}
 					for _, b := range g.Via.Public {
 						if dst, ok := linkListenFor(client, b.Addr(), f.host); ok {
 							add(linkRaw{label: "panel", inbound: true, local: dst, remote: client, request: isRequest})

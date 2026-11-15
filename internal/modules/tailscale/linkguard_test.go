@@ -531,6 +531,11 @@ func TestW12eTailnetClientOfAnExposure(t *testing.T) {
 				Via: &core.ProxyPath{ExposureID: "e1", Kind: core.ProxyKindNPM, ProxyAddr: netip.MustParseAddr("172.30.0.2"),
 					ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}}},
 			false, []string{"no public bindings"}},
+		{"an NPM exposure with no public binding and no client cannot be shown safe", map[string]string{"172.30.0.2": "dp-panel"},
+			core.Guarded{Guard: &core.GuardContext{Complete: true,
+				Via: &core.ProxyPath{ExposureID: "e1", Kind: core.ProxyKindNPM, ProxyAddr: netip.MustParseAddr("172.30.0.2"),
+					ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}}},
+			false, []string{"no public bindings"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, tsv := lgHost(t, lgWorld{controller: true, routes: tc.routes})
