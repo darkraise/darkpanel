@@ -1230,3 +1230,108 @@ func TestA21_AttachLookupPassesAndTheDeadlineBudget(t *testing.T) {
 			nginxReloadWait, nginxDisconnectWait, resolveTimeout+time.Second)
 	}
 }
+
+type sqStartHook struct {
+	*thDocker
+	at func()
+}
+
+func (d sqStartHook) StartContainer(ctx context.Context, id string) (bool, error) {
+	d.at()
+	return d.thDocker.StartContainer(ctx, id)
+}
+
+func sqFlaky(failing *atomic.Bool) func(context.Context, string) ([]netip.Addr, error) {
+	return func(context.Context, string) ([]netip.Addr, error) {
+		if failing.Load() {
+			return nil, &net.DNSError{Err: "server misbehaving", Name: "up.invalid", IsTemporary: true}
+		}
+		return []netip.Addr{netip.MustParseAddr("203.0.113.9")}, nil
+	}
+}
+
+func TestA17_AFailedCheckOfTheStartedOriginalIsWrittenToTheRowAndNPMStaysRunning(t *testing.T) {
+	ctx := context.Background()
+	recorded := recordedTarget{Where: "proxy host 1", Host: "up.invalid", Name: true, Addr: netip.MustParseAddr("203.0.113.9")}
+	for _, failLookup := range []bool{false, true} {
+		name := "lookups answer"
+		if failLookup {
+			name = "the lookup of the started original fails"
+		}
+		t.Run("undo of a finished upgrade, "+name, func(t *testing.T) {
+			f := urSetup(t)
+			f.replace(urTo)
+			w12eDone(t, f, w12eAppNet(), &[]recordedTarget{recorded})
+			var failing atomic.Bool
+			f.n.d.resolve = sqFlaky(&failing)
+			f.n.d.docker = sqStartHook{f.h.docker, func() { failing.Store(failLookup) }}
+			if err := f.inverse(urResource); err != nil {
+				t.Fatalf("the undo failed: %v", err)
+			}
+			row, ok, err := loadUpgrade(ctx, f.h.db.Read(), urChange)
+			if err != nil || !ok {
+				t.Fatalf("upgrade row: %v %v", ok, err)
+			}
+			if failLookup != (row.Result != "") {
+				t.Errorf("failing lookup %v but the row's result is %q", failLookup, row.Result)
+			}
+			if c, ok := f.h.docker.container(containerName); !ok || !c.State.Running {
+				t.Error("NPM is not running after the undo")
+			}
+		})
+		t.Run("recovery of a half-made upgrade, "+name, func(t *testing.T) {
+			f := urSetup(t)
+			f.replace(urTo)
+			w12eDone(t, f, w12eAppNet(), &[]recordedTarget{recorded})
+			if err := setUpgradePhase(ctx, f.h.db, urChange, "recreating", "", f.archives(), f.h.clock.Now()); err != nil {
+				t.Fatal(err)
+			}
+			var failing atomic.Bool
+			f.n.d.resolve = sqFlaky(&failing)
+			f.n.d.docker = sqStartHook{f.h.docker, func() { failing.Store(failLookup) }}
+			w12aSeed(f.h, "up.invalid", 8080)
+			out, err := f.recover()
+			if err != nil || out.State != core.RecoveryRolledBack {
+				t.Fatalf("recovery %+v, error %v; want rolled back", out, err)
+			}
+			row, _, _ := loadUpgrade(ctx, f.h.db.Read(), urChange)
+			if failLookup != (row.Result != "") {
+				t.Errorf("failing lookup %v but the row's result is %q", failLookup, row.Result)
+			}
+			if c, ok := f.h.docker.container(containerName); !ok || !c.State.Running {
+				t.Error("NPM is not running after the recovery")
+			}
+		})
+	}
+	t.Run("a rollback of a failed upgrade names the failed check in the change's error", func(t *testing.T) {
+		s := w12eUpSetup(t)
+		w12aSeed(s.h, "up.invalid", 8080)
+		var failing atomic.Bool
+		s.n.d.resolve = sqFlaky(&failing)
+		s.dock.trace = func(call string) {
+			if call == "StartContainer" {
+				failing.Store(true)
+			}
+		}
+		s.dock.fail = func(call string, _ int) error {
+			if strings.HasPrefix(call, "CopyFromContainer") {
+				return errors.New("the archive was cut off")
+			}
+			return nil
+		}
+		_, err := s.apply()
+		if err == nil {
+			t.Fatal("the upgrade succeeded")
+		}
+		u := s.upgrade()
+		if u.Result == "" {
+			t.Error("the row's result is empty although the check of the started original failed")
+		}
+		if !strings.Contains(err.Error(), "unverified") {
+			t.Errorf("error %q does not name the failed check", err)
+		}
+		if c, ok := s.h.docker.container(containerName); !ok || !c.State.Running {
+			t.Error("NPM is not running after the rollback")
+		}
+	})
+}
