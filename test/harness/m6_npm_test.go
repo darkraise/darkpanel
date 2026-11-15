@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/npm"
+	"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/test/harness/vm"
 )
@@ -1003,17 +1005,22 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 	}
 
 	m3dDocker(r.ctx, t, v, "network", "disconnect", m6nAppNet, m6nMovedName)
-	// The refusal must come from the unanswered name, not another failed reload.
+	// The failure must come from the unanswered name, not another fault.
 	if out := m3Run(r.ctx, t, v, "sudo docker exec "+m6nNPMName+" nginx -t 2>&1 || true"); !strings.Contains(out, `host not found in upstream "`+m6nEchoName) {
 		t.Fatalf("nginx -t with %s unanswered printed %q, want host not found in upstream %q", m6nEchoName, out, m6nEchoName)
 	}
-	ch, err = attach(nets[1])
-	want := "nginx could not be reloaded before " + m6nNPMName + " joins network " + nets[1]
-	switch {
-	case err != nil:
-		t.Errorf("npm.network.attach %s with the name unanswered: %v, want a refused change", nets[1], err)
-	case ch.State == core.StateCompleted || ch.Error == nil || ch.Error.Code != string(errcode.NPMReserved) || !strings.Contains(ch.Error.Message, want):
-		t.Errorf("npm.network.attach %s with the name unanswered ended %s: %+v, want %s naming %q", nets[1], ch.State, ch.Error, errcode.NPMReserved, want)
+	// Darkpanel's forward guard refuses a join while a forwarded name gets no
+	// definite answer, before any reload, so the reload call is made here as
+	// reloadNginx makes it.
+	if status, online, err := r.reloadCall(t); err != nil {
+		t.Errorf("the reload call with %s unanswered: %v", m6nEchoName, err)
+	} else if status < 300 && (online == nil || *online) {
+		t.Errorf("the reload call with %s unanswered answered %d with nginx_online %v, want an error or nginx_online false", m6nEchoName, status, online)
+	}
+	if ch, err := attach(nets[1]); err == nil && ch.State == core.StateCompleted {
+		t.Errorf("npm.network.attach %s with the name unanswered completed, want it refused", nets[1])
+	} else {
+		t.Logf("npm.network.attach %s with the name unanswered: %v %s %+v", nets[1], err, ch.State, ch.Error)
 	}
 	if members := m6nNetworkMembers(r.ctx, t, v, nets[1]); slices.Contains(members, m6nNPMName) {
 		t.Errorf("network %s holds %v after the refused attach, want it without %s", nets[1], members, m6nNPMName)
@@ -1037,6 +1044,80 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 	if err != nil {
 		t.Errorf("after the name was restored: %v", err)
 	}
+}
+
+// reloadCall sends NPM the request reloadNginx sends: the enabled proxy
+// host with the lowest id, its body members unchanged. It returns the HTTP
+// status and, on a 2xx answer, meta.nginx_online.
+func (r *m6nRun) reloadCall(t *testing.T) (status int, online *bool, err error) {
+	t.Helper()
+	var pw npm.AdminPassword
+	if err := m4Reveal(r.ctx, r.f.api, r.f.agentID, "npm.admin.reveal-password", npm.RevealInput{}, &pw); err != nil {
+		return 0, nil, err
+	}
+	login, err := json.Marshal(map[string]string{"identity": pw.Email, "secret": pw.Password})
+	if err != nil {
+		return 0, nil, err
+	}
+	out, err := r.f.agent.RunInput(r.ctx, "curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:81/api/tokens", bytes.NewReader(login))
+	if err != nil {
+		return 0, nil, fmt.Errorf("POST /api/tokens: %w", err)
+	}
+	var tok struct{ Token string }
+	if err := json.Unmarshal([]byte(out), &tok); err != nil {
+		return 0, nil, fmt.Errorf("POST /api/tokens answered %.80q: %w", out, err)
+	}
+	if tok.Token == "" {
+		return 0, nil, errors.New("POST /api/tokens answered no token")
+	}
+	auth := m3Quote("Authorization: Bearer " + tok.Token)
+	out, err = r.f.agent.Run(r.ctx, "curl -fsS --max-time 20 -H "+auth+" http://127.0.0.1:81/api/nginx/proxy-hosts")
+	if err != nil {
+		return 0, nil, fmt.Errorf("GET /api/nginx/proxy-hosts: %w", err)
+	}
+	var hosts []npmapi.ProxyHost
+	if err := json.Unmarshal([]byte(out), &hosts); err != nil {
+		return 0, nil, fmt.Errorf("GET /api/nginx/proxy-hosts answered %.80q: %w", out, err)
+	}
+	pick := -1
+	for i, h := range hosts {
+		if bool(h.Enabled) && (pick < 0 || h.ID < hosts[pick].ID) {
+			pick = i
+		}
+	}
+	if pick < 0 {
+		return 0, nil, errors.New("NPM has no enabled proxy host")
+	}
+	h := hosts[pick]
+	body, err := json.Marshal(npmapi.ProxyHostBody{
+		DomainNames: h.DomainNames, ForwardScheme: h.ForwardScheme, ForwardHost: h.ForwardHost, ForwardPort: h.ForwardPort,
+		CertificateID: h.CertificateID, AccessListID: h.AccessListID, SSLForced: h.SSLForced, HSTSEnabled: h.HSTSEnabled,
+		AllowWebsocketUpgrade: h.AllowWebsocketUpgrade, Locations: h.Locations, AdvancedConfig: h.AdvancedConfig,
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+	out, err = r.f.agent.RunInput(r.ctx, "curl -sS --max-time 30 -w '\\n%{http_code}' -X PUT -H 'Content-Type: application/json' -H "+auth+
+		" --data-binary @- http://127.0.0.1:81/api/nginx/proxy-hosts/"+strconv.Itoa(h.ID), bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, fmt.Errorf("PUT proxy host %d: %w", h.ID, err)
+	}
+	out = strings.TrimSpace(out)
+	i := strings.LastIndex(out, "\n")
+	answer := out[:max(i, 0)]
+	status, err = strconv.Atoi(out[i+1:])
+	if err != nil {
+		return 0, nil, fmt.Errorf("PUT proxy host %d gave no status: %.120q", h.ID, out)
+	}
+	t.Logf("the reload call on proxy host %d answered %d: %.200s", h.ID, status, answer)
+	if status >= 300 {
+		return status, nil, nil
+	}
+	var updated npmapi.ProxyHost
+	if err := json.Unmarshal([]byte(answer), &updated); err != nil {
+		return status, nil, fmt.Errorf("PUT proxy host %d answered %.80q: %w", h.ID, answer, err)
+	}
+	return status, updated.Meta.NginxOnline, nil
 }
 
 // exposeRemove removes the first exposure by npm.expose.remove: its proxy host
