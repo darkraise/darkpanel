@@ -164,7 +164,7 @@ func (h instanceReconcileHandler) Apply(ctx context.Context, env core.Env, _ Rec
 	if err != nil {
 		return Reconciled{}, err
 	}
-	var out Reconciled
+	out := Reconciled{Dropped: []DroppedNetwork{}}
 	var own *reconcileHit
 	var left []string
 	for _, hit := range hits {
@@ -202,11 +202,11 @@ func (h instanceReconcileHandler) Apply(ctx context.Context, env core.Env, _ Rec
 		}
 	}
 	if own != nil {
-		err := errcode.New(errcode.NPMReserved, own.text()+"; it stays on "+networkName)
+		detail := own.text() + "; it stays on " + networkName
 		if len(left) == 0 {
-			return Reconciled{}, core.Definite(err)
+			return Reconciled{}, core.Definite(errcode.New(errcode.NPMReserved, detail))
 		}
-		return Reconciled{}, err
+		return Reconciled{}, errcode.New(errcode.NPMReserved, detail+"; it left network "+strings.Join(left, ", "))
 	}
 	return out, nil
 }
@@ -254,8 +254,10 @@ const (
 )
 
 // reconcileTask declares npm.reconcile. A pass reads the host and the proxy hosts and applies npm.instance.reconcile
-// only on a hit. The hits whose last apply failed are remembered in memory, so the same hit is reported once, and
-// once more after an agent restart.
+// only on a hit. A hit on darkpanel-npm, which NPM never leaves, fails with npm.reserved; those hits are remembered in
+// memory, so the same hit is reported once, and once more after an agent restart. Any other failure is returned
+// unremembered, so the runner's backoff retries it. The engine reports a change that failed in its handler through
+// the returned view, not through the error.
 func (n nm) reconcileTask() core.BackgroundTask {
 	var mu sync.Mutex
 	var failedKey string
@@ -279,8 +281,14 @@ func (n nm) reconcileTask() core.BackgroundTask {
 			return nil
 		}
 		failedKey = ""
-		if _, err := tc.Apply(ctx, "npm.instance.reconcile", ReconcileInput{}); err != nil {
-			failedKey = key
+		v, err := tc.Apply(ctx, "npm.instance.reconcile", ReconcileInput{})
+		if err == nil && v.Error != nil && (v.State == core.StateFailed || v.State == core.StateNeedsRepair) {
+			err = errcode.New(errcode.Code(v.Error.Code), v.Error.Message)
+		}
+		if err != nil {
+			if errcode.From(err).Code == errcode.NPMReserved {
+				failedKey = key
+			}
 			return err
 		}
 		return nil

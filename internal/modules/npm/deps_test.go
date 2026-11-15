@@ -89,7 +89,7 @@ func TestSdProductionNMReachesNothing(t *testing.T) {
 	n := productionNM()
 	d := n.d
 	if d.docker == nil || d.api == nil || d.anon == nil || d.info == nil || d.raw == nil || d.random == nil || d.readFile == nil ||
-		d.readDir == nil || d.panel == nil || d.sockets == nil {
+		d.readDir == nil || d.panel == nil || d.sockets == nil || d.reload == nil {
 		t.Fatalf("a production dependency is nil: %+v", d)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -100,6 +100,9 @@ func TestSdProductionNMReachesNothing(t *testing.T) {
 	s, err := d.docker.PullImage(ctx, "jc21/nginx-proxy-manager:2.13.5")
 	if err == nil || s != nil {
 		t.Errorf("PullImage = %v, %v; want a nil stream and an error", s, err)
+	}
+	if err := d.reload(ctx); err == nil || !errors.Is(err, dockerapi.ErrUnavailable) {
+		t.Errorf("reload error %v, want the Engine unavailable", err)
 	}
 	if _, err := d.anon().Health(ctx); err == nil {
 		t.Error("the production NPM client reached something")

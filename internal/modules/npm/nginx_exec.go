@@ -161,6 +161,10 @@ func (r *nginxReloader) run(ctx context.Context, user string, cmd []string, isTe
 		return reloadFailure("%w", err)
 	}
 	if err := r.e.ExecStart(ctx, id); err != nil {
+		// A start cut off by the deadline may have reached the Engine, which cannot kill the exec.
+		if ctx.Err() != nil {
+			r.pending = id
+		}
 		return reloadFailure("%w", err)
 	}
 	tick := time.NewTicker(r.poll)

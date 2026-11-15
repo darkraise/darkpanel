@@ -416,6 +416,26 @@ func TestW12gUndoOfADetachChecksInTheSameOrder(t *testing.T) {
 	})
 }
 
+func TestW12gUndoOfADetachLeavesANetworkAnotherClaimHolds(t *testing.T) {
+	h, user := nwSetup(t)
+	endpoint := w12gUndoEffect(t, h, user)
+	nwConnect(t, h, user, nil)
+	nwClaim(t, h, nwNet, nwOther, "c3", false)
+	w12aSeed(h, "up.invalid", 3000)
+	h.nginx.fail(errNginxTest)
+	n := h.nm()
+	n.d.resolve = w12eAnswer("203.0.113.9")
+	if _, err := n.networkDetach().Handler.Inverse(context.Background(), h.env("u1"), endpoint); err != nil {
+		t.Fatalf("undo error %v, want done", err)
+	}
+	if h.nginx.reloads != 0 {
+		t.Errorf("%d reloads, want none on a network another claim holds", h.nginx.reloads)
+	}
+	if nwEndpoint(t, h, user.ID) == nil {
+		t.Error("the undo disconnected NPM from a network another claim holds")
+	}
+}
+
 func TestW12gAJoinedNPMWithNoEndpointIsDisconnected(t *testing.T) {
 	h, user := nwSetup(t)
 	w12aSubnet(t, h, user)

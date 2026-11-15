@@ -769,7 +769,7 @@ func startedResult(held heldCheck) string {
 		parts = append(parts, "the started container held a forwarded address and left network "+strings.Join(held.Dropped, ", "))
 	}
 	if held.Unverified != nil {
-		parts = append(parts, unverifiedText(held.Unverified))
+		parts = append(parts, upgradeResult(errors.New(unverifiedText(held.Unverified))))
 	}
 	return strings.Join(parts, "; ")
 }

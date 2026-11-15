@@ -29,8 +29,12 @@ func w12gTask(t *testing.T, h *thHost, task core.BackgroundTask, n nm, applies *
 		if action != "npm.instance.reconcile" {
 			t.Errorf("the task applied %q, want npm.instance.reconcile", action)
 		}
-		_, err := n.instanceReconcile().Handler.Apply(ctx, env, nwJSON(t, input))
-		return core.ChangeView{}, err
+		if _, err := n.instanceReconcile().Handler.Apply(ctx, env, nwJSON(t, input)); err != nil {
+			coded := errcode.From(err)
+			return core.ChangeView{ID: change, State: core.StateFailed,
+				Error: &core.ChangeError{Code: string(coded.Code), Message: coded.Detail}}, nil
+		}
+		return core.ChangeView{ID: change, State: core.StateCompleted}, nil
 	}}
 	return task.Run(context.Background(), tc)
 }
@@ -107,6 +111,42 @@ func TestW12gReconcileReportsTheSameHitOnNPMsOwnNetworkOnce(t *testing.T) {
 	}
 	if applies != 1 {
 		t.Errorf("the same hit was applied %d times, want once", applies)
+	}
+}
+
+func TestW12gReconcileRetriesAFailureThatIsNotTheOwnNetworkHit(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		first func() (core.ChangeView, error)
+	}{
+		{"the lock was taken before the change began", func() (core.ChangeView, error) {
+			return core.ChangeView{}, errcode.New(errcode.LockHeld, "lock npm is held")
+		}},
+		{"the change failed in its handler", func() (core.ChangeView, error) {
+			return core.ChangeView{State: core.StateFailed,
+				Error: &core.ChangeError{Code: string(errcode.NPMUnhealthy), Message: "nginx could not be reloaded"}}, nil
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := w12gHit(t)
+			n := w12gNM(h)
+			task := n.reconcileTask()
+			applies := 0
+			env := h.env("r-first")
+			first := core.TaskContext{Env: env, Apply: func(context.Context, string, any) (core.ChangeView, error) {
+				applies++
+				return tc.first()
+			}}
+			if err := task.Run(context.Background(), first); err == nil {
+				t.Fatal("the failed apply returned no error to the runner")
+			}
+			if err := w12gTask(t, h, task, n, &applies); err != nil {
+				t.Fatal(err)
+			}
+			if applies != 2 {
+				t.Errorf("%d applies, want the same hit applied again after a failure that is not npm.reserved", applies)
+			}
+		})
 	}
 }
 
