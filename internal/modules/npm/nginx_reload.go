@@ -3,13 +3,9 @@ package npm
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 )
-
-// nginxReloadWait bounds one reloadNginx: the listing and the update together.
-const nginxReloadWait = 10 * time.Second
 
 // reloadNginx makes NPM test and reload nginx by sending the enabled proxy host with the lowest id back unchanged: NPM
 // regenerates that host's file, runs nginx -t and reloads nginx on every update of an enabled host, and answers
