@@ -173,7 +173,7 @@ func TestW12gReconcileRetriesAFailureThatIsNotTheOwnNetworkHit(t *testing.T) {
 		}},
 		{"the change failed with npm.reserved on a network that is not darkpanel-npm", func() (core.ChangeView, error) {
 			return core.ChangeView{State: core.StateFailed,
-				Error: &core.ChangeError{Code: string(errcode.NPMReserved), Message: "darkpanel-npm still holds a forwarded address"}}, nil
+				Error: &core.ChangeError{Code: string(errcode.NPMReserved), Message: "proxy host 1 forwards to 10.9.0.7, which darkpanel-npm holds on network appnet"}}, nil
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
