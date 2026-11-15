@@ -397,7 +397,10 @@ func (h networkAttachHandler) Apply(ctx context.Context, env core.Env, in Attach
 				if !refused(err) {
 					return "", h.lostJoin(ctx, env, name, targets, connectErr)
 				}
-				return "", connectErr
+				// A refusal with NPM on the network is a join made in between, checked as this one would be.
+				if on, inspectErr := h.npmOnNetwork(ctx, name); inspectErr != nil || !on {
+					return "", connectErr
+				}
 			}
 			if err := h.afterJoin(ctx, env, name, targets); err != nil {
 				return "", err

@@ -482,3 +482,26 @@ func TestW12gUndoOfADetachRefusesANetworkThatIsNoLongerABridge(t *testing.T) {
 		t.Error("the undo connected NPM to a network that is not a user-defined bridge")
 	}
 }
+
+// TestW12gAttachChecksANetworkNPMIsOnWhenTheConnectIsRefused: a connect refused because NPM is already on the network
+// (joined by hand in between) runs the held-address check, as the undo of a detach does, so NPM does not stay at a
+// forwarded address.
+func TestW12gAttachChecksANetworkNPMIsOnWhenTheConnectIsRefused(t *testing.T) {
+	h, user := nwSetup(t)
+	w12gHolder(t, h, user)
+	tr := newW12gTrace(h)
+	tr.hook["connect"] = func() {
+		if err := h.docker.RemoveContainer(context.Background(), "holder", dockerapi.RemoveContainerOptions{Force: true}); err != nil {
+			t.Error(err)
+		}
+	}
+	tr.lost = &dockerapi.APIError{StatusCode: 403, Message: "endpoint with name darkpanel-npm already exists in network appnet"}
+	n := h.nm()
+	n.d.docker = tr
+	n.d.resolve = w12eAnswer("203.0.113.9")
+	err := w12gAttach(t, h, n, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
+	_ = nwRefused(t, err, errcode.NPMReserved)
+	if nwEndpoint(t, h, user.ID) != nil {
+		t.Error("NPM stayed on a network where it holds a forwarded address after a refused connect")
+	}
+}
