@@ -2,7 +2,6 @@ package guard
 
 import (
 	"net/netip"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -16,9 +15,6 @@ const (
 	qaVisibleIP = "10.0.0.50"  // a client no address of this host equals
 	qaDrop6443  = "-A INPUT -p tcp -m tcp --dport 443 -j DROP"
 )
-
-// qaSpan is how a refusal names a blocked IPv6 range: its first and last address.
-var qaSpan = regexp.MustCompile(`[0-9a-f]*:[0-9a-f:]*-[0-9a-f]*:[0-9a-f:]*`)
 
 // qaLinkLocalHost is a host whose only non-loopback IPv6 addresses are link-local: eth0 and the dp-panel bridge each
 // hold one, and an IPv6 default route exists only when defaultRoute is set, as router advertisements would add it.
@@ -74,7 +70,7 @@ func TestA7_ADropOfIPv6443OnALinkLocalOnlyHostIsRefusedForAHiddenClient(t *testi
 	if !strings.Contains(msg, "exposure exp1") {
 		t.Errorf("refusal %q does not name the exposure exp1", msg)
 	}
-	if !qaSpan.MatchString(msg) {
+	if !w12eNamesIPv6Range(msg) {
 		t.Errorf("refusal %q names no blocked IPv6 range", msg)
 	}
 }

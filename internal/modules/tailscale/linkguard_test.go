@@ -325,7 +325,7 @@ func TestLgLinkGuard(t *testing.T) {
 			in: core.Guarded{Guard: &core.GuardContext{Complete: true,
 				Client: &core.Peer{Addr: netip.MustParseAddr("172.30.0.2")},
 				Via: &core.ProxyPath{ExposureID: "e1", Kind: core.ProxyKindNPM, ProxyAddr: netip.MustParseAddr("172.30.0.2"),
-					ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}}},
+					ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"), Public: lgAddrs("0.0.0.0:443")}}},
 		},
 		{
 			name: "an exposure without a listener address cannot be classified", cur: lgPrefs(nil), change: lgLogout,
@@ -525,6 +525,12 @@ func TestW12eTailnetClientOfAnExposure(t *testing.T) {
 			guarded("100.64.0.9", core.ProxyKindTunnel), true, nil},
 		{"a client whose route leaves eth0 passes", map[string]string{"100.64.0.9": "eth0", "172.30.0.2": "dp-panel"},
 			guarded("100.64.0.9", core.ProxyKindNPM), true, nil},
+		{"an NPM exposure with no public binding cannot be shown safe", map[string]string{"100.64.0.9": "tailscale0", "172.30.0.2": "dp-panel"},
+			core.Guarded{Guard: &core.GuardContext{Complete: true,
+				Client: &core.Peer{Addr: netip.MustParseAddr("100.64.0.9"), Port: 51000},
+				Via: &core.ProxyPath{ExposureID: "e1", Kind: core.ProxyKindNPM, ProxyAddr: netip.MustParseAddr("172.30.0.2"),
+					ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}}},
+			false, []string{"no public bindings"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, tsv := lgHost(t, lgWorld{controller: true, routes: tc.routes})

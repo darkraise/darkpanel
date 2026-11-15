@@ -26,7 +26,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -34,7 +33,6 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/modules/npm"
-	"github.com/darkraise/darkpanel/internal/modules/npm/npmapi"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/test/harness/vm"
 )
@@ -523,6 +521,8 @@ func TestM6NPM(t *testing.T) {
 		{"expose", true, r.expose},
 		{"headers", false, r.headers},
 		{"reload-follows-name", false, r.reloadFollowsName},
+		{"unanswered-static-forward", false, r.unansweredStaticForward},
+		{"reconcile-undoes-a-start", false, r.reconcileUndoesAStartDarkpanelDidNotMake},
 		{"expose-remove", true, r.exposeRemove},
 		{"upgrade", true, r.upgrade},
 		{"expose-remove-last", false, r.exposeRemoveLast},
@@ -983,6 +983,12 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 		t.Fatal("nginx followed the moved name before any reload, so the step cannot show what the reload does")
 	}
 
+	// The reload runs in the container as PUID:PGID, so it must leave every file of nginx's log and temp directories
+	// with the owner it had.
+	owners := func() string {
+		return m3Run(r.ctx, t, v, "sudo docker exec "+m6nNPMName+" find "+m6nNginxDirs+" -printf '%u:%g %p\\n' 2>/dev/null | sort")
+	}
+	before := owners()
 	ch, err := attach(nets[0])
 	switch {
 	case err != nil:
@@ -1003,24 +1009,22 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 	if err != nil {
 		t.Errorf("after the reload: %v", err)
 	}
+	if after := owners(); after != before {
+		t.Errorf("the reload changed the owners under %s:\nbefore %s\nafter %s", m6nNginxDirs, before, after)
+	}
 
 	m3dDocker(r.ctx, t, v, "network", "disconnect", m6nAppNet, m6nMovedName)
-	// The failure must come from the unanswered name, not another fault.
-	if out := m3Run(r.ctx, t, v, "sudo docker exec "+m6nNPMName+" nginx -t 2>&1 || true"); !strings.Contains(out, `host not found in upstream "`+m6nEchoName) {
-		t.Fatalf("nginx -t with %s unanswered printed %q, want host not found in upstream %q", m6nEchoName, out, m6nEchoName)
-	}
-	// Darkpanel's forward guard refuses a join while a forwarded name gets no
-	// definite answer, before any reload, so the reload call is made here as
-	// reloadNginx makes it.
-	if status, online, err := r.reloadCall(t); err != nil {
-		t.Errorf("the reload call with %s unanswered: %v", m6nEchoName, err)
-	} else if status < 300 && (online == nil || *online) {
-		t.Errorf("the reload call with %s unanswered answered %d with nginx_online %v, want an error or nginx_online false", m6nEchoName, status, online)
-	}
-	if ch, err := attach(nets[1]); err == nil && ch.State == core.StateCompleted {
-		t.Errorf("npm.network.attach %s with the name unanswered completed, want it refused", nets[1])
-	} else {
-		t.Logf("npm.network.attach %s with the name unanswered: %v %s %+v", nets[1], err, ch.State, ch.Error)
+	// The real attach is the proof: nginx cannot load the unanswered name, so the join is refused before NPM joins.
+	ch, err = attach(nets[1])
+	switch {
+	case err != nil:
+		t.Errorf("npm.network.attach %s with the name unanswered: %v", nets[1], err)
+	case ch.State == core.StateCompleted || ch.Error == nil:
+		t.Errorf("npm.network.attach %s with the name unanswered ended %s, want it refused", nets[1], ch.State)
+	case ch.Error.Code != "npm.forward_unresolved" && ch.Error.Code != "npm.forward_unanswered":
+		t.Errorf("npm.network.attach %s with the name unanswered refused %+v, want npm.forward_unresolved or npm.forward_unanswered", nets[1], ch.Error)
+	case !strings.Contains(ch.Error.Message, m6nEchoName):
+		t.Errorf("npm.network.attach %s refused with message %q, want it to name %s", nets[1], ch.Error.Message, m6nEchoName)
 	}
 	if members := m6nNetworkMembers(r.ctx, t, v, nets[1]); slices.Contains(members, m6nNPMName) {
 		t.Errorf("network %s holds %v after the refused attach, want it without %s", nets[1], members, m6nNPMName)
@@ -1044,80 +1048,6 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 	if err != nil {
 		t.Errorf("after the name was restored: %v", err)
 	}
-}
-
-// reloadCall sends NPM the request reloadNginx sends: the enabled proxy
-// host with the lowest id, its body members unchanged. It returns the HTTP
-// status and, on a 2xx answer, meta.nginx_online.
-func (r *m6nRun) reloadCall(t *testing.T) (status int, online *bool, err error) {
-	t.Helper()
-	var pw npm.AdminPassword
-	if err := m4Reveal(r.ctx, r.f.api, r.f.agentID, "npm.admin.reveal-password", npm.RevealInput{}, &pw); err != nil {
-		return 0, nil, err
-	}
-	login, err := json.Marshal(map[string]string{"identity": pw.Email, "secret": pw.Password})
-	if err != nil {
-		return 0, nil, err
-	}
-	out, err := r.f.agent.RunInput(r.ctx, "curl -fsS --max-time 20 -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:81/api/tokens", bytes.NewReader(login))
-	if err != nil {
-		return 0, nil, fmt.Errorf("POST /api/tokens: %w", err)
-	}
-	var tok struct{ Token string }
-	if err := json.Unmarshal([]byte(out), &tok); err != nil {
-		return 0, nil, fmt.Errorf("POST /api/tokens answered %.80q: %w", out, err)
-	}
-	if tok.Token == "" {
-		return 0, nil, errors.New("POST /api/tokens answered no token")
-	}
-	auth := m3Quote("Authorization: Bearer " + tok.Token)
-	out, err = r.f.agent.Run(r.ctx, "curl -fsS --max-time 20 -H "+auth+" http://127.0.0.1:81/api/nginx/proxy-hosts")
-	if err != nil {
-		return 0, nil, fmt.Errorf("GET /api/nginx/proxy-hosts: %w", err)
-	}
-	var hosts []npmapi.ProxyHost
-	if err := json.Unmarshal([]byte(out), &hosts); err != nil {
-		return 0, nil, fmt.Errorf("GET /api/nginx/proxy-hosts answered %.80q: %w", out, err)
-	}
-	pick := -1
-	for i, h := range hosts {
-		if bool(h.Enabled) && (pick < 0 || h.ID < hosts[pick].ID) {
-			pick = i
-		}
-	}
-	if pick < 0 {
-		return 0, nil, errors.New("NPM has no enabled proxy host")
-	}
-	h := hosts[pick]
-	body, err := json.Marshal(npmapi.ProxyHostBody{
-		DomainNames: h.DomainNames, ForwardScheme: h.ForwardScheme, ForwardHost: h.ForwardHost, ForwardPort: h.ForwardPort,
-		CertificateID: h.CertificateID, AccessListID: h.AccessListID, SSLForced: h.SSLForced, HSTSEnabled: h.HSTSEnabled,
-		AllowWebsocketUpgrade: h.AllowWebsocketUpgrade, Locations: h.Locations, AdvancedConfig: h.AdvancedConfig,
-	})
-	if err != nil {
-		return 0, nil, err
-	}
-	out, err = r.f.agent.RunInput(r.ctx, "curl -sS --max-time 30 -w '\\n%{http_code}' -X PUT -H 'Content-Type: application/json' -H "+auth+
-		" --data-binary @- http://127.0.0.1:81/api/nginx/proxy-hosts/"+strconv.Itoa(h.ID), bytes.NewReader(body))
-	if err != nil {
-		return 0, nil, fmt.Errorf("PUT proxy host %d: %w", h.ID, err)
-	}
-	out = strings.TrimSpace(out)
-	i := strings.LastIndex(out, "\n")
-	answer := out[:max(i, 0)]
-	status, err = strconv.Atoi(out[i+1:])
-	if err != nil {
-		return 0, nil, fmt.Errorf("PUT proxy host %d gave no status: %.120q", h.ID, out)
-	}
-	t.Logf("the reload call on proxy host %d answered %d: %.200s", h.ID, status, answer)
-	if status >= 300 {
-		return status, nil, nil
-	}
-	var updated npmapi.ProxyHost
-	if err := json.Unmarshal([]byte(answer), &updated); err != nil {
-		return status, nil, fmt.Errorf("PUT proxy host %d answered %.80q: %w", h.ID, answer, err)
-	}
-	return status, updated.Meta.NginxOnline, nil
 }
 
 // exposeRemove removes the first exposure by npm.expose.remove: its proxy host
@@ -1260,5 +1190,123 @@ func (r *m6nRun) logDiagnostics(t *testing.T) {
 			continue
 		}
 		t.Logf("diagnostic %s\n$ %s\n%s", d.Label, d.Command, out)
+	}
+}
+
+// m6nNginxDirs are nginx's log and temp directories in the pinned image (docs/dforge/notes/w12g-evidence.md).
+const m6nNginxDirs = "/data/logs /var/cache/nginx /tmp/nginx /run/nginx"
+
+// m6nForwardRefusal returns the refusal of action, whether its plan refused (err) or its change failed (ch.Error).
+func m6nForwardRefusal(ch Change, err error) (code, detail string) {
+	var apiErr *APIError
+	switch {
+	case errors.As(err, &apiErr):
+		return apiErr.Code, apiErr.Detail
+	case err == nil && ch.Error != nil:
+		return ch.Error.Code, ch.Error.Message
+	}
+	return "", fmt.Sprint(err)
+}
+
+// unansweredStaticForward is spec w12g D4 and D6 live: a proxy host forwards to a dotted .invalid name, which gets a
+// definite not-found once its container is gone (RFC 6761), so nginx cannot load it. An attach is refused before NPM
+// joins, and an upgrade is refused at plan, both with npm.forward_unanswered naming the name.
+func (r *m6nRun) unansweredStaticForward(t *testing.T) {
+	v := r.f.agent
+	const helper, name, domain, network, claimant = "m6n-dotted", "m6n-dotted.invalid", "dotted.m6n.example.test", "m6n-unans-1", "m6n-unans"
+	t.Cleanup(func() {
+		ch, err := m4ApplySettled(r.ctx, r.f.api, r.f.agentID, "npm.proxyhost.remove", npm.ProxyHostRemoveInput{Domain: domain})
+		if err != nil || ch.State != core.StateCompleted {
+			t.Errorf("npm.proxyhost.remove %s: %v %s %+v", domain, err, ch.State, ch.Error)
+		}
+		m3Run(r.ctx, t, v, "sudo docker rm -f "+helper+" >/dev/null 2>&1 || true")
+		m3Run(r.ctx, t, v, "sudo docker network rm "+network+" >/dev/null 2>&1 || true")
+	})
+	m3Run(r.ctx, t, v, m6nRunCmd(m6nRunSpec{
+		Name: helper, Image: npm.Image, Network: m6nAppNet, Alias: name, Entrypoint: "node", Args: []string{"-e", m6nEchoScript},
+	}))
+	m3dWaitRunning(r.ctx, t, v, helper)
+	ch, err := m4ApplySettled(r.ctx, r.f.api, r.f.agentID, "npm.proxyhost.add", npm.ProxyHostInput{
+		Domains: []string{domain}, ForwardScheme: "http", ForwardHost: name, ForwardPort: m6nEchoPort,
+	})
+	if err != nil || ch.State != core.StateCompleted {
+		t.Fatalf("npm.proxyhost.add forwarding to %s: %v %s %+v", name, err, ch.State, ch.Error)
+	}
+	m3dDocker(r.ctx, t, v, "rm", "-f", helper)
+	m3dDocker(r.ctx, t, v, "network", "create", network)
+
+	ch, err = m4ApplySettled(r.ctx, r.f.api, r.f.agentID, "npm.network.attach", npm.AttachInput{Network: network, Claimant: claimant})
+	if code, detail := m6nForwardRefusal(ch, err); code != "npm.forward_unanswered" || !strings.Contains(detail, name) {
+		t.Errorf("npm.network.attach %s with %s unanswered: %s %q (state %s), want npm.forward_unanswered naming it", network, name, code, detail, ch.State)
+	}
+	if members := m6nNetworkMembers(r.ctx, t, v, network); slices.Contains(members, m6nNPMName) {
+		t.Errorf("network %s holds %v after the refused attach, want it without %s", network, members, m6nNPMName)
+	}
+	_, err = m4Plan(r.ctx, r.f.api, r.f.agentID, "npm.instance.upgrade", npm.UpgradeInput{})
+	if code, detail := m6nForwardRefusal(Change{}, err); code != "npm.forward_unanswered" || !strings.Contains(detail, name) {
+		t.Errorf("the plan of npm.instance.upgrade with %s unanswered: %s %q, want npm.forward_unanswered naming it", name, code, detail)
+	}
+}
+
+// reconcileUndoesAStartDarkpanelDidNotMake is spec w12g A11: NPM is stopped from the CLI, given the address a proxy host
+// forwards to and started again, a start Darkpanel does not make. The reconcile task takes NPM off that network.
+func (r *m6nRun) reconcileUndoesAStartDarkpanelDidNotMake(t *testing.T) {
+	v := r.f.agent
+	const network, helper, domain, claimant = "m6n-rec", "m6n-rec-target", "rec.m6n.example.test", "m6n-rec"
+	t.Cleanup(func() {
+		m3Run(r.ctx, t, v, "sudo docker start "+m6nNPMName+" >/dev/null 2>&1 || true")
+		if ch, err := m4ApplySettled(r.ctx, r.f.api, r.f.agentID, "npm.proxyhost.remove", npm.ProxyHostRemoveInput{Domain: domain}); err != nil || ch.State != core.StateCompleted {
+			t.Errorf("npm.proxyhost.remove %s: %v %s %+v", domain, err, ch.State, ch.Error)
+		}
+		if ch, err := m4ApplySettled(r.ctx, r.f.api, r.f.agentID, "npm.network.detach", npm.DetachInput{Network: network, Claimant: claimant}); err != nil || ch.State != core.StateCompleted {
+			t.Errorf("npm.network.detach %s: %v %s %+v", network, err, ch.State, ch.Error)
+		}
+		m3Run(r.ctx, t, v, "sudo docker rm -f "+helper+" >/dev/null 2>&1 || true")
+		m3Run(r.ctx, t, v, "sudo docker network disconnect -f "+network+" "+m6nNPMName+" >/dev/null 2>&1 || true")
+		m3Run(r.ctx, t, v, "sudo docker network rm "+network+" >/dev/null 2>&1 || true")
+	})
+	// The Engine accepts --ip only on a network with a user-configured subnet.
+	m3dDocker(r.ctx, t, v, "network", "create", "--subnet", "10.77.0.0/24", network)
+	if ch, err := m4ApplySettled(r.ctx, r.f.api, r.f.agentID, "npm.network.attach", npm.AttachInput{Network: network, Claimant: claimant}); err != nil || ch.State != core.StateCompleted {
+		t.Fatalf("npm.network.attach %s: %v %s %+v", network, err, ch.State, ch.Error)
+	}
+	m3Run(r.ctx, t, v, m6nRunCmd(m6nRunSpec{
+		Name: helper, Image: npm.Image, Network: network, Entrypoint: "node", Args: []string{"-e", m6nEchoScript},
+	}))
+	m3dWaitRunning(r.ctx, t, v, helper)
+	addr := strings.TrimSpace(m3dDocker(r.ctx, t, v, "inspect", "-f", "{{(index .NetworkSettings.Networks \""+network+"\").IPAddress}}", helper))
+	if ch, err := m4ApplySettled(r.ctx, r.f.api, r.f.agentID, "npm.proxyhost.add", npm.ProxyHostInput{
+		Domains: []string{domain}, ForwardScheme: "http", ForwardHost: addr, ForwardPort: m6nEchoPort,
+	}); err != nil || ch.State != core.StateCompleted {
+		t.Fatalf("npm.proxyhost.add forwarding to %s: %v %s %+v", addr, err, ch.State, ch.Error)
+	}
+	m3dDocker(r.ctx, t, v, "stop", helper)
+	m3dDocker(r.ctx, t, v, "stop", m6nNPMName)
+	m3dDocker(r.ctx, t, v, "network", "disconnect", network, m6nNPMName)
+	m3dDocker(r.ctx, t, v, "network", "connect", "--ip", addr, network, m6nNPMName)
+	m3dDocker(r.ctx, t, v, "start", m6nNPMName)
+	// NPM's API answers up to 120 s after a start, and the pass comes up to one backoff step later.
+	err := eventually(r.ctx, 360*time.Second, func(ctx context.Context) error {
+		if members := m6nNetworkMembers(ctx, t, v, network); slices.Contains(members, m6nNPMName) {
+			return fmt.Errorf("harness: network %s still holds %s at the forwarded address %s", network, m6nNPMName, addr)
+		}
+		c, err := r.f.api.m3dLatestChange(ctx, r.f.agentID, "npm.instance.reconcile")
+		if err != nil {
+			return err
+		}
+		if c.State != string(core.StateCompleted) {
+			return fmt.Errorf("harness: change %s of npm.instance.reconcile is %s, want completed", c.ID, c.State)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Error(err)
+	}
+	err = eventually(r.ctx, 180*time.Second, func(ctx context.Context) error {
+		_, err := r.f.agent.Run(ctx, "curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:81/api/")
+		return err
+	})
+	if err != nil {
+		t.Errorf("NPM's API did not answer again after the reconcile: %v", err)
 	}
 }

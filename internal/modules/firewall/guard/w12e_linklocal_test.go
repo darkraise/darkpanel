@@ -52,6 +52,7 @@ func TestW12eNamesIPv6Range(t *testing.T) {
 		{"cut exposure exp1 hidden client from fe80::-fe80::10ed:bdff:fe67:f4d0 to [fe80::1]:443 on eth0", true},
 		{"cut exposure exp1 from 10.0.0.0-10.255.255.255 to 10.0.0.1:443 on eth0", false},
 		{"cut exposure exp1 from ab:-:cd to [fe80::1]:443", false},
+		{"cut exposure exp1 from :-: to [fe80::1]:443", false},
 		{"cut exposure exp1 from fe80::9-fe80::1 to [fe80::1]:443", false},
 		{"cut exposure exp1 from ::ffff:10.0.0.1-::ffff:10.0.0.9 to [fe80::1]:443", false},
 		{"cut exposure exp1 to [fe80::1]:443 on eth0", false},
