@@ -149,3 +149,23 @@ An `operate` caller starts `npm.instance.upgrade` and, after the check after the
 ## Register changes
 
 Rows 1, 176, 188, 190, 191, 193, 194-199 and the w12h rows stay `verify` with the closed re-review recorded; row 192 goes back to `open`; row 217 is reopened; new rows 226-236 record the low residuals both reports list (threat-model sentences, the exec reload's pending and worker witness, `joinGuard`'s order, `lostJoin` with a connect still in flight, the attach's 4xx, the undo's driver rule, the 4 MiB listing, the D7(a) disconnect, a wrong comment, a retried undo of an upgrade, and tests weaker than their names).
+
+# v1 security re-review of row 192 and the w12i rows, 2026-11-15
+
+Re-review at `main` 9a9388ab (w12i merged there) of row 192's owner acceptance and of rows 217 and 226-236, run from one shared brief (`.dforge/rereview-w12i-brief.md`, untracked) by two independent read-only reviewers: Fable (`v1-security-rereview-w12i-fable.md`, reply saved verbatim after a refused write) and Codex `gpt-6-astra` (`v1-security-rereview-w12i-codex.md`). No verdict was disputed, so no verifier ran.
+
+## Verdicts
+
+| Row | Fable | Codex | Result |
+|---|---|---|---|
+| 192 | CLOSED | CLOSED | closed: the residual is stated as the code has it and owner-accepted (`threat-model.md:300`) |
+| 217, 227, 228, 230, 231, 234 | meets | meets | closed |
+| 226 | meets, one sentence left | meets | closed; remaining wording in row 240 |
+| 236 | partly (accepted parts unchanged) | meets under its exceptions | closed under the owner's design acceptances |
+| 229, 232, 233, 235 | accurate (233: one omission) | accurate | accepted |
+
+Neither reviewer found a new defect at medium or above in the w12i changes.
+
+## New low rows 237-242
+
+The refused-connect branch adopts an outside join and skips the static-address rule (237); the undo of a detach connects by name after checking the inspected network (238); the exec reload's pending rule has no expiry and can forget a start in flight, and its master-parent rule is not yet shown live on the pinned image (239, which a harness run of `reload-follows-name` on `main` would show); threat-model wording (240); repeated failed reconcile changes while Apply's lookups fail (241); test gaps (242).
