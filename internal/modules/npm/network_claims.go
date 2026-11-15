@@ -386,7 +386,7 @@ func (h networkAttachHandler) Apply(ctx context.Context, env core.Env, in Attach
 		if err := h.reloadBeforeJoin(ctx, env, name); err != nil {
 			return Attachment{}, err
 		}
-		targets, err := h.joinGuard(ctx, env, ck.network.ID, in.Address)
+		targets, _, err := h.joinGuard(ctx, env, ck.network.ID, in.Address)
 		if err != nil {
 			return Attachment{}, err
 		}
@@ -797,8 +797,9 @@ func (c networkClaims) networkUndoConnect(ctx context.Context, env core.Env, e c
 }
 
 // networkUndoDisconnect reconnects NPM to the network e left. The Engine assigns the address; a static address the
-// endpoint had is not restored. It joins as the attach does: nginx is reloaded, the network and the forward targets are
-// read again and the reconnect is refused while a proxy host forwards to an address the Engine could pick there; after
+// endpoint had is not restored. It joins as the attach does: nginx is reloaded, the forward targets and then the network
+// are read again, the reconnect is refused while a proxy host forwards to an address the Engine could pick there, and the
+// connect names the id that read returned; after
 // the connect the address NPM took is checked before any lookup or reload. NPM already on the network, found first or
 // after a refused reconnect, is an earlier run whose answer was lost: with no claim on the network the address it holds
 // is checked as after a join before the undo answers done; a network with a claim is left as it is.
@@ -828,11 +829,11 @@ func (c networkClaims) networkUndoDisconnect(ctx context.Context, env core.Env, 
 	if err := c.reloadBeforeJoin(ctx, env, network); err != nil {
 		return core.InverseResult{}, err
 	}
-	targets, err := c.joinGuard(ctx, env, network, netip.Addr{})
+	targets, id, err := c.joinGuard(ctx, env, network, netip.Addr{})
 	if err != nil {
 		return core.InverseResult{}, err
 	}
-	err = c.n.d.docker.ConnectNetwork(ctx, network, containerName, nil)
+	err = c.n.d.docker.ConnectNetwork(ctx, id, containerName, nil)
 	switch {
 	case err == nil:
 	case refused(err):
@@ -885,28 +886,30 @@ func (c networkClaims) reloadBeforeJoin(ctx context.Context, env core.Env, netwo
 
 // joinGuard reads the forward targets and then network again, after the reload before a join, so no listing or lookup
 // sits between the network's read and the connect, and refuses a network that is not a user-defined bridge and a
-// target NPM could take there (forwardTaken). It returns the targets for afterJoin. Every failure is Definite.
-func (c networkClaims) joinGuard(ctx context.Context, env core.Env, network string, static netip.Addr) ([]forwardTarget, error) {
+// target NPM could take there (forwardTaken). It returns the targets for afterJoin and the id of the network it read,
+// which the connect names so a network created again under the same name after the read is not joined. Every failure
+// is Definite.
+func (c networkClaims) joinGuard(ctx context.Context, env core.Env, network string, static netip.Addr) ([]forwardTarget, string, error) {
 	targets, err := c.n.forwardTargets(ctx, env)
 	if err != nil {
-		return nil, core.Definite(err)
+		return nil, "", core.Definite(err)
 	}
 	nw, err := c.n.d.docker.InspectNetwork(ctx, network)
 	if err != nil {
-		return nil, networkEngine("inspect network "+network, err)
+		return nil, "", networkEngine("inspect network "+network, err)
 	}
 	endpoint := map[string]proxy.Endpoint{nw.Name: {Driver: nw.Driver, UserDefined: networkUserDefined(nw.Name)}}
 	if err := proxy.Target(endpoint, nw.Name); err != nil {
-		return nil, core.Definite(err)
+		return nil, "", core.Definite(err)
 	}
 	var statics []netip.Addr
 	if static.IsValid() {
 		statics = []netip.Addr{static}
 	}
 	if err := forwardTaken(targets, nw, statics); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return targets, nil
+	return targets, nw.ID, nil
 }
 
 // afterJoin checks the address NPM holds on network, first against targets, read before the join, with no listing or

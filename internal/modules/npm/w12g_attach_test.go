@@ -25,6 +25,7 @@ type w12gTrace struct {
 	hook   map[string]func()
 	strip  string
 	lost   error
+	joined []string
 }
 
 func newW12gTrace(h *thHost) *w12gTrace {
@@ -53,6 +54,9 @@ func (d *w12gTrace) ConnectNetwork(ctx context.Context, network, container strin
 		f()
 	}
 	d.rec("connect")
+	d.mu.Lock()
+	d.joined = append(d.joined, network)
+	d.mu.Unlock()
 	err := d.thDocker.ConnectNetwork(ctx, network, container, ep)
 	if err == nil && d.lost != nil {
 		return d.lost
@@ -67,6 +71,11 @@ func (d *w12gTrace) InspectContainer(ctx context.Context, id string) (dockerapi.
 	}
 	d.rec("inspect:" + id)
 	return c, err
+}
+
+func (d *w12gTrace) InspectNetwork(ctx context.Context, id string) (dockerapi.Network, error) {
+	d.rec("inspect-network")
+	return d.thDocker.InspectNetwork(ctx, id)
 }
 
 func (d *w12gTrace) DisconnectNetwork(ctx context.Context, network, container string, force bool) error {
@@ -543,5 +552,47 @@ func TestW12gAttachChecksANetworkNPMIsOnWhenTheConnectIsRefused(t *testing.T) {
 	_ = nwRefused(t, err, errcode.NPMReserved)
 	if nwEndpoint(t, h, user.ID) != nil {
 		t.Error("NPM stayed on a network where it holds a forwarded address after a refused connect")
+	}
+}
+
+// TestW12gUndoOfADetachConnectsByTheInspectedID: the undo reads the forward targets, then the network, then connects by
+// the id it read, so a network removed and created again under the same name after that read is not joined.
+func TestW12gUndoOfADetachConnectsByTheInspectedID(t *testing.T) {
+	h, user := nwSetup(t)
+	endpoint := w12gUndoEffect(t, h, user)
+	w12aSeed(h, "up.invalid", 3000)
+	tr := newW12gTrace(h)
+	n := h.nm()
+	n.d.docker = tr
+	n.d.resolve = func(context.Context, string) ([]netip.Addr, error) {
+		tr.rec("resolve")
+		return []netip.Addr{netip.MustParseAddr("203.0.113.9")}, nil
+	}
+	if _, err := n.networkDetach().Handler.Inverse(context.Background(), h.env("u1"), endpoint); err != nil {
+		t.Fatal(err)
+	}
+	ci := tr.index("connect")
+	if ci < 0 {
+		t.Fatalf("events %v: the undo did not connect", tr.events)
+	}
+	last := -1
+	for i, e := range tr.events[:ci] {
+		if e == "inspect-network" {
+			last = i
+		}
+	}
+	if last < 0 {
+		t.Fatalf("events %v: no network read before the connect", tr.events)
+	}
+	for _, e := range tr.events[last+1 : ci] {
+		if e == "resolve" {
+			t.Errorf("events %v: a lookup sits between the network read and the connect", tr.events)
+		}
+	}
+	if tr.counts[last] != tr.counts[ci] {
+		t.Errorf("NPM got %d requests at the network read and %d at the connect; a listing sits in between", tr.counts[last], tr.counts[ci])
+	}
+	if len(tr.joined) != 1 || tr.joined[0] != user.ID {
+		t.Errorf("the undo connected to %v, want the inspected id %s", tr.joined, user.ID)
 	}
 }
