@@ -979,3 +979,228 @@ func TestA11_APassDoesNothingWhileNoInstanceNPMStoppedOrTheLockHeld(t *testing.T
 		}
 	})
 }
+
+const sqUnansweredLoc = "location /x of proxy host 1 forwards to gone.invalid, which has no answer"
+
+func sqSeedUnansweredLocation(h *thHost) {
+	w12aSeed(h, "app.example.net", 8080, npmapi.Location{Path: "/x", ForwardScheme: "http", ForwardHost: "gone.invalid", ForwardPort: 80})
+}
+
+func sqWantUnanswered(t *testing.T, err error, what string) {
+	t.Helper()
+	coded := sqWantCode(t, err, errcode.NPMForwardUnanswered)
+	if !core.IsDefinite(err) {
+		t.Errorf("%s: error %v is not Definite", what, err)
+	}
+	if coded.Code.Status() != http.StatusConflict {
+		t.Errorf("%s: status %d, want 409", what, coded.Code.Status())
+	}
+	for _, part := range []string{"/x", "gone.invalid"} {
+		if !strings.Contains(coded.Detail, part) {
+			t.Errorf("%s: detail %q does not name %q", what, coded.Detail, part)
+		}
+	}
+}
+
+func TestA12_UpgradeRefusesAnUnansweredCustomLocation(t *testing.T) {
+	ctx := context.Background()
+	t.Run("plan and apply before the pull", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		sqSeedUnansweredLocation(s.h)
+		s.n.d.resolve = sqNoAnswer
+		_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
+		sqWantUnanswered(t, err, "plan")
+		_, err = s.apply()
+		sqWantUnanswered(t, err, "apply")
+		if len(s.effects()) != 0 || s.dock.counts["StopContainer"] != 0 || s.dock.counts["PullImage"] != 0 || len(s.dock.created) != 0 {
+			t.Error("the refused upgrade journaled an effect, pulled, stopped NPM or created a container")
+		}
+	})
+	t.Run("apply after the pull", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		sqSeedUnansweredLocation(s.h)
+		answering := true
+		s.n.d.resolve = func(c context.Context, h string) ([]netip.Addr, error) {
+			if answering {
+				return []netip.Addr{netip.MustParseAddr("203.0.113.9")}, nil
+			}
+			return sqNoAnswer(c, h)
+		}
+		s.dock.missing[Image] = true
+		s.dock.trace = func(c string) {
+			if c == "PullImage" {
+				answering = false
+				s.dock.missing[Image] = false
+			}
+		}
+		_, err := s.apply()
+		sqWantUnanswered(t, err, "apply after the pull")
+		if s.dock.counts["PullImage"] == 0 {
+			t.Error("the upgrade did not pull, so the check after the pull was not exercised")
+		}
+		if len(s.effects()) != 0 || s.dock.counts["StopContainer"] != 0 {
+			t.Error("the refused upgrade journaled an effect or stopped NPM")
+		}
+	})
+	t.Run("undo of a finished upgrade", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, w12eAppNet(), nil)
+		sqSeedUnansweredLocation(f.h)
+		f.n.d.resolve = sqNoAnswer
+		mark := f.mark()
+		err := f.inverse(urResource)
+		sqWantUnanswered(t, err, "undo")
+		if urCalled(f.callsSince(mark), "StopContainer") || urCalled(f.callsSince(mark), "RemoveContainer") {
+			t.Error("the refused undo stopped or removed NPM")
+		}
+	})
+	t.Run("a default forward host with no answer does not refuse", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		w12aSeed(s.h, "gone.invalid", 8080)
+		s.n.d.resolve = sqNoAnswer
+		if _, err := s.apply(); err != nil {
+			t.Fatalf("an unanswered default forward host refused the upgrade: %v", err)
+		}
+	})
+	t.Run("an unanswered location leaves the join guard's targets unchanged", func(t *testing.T) {
+		h, _ := nwSetup(t)
+		w12aSubnet(t, h, dockerapi.Network{})
+		sqSeedUnansweredLocation(h)
+		w12aSeed(h, "10.9.0.50", 3000)
+		n := h.nm()
+		n.d.resolve = sqNoAnswer
+		targets, err := n.forwardTargets(context.Background(), h.env(""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(targets) != 1 || targets[0].addr != netip.MustParseAddr("10.9.0.50") {
+			t.Errorf("targets %+v, want only the literal 10.9.0.50", targets)
+		}
+	})
+}
+
+func TestA13_DisabledProxyHostsAreIgnoredAndEnabledOnesAreChecked(t *testing.T) {
+	in := AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}
+	t.Run("the join guard and the held-address check", func(t *testing.T) {
+		w := sqNewWorld(t, sqAnswers("203.0.113.9"))
+		w12aSeed(w.h, sqHeld, 3000)
+		w.h.docker.pin(nwNet, netip.MustParseAddr(sqHeld))
+		w.h.npm.DisableProxyHost(1)
+		if err := w.attach(t, in); err != nil {
+			t.Fatalf("a disabled proxy host refused the attach: %v", err)
+		}
+		if ep := nwEndpoint(t, w.h, w.user.ID); ep == nil || ep.IPAddress != netip.MustParseAddr(sqHeld) {
+			t.Errorf("endpoint %+v, want NPM on the network at %s", ep, sqHeld)
+		}
+		w2 := sqNewWorld(t, sqAnswers("203.0.113.9"))
+		w12aSeed(w2.h, sqHeld, 3000)
+		w2.h.docker.pin(nwNet, netip.MustParseAddr(sqHeld))
+		qaErr := w2.attach(t, in)
+		sqWantCode(t, qaErr, errcode.NPMReserved)
+	})
+	t.Run("a reconcile pass after an administrator enables the host", func(t *testing.T) {
+		h, user := sqHit(t)
+		w12aSeed(h, sqHeld, 3000)
+		h.npm.DisableProxyHost(1)
+		n := h.nm()
+		n.d.resolve = sqNoAnswer
+		task := n.reconcileTask()
+		applies := 0
+		if err := sqPass(t, h, n, task, &applies); err != nil || applies != 0 || nwEndpoint(t, h, user.ID) == nil {
+			t.Fatalf("a pass with only a disabled host applied %d times (error %v) or took NPM off", applies, err)
+		}
+		w12aSeed(h, sqHeld, 3001)
+		if err := sqPass(t, h, n, task, &applies); err != nil || applies != 1 || nwEndpoint(t, h, user.ID) != nil {
+			t.Errorf("after a host was enabled the pass applied %d times (error %v) and NPM is on the network: %v", applies, err, nwEndpoint(t, h, user.ID) != nil)
+		}
+	})
+	t.Run("the upgrade checks", func(t *testing.T) {
+		s := w12aUpSetup(t)
+		sqSeedUnansweredLocation(s.h)
+		s.h.npm.DisableProxyHost(1)
+		s.n.d.resolve = sqNoAnswer
+		if _, err := s.apply(); err != nil {
+			t.Errorf("a disabled host's unanswered location refused the upgrade: %v", err)
+		}
+		s2 := w12aUpSetup(t)
+		w12aSeed(s2.h, "172.20.0.9", 3000)
+		s2.h.npm.DisableProxyHost(1)
+		if _, err := s2.apply(); err != nil {
+			t.Errorf("a disabled host's forward to an address NPM could take refused the upgrade: %v", err)
+		}
+	})
+	t.Run("Darkpanel can neither send nor call an enabled member", func(t *testing.T) {
+		if _, ok := reflect.TypeOf(npmapi.ProxyHostBody{}).FieldByName("Enabled"); ok {
+			t.Error("ProxyHostBody has an Enabled member")
+		}
+		raw, err := json.Marshal(npmapi.ProxyHostBody{})
+		if err != nil || strings.Contains(string(raw), `"enabled"`) {
+			t.Errorf("body %s (%v) holds an enabled member", raw, err)
+		}
+		api := reflect.TypeOf((*npmAPI)(nil)).Elem()
+		for i := range api.NumMethod() {
+			if strings.Contains(strings.ToLower(api.Method(i).Name), "enable") {
+				t.Errorf("npmAPI has %s", api.Method(i).Name)
+			}
+		}
+	})
+}
+
+type sqSlowEngine struct{ *thDocker }
+
+func (d sqSlowEngine) InspectContainer(ctx context.Context, id string) (dockerapi.ContainerJSON, error) {
+	if id == containerName {
+		<-ctx.Done()
+		return dockerapi.ContainerJSON{}, ctx.Err()
+	}
+	return d.thDocker.InspectContainer(ctx, id)
+}
+
+func TestA14_AnUnresolvableForwardNameRefusesAsUnresolved(t *testing.T) {
+	temporary := func(_ context.Context, host string) ([]netip.Addr, error) {
+		return nil, &net.DNSError{Err: "server misbehaving", Name: host, IsTemporary: true}
+	}
+	in := AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}
+	t.Run("a proxy host", func(t *testing.T) {
+		w := sqNewWorld(t, temporary)
+		w12aSeed(w.h, "db.internal", 5432)
+		err := w.attach(t, in)
+		coded := sqWantCode(t, err, errcode.NPMForwardUnresolved)
+		if coded.Code.Status() != http.StatusConflict {
+			t.Errorf("status %d, want 409", coded.Code.Status())
+		}
+		for _, part := range []string{"proxy host 1", "db.internal", "stopped or removed container"} {
+			if !strings.Contains(coded.Detail, part) {
+				t.Errorf("detail %q does not hold %q", coded.Detail, part)
+			}
+		}
+	})
+	t.Run("a custom location", func(t *testing.T) {
+		w := sqNewWorld(t, temporary)
+		w12aSeed(w.h, "10.9.0.50", 80, npmapi.Location{Path: "/api", ForwardScheme: "http", ForwardHost: "db.internal", ForwardPort: 80})
+		coded := sqWantCode(t, w.attach(t, in), errcode.NPMForwardUnresolved)
+		for _, part := range []string{"location /api", "proxy host 1", "db.internal", "stopped or removed container"} {
+			if !strings.Contains(coded.Detail, part) {
+				t.Errorf("detail %q does not hold %q", coded.Detail, part)
+			}
+		}
+	})
+	t.Run("Docker's names read too late", func(t *testing.T) {
+		h, _ := nwSetup(t)
+		w12aSeed(h, "db.internal", 5432)
+		n := h.nm()
+		n.d.docker = sqSlowEngine{h.docker}
+		n.d.resolve = sqNoAnswer
+		_, err := n.forwardTargets(context.Background(), h.env(""))
+		coded := sqWantCode(t, err, errcode.NPMForwardUnresolved)
+		if !strings.Contains(strings.ToLower(coded.Detail), "retry") {
+			t.Errorf("detail %q does not say to retry", coded.Detail)
+		}
+		for _, part := range []string{"proxy host", "db.internal"} {
+			if strings.Contains(coded.Detail, part) {
+				t.Errorf("detail %q names %q, want no host", coded.Detail, part)
+			}
+		}
+	})
+}
