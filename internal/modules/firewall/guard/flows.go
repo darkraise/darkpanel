@@ -281,7 +281,7 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 		proxy.InIface = panelBridge
 		s.add(flow{label: label + " proxy", pkt: proxy})
 		switch v.Kind {
-		case "npm":
+		case core.ProxyKindNPM:
 			if len(v.Public) == 0 {
 				s.add(flow{label: label + " public", unknown: "the exposure has no public bindings"})
 			}
@@ -289,7 +289,7 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 				npmPublicFlows(s, label+" public", false, v, pub, local)
 			}
 			npmClientFlows(s, label, g.Client, v, local)
-		case "tunnel":
+		case core.ProxyKindTunnel:
 			for _, out := range []struct {
 				proto string
 				port  uint16
@@ -314,7 +314,7 @@ func viaFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, local map
 func relayFlows(s *flowSet, ctxs []*core.GuardContext, retired []string, f facts) {
 	for _, g := range ctxs {
 		v := g.Via
-		if v == nil || v.Kind != "npm" || slices.Contains(retired, v.ExposureID) {
+		if v == nil || v.Kind != core.ProxyKindNPM || slices.Contains(retired, v.ExposureID) {
 			continue
 		}
 		label := "exposure " + v.ExposureID + " IPv6 relay"

@@ -41,8 +41,14 @@ type Peer struct {
 // ProxyPath is the exposure a request came through.
 type ProxyPath struct {
 	ExposureID   string           `json:"exposureId"`   // the panel exposure; what a retirement names
-	Kind         string           `json:"kind"`         // npm | tunnel
+	Kind         string           `json:"kind"`         // ProxyKindNPM | ProxyKindTunnel
 	ProxyAddr    netip.Addr       `json:"proxyAddr"`    // the proxy container's address on the panel network
 	ListenerAddr netip.AddrPort   `json:"listenerAddr"` // the runtime listener
 	Public       []netip.AddrPort `json:"public"`
 }
+
+// The kinds of ProxyPath.Kind.
+const (
+	ProxyKindNPM    = "npm"
+	ProxyKindTunnel = "tunnel"
+)

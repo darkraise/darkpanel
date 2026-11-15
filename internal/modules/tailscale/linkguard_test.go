@@ -499,14 +499,13 @@ func TestLgCurrentLinkPrefsReportsAFailedRead(t *testing.T) {
 // TestW12eTailnetClientOfAnExposure: the client of an NPM exposure gets a flow to each public binding, so a change that
 // takes the Tailscale link down is refused for a tailnet client; a host-address client and a tunnel's client add none.
 func TestW12eTailnetClientOfAnExposure(t *testing.T) {
-	via := func(kind string) *core.ProxyPath {
-		return &core.ProxyPath{ExposureID: "e1", Kind: kind, ProxyAddr: netip.MustParseAddr("172.30.0.2"),
-			ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"), Public: lgAddrs("0.0.0.0:443")}
-	}
-	guarded := func(client, kind string) core.Guarded {
+	guardedOn := func(client, kind, public string) core.Guarded {
 		return core.Guarded{Guard: &core.GuardContext{Complete: true,
-			Client: &core.Peer{Addr: netip.MustParseAddr(client), Port: 51000}, Via: via(kind)}}
+			Client: &core.Peer{Addr: netip.MustParseAddr(client), Port: 51000},
+			Via: &core.ProxyPath{ExposureID: "e1", Kind: kind, ProxyAddr: netip.MustParseAddr("172.30.0.2"),
+				ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080"), Public: lgAddrs(public)}}}
 	}
+	guarded := func(client, kind string) core.Guarded { return guardedOn(client, kind, "0.0.0.0:443") }
 	for _, tc := range []struct {
 		name   string
 		routes map[string]string
@@ -516,6 +515,10 @@ func TestW12eTailnetClientOfAnExposure(t *testing.T) {
 	}{
 		{"a tailnet client of an NPM exposure fails a logout", map[string]string{"100.64.0.9": "tailscale0", "172.30.0.2": "dp-panel"},
 			guarded("100.64.0.9", "npm"), false, []string{"panel", "100.64.0.9"}},
+		{"an IPv4 tailnet client of NPM's published [::]:443 fails a logout", map[string]string{"100.64.0.9": "tailscale0", "172.30.0.2": "dp-panel"},
+			guardedOn("100.64.0.9", "npm", "[::]:443"), false, []string{"panel", "100.64.0.9"}},
+		{"an IPv6 tailnet client of NPM's published [::]:443 fails a logout", map[string]string{"fd7a:115c:a1e0::9": "tailscale0", "172.30.0.2": "dp-panel"},
+			guardedOn("fd7a:115c:a1e0::9", "npm", "[::]:443"), false, []string{"panel", "fd7a:115c:a1e0::9"}},
 		{"a host-address client of an NPM exposure adds no flow", map[string]string{"172.30.0.2": "dp-panel"},
 			guarded("172.30.0.1", "npm"), true, nil},
 		{"a tailnet client of a tunnel exposure adds no flow", map[string]string{"100.64.0.9": "tailscale0", "172.30.0.2": "dp-panel"},

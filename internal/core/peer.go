@@ -22,7 +22,7 @@ func ClientPeer(ctx context.Context) (Peer, bool) {
 
 // Proxied describes a request that reached the controller through a
 // runtime listener (1.10). Path.ExposureID is the listener's
-// ListenerSpec.ChangeID, Path.Kind is "npm" for ClientHeaderNPM and "tunnel"
+// ListenerSpec.ChangeID, Path.Kind is ProxyKindNPM for ClientHeaderNPM and ProxyKindTunnel
 // for ClientHeaderTunnel, Path.ProxyAddr is the allowed peer and
 // Path.ListenerAddr the listener's address; Path.Public is left empty.
 type Proxied struct {

@@ -23,9 +23,9 @@ const forwardedProtoHeader = "X-Forwarded-Proto"
 // reads exactly the one client header its proxy sets and overwrites;
 // X-Forwarded-For and X-Real-IP come from the client and are never read.
 func (s *Server) RuntimeHandler(info core.ListenerInfo, revoked <-chan struct{}, isRevoked func(ctx context.Context) (bool, error)) http.Handler {
-	kind := "npm"
+	kind := core.ProxyKindNPM
 	if info.Spec.ClientHeader == core.ClientHeaderTunnel {
-		kind = "tunnel"
+		kind = core.ProxyKindTunnel
 	}
 	path := core.ProxyPath{ExposureID: info.Spec.ChangeID, Kind: kind, ProxyAddr: info.Spec.AllowedPeer, ListenerAddr: info.Spec.Addr}
 	if info.Spec.PublicBinding.IsValid() {
