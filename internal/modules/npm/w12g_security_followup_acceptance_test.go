@@ -706,23 +706,11 @@ func sqHit(t *testing.T) (*thHost, dockerapi.Network) {
 	return h, user
 }
 
-var sqPassIDs atomic.Int32
-
-// sqPass runs one pass of the reconcile task; Apply runs the action's handler as the engine would and counts calls.
+// sqPass runs one pass of the reconcile task; Apply runs the action's Apply and then Verify as the engine would,
+// reports a failure through the change view and counts the calls.
 func sqPass(t *testing.T, h *thHost, n nm, task core.BackgroundTask, applies *int) error {
 	t.Helper()
-	id := "p" + strconv.Itoa(int(sqPassIDs.Add(1)))
-	h.addChange(id, "npm.instance.reconcile")
-	env := h.env(id)
-	tc := core.TaskContext{Env: env, Apply: func(ctx context.Context, action string, input any) (core.ChangeView, error) {
-		*applies++
-		if action != "npm.instance.reconcile" {
-			t.Errorf("the pass applied %q", action)
-		}
-		_, err := n.instanceReconcile().Handler.Apply(ctx, env, nwJSON(t, input))
-		return core.ChangeView{}, err
-	}}
-	return task.Run(context.Background(), tc)
+	return w12gTask(t, h, task, n, applies)
 }
 
 func TestA9_ReconcileTaskDeclaration(t *testing.T) {

@@ -22,7 +22,7 @@ var w12gChanges atomic.Int32
 // would, and counts the calls.
 func w12gTask(t *testing.T, h *thHost, task core.BackgroundTask, n nm, applies *int) error {
 	t.Helper()
-	change := fmt.Sprintf("r%d", w12gChanges.Add(1))
+	change := fmt.Sprintf("pass-%d", w12gChanges.Add(1))
 	h.addChange(change, "npm.instance.reconcile")
 	env := h.env(change)
 	tc := core.TaskContext{Env: env, Apply: func(ctx context.Context, action string, input any) (core.ChangeView, error) {
