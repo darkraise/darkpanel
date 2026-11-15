@@ -115,3 +115,37 @@ The attach window (both reviewers; Fable medium, Codex high; verifier: confirmed
 ## Register changes
 
 Rows 6, 142, 177, 178 and 179 stay `verify` with the closed re-review recorded; rows 1 and 176 go back to `open`; row 188 is re-graded medium; new rows 190-199 record the residuals above.
+
+# v1 security re-review of rows 1, 176, 188 and 190-199 after w12g and w12h, 2026-11-15
+
+Re-review at `main` af933cf5 (w12g merged at 8d6fa72, completion ff4d54b9; w12h at af933cf5) of the rows whose Acceptance requires it, plus the nine w12h rows, run from one shared brief (`.dforge/rereview-w12g-brief.md`, untracked) by two independent read-only reviewers, with a verifier for the disputed item and the one PARTIAL residual:
+
+- Fable (`dforge:judge-fable`): `v1-security-rereview-w12g-fable.md` (its report-file write was refused; the reply is saved verbatim)
+- Codex `gpt-6-astra`: `v1-security-rereview-w12g-codex.md`
+- Verifier (`dforge:judge-opus`, read-only, against the code): `v1-security-rereview-w12g-verifier.md` (reply saved verbatim)
+
+## Verdicts
+
+| Row | Severity | Fable | Codex | Verifier | Result |
+|---|---|---|---|---|---|
+| 1 | high | CLOSED | PARTIAL (reconcile memory, medium) | reconcile memory low: CLOSED | closed |
+| 176 | high | CLOSED | PARTIAL (same) | CLOSED | closed |
+| 188 | medium | CLOSED | CLOSED | - | closed |
+| 190 | medium | CLOSED | CLOSED | - | closed (interval owner-accepted, U2) |
+| 191 | medium | CLOSED | PARTIAL (same) | CLOSED | closed (limits owner-accepted, U3) |
+| 192 | medium | PARTIAL | PARTIAL | PARTIAL, medium, not owner-accepted | open |
+| 193 | medium | CLOSED | CLOSED | - | closed |
+
+Rows 194-199 and the w12h rows 202-207, 209, 216 and 218: both reviewers found each change present and meeting its row.
+
+## The disputed item: the reconcile memory (row 217 reopened)
+
+`npm.reconcile` remembers a hit key on any `npm.reserved` failure (`reconcile.go:285-290`). When Apply finds no name hit (its lookups failed, so only literals were compared, or the name answered differently) and Verify finds it, the change fails `npm.reserved` and later passes skip the same hit on an external network until the hit set changes, a pass sees no hit or the agent restarts. The chain is confirmed by all three. Codex graded it medium on a Docker-alias framing; the verifier shows a Docker name cannot produce a name hit (`proxyhost_add.go:342` leaves NPM out of the members), so it needs a name the host resolver answers, the DNS risk D10 accepts, and such a caller gets the same lasting exposure by pointing the name at NPM's `darkpanel-npm` address, which reconcile never leaves by design. Low; D3 limits the memory to `darkpanel-npm` hits, so the code should too. The premise of the 2026-11-15 n/a ruling of row 217 (a different key next pass) is wrong for an identical key.
+
+## The residual that keeps row 192 PARTIAL
+
+An `operate` caller starts `npm.instance.upgrade` and, after the check after the pull (`instance_upgrade.go:256`), stops or disconnects the container a custom location's name forwards to (`docker` lock only; the upgrade holds `npm`). Nothing reads unanswered names again: `verifyHeld` treats a name with a definite not-found as holding nothing, and the rollback restores the same configuration and starts it with no unanswered check or nginx health check. The new container's and the restored original's nginx cannot load the location (inference), so every proxied site, the panel exposure included, stays down until the name answers. The undo of a finished upgrade has the same window (`upgrade_recover.go:40-43`), with no second rollback after it. A custom location forwarding to a DNS name the caller controls does the same with no docker action. Medium (availability), not owner-accepted: `threat-model.md:300` promises the up-front refusal. It closes by a fix (an unanswered check, or an nginx health check, after the start and before the rollback's start) or a recorded owner acceptance.
+
+## Register changes
+
+Rows 1, 176, 188, 190, 191, 193, 194-199 and the w12h rows stay `verify` with the closed re-review recorded; row 192 goes back to `open`; row 217 is reopened; new rows 226-236 record the low residuals both reports list (threat-model sentences, the exec reload's pending and worker witness, `joinGuard`'s order, `lostJoin` with a connect still in flight, the attach's 4xx, the undo's driver rule, the 4 MiB listing, the D7(a) disconnect, a wrong comment, a retried undo of an upgrade, and tests weaker than their names).
