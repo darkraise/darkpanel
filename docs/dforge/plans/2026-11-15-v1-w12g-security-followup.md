@@ -61,7 +61,7 @@
 - **Reload in the module (Task 5, consumed by Tasks 6-7).** `deps` gains `reload func(ctx context.Context) error`, built in `productionNM` as `newNginxReloader(client).Reload`; `func (n nm) reloadNginx(ctx context.Context) error` calls it. The old `reloadNginx(ctx, env) (bool, error)` and its listing and update are deleted. Test hook: `thHost` gains `nginx *thNginx` with `reloads int`, `fail(err error)` (the next reload returns err once), `onReload func()` (called at the start of each reload), set as `deps.reload` by `thHost.nm()`.
 - **Codes (Task 4).** In `internal/core/errcode/errcode.go`: `NPMForwardUnanswered Code = "npm.forward_unanswered"`, status 409, title `Forward host has no answer`; `NPMForwardUnresolved Code = "npm.forward_unresolved"`, status 409, title `Forward host could not be resolved`.
 - **Guard side (Task 4, consumed by Tasks 5-7).** `forwardTargets` skips every proxy host whose `Enabled` is false. `type unansweredForward struct{ Where, Host string }` and `func (n nm) unansweredForwards(ctx context.Context, env core.Env) ([]unansweredForward, error)`: for every enabled proxy host, each custom location whose forward host, cut at its first `/`, is neither empty, nor holds `$`, nor is a literal address, and gets a definite not-found from `forwardAnswers`' sources, in proxy host order. `Where` is `location <path> of proxy host <id>`. `func unansweredDetail(us []unansweredForward) string` joins them as `<where> forwards to <host>, which has no answer` with `; ` between. The unresolved-name refusals (`forwardAnswers`) carry `NPMForwardUnresolved` and the detail `<where> forwards to <host>, which could not be resolved: the resolver did not answer; a stopped or removed container's name is a usual cause` (the Docker-names timeout keeps its `retry` text and no host).
-- **Refusal of a failed reload (Task 5, consumed by Task 7).** `func (n nm) reloadRefusal(ctx context.Context, env core.Env, err error, where string) error`: for `errNginxTest`, `NPMForwardUnanswered` with `unansweredDetail` when the list is not empty (the listing is best effort; a failed listing falls through), else `NPMReserved` with `nginx could not be reloaded <where>: nginx's configuration test failed`; for any other error `NPMUnhealthy` with `nginx could not be reloaded <where>: <err>`. `where` is `before darkpanel-npm joins network <net>` or `after darkpanel-npm joined network <net>`. Both are `core.Definite` before a join; after a join the caller adds `; it was disconnected again`.
+- **Refusal of a failed reload (Task 5).** `func (n nm) reloadRefusal(ctx context.Context, env core.Env, err error, where string) error`: for `errNginxTest`, `NPMForwardUnanswered` with `unansweredDetail` when the list is not empty (the listing is best effort; a failed listing falls through), else `NPMReserved` with `nginx could not be reloaded <where>: nginx's configuration test failed`; for any other error `NPMUnhealthy` with `nginx could not be reloaded <where>: <err>`. `where` is `before darkpanel-npm joins network <net>` or `after darkpanel-npm joined network <net>`. Both are `core.Definite` before a join; after a join the caller adds `; it was disconnected again`.
 - **Reconcile (Tasks 7 and 8).** New file `internal/modules/npm/reconcile.go`. Action `npm.instance.reconcile`: class compensable, `ForwardOnly`, `Converges`, side agent, `MinScope` admin, `LockKeys` `["npm"]`, `ApplyTimeout` 45 s, empty input `ReconcileInput struct{}`, output `Reconciled struct{ Dropped []DroppedNetwork }` with `DroppedNetwork struct{ Network string; Address string; Claimants []string }`. Task `npm.reconcile` (`reconcileID`), `Every` 5 minutes (`reconcileEvery`), `LockKeys` `["npm"]`, `Watch` waking on a container `start` event of `darkpanel-npm` and a network `connect` event whose `Actor.Attributes["container"]` is its id or name. `dockerAPI` gains `Events(ctx context.Context, o dockerapi.EventsOptions) (dockerEvents, error)` with `type dockerEvents interface{ Next() (dockerapi.Event, error); Close() error }`, as the firewall declares them.
 
 ## Assumptions (evidence)
@@ -73,9 +73,14 @@
 - `lifecycle.ApplySystem` refuses an irreversible action from a background task (`internal/core/lifecycle/system.go:28-30`), so `npm.instance.reconcile` is declared as `panel.listener.revoke` is (`internal/modules/panel/listener_revoke.go:19-25`).
 - `firewall.reconcile` is the model of a task with a timer and a Docker-events watch (`internal/modules/firewall/reconcile.go:17-34,162-183`), and the runner skips a pass while the keys are held (`internal/agent/runtime/background.go:202-206`).
 - `forwardTargets`, `forwardAnswers`, `forwardGuard`, `forwardTaken`, `verifyHeld`, `dropNetwork` and `afterJoin` are at the lines the spec names (read 2026-11-15 at 6c41959f).
+- `dockerMembers`, which `forwardAnswers` calls, inspects `darkpanel-npm` (`internal/modules/npm/proxyhost_add.go:324-325`), so a test that counts NPM inspections between two events must record the count per event, not per name (Task 5's trace does).
+- The first `InspectContainer` of an undo of a finished upgrade is `undoForwardCheck`'s (`internal/modules/npm/upgrade_recover.go:61`), so a fault queued on `InspectContainer` hits the refusal, not `verifyHeld`; Task 6's test fails the name lookup after the restore instead.
+- The test Engine's NPM fixture is created running by `thHost.deployed()` (`internal/modules/npm/testhost_test.go:1219`), and `nwSetup` already calls it once; a test needing the container id reads it from `h.docker.container(containerName)`.
+- The live proof of the exec reload, the process listing, the reconcile and the unanswered-forward refusal needs a Docker daemon, which Host safety forbids on this host (as w12e's A3a did). Substitution: Task 1's image and API reading and the unit tests of Tasks 2-8. The live proof is Task 9's harness steps, and gate 7 runs them on the branch, pushed and dispatched with `gh workflow run harness.yml --ref <branch>`, before the merge into `main` (`docs/dforge/gates.md` gate 7: "any branch whose diff against `main` touches `test/harness/`"), so a premise that is wrong is found before it is merged. If the exec cannot run `nginx -t` or signal the master, the reloader's user changes (spec Riskiest assumption) and Tasks 3 and 5 are amended in place.
+- `docker network connect --ip` is accepted by the Engine only on a network created with a user-configured subnet (Docker Engine documentation, "docker network connect --ip"); Task 9's `m6n-rec` is created with `--subnet`.
 - A dotted `.invalid` name gets a definite not-found from the harness VMs' resolver, where a single label did not (`docs/dforge/notes/w12e-evidence.md:324-326`) — unverified — Task 9's harness step uses it and gate 7 proves it.
 - The test Engine assigns an address only when it is static or pinned (`internal/modules/npm/testhost_test.go:321`, `pin`), so a test that needs NPM to take a freed address pins it.
-- The module's tests count reloads through `w12eReloads`, which counts proxy-host updates (`internal/modules/npm/w12e_attach_test.go:42-50`); Task 5 rewrites it to count `h.nginx.reloads`.
+- The module's tests count reloads through `w12eReloads`, which counts proxy-host updates (`internal/modules/npm/w12e_attach_test.go:31-40`); Task 5 rewrites it to count `h.nginx.reloads`.
 
 ## Task index
 
@@ -264,7 +269,7 @@ Expected: FAIL to compile with `c.ExecCreate undefined`.
 
 1. `exec.go`: the types and methods of Contracts, Engine calls. Build requests as the neighbouring calls do (`c.call(ctx, request{method, path, query, body}, &out)`, `requireID("container", container)` and `requireID("exec", id)`, `url.PathEscape`). `ExecCreate`'s body is a struct with the fields `AttachStdin`, `AttachStdout`, `AttachStderr` (always false), `Cmd` and `User` (omit `User` when empty); `ExecStart`'s body is `{Detach: true, Tty: false}`; `ExecInspect`'s `ExitCode` is `*int` and decodes `null` as nil; `ContainerTop` sends the query `ps_args` through `url.Values`.
 2. `new(0)` in the test is Go 1.26+ `new(expr)`; keep it, the module is on Go 1.27.4.
-3. Add the three exec endpoints and the top endpoint to the `live_test.go` list of calls only if it lists endpoints; otherwise leave it (the live proof is Task 8).
+3. `live_test.go` stays unchanged: the live proof of the exec and top calls is the harness step of Task 9 on the pinned NPM.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -304,6 +309,7 @@ package npm
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -325,8 +331,10 @@ type fakeExec struct {
 	workers    []string
 	after      []string
 	created    []string
+	cmds       [][]string
 	users      []string
 	containers []string
+	stopped    bool
 	ids        map[string]string
 	started    map[string]bool
 	reloaded   bool
@@ -343,7 +351,7 @@ func (f *fakeExec) InspectContainer(_ context.Context, _ string) (dockerapi.Cont
 	if f.inspectErr != nil {
 		return dockerapi.ContainerJSON{}, f.inspectErr
 	}
-	return dockerapi.ContainerJSON{Config: dockerapi.ContainerConfig{Env: f.env}}, nil
+	return dockerapi.ContainerJSON{Config: dockerapi.ContainerConfig{Env: f.env}, State: dockerapi.ContainerState{Running: !f.stopped}}, nil
 }
 
 func (f *fakeExec) ExecCreate(_ context.Context, container string, o dockerapi.ExecCreate) (string, error) {
@@ -352,6 +360,7 @@ func (f *fakeExec) ExecCreate(_ context.Context, container string, o dockerapi.E
 	line := strings.Join(o.Cmd, " ")
 	id := "x" + line
 	f.created = append(f.created, line)
+	f.cmds = append(f.cmds, o.Cmd)
 	f.users = append(f.users, o.User)
 	f.containers = append(f.containers, container)
 	f.ids[id] = line
@@ -412,8 +421,8 @@ func TestNginxReloaderConfirmsANewWorker(t *testing.T) {
 	if err := quickReloader(f).Reload(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(f.created, "|"); got != testCmd+"|"+reloadCmd {
-		t.Errorf("commands %q, want the test and then the reload", got)
+	if len(f.cmds) != 2 || !slices.Equal(f.cmds[0], []string{"nginx", "-t", "-g", "error_log off;"}) || !slices.Equal(f.cmds[1], []string{"nginx", "-s", "reload"}) {
+		t.Errorf("commands %q, want the test and then the reload as two exact argument lists", f.cmds)
 	}
 	for i, c := range f.containers {
 		if c != containerName || f.users[i] != "0:0" {
@@ -470,6 +479,11 @@ func TestNginxReloaderUser(t *testing.T) {
 	f.inspectErr = dockerapi.ErrUnavailable
 	if err := quickReloader(f).Reload(context.Background()); err == nil || errors.Is(err, errNginxTest) {
 		t.Errorf("an unreadable container gave %v, want a failure that is not the test's", err)
+	}
+	f = newFakeExec()
+	f.stopped = true
+	if err := quickReloader(f).Reload(context.Background()); err == nil || errors.Is(err, errNginxTest) || len(f.created) != 0 {
+		t.Errorf("a stopped container ran %d commands with error %v, want none and a failure that is not the test's", len(f.created), err)
 	}
 }
 
@@ -757,20 +771,31 @@ type w12gTrace struct {
 	h      *thHost
 	mu     sync.Mutex
 	events []string
-	api    map[string]int
+	counts []int
 	hook   map[string]func()
 	strip  string
+	lost   error
 }
 
 func newW12gTrace(h *thHost) *w12gTrace {
-	return &w12gTrace{thDocker: h.docker, h: h, api: map[string]int{}, hook: map[string]func(){}}
+	return &w12gTrace{thDocker: h.docker, h: h, hook: map[string]func(){}}
 }
 
 func (d *w12gTrace) rec(ev string) {
 	d.mu.Lock()
 	d.events = append(d.events, ev)
-	d.api[ev] = len(d.h.npm.Requests())
+	d.counts = append(d.counts, len(d.h.npm.Requests()))
 	d.mu.Unlock()
+}
+
+// index is the position of the first event ev, -1 when there is none.
+func (d *w12gTrace) index(ev string) int {
+	for i, e := range d.events {
+		if e == ev {
+			return i
+		}
+	}
+	return -1
 }
 
 func (d *w12gTrace) ConnectNetwork(ctx context.Context, network, container string, ep *dockerapi.EndpointSettings) error {
@@ -778,7 +803,11 @@ func (d *w12gTrace) ConnectNetwork(ctx context.Context, network, container strin
 		f()
 	}
 	d.rec("connect")
-	return d.thDocker.ConnectNetwork(ctx, network, container, ep)
+	err := d.thDocker.ConnectNetwork(ctx, network, container, ep)
+	if err == nil && d.lost != nil {
+		return d.lost
+	}
+	return err
 }
 
 func (d *w12gTrace) InspectContainer(ctx context.Context, id string) (dockerapi.ContainerJSON, error) {
@@ -838,12 +867,12 @@ func TestW12gAttachMakesNoCallBetweenConnectAndInspection(t *testing.T) {
 	if err := w12gAttach(t, h, n, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}); err != nil {
 		t.Fatal(err)
 	}
-	next := tr.after("connect")
-	if len(next) == 0 || next[0] != "inspect:"+containerName {
-		t.Fatalf("events after the connect: %v, want the inspection of NPM first", next)
+	ci := tr.index("connect")
+	if ci < 0 || ci+1 >= len(tr.events) || tr.events[ci+1] != "inspect:"+containerName {
+		t.Fatalf("events %v, want the inspection of NPM right after the connect", tr.events)
 	}
-	if tr.api["connect"] != tr.api["inspect:"+containerName] {
-		t.Errorf("NPM got %d requests at the connect and %d at the next inspection; a listing sits in between", tr.api["connect"], tr.api["inspect:"+containerName])
+	if tr.counts[ci] != tr.counts[ci+1] {
+		t.Errorf("NPM got %d requests at the connect and %d at the next inspection; a listing sits in between", tr.counts[ci], tr.counts[ci+1])
 	}
 }
 
@@ -951,35 +980,50 @@ func TestW12gSecondReloadFailureDisconnectsBeforeTheDetail(t *testing.T) {
 	if want := "nginx could not be reloaded after darkpanel-npm joined network appnet: nginx's configuration test failed; it was disconnected again"; coded.Detail != want {
 		t.Errorf("detail %q, want %q", coded.Detail, want)
 	}
-	if got := len(h.npm.Requests()); got <= tr.api["disconnect"] {
-		t.Errorf("NPM had %d requests at the disconnect and %d at the end: the detail's listing did not follow the disconnect", tr.api["disconnect"], got)
+	di := tr.index("disconnect")
+	if di < 0 {
+		t.Fatalf("events %v hold no disconnect", tr.events)
+	}
+	if got := len(h.npm.Requests()); got <= tr.counts[di] {
+		t.Errorf("NPM had %d requests at the disconnect and %d at the end: the detail's listing did not follow the disconnect", tr.counts[di], got)
 	}
 	w12eNoChange(t, h, user, 1)
 }
 
 func TestW12gAttachOnAJoinedNetwork(t *testing.T) {
-	setup := func(t *testing.T) (*thHost, dockerapi.Network, string) {
+	in := AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}
+	setup := func(t *testing.T, forward string) (*thHost, dockerapi.Network) {
 		h, user := nwSetup(t)
 		w12aSubnet(t, h, user)
 		nwConnect(t, h, user, nwStatic(w12gAddr))
-		w12aSeed(h, w12gAddr, 3000)
-		return h, user, w12gAddr
+		w12aSeed(h, forward, 3000)
+		return h, user
 	}
-	in := AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}
-	t.Run("no claim: the held address is checked, NPM leaves", func(t *testing.T) {
-		h, user, _ := setup(t)
+	t.Run("no claim and a hit: NPM leaves before any reload", func(t *testing.T) {
+		h, user := setup(t, w12gAddr)
 		n := h.nm()
 		n.d.resolve = w12eNoAnswer
 		_ = nwRefused(t, w12gAttach(t, h, n, in), errcode.NPMReserved)
 		if nwEndpoint(t, h, user.ID) != nil {
 			t.Error("NPM stayed on a network where it holds a forwarded address")
 		}
-		if h.nginx.reloads == 0 {
-			t.Error("a cut-off attach was not followed by a reload")
+		if h.nginx.reloads != 0 {
+			t.Errorf("%d reloads, want none: a hit disconnects NPM before nginx is reloaded", h.nginx.reloads)
+		}
+	})
+	t.Run("no claim and no hit: one reload and the claim", func(t *testing.T) {
+		h, user := setup(t, "10.9.0.40")
+		n := h.nm()
+		n.d.resolve = w12eNoAnswer
+		if err := w12gAttach(t, h, n, in); err != nil {
+			t.Fatal(err)
+		}
+		if h.nginx.reloads != 1 || nwEndpoint(t, h, user.ID) == nil || len(nwClaims(t, h, nwNet)) != 1 {
+			t.Errorf("%d reloads, on the network %v, %d claims; want 1, yes and 1", h.nginx.reloads, nwEndpoint(t, h, user.ID) != nil, len(nwClaims(t, h, nwNet)))
 		}
 	})
 	t.Run("a claim exists: the attach only adds a claim", func(t *testing.T) {
-		h, user, _ := setup(t)
+		h, user := setup(t, w12gAddr)
 		nwClaim(t, h, nwNet, "someone-else", "c0", true)
 		n := h.nm()
 		n.d.resolve = w12eNoAnswer
@@ -990,6 +1034,105 @@ func TestW12gAttachOnAJoinedNetwork(t *testing.T) {
 		if h.nginx.reloads != 0 || len(h.npm.Requests()) != before || nwEndpoint(t, h, user.ID) == nil {
 			t.Errorf("a claim-only attach made %d reloads, %d NPM requests and left NPM on the network %v; want 0, 0 and yes",
 				h.nginx.reloads, len(h.npm.Requests())-before, nwEndpoint(t, h, user.ID) != nil)
+		}
+	})
+}
+
+func TestW12gAttachWhoseConnectAnswerIsLostChecksTheAddress(t *testing.T) {
+	h, user := nwSetup(t)
+	w12gHolder(t, h, user)
+	tr := newW12gTrace(h)
+	tr.hook["connect"] = func() {
+		if err := h.docker.RemoveContainer(context.Background(), "holder", dockerapi.RemoveContainerOptions{Force: true}); err != nil {
+			t.Error(err)
+		}
+	}
+	tr.lost = errors.New("connection reset by peer")
+	n := h.nm()
+	n.d.docker = tr
+	n.d.resolve = w12eAnswer("203.0.113.9")
+	if err := w12gAttach(t, h, n, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}); err == nil {
+		t.Fatal("an attach whose connect answer was lost succeeded")
+	}
+	if nwEndpoint(t, h, user.ID) != nil {
+		t.Error("NPM stayed on a network where it holds a forwarded address after a lost connect answer")
+	}
+	if tr.index("disconnect") < 0 {
+		t.Errorf("events %v hold no disconnect", tr.events)
+	}
+}
+
+// w12gUndoEffect detaches NPM from appnet and returns the effect the undo of that detach takes.
+func w12gUndoEffect(t *testing.T, h *thHost, user dockerapi.Network) core.Effect {
+	t.Helper()
+	w12aSubnet(t, h, user)
+	nwSeedAttached(t, h, user, nwClaimant, false)
+	if _, err := nwApplyDetach(t, h, "c2", DetachInput{Network: nwNet, Claimant: nwClaimant}); err != nil {
+		t.Fatal(err)
+	}
+	var endpoint core.Effect
+	for _, e := range h.journal.effects() {
+		if e.Kind == core.EffectModify {
+			endpoint = e
+		}
+	}
+	return endpoint
+}
+
+func TestW12gUndoOfADetachChecksInTheSameOrder(t *testing.T) {
+	ctx := context.Background()
+	t.Run("a freed address is caught right after the connect", func(t *testing.T) {
+		h, user := nwSetup(t)
+		endpoint := w12gUndoEffect(t, h, user)
+		h.docker.putContainer(thContainer("holder", thEndpoint(nwNet, w12gAddr)))
+		w12aSeed(h, w12gAddr, 3000, w12gLoc("/n", "up.invalid"))
+		h.docker.pin(nwNet, netip.MustParseAddr(w12gAddr))
+		tr := newW12gTrace(h)
+		tr.hook["connect"] = func() {
+			if err := h.docker.RemoveContainer(ctx, "holder", dockerapi.RemoveContainerOptions{Force: true}); err != nil {
+				t.Error(err)
+			}
+		}
+		h.nginx.onReload = func() { tr.rec("reload") }
+		n := h.nm()
+		n.d.docker = tr
+		n.d.resolve = func(context.Context, string) ([]netip.Addr, error) {
+			tr.rec("resolve")
+			return []netip.Addr{netip.MustParseAddr("203.0.113.9")}, nil
+		}
+		_, err := n.networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint)
+		_ = nwRefused(t, err, errcode.NPMReserved)
+		for _, e := range tr.after("connect") {
+			if e == "disconnect" {
+				break
+			}
+			if e == "reload" || e == "resolve" {
+				t.Errorf("%q ran between the connect and the disconnect: %v", e, tr.after("connect"))
+			}
+		}
+		if nwEndpoint(t, h, user.ID) != nil {
+			t.Error("the undo left NPM on a network where it holds a forwarded address")
+		}
+	})
+	t.Run("the network is read again after the first reload", func(t *testing.T) {
+		h, user := nwSetup(t)
+		endpoint := w12gUndoEffect(t, h, user)
+		h.docker.putContainer(thContainer("holder", thEndpoint(nwNet, w12gAddr)))
+		w12aSeed(h, w12gAddr, 3000, w12gLoc("/n", "up.invalid"))
+		h.docker.pin(nwNet, netip.MustParseAddr(w12gAddr))
+		h.nginx.onReload = func() {
+			if err := h.docker.RemoveContainer(ctx, "holder", dockerapi.RemoveContainerOptions{Force: true}); err != nil {
+				t.Error(err)
+			}
+		}
+		tr := newW12gTrace(h)
+		n := h.nm()
+		n.d.docker = tr
+		n.d.resolve = w12eAnswer("203.0.113.9")
+		_, err := n.networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint)
+		_ = nwRefused(t, err, errcode.NPMReserved)
+		if tr.index("connect") >= 0 {
+			t.Errorf("events %v: the undo connected NPM to an address a proxy host forwards to", tr.events)
 		}
 	})
 }
@@ -1031,15 +1174,15 @@ Expected: FAIL to compile with `h.nginx undefined`, then, once `thNginx` is wire
 
 1. `deps.go`: `reload func(ctx context.Context) error`, set in `productionNM` to `newNginxReloader(<the Engine client>).Reload`; the production Engine client must satisfy `execEngine`.
 2. `nginx_reload.go`: delete the listing-and-update implementation and its comment; `func (n nm) reloadNginx(ctx context.Context) error { return n.d.reload(ctx) }` and `reloadRefusal` of Contracts, Refusal of a failed reload. Add the two `where` strings to `network_claims.go` constants.
-3. `network_claims.go`, `Apply` of attach: `check` no longer runs the forward guard when called from `Apply` (add a `guard bool` parameter: `Plan` passes true, `Apply` false). In `Apply`, with `ck.connect`: `reloadBeforeJoin` (refuse through `reloadRefusal`, Definite, nothing changed), then re-inspect the network, read `forwardTargets` once and run `forwardTaken` against the fresh network (this is the guard and the re-read of spec D1 in one step), then connect, then `afterJoin(ctx, env, network, targets)`.
+3. `network_claims.go`, `Apply` of attach: `check` no longer runs the forward guard when called from `Apply` (add a `guard bool` parameter: `Plan` passes true, `Apply` false). In `Apply`, with `ck.connect`, and outside the `h.n.run` closure so that a refusal journals no effect: `reloadBeforeJoin` (refuse through `reloadRefusal`, Definite, nothing changed), then re-inspect the network, read `forwardTargets` once and run `forwardTaken` against the fresh network (this is the guard and the re-read of spec D1 in one step), then connect, then `afterJoin(ctx, env, network, targets)`.
 4. `afterJoin(ctx, env, network, targets)`: inspect NPM at once and compare the addresses it took on `network` with `targets` (literal and the name answers already read) with no listing and no lookup; a hit, or a joined NPM with no endpoint on the network, disconnects NPM (`disconnectAgain`) and refuses. Only then reload (`reloadNginx`), read `forwardTargets` afresh and compare again. A failed reload disconnects first and only then builds the refusal through `reloadRefusal` with `; it was disconnected again`. A connect error that is not a refusal inspects NPM under `context.WithoutCancel` and, when NPM is on the network, runs the same `afterJoin` before returning the original error. Keep the existing rules about a failed disconnect (`networkAttach` returns a failure that is neither Definite nor 4xx).
-5. The undo of a detach (`networkUndoDisconnect`) takes the same order: reload, re-inspect and guard on fresh targets, connect, `afterJoin`. NPM already on the network and with no claim on it runs `afterJoin` once as today (a network with a claim stays a claim-only change and runs nothing); on `darkpanel-npm` a hit never disconnects and fails with `npm.reserved`. Attach `Apply` with `ep != nil` and no claims takes the same `afterJoin` path (spec D7 (a)); with a claim it only adds the claim.
+5. The undo of a detach (`networkUndoDisconnect`) takes the same order: reload, re-inspect and guard on fresh targets, connect, `afterJoin`. NPM already on the network and with no claim on it runs `afterJoin` once, which disconnects before any reload on a hit and reloads once otherwise (a network with a claim stays a claim-only change and runs nothing); on `darkpanel-npm` a hit never disconnects and fails with `npm.reserved`. Attach `Apply` with `ep != nil` and no claims takes the same `afterJoin` path (spec D7 (a)); with a claim it only adds the claim.
 6. Fix the stale comments: `forwardTargets`' ("every join of NPM reloads nginx before and after it, so nginx holds no older answer") and the `networkUndoDisconnect` doc now describe the exec reload and the check order; `network_claims_test.go`'s comment that says a repeated undo is done "whatever proxy hosts forward to".
 7. Migrate the tests (Contracts, Reload in the module): in `w12e_attach_test.go` delete `w12eReloads` and use `h.nginx.reloads`; replace the three `h.npm.SetNginxOnline(false, …)` with `h.nginx.fail(errNginxTest)`; the subtest "NPM's API does not answer the second reload" becomes `h.nginx.fail(errors.New("boom"))` expecting `errcode.NPMUnhealthy` with a detail beginning `nginx could not be reloaded after darkpanel-npm joined network appnet: `; the subtest "no enabled proxy host" now expects 2 reloads; `TestW12eAttachDeadlines` and `TestW12eDetachDeadline` are replaced by `TestW12gAttachDeadlines`, delete them. Fix the three references in `w12e_security_residuals_acceptance_test.go` the same way (`rg -n "w12eReloads|SetNginxOnline" internal/modules/npm`).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: the Step 2 command. Expected: PASS. Then `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12g-tmp/5 timeout 1500 go test -race -timeout 24m -count=1 ./internal/modules/npm/ && GOTOOLCHAIN=local TMPDIR=/root/.cache/w12g-tmp/5 timeout 900 go test -count=1 ./internal/modules/cloudflare/ ./internal/modules/panel/ && rm -rf /root/.cache/w12g-tmp/5` (the composites that attach NPM still complete and unwind, spec A20).
+Run: the Step 2 command. Expected: PASS. Then `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12g-tmp/5 timeout 1500 go test -race -timeout 24m -count=1 ./internal/modules/npm/ && GOTOOLCHAIN=local TMPDIR=/root/.cache/w12g-tmp/5 timeout 900 go test -count=1 ./internal/modules/cloudflare/ ./internal/modules/panel/ && rm -rf /root/.cache/w12g-tmp/5` (the composites that attach NPM still complete and unwind, spec A20; `rg -n 'unwind|Unwind' internal/modules/cloudflare internal/modules/panel internal/modules/npm/composite_deploy_expose_test.go` lists the existing unwind tests that run here).
 
 - [ ] **Step 5: Commit**
 
@@ -1076,10 +1219,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
+	"net/netip"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core/errcode"
-	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
 const w12gUnansweredDetail = "location /x of proxy host 1 forwards to gone.invalid, which has no answer"
@@ -1130,28 +1276,53 @@ func TestW12gUndoOfAFinishedUpgradeRefusesAnUnansweredStaticForward(t *testing.T
 	}
 }
 
+// w12gStartHook runs at before each StartContainer reaches the test Engine.
+type w12gStartHook struct {
+	*thDocker
+	at func()
+}
+
+func (d w12gStartHook) StartContainer(ctx context.Context, id string) (bool, error) {
+	d.at()
+	return d.thDocker.StartContainer(ctx, id)
+}
+
 func TestW12gAnUnverifiedStartIsWrittenToTheRow(t *testing.T) {
+	ctx := context.Background()
 	f := urSetup(t)
 	f.replace(urTo)
-	w12eDone(t, f, w12eAppNet(), &[]recordedTarget{})
-	f.h.docker.Fail("InspectContainer", dockerapi.ErrUnavailable)
-	f.h.docker.Fail("InspectContainer", dockerapi.ErrUnavailable)
-	f.h.docker.Fail("InspectContainer", dockerapi.ErrUnavailable)
+	recorded := recordedTarget{Where: "proxy host 1", Host: "up.invalid", Name: true, Addr: netip.MustParseAddr("203.0.113.9")}
+	w12eDone(t, f, w12eAppNet(), &[]recordedTarget{recorded})
+	var failing atomic.Bool
+	f.n.d.resolve = func(context.Context, string) ([]netip.Addr, error) {
+		if failing.Load() {
+			return nil, &net.DNSError{Err: "server misbehaving", Name: "up.invalid", IsTemporary: true}
+		}
+		return []netip.Addr{netip.MustParseAddr("203.0.113.9")}, nil
+	}
+	f.n.d.docker = w12gStartHook{f.h.docker, func() { failing.Store(true) }}
 	err := f.inverse(urResource)
 	var coded *errcode.Error
 	if errors.As(err, &coded) && coded.Code == errcode.NPMReserved {
 		t.Fatalf("an unverified start was reported as a hit: %v", err)
 	}
 	if f.phase() == "failed" {
-		t.Error("an unverified start turned the rollback into a failed one")
+		t.Error("an unverified start turned the undo into a failed rollback")
 	}
-	if got := f.result(); got == "" {
-		t.Error("the row's result does not say the started container's addresses were unverified")
+	row, ok, lerr := loadUpgrade(ctx, f.h.db.Read(), urChange)
+	if lerr != nil || !ok {
+		t.Fatalf("the upgrade row: %v %v", ok, lerr)
+	}
+	if !strings.Contains(row.Result, "the started container's addresses were unverified") {
+		t.Errorf("the row's result %q does not say the started container's addresses were unverified", row.Result)
+	}
+	if c, ok := f.h.docker.container(containerName); !ok || !c.State.Running {
+		t.Error("NPM is not running after an unverified start")
 	}
 }
 ```
 
-Adapt `f.result()` to the fixture's accessor for the upgrade row's result (the helpers `f.phase()` and the row read in `upgrade_recover_test.go`; add a three-line `result()` helper reading `upgrade_store.go`'s row when none exists). Where the three queued `InspectContainer` faults do not reach the verification of the started original in your fixture, queue the faults at the call that the verification makes (read `verifyHeld`'s first call) and keep the assertions.
+The rollback and the recovery take the same `verifyStart` call: add the two variants of `TestW12eStartVerifiesHeldAddresses` that drive `recoverOriginal` and `rollback` (its `recovery` and `rollback` rows, `w12e_upgrade_test.go:73-200`) with the same `w12gStartHook` and resolver, and assert the same result text and that the phase is not `failed`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1188,7 +1359,7 @@ git commit -m "fix(npm): refuse an upgrade nginx could not start and report unve
 
 **Interfaces:**
 - Consumes: `forwardTargets` and `forwardRefs` (Task 4), `reloadNginx` (Task 5), `disconnectAgain`, `claims`, `nwSetup`, `nwConnect`, `nwStatic`, `nwClaim`, `w12aSeed`, `w12gAddr` (Task 5's test file).
-- Produces: the action and the hits (Contracts, Reconcile): `ReconcileInput`, `Reconciled`, `DroppedNetwork`, `func (n nm) instanceReconcile() core.Action`, `type reconcileHit struct{ Network, NetworkID string; Addr netip.Addr; Where string }`, `func (n nm) reconcileHits(ctx context.Context, env core.Env) ([]reconcileHit, error)`.
+- Produces: the action and the hits (Contracts, Reconcile): `ReconcileInput`, `Reconciled`, `DroppedNetwork`, `func (n nm) instanceReconcile() core.ActionDef`, `type reconcileHit struct{ Network, NetworkID string; Addr netip.Addr; Where string }`, `func (n nm) reconcileHits(ctx context.Context, env core.Env) ([]reconcileHit, error)`.
 
 **Items:** 2026-11-06-v1-security-review#191
 
@@ -1205,6 +1376,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/netip"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1314,6 +1488,93 @@ func TestW12gReconcileAHitOnNPMsOwnNetworkLeavesNPMRunning(t *testing.T) {
 	}
 }
 
+func TestW12gReconcilePlanListsTheHitsAndHashesThemNotTheTargets(t *testing.T) {
+	ctx := context.Background()
+	h, _ := w12gHit(t)
+	w12aSeed(h, "rot.invalid", 80)
+	var mu sync.Mutex
+	answer := "203.0.113.9"
+	n := h.nm()
+	n.d.resolve = func(context.Context, string) ([]netip.Addr, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return []netip.Addr{netip.MustParseAddr(answer)}, nil
+	}
+	plan := func() core.PlanOutcome {
+		out, err := n.instanceReconcile().Handler.Plan(ctx, h.env(""), nwJSON(t, ReconcileInput{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	first := plan()
+	mu.Lock()
+	answer = "203.0.113.10"
+	mu.Unlock()
+	second := plan()
+	if first.StateHash == "" || first.StateHash != second.StateHash {
+		t.Errorf("the state hash changed from %q to %q when only an unrelated name's answer changed", first.StateHash, second.StateHash)
+	}
+	found := false
+	for _, l := range first.Diff {
+		found = found || strings.Contains(l.Text, "container darkpanel-npm leaves network "+nwNet)
+	}
+	if !found {
+		t.Errorf("diff %+v does not say NPM leaves %s", first.Diff, nwNet)
+	}
+	h2, user2 := nwSetup(t)
+	w12aSubnet(t, h2, user2)
+	nwConnect(t, h2, user2, nwStatic(w12gAddr))
+	out, err := h2.nm().instanceReconcile().Handler.Plan(ctx, h2.env(""), nwJSON(t, ReconcileInput{}))
+	if err != nil || len(out.Diff) != 0 {
+		t.Errorf("a plan with no hit gave diff %+v and %v, want an empty diff", out.Diff, err)
+	}
+}
+
+func TestW12gReconcileFailedDisconnectStopsNPM(t *testing.T) {
+	h, _ := w12gHit(t)
+	h.docker.Fail("DisconnectNetwork", errors.New("engine down"))
+	_, err := w12gReconcile(t, h)
+	if err == nil || core.IsDefinite(err) {
+		t.Fatalf("error %v, want a failure that is not definite", err)
+	}
+	if c, ok := h.docker.container(containerName); !ok || c.State.Running {
+		t.Error("NPM kept running with a forwarded address it could not leave")
+	}
+}
+
+func TestW12gReconcileFailedReloadNamesTheUnansweredForwards(t *testing.T) {
+	h, _ := w12gHit(t)
+	w12aSeed(h, "def.invalid", 80, w12gLoc("/a", "gone.invalid"))
+	h.nginx.fail(errNginxTest)
+	_, err := w12gReconcile(t, h)
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.NPMUnhealthy {
+		t.Fatalf("error %v, want %s", err, errcode.NPMUnhealthy)
+	}
+	want := "nginx could not be reloaded after darkpanel-npm left network appnet: nginx's configuration test failed; location /a of proxy host 2 forwards to gone.invalid, which has no answer"
+	if coded.Detail != want {
+		t.Errorf("detail %q, want %q", coded.Detail, want)
+	}
+}
+
+func TestW12gReconcileVerifyRequiresNoForwardedAddress(t *testing.T) {
+	ctx := context.Background()
+	h, _ := w12gHit(t)
+	n := h.nm()
+	n.d.resolve = w12eNoAnswer
+	h.addChange("r1", "npm.instance.reconcile")
+	if err := n.instanceReconcile().Handler.Verify(ctx, h.env("r1"), nwJSON(t, ReconcileInput{}), nwJSON(t, Reconciled{})); err == nil {
+		t.Error("Verify passed while NPM holds a forwarded address")
+	}
+	if _, err := w12gReconcile(t, h); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.instanceReconcile().Handler.Verify(ctx, h.env("r1"), nwJSON(t, ReconcileInput{}), nwJSON(t, Reconciled{})); err != nil {
+		t.Errorf("Verify after the disconnect: %v", err)
+	}
+}
+
 func TestW12gReconcileActionDeclaration(t *testing.T) {
 	h, _ := nwSetup(t)
 	spec := h.nm().instanceReconcile().Spec
@@ -1333,7 +1594,7 @@ Expected: FAIL to compile with `n.instanceReconcile undefined`.
 
 1. `reconcile.go`: `ReconcileInput struct{}`, `Reconciled struct{ Dropped []DroppedNetwork \`json:"dropped"\` }`, `DroppedNetwork struct{ Network string \`json:"network"\`; Address string \`json:"address"\`; Claimants []string \`json:"claimants"\` }`, `reconcileHit`.
 2. `reconcileHits`: inspect `darkpanel-npm` (missing or not running: no hits, nil); no instance row: no hits; read `forwardTargets` (enabled hosts); compare the addresses NPM holds on every network (`heldAddresses`) with the targets, literal addresses first and then names; when the lookups in `forwardTargets` fail, compare only the literal forwards (read through `forwardRefs`) and log the rest at warn level through `env.Log`.
-3. `instanceReconcile()`: `core.DefineMutating[ReconcileInput, Reconciled]` with the spec of Contracts, Reconcile, declared as `panel.listener.revoke` is (`internal/modules/panel/listener_revoke.go:19-25`). `Plan` finds the hits and returns a diff line per network (`container darkpanel-npm leaves network <n>`; none when there is no hit) and a state hash over the hits (network, address, NPM's endpoint id). `Apply` finds the hits again under the lock; none returns an empty `Reconciled`; for each hit on a network other than `darkpanel-npm` it disconnects NPM (`disconnectAgain`, journaled as the detach journals its disconnect) and collects the claimants through `claims`; a hit whose disconnect fails stops NPM as `verifyHeld` does for a hit it cannot drop (`instance_upgrade.go:499-504`); a hit on `darkpanel-npm` fails with `npm.reserved` and leaves NPM running; then `reloadNginx`, and a failure returns an `npm.unhealthy` error with the detail `nginx could not be reloaded after darkpanel-npm left network <n>[, <n>]: <err>`, NPM staying disconnected. `Verify` inspects NPM and requires that it holds no forwarded address on any network.
+3. `instanceReconcile()`: `core.DefineMutating[ReconcileInput, Reconciled](core.ActionSpec{Name: "npm.instance.reconcile", Summary: "Take NPM off a network where it holds an address a proxy host forwards to.", Version: 1, Class: core.ClassCompensable, Side: core.SideAgent, LockKeys: []string{lockKey}, ForwardOnly: true, Converges: true, MinScope: core.ScopeAdmin, ApplyTimeout: 45 * time.Second}, handler)`, as `panel.listener.revoke` declares its own (`internal/modules/panel/listener_revoke.go:19-25`, without its `BreakGlass` and controller side). `Plan` finds the hits and returns a diff line per network (`container darkpanel-npm leaves network <n>`; none when there is no hit) and a state hash over the hits (network, address, NPM's endpoint id). `Apply` finds the hits again under the lock; none returns an empty `Reconciled`; for each hit on a network other than `darkpanel-npm` it disconnects NPM (`disconnectAgain`, journaled as the detach journals its disconnect) and collects the claimants through `claims`; a hit whose disconnect fails stops NPM as `verifyHeld` does for a hit it cannot drop (`instance_upgrade.go:499-504`); a hit on `darkpanel-npm` fails with `npm.reserved` and leaves NPM running; then `reloadNginx`, and a failure returns an `npm.unhealthy` error (for every failure, `errNginxTest` included; `reloadRefusal` is not used) with the detail `nginx could not be reloaded after darkpanel-npm left network <n>[, <n>]: <err>`, followed by `; ` and `unansweredDetail` when the failure is `errNginxTest` and `unansweredForwards` lists any (a failed listing adds nothing), NPM staying disconnected. `Verify` inspects NPM and requires that it holds no forwarded address on any network; call the handler's `Verify` in the test the way `network_claims_test.go` calls the attach's (`rg -n 'Handler.Verify' internal/modules/npm/network_claims_test.go`) and adapt the call's argument types to the erased handler.
 4. `actions.go`: list the action. `heldAddresses` replaces the loops in `joinedProblem` and `verifyHeld`.
 5. `docs/user/modules/npm.md`: one table row for `npm.instance.reconcile` (columns as the neighbouring rows; the CLI cell as they write a command with none) and two sentences under "What it changes on the host": the agent takes NPM off a network where it holds an address a proxy host forwards to, and the operator attaches NPM again once the forward is fixed. The page's tests (`internal/docs`) forbid the words `register row`, `wave <n>`, `task <n>` and `plan <n>`.
 
@@ -1494,7 +1755,8 @@ func TestW12gReconcileWatchWakesOnStartAndConnect(t *testing.T) {
 	h, _ := nwSetup(t)
 	h.docker.events = make(chan dockerapi.Event, 8)
 	n := h.nm()
-	npmID := h.deployed().ContainerID
+	npmC, _ := h.docker.container(containerName)
+	npmID := npmC.ID
 	var wakes atomic.Int32
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -1533,7 +1795,7 @@ Expected: FAIL to compile with `n.reconcileTask undefined`.
 - [ ] **Step 3: Implement**
 
 1. `reconcile.go`: constants `reconcileID = "npm.reconcile"` and `reconcileEvery = 5 * time.Minute`; `n.reconcileTask()` returns the `core.BackgroundTask` of Contracts, Reconcile. `Run`: `reconcileHits`; none clears the remembered key and returns nil; otherwise build a key from the hits (network, address, where); a key equal to the remembered one, whose last apply failed, does not apply again; else `tc.Apply(ctx, "npm.instance.reconcile", ReconcileInput{})` and remember the key. A failed listing returns the error (the runner backs off). The remembered key lives in the task closure (memory only, so it repeats after an agent restart).
-2. `Watch`: `n.d.docker.Events(ctx, EventsOptions{Filters: {"type": {"container", "network"}, "event": {"start", "connect"}}})`, and `wake()` for a container `start` whose actor id or `name` attribute is `darkpanel-npm` or NPM's container id, and for a network `connect` whose `container` attribute is either; on a stream error return nil when the context ended, else `fmt.Errorf("npm: reconcile: watch Docker events: %w", err)`, as `firewall.reconcileWatch` does (`internal/modules/firewall/reconcile.go:162-183`).
+2. `Watch`: `n.d.docker.Events(ctx, EventsOptions{Filters: {"type": {"container", "network"}, "event": {"start", "connect"}}})`, and `wake()` for a container `start` whose actor id or `name` attribute is `darkpanel-npm` or NPM's container id, and for a network `connect` whose `container` attribute is `darkpanel-npm` or equals the id `InspectContainer(containerName)` answers when the event arrives (the id changes after an upgrade, so it is not cached); on a stream error return nil when the context ended, else `fmt.Errorf("npm: reconcile: watch Docker events: %w", err)`, as `firewall.reconcileWatch` does (`internal/modules/firewall/reconcile.go:162-183`).
 3. `npm.go`: `func (m module) BackgroundTasks() []core.BackgroundTask { return []core.BackgroundTask{m.n.reconcileTask()} }`. `deps.go`: `Events(ctx context.Context, o dockerapi.EventsOptions) (dockerEvents, error)` on `dockerAPI`, `type dockerEvents interface{ Next() (dockerapi.Event, error); Close() error }`, and the production Engine wrapper.
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1553,6 +1815,7 @@ git commit -m "feat(npm): add the reconcile task with a timer and a Docker-event
 
 **Files:**
 - Modify: `internal/modules/tailscale/linkguard.go` (the NPM exposure with no public binding)
+- Modify: `internal/modules/firewall/guard/w12e_linklocal_test.go` (a row of `TestW12eNamesIPv6Range`)
 - Modify: `internal/modules/tailscale/linkguard_test.go` (rows of `TestW12eTailnetClientOfAnExposure`)
 - Modify: `internal/modules/firewall/guard/w12e_security_residuals_acceptance_test.go` (`qaSpan`)
 - Modify: `test/harness/m6_npm_test.go` (`reloadFollowsName`, `reloadCall`, two new steps)
@@ -1582,10 +1845,10 @@ In `linkguard_test.go`, add this row to the table of `TestW12eTailnetClientOfAnE
 			false, []string{"no public bindings"}},
 ```
 
-In `w12e_linklocal_test.go`, make sure `TestW12eNamesIPv6Range` has the row that proves `qaSpan`'s weakness; add if missing:
+In `w12e_linklocal_test.go`, make sure `TestW12eNamesIPv6Range`'s table (two fields, `msg` and `want`) has the row that proves `qaSpan`'s weakness; add if missing:
 
 ```go
-		{"a range of colons and a dash", ":-:", false},
+		{"cut exposure exp1 from :-: to [fe80::1]:443", false},
 ```
 
 In `w12e_security_residuals_acceptance_test.go` the assertion `qaSpan.MatchString(msg)` becomes `w12eNamesIPv6Range(msg)`; delete the `qaSpan` variable and the `regexp` import when nothing else uses it.
@@ -1601,8 +1864,8 @@ Expected: FAIL: the new link-guard row finds `OK` true.
 2. The harness (`test/harness/m6_npm_test.go`, compiled by `go vet -tags harness ./test/...` here, run by CI):
    - Delete `reloadCall` and the call to it in `reloadFollowsName`, together with the `strings`, `bytes`, `json` and `npmapi` imports they alone use. Nothing in the harness sends a request to NPM's API with a token any more (spec A8).
    - In `reloadFollowsName`'s failure half, drop the `sudo docker exec … nginx -t` precondition check that quotes nginx's output only if it is the single use; keep it otherwise. The real `attach(nets[1])` is the proof: assert it is refused, that its `ch.Error.Code` is `npm.forward_unresolved` (the single-label `m6n-echo` gets no definite answer on the VMs) or `npm.forward_unanswered`, that the error detail names `m6n-echo`, and that `nets[1]` holds no `darkpanel-npm`.
-   - New step `unansweredStaticForward` (called from the sequence that calls `reloadFollowsName`, after it): give a second helper container the dotted network alias `m6n-dotted.test` on `m6nAppNet` (`docker run --network-alias`, through `m6nRunCmd` or the neighbouring helper that accepts an alias), add a proxy host forwarding to `m6n-dotted.test:<port>` with `npm.proxyhost.add`, remove the helper container, and assert that (a) `npm.network.attach` of a fresh network is refused with `npm.forward_unanswered` and a detail naming `m6n-dotted.test`, with NPM on no member list of that network, and (b) `npm.instance.upgrade` is refused at plan with the same code. Restore (container and proxy host removed) in `t.Cleanup`. A dotted `.test` name gets a definite not-found from the VMs' resolver; if the live run shows otherwise, the refusal is `npm.forward_unresolved` and the step records that as a failure of Assumptions.
-   - New step `reconcileUndoesAStartDarkpanelDidNotMake`: on a fresh network `m6n-rec`, attach NPM through `npm.network.attach`; start a helper container on it and add a proxy host forwarding to its address; stop the helper; `docker network disconnect m6n-rec darkpanel-npm` and `docker network connect --ip <the helper's address> m6n-rec darkpanel-npm` (a connect Darkpanel does not make); assert with `eventually(…, 120*time.Second, …)` that `darkpanel-npm` is no longer a member of `m6n-rec` and that a change `npm.instance.reconcile` of actor `system:npm.reconcile` is completed; clean up.
+   - New step `unansweredStaticForward` (called from the sequence that calls `reloadFollowsName`, after it): give a second helper container the dotted network alias `m6n-dotted.invalid` on `m6nAppNet` (`docker run --network-alias`, through `m6nRunCmd` or the neighbouring helper that accepts an alias), add a proxy host forwarding to `m6n-dotted.invalid:<port>` with `npm.proxyhost.add`, remove the helper container, and assert that (a) `npm.network.attach` of a fresh network is refused with `npm.forward_unanswered` and a detail naming `m6n-dotted.invalid`, with NPM on no member list of that network, and (b) `npm.instance.upgrade` is refused at plan with the same code. Restore (container and proxy host removed) in `t.Cleanup`. A dotted `.invalid` name gets a definite not-found from the VMs' resolver (RFC 6761); if the live run shows otherwise, the refusal is `npm.forward_unresolved` and the step records that as a failure of Assumptions.
+   - New step `reconcileUndoesAStartDarkpanelDidNotMake`: on a fresh network `m6n-rec` created with `--subnet 10.77.0.0/24` (the Engine accepts `--ip` only on a network with a user-configured subnet), attach NPM through `npm.network.attach`; start a helper container on it and add a proxy host forwarding to its address; stop the helper; `docker network disconnect m6n-rec darkpanel-npm` and `docker network connect --ip <the helper's address> m6n-rec darkpanel-npm` (a connect Darkpanel does not make); assert with `eventually(…, 120*time.Second, …)` that `darkpanel-npm` is no longer a member of `m6n-rec` and that a change `npm.instance.reconcile` of actor `system:npm.reconcile` is completed; clean up.
    - New check in `reloadFollowsName`'s moved-name half: list `-printf '%u:%g %p\n'` of the nginx log and temp directories the evidence note of Task 1 names (`docker exec darkpanel-npm find <dirs> -printf …`) before the first attach and after it, and require the two outputs equal (spec A7). Use the PUID/PGID the note found.
 3. `vm.go`: none expected. Verify with `rg -n "Bearer|Authorization" test/harness` that no match is left.
 
@@ -1623,6 +1886,8 @@ git commit -m "fix(harness): drive the real attach and add the reconcile and una
 
 **Files:**
 - Create: `internal/modules/npm/w12g_acceptance_test.go`
+- Modify: `internal/modules/npm/w12e_security_residuals_acceptance_test.go` (the parser loop of `TestA12_EveryNamedRegressionTestExists` moves into `requireTestDeclared`)
+- Modify: `internal/docs/modules_b_test.go` (the facts of the `npm` page)
 - Modify: `docs/dforge/notes/w12g-evidence.md` (the `## Revert check` section)
 - Modify: `docs/security/threat-model.md`
 - Modify: `docs/user/modules/npm.md`
@@ -1665,7 +1930,7 @@ func TestA23_EveryFixHasItsNamedRegressionTestDeclared(t *testing.T) {
 }
 ```
 
-Use the helper A12 uses to find a declared test function in the package's `_test.go` files (name it as it is there; if it is a closure inside `TestA12…`, move it to a package-level function in the same commit and call it from both tests).
+`TestA12_EveryNamedRegressionTestExists` holds its parser inline (`w12e_security_residuals_acceptance_test.go:1047-1064`); extract that loop into `func requireTestDeclared(t *testing.T, name string)` in the same file, call it from A12 and from this test, and keep A12's behaviour unchanged.
 
 - [ ] **Step 2: Run the revert check and correct the threat model**
 
@@ -1683,17 +1948,17 @@ In `docs/security/threat-model.md` change, and each time keep the sentence's oth
 
 - [ ] **Step 3: Update the user page and the registers**
 
-In `docs/user/modules/npm.md`: the reload now runs inside NPM's container and writes nothing to NPM; the upgrade and its undo refuse while an enabled custom location forwards to a name with no answer (`npm.forward_unanswered`); a name that cannot be resolved refuses with `npm.forward_unresolved` and says which proxy host. No word of the page tests' forbidden list.
+In `internal/docs/modules_b_test.go` add `"npm.forward_unanswered"` and `"npm.forward_unresolved"` to the `npm` page's facts. In `docs/user/modules/npm.md`: the reload now runs inside NPM's container and writes nothing to NPM; the upgrade and its undo refuse while an enabled custom location forwards to a name with no answer (`npm.forward_unanswered`); a name that cannot be resolved refuses with `npm.forward_unresolved` and says which proxy host. No word of the page tests' forbidden list.
 
 In the security register, for each of rows 1, 176, 188 and 190-199:
 ```bash
-bash /root/.claude-alt2/plugins/cache/darkraise/dforge/scripts/register set docs/dforge/registers/2026-11-06-v1-security-review.md <id> verify --assigned docs/dforge/plans/2026-11-15-v1-w12g-security-followup.md --note "w12g <sha7 of the last task commit>: <one line of what changed and the test that pins it>"
+bash /root/.claude-alt2/plugins/cache/darkraise/dforge/4.17.1/scripts/register set docs/dforge/registers/2026-11-06-v1-security-review.md <id> verify --assigned docs/dforge/plans/2026-11-15-v1-w12g-security-followup.md --note "w12g <sha7 of the last task commit>: <one line of what changed and the test that pins it>"
 ```
-Rows 1, 176, 188 and 190 add `; owes the panel re-review` to the note. Keep each row's Acceptance cell as it is, and add to rows 1, 176 and 190 the clause `the panel re-review closes it, or the owner accepts the interval of spec D1 (U2)`. Use the plugin's real path (`ls /root/.claude-alt2/plugins/cache/darkraise/dforge/*/scripts/register`).
+Rows 1, 176, 188 and 190 add `; owes the panel re-review` to the note. Keep each row's Acceptance cell as it is, and add to rows 1, 176 and 190 the clause `the panel re-review closes it, or the owner accepts the interval of spec D1 (U2)`.
 
 - [ ] **Step 4: Verify**
 
-Run: `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12g-tmp/10 timeout 600 go test -count=1 ./internal/docs/ && bash <the plugin's scripts/register> check docs/dforge/registers/2026-11-06-v1-security-review.md && rg -n "register row|wave [0-9]|task [0-9]|plan [0-9]" docs/user/modules/npm.md` (the last command must print nothing).
+Run: `GOTOOLCHAIN=local TMPDIR=/root/.cache/w12g-tmp/10 timeout 600 go test -count=1 ./internal/docs/ && bash /root/.claude-alt2/plugins/cache/darkraise/dforge/4.17.1/scripts/register check docs/dforge/registers/2026-11-06-v1-security-review.md && rg -in "register row|wave [0-9]|task [0-9]|plan [0-9]|W[0-9]+-R[0-9]+" docs/user/modules/npm.md` (the last command must print nothing).
 Expected: PASS, `register: 0 errors`, no output from `rg`.
 
 - [ ] **Step 5: Commit**
