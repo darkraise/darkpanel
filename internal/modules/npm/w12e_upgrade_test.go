@@ -412,7 +412,7 @@ func TestW12eUpgradeUndoChecksForwards(t *testing.T) {
 		mark := f.mark()
 		f.h.docker.Fail("InspectContainer", dockerapi.ErrUnavailable)
 		err := f.inverse(urResource)
-		nwRefused(t, err, errcode.DockerEngineUnavailable)
+		_ = nwRefused(t, err, errcode.DockerEngineUnavailable)
 		if !strings.Contains(err.Error(), "inspect container "+containerName) {
 			t.Errorf("error %q does not name the inspection of %s", err, containerName)
 		}
@@ -426,7 +426,7 @@ func TestW12eUpgradeUndoChecksForwards(t *testing.T) {
 		f.h.docker.Fail("InspectImage", &dockerapi.APIError{StatusCode: 404, Message: "no such image: " + urFrom})
 		f.h.docker.Fail("PullImage", dockerapi.ErrUnavailable)
 		err := f.inverse(urResource)
-		nwRefused(t, err, errcode.DockerEngineUnavailable)
+		_ = nwRefused(t, err, errcode.DockerEngineUnavailable)
 		if !strings.Contains(err.Error(), "pull "+urFrom) {
 			t.Errorf("error %q does not name the pull of %s", err, urFrom)
 		}

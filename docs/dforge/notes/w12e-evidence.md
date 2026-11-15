@@ -313,10 +313,12 @@ Each fix was undone on top of `w12f-low-rows` and its named regression test run 
 | TestW12eUpgradeUndoChecksForwards | `Inverse` skips `undoForwardCheck` (upgrade_recover.go) | FAIL |
 | TestW12eUpgradeLateForwardCheck | `Apply`'s check after the pull lists targets without checking them (instance_upgrade.go) | FAIL |
 | TestW12eStartVerifiesHeldAddresses | the upgrade's recreate skips `verifyHeld`; separately, the original's start skips it | FAIL, FAIL |
-| TestW12eRestoredLocationCutAtSlash | b3bf7200 reverse-applied (non-test files) | FAIL |
-| TestW12eLinkLocalOnlyHostGuardsIPv6443 | f4d3f5d5 reverse-applied (non-test files) | FAIL |
+| TestW12eRestoredLocationCutAtSlash | b3bf7200 reverse-applied: proxyhost_edit.go checks a restored location's whole forward host again, not its part before `/` | FAIL |
+| TestW12eLinkLocalOnlyHostGuardsIPv6443 | f4d3f5d5 reverse-applied: guard/flows.go builds no IPv6 NPM flow on a host whose only IPv6 addresses are link-local | FAIL |
 | TestW12eTailnetClientOfAnExposure | linkguard.go skips the NPM client flow | FAIL |
 
 ## Not run on this host
 
-The A3a demo (a proxy-host update against a running NPM from the pinned image) and the R32 try (disconnecting `darkpanel-npm` from its network on the pinned Engine) were not run, because this host forbids talking to its Docker daemon. The image source reading above (answers 1-3) and the fake NPM and test Engine tests of Tasks 5-7 (`TestW12eVerifyHeldFailures` for R32) stand in for them; the re-resolution after a successful update rests on answer 3's quoted lines, not on a run.
+The A3a demo (a proxy-host update against a running NPM from the pinned image) and the R32 try (disconnecting `darkpanel-npm` from its network on the pinned Engine) were not run, because this host forbids talking to its Docker daemon. The image source reading above (answers 1-3) and the fake NPM and test Engine tests of Tasks 5-7 (`TestW12eVerifyHeldFailures` for R32) stood in for them.
+
+Owner ruling 2026-11-15 (security row 181): the R32 substitution is accepted; the A3a substitution is not. A3a is proven by the `reload-follows-name` step of `TestM6NPM` (test/harness/m6_npm_test.go), which runs against the pinned NPM on the CI VMs; its result is the gate 7 harness run of the w12f branch.

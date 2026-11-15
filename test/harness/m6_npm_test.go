@@ -474,7 +474,7 @@ func m6nDiagnostics() []m6nDiagnostic {
 		{"NPM API", "curl -sS --max-time 10 http://127.0.0.1:81/api/"},
 		{"ufw status", "sudo ufw status verbose"},
 	}
-	for _, name := range []string{m6nNPMName, m6nPebbleName, m6nChallName, m6nAppName, m6nEchoName} {
+	for _, name := range []string{m6nNPMName, m6nPebbleName, m6nChallName, m6nAppName, m6nEchoName, m6nMovedName} {
 		ds = append(ds, m6nDiagnostic{name + " log", "sudo docker logs --tail 40 " + name + " 2>&1"})
 	}
 	return ds
@@ -939,11 +939,24 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 	t.Cleanup(func() {
 		m3Run(r.ctx, t, v, "sudo docker rm -f "+m6nMovedName+" >/dev/null 2>&1 || true")
 		m3Run(r.ctx, t, v, "sudo docker network connect "+m6nAppNet+" "+m6nEchoName+" >/dev/null 2>&1 || true")
-		for _, n := range nets {
+		detach := func(n string) {
 			ch, err := m4ApplySettled(r.ctx, r.f.api, "", "npm.network.detach", npm.DetachInput{Network: n, Claimant: claimant})
 			if err != nil || ch.State != core.StateCompleted {
 				t.Errorf("npm.network.detach %s: %v %s %+v, want completed", n, err, ch.State, ch.Error)
 			}
+		}
+		for _, n := range nets {
+			detach(n)
+		}
+		if t.Failed() {
+			// A step stopped partway may leave nginx on an answer of the moved
+			// name; a join reloads it, so the later steps find m6n-echo again.
+			if ch, err := m4ApplySettled(r.ctx, r.f.api, "", "npm.network.attach", npm.AttachInput{Network: nets[0], Claimant: claimant}); err != nil || ch.State != core.StateCompleted {
+				t.Errorf("npm.network.attach %s to reload nginx: %v %s %+v", nets[0], err, ch.State, ch.Error)
+			}
+			detach(nets[0])
+		}
+		for _, n := range nets {
 			m3Run(r.ctx, t, v, "sudo docker network rm "+n+" >/dev/null 2>&1 || true")
 		}
 	})
@@ -985,6 +998,10 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 	}
 
 	m3dDocker(r.ctx, t, v, "network", "disconnect", m6nAppNet, m6nMovedName)
+	// The refusal must come from the unanswered name, not another failed reload.
+	if out := m3Run(r.ctx, t, v, "sudo docker exec "+m6nNPMName+" nginx -t 2>&1 || true"); !strings.Contains(out, `host not found in upstream "`+m6nEchoName) {
+		t.Fatalf("nginx -t with %s unanswered printed %q, want host not found in upstream %q", m6nEchoName, out, m6nEchoName)
+	}
 	ch, err = attach(nets[1])
 	want := "nginx could not be reloaded before " + m6nNPMName + " joins network " + nets[1]
 	switch {

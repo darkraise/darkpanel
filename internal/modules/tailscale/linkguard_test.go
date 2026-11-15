@@ -324,7 +324,7 @@ func TestLgLinkGuard(t *testing.T) {
 				routes: map[string]string{"100.64.0.9": "tailscale0", "172.30.0.2": "dp-panel"}},
 			in: core.Guarded{Guard: &core.GuardContext{Complete: true,
 				Client: &core.Peer{Addr: netip.MustParseAddr("172.30.0.2")},
-				Via: &core.ProxyPath{ExposureID: "e1", Kind: "npm", ProxyAddr: netip.MustParseAddr("172.30.0.2"),
+				Via: &core.ProxyPath{ExposureID: "e1", Kind: core.ProxyKindNPM, ProxyAddr: netip.MustParseAddr("172.30.0.2"),
 					ListenerAddr: netip.MustParseAddrPort("172.30.0.1:8080")}}},
 		},
 		{
@@ -332,7 +332,7 @@ func TestLgLinkGuard(t *testing.T) {
 			w: lgWorld{controller: true},
 			in: core.Guarded{Guard: &core.GuardContext{Complete: true,
 				Client: &core.Peer{Addr: netip.MustParseAddr("172.30.0.2")},
-				Via:    &core.ProxyPath{ExposureID: "e1", Kind: "npm", ProxyAddr: netip.MustParseAddr("172.30.0.2")}}},
+				Via:    &core.ProxyPath{ExposureID: "e1", Kind: core.ProxyKindNPM, ProxyAddr: netip.MustParseAddr("172.30.0.2")}}},
 			wantIn: []string{"panel", "the exposure has no proxy or listener address"},
 		},
 		{
@@ -514,17 +514,17 @@ func TestW12eTailnetClientOfAnExposure(t *testing.T) {
 		wantIn []string
 	}{
 		{"a tailnet client of an NPM exposure fails a logout", map[string]string{"100.64.0.9": "tailscale0", "172.30.0.2": "dp-panel"},
-			guarded("100.64.0.9", "npm"), false, []string{"panel", "100.64.0.9"}},
+			guarded("100.64.0.9", core.ProxyKindNPM), false, []string{"panel", "100.64.0.9"}},
 		{"an IPv4 tailnet client of NPM's published [::]:443 fails a logout", map[string]string{"100.64.0.9": "tailscale0", "172.30.0.2": "dp-panel"},
-			guardedOn("100.64.0.9", "npm", "[::]:443"), false, []string{"panel", "100.64.0.9"}},
+			guardedOn("100.64.0.9", core.ProxyKindNPM, "[::]:443"), false, []string{"panel", "100.64.0.9"}},
 		{"an IPv6 tailnet client of NPM's published [::]:443 fails a logout", map[string]string{"fd7a:115c:a1e0::9": "tailscale0", "172.30.0.2": "dp-panel"},
-			guardedOn("fd7a:115c:a1e0::9", "npm", "[::]:443"), false, []string{"panel", "fd7a:115c:a1e0::9"}},
+			guardedOn("fd7a:115c:a1e0::9", core.ProxyKindNPM, "[::]:443"), false, []string{"panel", "fd7a:115c:a1e0::9"}},
 		{"a host-address client of an NPM exposure adds no flow", map[string]string{"172.30.0.2": "dp-panel"},
-			guarded("172.30.0.1", "npm"), true, nil},
+			guarded("172.30.0.1", core.ProxyKindNPM), true, nil},
 		{"a tailnet client of a tunnel exposure adds no flow", map[string]string{"100.64.0.9": "tailscale0", "172.30.0.2": "dp-panel"},
-			guarded("100.64.0.9", "tunnel"), true, nil},
+			guarded("100.64.0.9", core.ProxyKindTunnel), true, nil},
 		{"a client whose route leaves eth0 passes", map[string]string{"100.64.0.9": "eth0", "172.30.0.2": "dp-panel"},
-			guarded("100.64.0.9", "npm"), true, nil},
+			guarded("100.64.0.9", core.ProxyKindNPM), true, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, tsv := lgHost(t, lgWorld{controller: true, routes: tc.routes})
