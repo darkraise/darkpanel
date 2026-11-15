@@ -939,9 +939,8 @@ func (c networkClaims) afterJoin(ctx context.Context, env core.Env, network stri
 }
 
 // lostJoin checks a join that connectErr, a connect's lost answer, may hide: NPM found on network is checked as afterJoin
-// checks it. It returns afterJoin's error when NPM stayed on the network, and otherwise connectErr, naming afterJoin's
-// refusal when the check took NPM off the network again. The refusal is added as text only, so the error keeps
-// connectErr's classification.
+// checks it. It returns afterJoin's error when that error is not definite, and otherwise connectErr, with afterJoin's
+// definite refusal appended. The refusal is added as text only, so the error keeps connectErr's classification.
 func (c networkClaims) lostJoin(ctx context.Context, env core.Env, network string, targets []forwardTarget, connectErr error) error {
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lostJoinWait)
 	defer cancel()
