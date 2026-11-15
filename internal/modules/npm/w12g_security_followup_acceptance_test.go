@@ -260,7 +260,7 @@ func TestA2_ForwardedAddressTakenAtConnectIsDroppedBeforeAnyReloadOrRead(t *test
 			w.h.docker.pin(nwNet, netip.MustParseAddr(sqHeld))
 			w.dock.before["connect"] = func() { w.freeHolder(t) }
 			err := w.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
-			sqWantCode(t, err, errcode.NPMReserved)
+			_ = sqWantCode(t, err, errcode.NPMReserved)
 			ev := w.log.snapshot()
 			conn := sqIndex(ev, "connect", 0)
 			if conn < 0 || len(ev) < conn+3 || ev[conn+1] != "inspect:"+containerName || ev[conn+2] != "disconnect" {
@@ -282,7 +282,7 @@ func TestA2_ForwardedAddressTakenAtConnectIsDroppedBeforeAnyReloadOrRead(t *test
 		w.h.docker.pin(nwNet, netip.MustParseAddr(sqHeld))
 		w.dock.before["connect"] = func() { w.freeHolder(t) }
 		err := w.undo(t, e)
-		sqWantCode(t, err, errcode.NPMReserved)
+		_ = sqWantCode(t, err, errcode.NPMReserved)
 		ev := w.log.snapshot()
 		conn := sqIndex(ev, "connect", 0)
 		if conn < 0 || len(ev) < conn+3 || ev[conn+1] != "inspect:"+containerName || ev[conn+2] != "disconnect" {
@@ -307,7 +307,7 @@ func TestA3_AddressFreedAfterTheFirstReloadRefusesBeforeTheConnect(t *testing.T)
 			w.freeHolder(t)
 		}
 		err := w.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
-		sqWantCode(t, err, errcode.NPMReserved)
+		_ = sqWantCode(t, err, errcode.NPMReserved)
 		if w.log.count("connect") != 0 || nwEndpoint(t, w.h, w.user.ID) != nil {
 			t.Error("the attach connected NPM")
 		}
@@ -326,7 +326,7 @@ func TestA3_AddressFreedAfterTheFirstReloadRefusesBeforeTheConnect(t *testing.T)
 			w.freeHolder(t)
 		}
 		err := w.undo(t, e)
-		sqWantCode(t, err, errcode.NPMReserved)
+		_ = sqWantCode(t, err, errcode.NPMReserved)
 		if w.log.count("connect") != 0 || nwEndpoint(t, w.h, w.user.ID) != nil {
 			t.Error("the undo connected NPM")
 		}
@@ -353,7 +353,7 @@ func TestA15_AttachOnANetworkNPMIsAlreadyOn(t *testing.T) {
 		w := sqNewWorld(t, sqAnswers("203.0.113.9"))
 		w12aSeed(w.h, sqHeld, 3000)
 		nwConnect(t, w.h, w.user, nwStatic(sqHeld))
-		sqWantCode(t, w.attach(t, in), errcode.NPMReserved)
+		_ = sqWantCode(t, w.attach(t, in), errcode.NPMReserved)
 		if nwEndpoint(t, w.h, w.user.ID) != nil {
 			t.Error("NPM stayed on a network where it holds a forwarded address")
 		}
@@ -362,7 +362,7 @@ func TestA15_AttachOnANetworkNPMIsAlreadyOn(t *testing.T) {
 		w := sqNewWorld(t, sqAnswers(sqHeld))
 		w12aSeed(w.h, "up.invalid", 3000)
 		nwConnect(t, w.h, w.user, nwStatic(sqHeld))
-		sqWantCode(t, w.attach(t, in), errcode.NPMReserved)
+		_ = sqWantCode(t, w.attach(t, in), errcode.NPMReserved)
 		if nwEndpoint(t, w.h, w.user.ID) != nil {
 			t.Error("NPM stayed on a network where it holds an address a name forwards to")
 		}
@@ -372,7 +372,7 @@ func TestA15_AttachOnANetworkNPMIsAlreadyOn(t *testing.T) {
 		w12aSeed(w.h, "up.invalid", 3000)
 		nwConnect(t, w.h, w.user, nwStatic("10.9.0.40"))
 		w.h.nginx.fail(errNginxTest)
-		sqWantCode(t, w.attach(t, in), errcode.NPMReserved)
+		_ = sqWantCode(t, w.attach(t, in), errcode.NPMReserved)
 		if nwEndpoint(t, w.h, w.user.ID) != nil {
 			t.Error("NPM stayed on the network after an unconfirmed reload")
 		}
@@ -389,7 +389,7 @@ func TestA15_AttachOnANetworkNPMIsAlreadyOn(t *testing.T) {
 			c.NetworkSettings.Networks = map[string]*dockerapi.EndpointSettings{networkName: {NetworkID: own.ID}}
 		}))
 		err := w.attach(t, AttachInput{Network: networkName, Claimant: nwClaimant, Target: "web2"})
-		sqWantCode(t, err, errcode.NPMReserved)
+		_ = sqWantCode(t, err, errcode.NPMReserved)
 		if w.log.count("disconnect") != 0 || nwEndpoint(t, w.h, own.ID) == nil {
 			t.Error("NPM was disconnected from darkpanel-npm")
 		}
@@ -644,7 +644,7 @@ func TestA6_RefusalsOfTheReloadAreUnhealthy(t *testing.T) {
 			tc.arrange(f)
 			w.withExec(f)
 			err := w.attach(t, in)
-			sqWantCode(t, err, errcode.NPMUnhealthy)
+			_ = sqWantCode(t, err, errcode.NPMUnhealthy)
 			if w.log.count("connect") != 0 {
 				t.Error("NPM was connected")
 			}
@@ -658,9 +658,9 @@ func TestA6_RefusalsOfTheReloadAreUnhealthy(t *testing.T) {
 		f := sqNewExec()
 		f.hang[sqTest] = true
 		w.withExec(f)
-		sqWantCode(t, w.attach(t, in), errcode.NPMUnhealthy)
+		_ = sqWantCode(t, w.attach(t, in), errcode.NPMUnhealthy)
 		created := f.lineCount()
-		sqWantCode(t, w.attach(t, in), errcode.NPMUnhealthy)
+		_ = sqWantCode(t, w.attach(t, in), errcode.NPMUnhealthy)
 		if f.lineCount() != created {
 			t.Errorf("a second reload started %d more execs while the first still ran", f.lineCount()-created)
 		}
@@ -684,7 +684,7 @@ func sqNoAnswer(_ context.Context, host string) ([]netip.Addr, error) {
 
 func TestA8_HarnessHoldsNoAuthorizationHeaderNoTokenAndNoReloadCall(t *testing.T) {
 	for _, rel := range []string{"../../../test/harness/m6_npm_test.go", "../../../test/harness/vm/vm.go"} {
-		b, err := os.ReadFile(rel)
+		b, err := os.ReadFile(rel) //nolint:gosec // G304: a test path
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -922,7 +922,7 @@ func TestA10_APassWithNoHitRecordsNoChangeAndAHitOnNPMsOwnNetworkFailsOnce(t *te
 			err := sqPass(t, h, n, task, &applies)
 			if err != nil {
 				failures++
-				sqWantCode(t, err, errcode.NPMReserved)
+				_ = sqWantCode(t, err, errcode.NPMReserved)
 			}
 		}
 		if applies != 1 || failures != 1 {
@@ -981,8 +981,6 @@ func TestA11_APassDoesNothingWhileNoInstanceNPMStoppedOrTheLockHeld(t *testing.T
 		}
 	})
 }
-
-const sqUnansweredLoc = "location /x of proxy host 1 forwards to gone.invalid, which has no answer"
 
 func sqSeedUnansweredLocation(h *thHost) {
 	w12aSeed(h, "app.example.net", 8080, npmapi.Location{Path: "/x", ForwardScheme: "http", ForwardHost: "gone.invalid", ForwardPort: 80})
@@ -1099,7 +1097,7 @@ func TestA13_DisabledProxyHostsAreIgnoredAndEnabledOnesAreChecked(t *testing.T) 
 		w12aSeed(w2.h, sqHeld, 3000)
 		w2.h.docker.pin(nwNet, netip.MustParseAddr(sqHeld))
 		qaErr := w2.attach(t, in)
-		sqWantCode(t, qaErr, errcode.NPMReserved)
+		_ = sqWantCode(t, qaErr, errcode.NPMReserved)
 	})
 	t.Run("a reconcile pass after an administrator enables the host", func(t *testing.T) {
 		h, user := sqHit(t)
@@ -1361,7 +1359,7 @@ func TestA19_AFreedAddressNeverLeavesNPMOnTheNetworkWhoeverFreedIt(t *testing.T)
 				w.log.add("reload")
 				free(t, w)
 			}
-			sqWantCode(t, w.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}), errcode.NPMReserved)
+			_ = sqWantCode(t, w.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}), errcode.NPMReserved)
 			if nwEndpoint(t, w.h, w.user.ID) != nil {
 				t.Error("NPM stayed on the network")
 			}
@@ -1372,7 +1370,7 @@ func TestA19_AFreedAddressNeverLeavesNPMOnTheNetworkWhoeverFreedIt(t *testing.T)
 			w12aSeed(w.h, sqHeld, 3000)
 			w.h.docker.pin(nwNet, netip.MustParseAddr(sqHeld))
 			w.dock.before["connect"] = func() { free(t, w) }
-			sqWantCode(t, w.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}), errcode.NPMReserved)
+			_ = sqWantCode(t, w.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}), errcode.NPMReserved)
 			if nwEndpoint(t, w.h, w.user.ID) != nil {
 				t.Error("NPM stayed on the network")
 			}
@@ -1445,7 +1443,7 @@ func TestA23_EveryNamedRegressionTestInTheEvidenceNoteExistsAndHasItsRevertLine(
 	}
 	var source strings.Builder
 	for _, f := range files {
-		b, err := os.ReadFile(f)
+		b, err := os.ReadFile(f) //nolint:gosec // G304: a test path
 		if err != nil {
 			t.Fatal(err)
 		}

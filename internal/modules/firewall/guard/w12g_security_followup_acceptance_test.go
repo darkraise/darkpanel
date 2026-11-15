@@ -17,7 +17,7 @@ func TestA21_TheFirewallGuardAcceptanceTestHasNoQaSpanAndAColonRangeFailsItsChec
 		if f == self {
 			continue
 		}
-		b, err := os.ReadFile(f)
+		b, err := os.ReadFile(f) //nolint:gosec // G304: a test path
 		if err != nil {
 			t.Fatal(err)
 		}
