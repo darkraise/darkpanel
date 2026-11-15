@@ -917,12 +917,7 @@ func (c networkClaims) afterJoin(ctx context.Context, env core.Env, network stri
 	if ep == nil {
 		return c.leave(ctx, network, uncheckedJoin(fmt.Errorf("%s has no endpoint on network %s after the join", containerName, network)))
 	}
-	var held []netip.Addr
-	for _, a := range []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address} {
-		if a.IsValid() {
-			held = append(held, a.Unmap())
-		}
-	}
+	held := heldAddresses(ct)[network]
 	if hit := heldTarget(held, targets, network); hit != "" {
 		return c.leave(ctx, network, reservedJoin(hit))
 	}
@@ -1138,6 +1133,13 @@ func (n nm) forwardsAndUnanswered(ctx context.Context, env core.Env) ([]forwardT
 	if err != nil {
 		return nil, nil, unresolvedRefusal(refs, err)
 	}
+	out, us := forwardsOf(refs, answers)
+	return out, us, nil
+}
+
+// forwardsOf builds the targets of refs from answers, the addresses of each name, and lists the custom locations whose
+// static name has none.
+func forwardsOf(refs []forwardRef, answers map[string][]netip.Addr) ([]forwardTarget, []unansweredForward) {
 	var out []forwardTarget
 	var us []unansweredForward
 	for _, f := range refs {
@@ -1152,7 +1154,7 @@ func (n nm) forwardsAndUnanswered(ctx context.Context, env core.Env) ([]forwardT
 			out = append(out, forwardTarget{where: f.where, host: f.host, name: true, addr: a})
 		}
 	}
-	return out, us, nil
+	return out, us
 }
 
 // unansweredForward is a custom location whose static forward host has no answer: nginx resolves such a name when it

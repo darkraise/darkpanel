@@ -126,6 +126,7 @@ it with `darkpanel change repair <id>`, which repeats the steps.
 | `npm.instance.upgrade` | `darkpanel npm instance upgrade` | Recreates the Nginx Proxy Manager container from the pinned image, archiving its volumes first. | Nothing. Undo restores the original from the archives. |
 | `npm.network.attach` | `darkpanel npm network attach` | Attaches Nginx Proxy Manager to a network. | Nothing. Undo with `change undo`. |
 | `npm.network.detach` | `darkpanel npm network detach` | Releases an attachment claim. | Nothing. Undo with `change undo`. |
+| `npm.instance.reconcile` | `darkpanel npm instance reconcile` | Takes Nginx Proxy Manager off every network where it holds an address a proxy host forwards to, then reloads nginx. | Nothing. It cannot be undone; it needs the `admin` scope. |
 | `npm.proxyhost.add` | `darkpanel npm proxyhost add` | Adds a proxy host. | Nothing. Undo deletes it. |
 | `npm.proxyhost.update` | `darkpanel npm proxyhost update` | Changes the settings of a proxy host. | Nothing. Undo with `change undo`. |
 | `npm.proxyhost.remove` | `darkpanel npm proxyhost remove` | Deletes a proxy host. | Nothing. Undo with `change undo`. |
@@ -386,6 +387,10 @@ reuse a certificate, so you decide.
   `<change id>-letsencrypt.tar`, in lower case.
 - Records in the agent's database: the instance, its sealed administrator
   password, the network claims and the reserved objects.
+
+The agent takes Nginx Proxy Manager off a network where it holds an address a
+proxy host forwards to, and keeps the claims on that network. Once the forward
+is fixed, attach Nginx Proxy Manager to the network again.
 
 `sudo darkpanel uninstall` removes the backup directory, as the host's ownership
 manifest lists it, but it does not remove Docker objects. The container, the

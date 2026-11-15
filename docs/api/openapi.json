@@ -11781,6 +11781,53 @@
         ],
         "type": "object"
       },
+      "npm.instance.reconcile.v1.input": {
+        "$ref": "#/components/schemas/npm.instance.reconcile.v1.input.ReconcileInput"
+      },
+      "npm.instance.reconcile.v1.input.ReconcileInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "npm.instance.reconcile.v1.output": {
+        "$ref": "#/components/schemas/npm.instance.reconcile.v1.output.Reconciled"
+      },
+      "npm.instance.reconcile.v1.output.DroppedNetwork": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "claimants": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "network": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "network",
+          "address",
+          "claimants"
+        ],
+        "type": "object"
+      },
+      "npm.instance.reconcile.v1.output.Reconciled": {
+        "properties": {
+          "dropped": {
+            "items": {
+              "$ref": "#/components/schemas/npm.instance.reconcile.v1.output.DroppedNetwork"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "dropped"
+        ],
+        "type": "object"
+      },
       "npm.instance.remove.v1.input": {
         "$ref": "#/components/schemas/npm.instance.remove.v1.input.RemoveInput"
       },
@@ -26222,6 +26269,113 @@
           }
         ],
         "summary": "Deploy Nginx Proxy Manager in a Darkpanel-owned container and create its administrator."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/npm.instance.reconcile/v1/apply": {
+      "post": {
+        "operationId": "npm.instance.reconcile.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Take NPM off a network where it holds an address a proxy host forwards to."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/npm.instance.reconcile/v1/plan": {
+      "post": {
+        "operationId": "npm.instance.reconcile.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/npm.instance.reconcile.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Take NPM off a network where it holds an address a proxy host forwards to."
       }
     },
     "/api/v1/hosts/{host}/actions/npm.instance.remove/v1/apply": {

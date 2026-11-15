@@ -492,17 +492,7 @@ func (h instanceUpgradeHandler) verifyHeld(ctx context.Context, _ core.Env, cont
 		res.Unverified = fmt.Errorf("npm: inspect the started container %s: %w", containerName, engineCoded(err))
 		return result(nil)
 	}
-	held := map[string][]netip.Addr{}
-	for network, ep := range c.NetworkSettings.Networks {
-		if ep == nil {
-			continue
-		}
-		for _, a := range []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address} {
-			if a.IsValid() {
-				held[network] = append(held[network], a.Unmap())
-			}
-		}
-	}
+	held := heldAddresses(c)
 	check := func(where string, addr netip.Addr) error {
 		for _, network := range slices.Sorted(maps.Keys(held)) {
 			if !slices.Contains(held[network], addr.Unmap()) {
@@ -512,12 +502,8 @@ func (h instanceUpgradeHandler) verifyHeld(ctx context.Context, _ core.Env, cont
 			if network == networkName {
 				return errcode.New(errcode.NPMReserved, text+"; it stays on "+networkName)
 			}
-			if err := h.dropNetwork(ctx, containerID, network); err != nil {
-				errs := []error{errors.New(text), errors.New("npm: disconnect it from network " + network + ": " + err.Error())}
-				if _, stopErr := docker.StopContainer(ctx, containerID, instanceUpgradeStop); stopErr != nil {
-					errs = append(errs, errors.New("npm: stop container "+containerName+": "+stopErr.Error()))
-				}
-				return errors.Join(errs...)
+			if err := h.dropOrStop(ctx, containerID, network, text); err != nil {
+				return err
 			}
 			delete(held, network)
 			res.Dropped = append(res.Dropped, network)
@@ -557,6 +543,38 @@ func (h instanceUpgradeHandler) verifyHeld(ctx context.Context, _ core.Env, cont
 		}
 	}
 	return result(nil)
+}
+
+// heldAddresses lists the addresses the container c holds on each of its networks.
+func heldAddresses(c dockerapi.ContainerJSON) map[string][]netip.Addr {
+	held := map[string][]netip.Addr{}
+	for network, ep := range c.NetworkSettings.Networks {
+		if ep == nil {
+			continue
+		}
+		for _, a := range []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address} {
+			if a.IsValid() {
+				held[network] = append(held[network], a.Unmap())
+			}
+		}
+	}
+	return held
+}
+
+// dropOrStop takes the container containerID off network, where it holds a forwarded address as text says; when the
+// disconnect fails it stops the container, because one left running at a forwarded address publishes NPM's API there.
+// It runs under WithoutCancel for the same reason.
+func (h instanceUpgradeHandler) dropOrStop(ctx context.Context, containerID, network, text string) error {
+	ctx = context.WithoutCancel(ctx)
+	err := h.dropNetwork(ctx, containerID, network)
+	if err == nil {
+		return nil
+	}
+	errs := []error{errors.New(text), errors.New("npm: disconnect it from network " + network + ": " + err.Error())}
+	if _, stopErr := h.n.d.docker.StopContainer(ctx, containerID, instanceUpgradeStop); stopErr != nil {
+		errs = append(errs, errors.New("npm: stop container "+containerName+": "+stopErr.Error()))
+	}
+	return errors.Join(errs...)
 }
 
 // dropNetwork takes the container id off network; a container no longer on it counts as done.

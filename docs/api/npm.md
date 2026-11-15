@@ -498,6 +498,34 @@ Returned in the `output` field of the response.
 | `instances[].status.upgradeAvailable` | boolean | yes |  |
 | `unreadable` | array of string | yes |  |
 
+## npm.instance.reconcile v1
+
+Take NPM off a network where it holds an address a proxy host forwards to.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/npm.instance.reconcile/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/npm.instance.reconcile/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `dropped` | array of object | yes |  |
+| `dropped[].address` | string | yes |  |
+| `dropped[].claimants` | array of string | yes |  |
+| `dropped[].network` | string | yes |  |
+
 ## npm.instance.remove v1
 
 Remove the Nginx Proxy Manager instance and its data.

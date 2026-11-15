@@ -38,6 +38,7 @@ type regAction struct {
 	converges bool
 	internal  bool
 	reveal    bool
+	admin     bool // an agent mutation that needs the admin scope
 	unwind    core.Unwind
 }
 
@@ -70,6 +71,7 @@ var regActions = []regAction{
 	{name: "npm.instance.upgrade", class: core.ClassCompensable, side: core.SideAgent, long: true, apply: 20 * time.Minute, undoer: true, recoverer: true, in: regType[UpgradeInput](), out: regType[Upgraded]()},
 	{name: "npm.network.attach", class: core.ClassCompensable, side: core.SideAgent, undoer: true, in: regType[AttachInput](), out: regType[Attachment]()},
 	{name: "npm.network.detach", class: core.ClassCompensable, side: core.SideAgent, undoer: true, converges: true, in: regType[DetachInput]()},
+	{name: "npm.instance.reconcile", class: core.ClassCompensable, side: core.SideAgent, converges: true, admin: true, in: regType[ReconcileInput](), out: regType[Reconciled]()},
 	{name: "npm.proxyhost.add", class: core.ClassCompensable, side: core.SideAgent, undoer: true, resolver: true, in: regType[ProxyHostInput](), out: regType[ProxyHostView]()},
 	{name: "npm.proxyhost.update", class: core.ClassCompensable, side: core.SideAgent, undoer: true, in: regType[ProxyHostUpdateInput](), out: regType[ProxyHostView]()},
 	{name: "npm.proxyhost.remove", class: core.ClassCompensable, side: core.SideAgent, undoer: true, converges: true, in: regType[ProxyHostRemoveInput](), out: regType[ProxyHostView]()},
@@ -110,11 +112,11 @@ func regDefs(t *testing.T, m core.Module) map[string]core.ActionDef {
 	return defs
 }
 
-// regScope is the scope an action needs: reads need read, a reveal admin, a composite admin and every
-// other agent mutation operate.
+// regScope is the scope an action needs: reads need read, a reveal admin, a composite admin, an action marked admin
+// admin, and every other agent mutation operate.
 func regScope(a regAction) core.Scope {
 	switch {
-	case a.reveal, a.class == core.ClassComposite:
+	case a.reveal, a.admin, a.class == core.ClassComposite:
 		return core.ScopeAdmin
 	case a.class == core.ClassRead:
 		return core.ScopeRead
@@ -229,6 +231,7 @@ var regSamples = map[string]any{
 	"npm.instance.upgrade":          UpgradeInput{},
 	"npm.network.attach":            AttachInput{Network: "appnet", Claimant: "expose:app.example.com", Target: "web"},
 	"npm.network.detach":            DetachInput{Network: "appnet", Claimant: "expose:app.example.com"},
+	"npm.instance.reconcile":        ReconcileInput{},
 	"npm.proxyhost.add":             ProxyHostInput{Domains: []string{"app.example.com"}, ForwardScheme: "http", ForwardHost: "web", ForwardPort: 8080, CertificateID: 3, AccessListID: 2, SSLForced: true, HSTS: true, Websockets: true},
 	"npm.proxyhost.update":          ProxyHostUpdateInput{ID: 5, ProxyHostInput: ProxyHostInput{Domains: []string{"app.example.com"}, ForwardScheme: "https", ForwardHost: "web", ForwardPort: 8443}},
 	"npm.proxyhost.remove":          ProxyHostRemoveInput{Domain: "app.example.com"},
