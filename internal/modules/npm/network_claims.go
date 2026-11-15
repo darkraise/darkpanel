@@ -1124,9 +1124,10 @@ func unresolvedRefusal(refs []forwardRef, err error) error {
 }
 
 // forwardTargets reads every address NPM's enabled proxy hosts and their custom locations forward to, in proxy host
-// order. A name is resolved as checkForward resolves it; a name with no answer still adds nothing here, because every
-// join of NPM runs nginx -t and nginx -s reload in the container, confirmed by a new worker, before the connect and
-// again after the first check of the address NPM took, so nginx holds no older answer of the name than one read here.
+// order. A name is resolved as checkForward resolves it; a name with no answer adds nothing here, because every join
+// of NPM runs nginx -t and nginx -s reload in the container, confirmed by a new worker, before the connect and again
+// after the first check of the address NPM took. A DNS name re-pointed between the first reload and this read leaves
+// nginx with the older answer until the second reload: the accepted DNS risk (spec D10).
 func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, error) {
 	targets, _, err := n.forwardsAndUnanswered(ctx, env)
 	return targets, err
