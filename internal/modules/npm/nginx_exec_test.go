@@ -294,3 +294,58 @@ func TestNginxReloaderNeedsANewWorkerOfTheMasterAfterTheSignal(t *testing.T) {
 		})
 	}
 }
+
+func TestNginxReloaderLeavesNothingPendingAfterARefusedStart(t *testing.T) {
+	f := newFakeExec()
+	f.startErr[testCmd] = &dockerapi.APIError{StatusCode: 409, Message: "container is paused"}
+	r := quickReloader(f)
+	if err := r.Reload(context.Background()); err == nil {
+		t.Fatal("a refused start was confirmed")
+	}
+	delete(f.startErr, testCmd)
+	f.hang[testCmd] = true
+	before := len(f.created)
+	if err := r.Reload(context.Background()); errors.Is(err, errNginxBusy) {
+		t.Fatal("the reload after a refused start = errNginxBusy, want a new exec: a refused start did not run")
+	}
+	if len(f.created) == before {
+		t.Error("no exec was created after a refused start")
+	}
+}
+
+func TestNginxReloaderKeepsPendingAnExecWithNoExitCode(t *testing.T) {
+	f := newFakeExec()
+	f.hang[testCmd] = true
+	r := quickReloader(f)
+	if err := r.Reload(context.Background()); err == nil {
+		t.Fatal("a hung test was confirmed")
+	}
+	delete(f.hang, testCmd)
+	f.noCode[testCmd] = true
+	if err := r.Reload(context.Background()); !errors.Is(err, errNginxBusy) {
+		t.Fatalf("the reload while the pending exec has no exit code = %v, want errNginxBusy: its start may still be in flight", err)
+	}
+}
+
+func TestNginxReloaderDropsAPendingExecAfterItsExpiry(t *testing.T) {
+	f := newFakeExec()
+	f.hang[testCmd] = true
+	r := quickReloader(f)
+	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	r.now = func() time.Time { return now }
+	if err := r.Reload(context.Background()); err == nil {
+		t.Fatal("a hung test was confirmed")
+	}
+	now = now.Add(nginxPendingExpiry - time.Second)
+	if err := r.Reload(context.Background()); !errors.Is(err, errNginxBusy) {
+		t.Fatalf("the reload before the expiry = %v, want errNginxBusy", err)
+	}
+	now = now.Add(2 * time.Second)
+	before := len(f.created)
+	if err := r.Reload(context.Background()); errors.Is(err, errNginxBusy) {
+		t.Fatal("the reload after the expiry = errNginxBusy, want the pending exec dropped")
+	}
+	if len(f.created) == before {
+		t.Error("no exec was created after the pending exec expired")
+	}
+}

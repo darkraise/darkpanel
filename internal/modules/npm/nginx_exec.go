@@ -15,9 +15,12 @@ const (
 	// nginxReloadWait bounds one Reload: the user lookup, both commands and the wait for a new worker together.
 	nginxReloadWait = 10 * time.Second
 	nginxReloadPoll = 100 * time.Millisecond
-	nginxPsArgs     = "-eo pid,ppid,args"
-	nginxMaster     = "nginx: master process"
-	nginxWorker     = "nginx: worker process"
+	// nginxPendingExpiry is how long a pending exec blocks later reloads. nginx -t and nginx -s reload end in well under
+	// a second; one still unfinished after this is an exec whose exit the Engine missed or whose start never reached it.
+	nginxPendingExpiry = 2 * time.Minute
+	nginxPsArgs        = "-eo pid,ppid,args"
+	nginxMaster        = "nginx: master process"
+	nginxWorker        = "nginx: worker process"
 )
 
 var (
@@ -35,17 +38,20 @@ type execEngine interface {
 
 // nginxReloader tests and reloads nginx inside darkpanel-npm by exec, as NPM's own backend does, so no proxy host is
 // sent back to NPM. pending is an exec that may still run after its call gave up, at the deadline or on an answer
-// that was lost: it can still signal nginx, so no later call starts another until it has ended.
+// that was lost: it can still signal nginx, so no later call starts another until it has ended or, at the latest,
+// until nginxPendingExpiry after it was recorded.
 type nginxReloader struct {
-	e       execEngine
-	mu      sync.Mutex
-	wait    time.Duration
-	poll    time.Duration
-	pending string
+	e         execEngine
+	mu        sync.Mutex
+	wait      time.Duration
+	poll      time.Duration
+	now       func() time.Time
+	pending   string
+	pendingAt time.Time
 }
 
 func newNginxReloader(e execEngine) *nginxReloader {
-	return &nginxReloader{e: e, wait: nginxReloadWait, poll: nginxReloadPoll}
+	return &nginxReloader{e: e, wait: nginxReloadWait, poll: nginxReloadPoll, now: time.Now}
 }
 
 func reloadFailure(format string, a ...any) error {
@@ -60,17 +66,18 @@ func (r *nginxReloader) Reload(ctx context.Context) error {
 	defer r.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, r.wait)
 	defer cancel()
-	if r.pending != "" {
+	if r.pending != "" && r.now().Sub(r.pendingAt) < nginxPendingExpiry {
 		st, err := r.e.ExecInspect(ctx, r.pending)
 		switch {
 		case dockerapi.IsNotFound(err):
 		case err != nil:
 			return reloadFailure("%w", err)
-		case st.Running:
+		// An exec not running with no exit code has not started yet, and its start may still be in flight.
+		case st.Running || st.ExitCode == nil:
 			return errNginxBusy
 		}
-		r.pending = ""
 	}
+	r.pending = ""
 	user, err := r.user(ctx)
 	if err != nil {
 		return err
@@ -178,7 +185,7 @@ func (r *nginxReloader) run(ctx context.Context, user string, cmd []string, isTe
 		// A start cut off by the deadline, or whose answer was lost, may have reached the Engine, which cannot kill
 		// the exec; only a refusal says it did not start.
 		if ctx.Err() != nil || !refused(err) {
-			r.pending = id
+			r.hold(id)
 		}
 		return reloadFailure("%w", err)
 	}
@@ -187,7 +194,7 @@ func (r *nginxReloader) run(ctx context.Context, user string, cmd []string, isTe
 	for {
 		st, err := r.e.ExecInspect(ctx, id)
 		if err != nil && ctx.Err() == nil {
-			r.pending = id
+			r.hold(id)
 			return reloadFailure("%w", err)
 		}
 		if err == nil && !st.Running {
@@ -204,11 +211,16 @@ func (r *nginxReloader) run(ctx context.Context, user string, cmd []string, isTe
 		}
 		select {
 		case <-ctx.Done():
-			r.pending = id
+			r.hold(id)
 			return reloadFailure("nginx command timed out")
 		case <-tick.C:
 		}
 	}
+}
+
+// hold records id as pending from now.
+func (r *nginxReloader) hold(id string) {
+	r.pending, r.pendingAt = id, r.now()
 }
 
 func (r *nginxReloader) newWorker(ctx context.Context, before map[string]bool) error {
