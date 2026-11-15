@@ -215,13 +215,17 @@ const (
 	// m6nDir holds the files the scenario puts on the agent VM.
 	m6nDir = "/var/lib/m6n"
 	// m6nNPMName is both the container and the network spec 6 names.
-	m6nNPMName      = "darkpanel-npm"
-	m6nPebbleName   = "m6n-pebble"
-	m6nChallName    = "m6n-challtestsrv"
-	m6nAppName      = "m6n-app"
-	m6nEchoName     = "m6n-echo"
-	m6nBridgeName   = "m6n-bridge"
-	m6nAppNet       = "m6n-net"
+	m6nNPMName    = "darkpanel-npm"
+	m6nPebbleName = "m6n-pebble"
+	m6nChallName  = "m6n-challtestsrv"
+	m6nAppName    = "m6n-app"
+	m6nEchoName   = "m6n-echo"
+	m6nBridgeName = "m6n-bridge"
+	m6nAppNet     = "m6n-net"
+	// m6nAppSubnet is m6n-net's subnet, set so reloadFollowsName can place
+	// the moved name on m6nMovedAddr, an address no earlier container held.
+	m6nAppSubnet    = "10.99.78.0/24"
+	m6nMovedAddr    = "10.99.78.250"
 	m6nPanelNet     = "darkpanel-panel"
 	m6nPanelSubnet  = "10.99.77.0/24"
 	m6nPanelGateway = "10.99.77.1"
@@ -844,7 +848,7 @@ func (r *m6nRun) reservedUpstreams(t *testing.T) {
 // reaches both targets over HTTPS with a chain that verifies under Pebble's root.
 func (r *m6nRun) expose(t *testing.T) {
 	v := r.f.agent
-	m3dDocker(r.ctx, t, v, "network", "create", m6nAppNet)
+	m3dDocker(r.ctx, t, v, "network", "create", "--subnet", m6nAppSubnet, m6nAppNet)
 	m3Run(r.ctx, t, v, m6nRunCmd(m6nRunSpec{
 		Name: m6nAppName, Image: r.image(t, "pebble-challtestsrv"), Network: m6nAppNet,
 		Args: []string{"-dnsserver", "", "-http01", "", "-https01", "", "-tlsalpn01", ""},
@@ -933,6 +937,9 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 	v := r.f.agent
 	const claimant = "m6n-a3a"
 	nets := []string{"m6n-a3a-1", "m6n-a3a-2"}
+	attach := func(network string) (Change, error) {
+		return m4ApplySettled(r.ctx, r.f.api, r.f.agentID, "npm.network.attach", npm.AttachInput{Network: network, Claimant: claimant})
+	}
 	for _, n := range nets {
 		m3dDocker(r.ctx, t, v, "network", "create", n)
 	}
@@ -940,7 +947,7 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 		m3Run(r.ctx, t, v, "sudo docker rm -f "+m6nMovedName+" >/dev/null 2>&1 || true")
 		m3Run(r.ctx, t, v, "sudo docker network connect "+m6nAppNet+" "+m6nEchoName+" >/dev/null 2>&1 || true")
 		detach := func(n string) {
-			ch, err := m4ApplySettled(r.ctx, r.f.api, "", "npm.network.detach", npm.DetachInput{Network: n, Claimant: claimant})
+			ch, err := m4ApplySettled(r.ctx, r.f.api, r.f.agentID, "npm.network.detach", npm.DetachInput{Network: n, Claimant: claimant})
 			if err != nil || ch.State != core.StateCompleted {
 				t.Errorf("npm.network.detach %s: %v %s %+v, want completed", n, err, ch.State, ch.Error)
 			}
@@ -951,7 +958,7 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 		if t.Failed() {
 			// A step stopped partway may leave nginx on an answer of the moved
 			// name; a join reloads it, so the later steps find m6n-echo again.
-			if ch, err := m4ApplySettled(r.ctx, r.f.api, "", "npm.network.attach", npm.AttachInput{Network: nets[0], Claimant: claimant}); err != nil || ch.State != core.StateCompleted {
+			if ch, err := attach(nets[0]); err != nil || ch.State != core.StateCompleted {
 				t.Errorf("npm.network.attach %s to reload nginx: %v %s %+v", nets[0], err, ch.State, ch.Error)
 			}
 			detach(nets[0])
@@ -960,18 +967,16 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 			m3Run(r.ctx, t, v, "sudo docker network rm "+n+" >/dev/null 2>&1 || true")
 		}
 	})
-	attach := func(network string) (Change, error) {
-		return m4ApplySettled(r.ctx, r.f.api, "", "npm.network.attach", npm.AttachInput{Network: network, Claimant: claimant})
-	}
 	get := func(ctx context.Context) (m6nResponse, error) { return m6nGet(ctx, r.f.scanner, m6nEchoHost, "/", nil) }
 
+	// The moved name gets an address of its own: on the address m6n-echo
+	// releases, nginx's old answer would reach it without any reload.
 	m3Run(r.ctx, t, v, m6nRunCmd(m6nRunSpec{
-		Name: m6nMovedName, Image: npm.Image, Network: m6nAppNet, Entrypoint: "node", Args: []string{"-e", m6nMovedScript},
+		Name: m6nMovedName, Image: npm.Image, Entrypoint: "node", Args: []string{"-e", m6nMovedScript},
 	}))
 	m3dWaitRunning(r.ctx, t, v, m6nMovedName)
 	m3dDocker(r.ctx, t, v, "network", "disconnect", m6nAppNet, m6nEchoName)
-	m3dDocker(r.ctx, t, v, "network", "disconnect", m6nAppNet, m6nMovedName)
-	m3dDocker(r.ctx, t, v, "network", "connect", "--alias", m6nEchoName, m6nAppNet, m6nMovedName)
+	m3dDocker(r.ctx, t, v, "network", "connect", "--alias", m6nEchoName, "--ip", m6nMovedAddr, m6nAppNet, m6nMovedName)
 	if resp, err := get(r.ctx); err == nil && string(resp.Body) == m6nMovedBody {
 		t.Fatal("nginx followed the moved name before any reload, so the step cannot show what the reload does")
 	}
