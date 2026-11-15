@@ -1034,30 +1034,32 @@ func TestA12_EveryNamedRegressionTestExists(t *testing.T) {
 		"../tailscale":      {"TestW12eTailnetClientOfAnExposure"},
 	}
 	for dir, names := range want {
-		fset := token.NewFileSet()
-		entries, err := os.ReadDir(dir)
+		for _, name := range names {
+			requireTestDeclared(t, dir, name)
+		}
+	}
+}
+
+func requireTestDeclared(t *testing.T, dir, name string) {
+	t.Helper()
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, entry.Name()), nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		declared := map[string]bool{}
-		for _, entry := range entries {
-			if !strings.HasSuffix(entry.Name(), "_test.go") {
-				continue
-			}
-			f, err := parser.ParseFile(fset, filepath.Join(dir, entry.Name()), nil, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, d := range f.Decls {
-				if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil {
-					declared[fn.Name.Name] = true
-				}
-			}
-		}
-		for _, name := range names {
-			if !declared[name] {
-				t.Errorf("%s: no test function %s", dir, name)
+		for _, d := range f.Decls {
+			if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name.Name == name {
+				return
 			}
 		}
 	}
+	t.Errorf("%s: no test function %s", dir, name)
 }

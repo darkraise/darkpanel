@@ -31,6 +31,7 @@ var dnPages = []dnPage{
 		"npm.not_public", "npm.unsupported_target", "npm.reserved", "npm.setup_failed", "npm.unhealthy",
 		"darkpanel-npm", "darkpanel-npm-data", "darkpanel-npm-letsencrypt", "127.0.0.1:81",
 		"/var/lib/darkpanel/agent/npm-backups", "Docker 28.0", "user-defined bridge network", "--acme-email", "derp.port_in_use",
+		"npm.forward_unanswered", "npm.forward_unresolved", "npm.reconcile",
 	}},
 	{"cloudflare", "docs/user/modules/cloudflare.md", []string{
 		"cloud.not_connected", "cloud.auth_failed", "cloud.permission_missing", "cloud.rate_limited", "cloud.conflict",

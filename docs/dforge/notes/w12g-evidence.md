@@ -132,3 +132,18 @@ The exec's user can run `nginx -t` and signal the master. This note shows that t
 No file under nginx's log or temp directories changes owner. The reading shows that `nginx -t` as `PUID:PGID` creates files as the user NPM itself uses, but nginx's start-up file handling is inferred from its behaviour, not observed; the step compares owners under `/data/logs`, `/var/cache/nginx`, `/tmp/nginx` and `/run/nginx` before and after a reload.
 
 `ContainerTop` lists the workers on all four systems. The daemon runs the host's `ps`, which this image does not contain, so the `COMMAND` title and the `-q` handling depend on each system's procps; the step checks that a new `nginx: worker process` pid appears after the reload on debian-12, debian-13, ubuntu-22.04 and ubuntu-24.04.
+
+## Revert check
+
+Each test `TestA23_EveryFixHasItsNamedRegressionTestDeclared` names was run (`timeout 900 go test -count=1 -run '^<name>$' ./internal/modules/npm/`, 2026-11-15, on 8f3cfeae) with only the fix it pins undone, and the fix was restored with `git checkout -- <file>` after each run. Every run failed; the failing line:
+
+| Test | Fix undone | Failing line |
+|---|---|---|
+| `TestW12gAttachMakesNoCallBetweenConnectAndInspection` | `afterJoin` back to reload, listing, then inspection (`network_claims.go`) | `w12g_attach_test.go:125: NPM got 2 requests at the connect and 4 at the next inspection; a listing sits in between` |
+| `TestW12gAttachDisconnectsBeforeAnyLookupOrReload` | the same | `w12g_attach_test.go:157: "reload" ran between the connect and the disconnect: [reload inspect:darkpanel-npm … resolve inspect:darkpanel-npm disconnect]` |
+| `TestW12gAttachRereadsTheNetworkAfterTheFirstReload` | `joinGuard` run before `reloadBeforeJoin` in the attach's `Apply` (`network_claims.go`) | `w12g_attach_test.go:179: the attach connected NPM to an address a proxy host forwards to` |
+| `TestNginxReloaderFailures` | `Reload` returns nil without `newWorker` (`nginx_exec.go`) | `no_new_worker_follows_the_signal: nginx_exec_test.go:146: the reload was confirmed` |
+| `TestW12gReloadRefusals` | `reloadRefusal` without the `unansweredForwards` classification (`nginx_reload.go`) | `the_test_fails,_a_location_has_no_answer: w12g_attach_test.go:207: error npm.reserved: nginx could not be reloaded before darkpanel-npm joins network appnet: nginx's configuration test failed, want code npm.forward_unanswered` |
+| `TestW12gReconcileDisconnectsNPMFromAForwardedAddress` | the reconcile's `drop` without `dropOrStop` (`reconcile.go`) | `reconcile_action_test.go:51: NPM stayed on a network where it holds a forwarded address` |
+| `TestW12gUpgradeRefusesAnUnansweredStaticForward` | `forwardCheck` returns no `unansweredRefusal` (`instance_upgrade.go`) | `w12g_upgrade_test.go:25: error <nil>, want code npm.forward_unanswered` |
+| `TestW12gUnansweredForwards` | `forwardRefs` without the `Enabled` filter (`network_claims.go`) | `w12g_guard_test.go:55: unanswered [… {Where:location /z of proxy host 2 Host:off.invalid}], want [{Where:location /a of proxy host 1 Host:gone.invalid} {Where:location /e of proxy host 1 Host:gone2.invalid}]` |
