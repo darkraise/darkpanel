@@ -19,15 +19,16 @@ func w12bRoutes() []netstat.Route {
 
 // w12bCheck runs the guard of a request whose NPM exposure on bind named
 // client, against st, with before as the state the change starts from (nil
-// for a revert's guard) and rpFilter as net/ipv4/conf/all/rp_filter.
-func w12bCheck(t *testing.T, h Host, before *fwstate.Loaded, st fwstate.Loaded, bind, client, rpFilter string) core.Guard {
+// for a revert's guard) and rpFilter as net/ipv4/conf/all/rp_filter, also
+// seeded for docker0, tailscale0 and the extra interfaces h holds.
+func w12bCheck(t *testing.T, h Host, before *fwstate.Loaded, st fwstate.Loaded, bind, client, rpFilter string, extra ...string) core.Guard {
 	t.Helper()
 	env, files, _ := ckEnv()
 	value := rpFilter
 	if value == "" {
 		value = "0"
 	}
-	for _, name := range []string{"docker0", "tailscale0", "veth1", "veth2"} {
+	for _, name := range append([]string{"docker0", "tailscale0"}, extra...) {
 		files.sysctl["net/ipv4/conf/"+name+"/rp_filter"] = value
 	}
 	if rpFilter != "" {

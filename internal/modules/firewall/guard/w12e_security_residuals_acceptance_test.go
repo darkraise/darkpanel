@@ -52,12 +52,13 @@ func qaFilter6(inputPolicy string, rules ...string) string {
 }
 
 // qaChange runs the guard of a request through the NPM exposure exp1 on [::]:443 made by client, for the change from
-// an ACCEPT-all host to the given IPv4 and IPv6 filter tables.
-func qaChange(t *testing.T, h Host, client, v4 string, v6 string) (ok bool, message string) {
+// an ACCEPT-all host to the given IPv4 and IPv6 filter tables; extra names the interfaces of h beyond docker0 and
+// tailscale0 whose rp_filter the guard reads.
+func qaChange(t *testing.T, h Host, client, v4 string, v6 string, extra ...string) (ok bool, message string) {
 	t.Helper()
 	before := v1r21State(t, w11b09Nat+v1r21Table(), v1r21Table())
 	st := v1r21State(t, w11b09Nat+v4, v6)
-	g := w12bCheck(t, h, &before, st, "[::]:443", client, "")
+	g := w12bCheck(t, h, &before, st, "[::]:443", client, "", extra...)
 	return g.OK, g.Message
 }
 
@@ -103,7 +104,7 @@ func TestA8_LinkLocalVethsAddNoProbesOnADualStackHost(t *testing.T) {
 			ifaces = append(ifaces, netstat.Interface{Index: 30 + i, Name: name, Up: true, Running: true, Addrs: addrs})
 		}
 		h := v1r21Fib{&gHost{ifaces: ifaces, table: w12bRoutes()}}
-		ok, msg := qaChange(t, h, qaVisibleIP, v1r21Table(), v1r21Table("-A INPUT -p tcp -m tcp --dport 2222 -j ACCEPT"))
+		ok, msg := qaChange(t, h, qaVisibleIP, v1r21Table(), v1r21Table("-A INPUT -p tcp -m tcp --dport 2222 -j ACCEPT"), "veth1", "veth2")
 		if !ok {
 			t.Fatalf("an unrelated change was refused: %s", msg)
 		}

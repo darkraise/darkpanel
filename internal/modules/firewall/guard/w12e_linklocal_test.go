@@ -29,8 +29,38 @@ var w12eCaptured = []struct {
 	{"fe80::1", w12eEth0LL, false, "eth0", w12eEth0LL},
 }
 
-// w12eRange is how a refusal names a blocked cell: the span of its addresses, "<from>-<to>".
-var w12eRange = regexp.MustCompile(`[0-9a-f:]+:[0-9a-f:]*-[0-9a-f:]*:[0-9a-f:]+`)
+// w12eRange is how a refusal names a blocked cell: the span of its addresses, "from <from>-<to> to".
+var w12eRange = regexp.MustCompile(`from ([^ -]+)-([^ ]+) to`)
+
+// w12eNamesIPv6Range reports whether msg names a blocked cell whose two ends are IPv6 addresses in order.
+func w12eNamesIPv6Range(msg string) bool {
+	for _, m := range w12eRange.FindAllStringSubmatch(msg, -1) {
+		from, err1 := netip.ParseAddr(m[1])
+		to, err2 := netip.ParseAddr(m[2])
+		if err1 == nil && err2 == nil && from.Is6() && !from.Is4In6() && to.Is6() && !to.Is4In6() && from.Compare(to) <= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func TestW12eNamesIPv6Range(t *testing.T) {
+	for _, tc := range []struct {
+		msg  string
+		want bool
+	}{
+		{"cut exposure exp1 hidden client from fe80::-fe80::10ed:bdff:fe67:f4d0 to [fe80::1]:443 on eth0", true},
+		{"cut exposure exp1 from 10.0.0.0-10.255.255.255 to 10.0.0.1:443 on eth0", false},
+		{"cut exposure exp1 from ab:-:cd to [fe80::1]:443", false},
+		{"cut exposure exp1 from fe80::9-fe80::1 to [fe80::1]:443", false},
+		{"cut exposure exp1 from ::ffff:10.0.0.1-::ffff:10.0.0.9 to [fe80::1]:443", false},
+		{"cut exposure exp1 to [fe80::1]:443 on eth0", false},
+	} {
+		if got := w12eNamesIPv6Range(tc.msg); got != tc.want {
+			t.Errorf("w12eNamesIPv6Range(%q) = %v, want %v", tc.msg, got, tc.want)
+		}
+	}
+}
 
 // TestW12eFixtureMatchesCapture: the link-local fixture answers every captured lookup as the host did.
 func TestW12eFixtureMatchesCapture(t *testing.T) {
@@ -108,7 +138,7 @@ func TestW12eLinkLocalOnlyHostGuardsIPv6443(t *testing.T) {
 				t.Errorf("guard = %+v, want OK", g)
 			case tc.want != "" && (g.OK || !strings.Contains(g.Message, tc.want)):
 				t.Errorf("guard = %+v, want a refusal containing %q", g, tc.want)
-			case tc.want != "" && !w12eRange.MatchString(g.Message):
+			case tc.want != "" && !w12eNamesIPv6Range(g.Message):
 				t.Errorf("refusal %q names no blocked IPv6 range", g.Message)
 			}
 		})
@@ -131,7 +161,7 @@ func TestW12eLinkLocalAddressesAddNoProbes(t *testing.T) {
 		h := v1r21Fib{&gHost{ifaces: ifaces, table: w12bRoutes()}}
 		before := v1r21State(t, w11b09Nat+v1r21Table(), v1r21Table())
 		st := v1r21State(t, w11b09Nat+v1r21Table(), v1r21Table(w12bOtherPort))
-		if g := w12bCheck(t, h, &before, st, "[::]:443", "10.0.0.50", ""); !g.OK {
+		if g := w12bCheck(t, h, &before, st, "[::]:443", "10.0.0.50", "", "veth1", "veth2"); !g.OK {
 			t.Fatalf("guard = %+v, want OK", g)
 		}
 		return len(h.lookups)
