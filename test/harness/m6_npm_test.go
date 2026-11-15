@@ -1015,16 +1015,15 @@ func (r *m6nRun) reloadFollowsName(t *testing.T) {
 
 	m3dDocker(r.ctx, t, v, "network", "disconnect", m6nAppNet, m6nMovedName)
 	// The real attach is the proof: nginx cannot load the unanswered name, so the join is refused before NPM joins.
+	// The plan's guard refuses a name with no answer before the apply's reload does, so either may answer.
 	ch, err = attach(nets[1])
-	switch {
-	case err != nil:
-		t.Errorf("npm.network.attach %s with the name unanswered: %v", nets[1], err)
-	case ch.State == core.StateCompleted || ch.Error == nil:
+	switch code, detail := m6nForwardRefusal(ch, err); {
+	case err == nil && (ch.State == core.StateCompleted || ch.Error == nil):
 		t.Errorf("npm.network.attach %s with the name unanswered ended %s, want it refused", nets[1], ch.State)
-	case ch.Error.Code != "npm.forward_unresolved" && ch.Error.Code != "npm.forward_unanswered":
-		t.Errorf("npm.network.attach %s with the name unanswered refused %+v, want npm.forward_unresolved or npm.forward_unanswered", nets[1], ch.Error)
-	case !strings.Contains(ch.Error.Message, m6nEchoName):
-		t.Errorf("npm.network.attach %s refused with message %q, want it to name %s", nets[1], ch.Error.Message, m6nEchoName)
+	case code != "npm.forward_unresolved" && code != "npm.forward_unanswered":
+		t.Errorf("npm.network.attach %s with the name unanswered: %q %s, want npm.forward_unresolved or npm.forward_unanswered", nets[1], code, detail)
+	case !strings.Contains(detail, m6nEchoName):
+		t.Errorf("npm.network.attach %s refused with message %q, want it to name %s", nets[1], detail, m6nEchoName)
 	}
 	if members := m6nNetworkMembers(r.ctx, t, v, nets[1]); slices.Contains(members, m6nNPMName) {
 		t.Errorf("network %s holds %v after the refused attach, want it without %s", nets[1], members, m6nNPMName)
