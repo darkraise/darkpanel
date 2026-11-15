@@ -880,16 +880,16 @@ func (c networkClaims) reloadBeforeJoin(ctx context.Context, env core.Env, netwo
 	return nil
 }
 
-// joinGuard reads network and the forward targets again, after the reload before a join, and refuses a target NPM
-// could take there (forwardTaken). It returns the targets for afterJoin. Every failure is Definite.
+// joinGuard reads the forward targets and then network again, after the reload before a join, so no listing or lookup
+// sits between the network's read and the connect, and refuses a target NPM could take there (forwardTaken). It returns the targets for afterJoin. Every failure is Definite.
 func (c networkClaims) joinGuard(ctx context.Context, env core.Env, network string, static netip.Addr) ([]forwardTarget, error) {
-	nw, err := c.n.d.docker.InspectNetwork(ctx, network)
-	if err != nil {
-		return nil, networkEngine("inspect network "+network, err)
-	}
 	targets, err := c.n.forwardTargets(ctx, env)
 	if err != nil {
 		return nil, core.Definite(err)
+	}
+	nw, err := c.n.d.docker.InspectNetwork(ctx, network)
+	if err != nil {
+		return nil, networkEngine("inspect network "+network, err)
 	}
 	var statics []netip.Addr
 	if static.IsValid() {

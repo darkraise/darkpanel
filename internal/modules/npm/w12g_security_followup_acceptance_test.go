@@ -227,8 +227,8 @@ func TestA1_AttachMakesNoListingOrLookupBetweenConnectAndInspection(t *testing.T
 		t.Fatalf("events %v, want a reload and then the connect", ev)
 	}
 	between := ev[first+1 : conn]
-	if len(between) == 0 || between[0] != "inspectnet" {
-		t.Errorf("events %v, want the network read again right after the first reload", ev)
+	if len(between) == 0 || between[len(between)-1] != "inspectnet" {
+		t.Errorf("events %v, want the network read again last before the connect, after the listing and lookups", ev)
 	}
 	listings := 0
 	for _, e := range between {
