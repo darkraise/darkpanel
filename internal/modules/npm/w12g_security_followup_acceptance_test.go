@@ -2,12 +2,17 @@ package npm
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"net"
+	"net/http"
 	"net/netip"
+	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -113,6 +118,8 @@ type sqWorld struct {
 	n    nm
 	dock *sqDock
 	log  *sqLog
+
+	changes int
 }
 
 func sqNewWorld(t *testing.T, resolve func(context.Context, string) ([]netip.Addr, error)) *sqWorld {
@@ -144,8 +151,10 @@ func sqAnswers(addr string) func(context.Context, string) ([]netip.Addr, error) 
 
 func (w *sqWorld) attach(t *testing.T, in AttachInput) error {
 	t.Helper()
-	w.h.addChange("c1", "npm.network.attach")
-	_, err := w.n.networkAttach().Handler.Apply(context.Background(), w.h.env("c1"), nwJSON(t, in))
+	w.changes++
+	id := "c" + strconv.Itoa(w.changes)
+	w.h.addChange(id, "npm.network.attach")
+	_, err := w.n.networkAttach().Handler.Apply(context.Background(), w.h.env(id), nwJSON(t, in))
 	return err
 }
 
@@ -411,4 +420,258 @@ func TestA16_JoinedNPMWithNoEndpointIsDisconnectedAndAttachRefuses(t *testing.T)
 	}
 }
 
-var _ = json.Marshal
+type sqExecCall struct {
+	container, user string
+	cmd             []string
+}
+
+type sqExec struct {
+	mu          sync.Mutex
+	env         []string
+	inspectErr  error
+	createErr   error
+	stopped     bool
+	exit        map[string]int
+	hang        map[string]bool
+	noCode      map[string]bool
+	gen         int
+	stuck       bool
+	calls       []sqExecCall
+	lines       map[string]string
+	releaseHang bool
+}
+
+func sqNewExec() *sqExec {
+	return &sqExec{exit: map[string]int{}, hang: map[string]bool{}, noCode: map[string]bool{}, lines: map[string]string{},
+		gen: 11}
+}
+
+const (
+	sqTest   = "nginx -t -g error_log off;"
+	sqReload = "nginx -s reload"
+)
+
+func (f *sqExec) InspectContainer(context.Context, string) (dockerapi.ContainerJSON, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.inspectErr != nil {
+		return dockerapi.ContainerJSON{}, f.inspectErr
+	}
+	return dockerapi.ContainerJSON{Config: dockerapi.ContainerConfig{Env: f.env}, State: dockerapi.ContainerState{Running: !f.stopped}}, nil
+}
+
+func (f *sqExec) ExecCreate(_ context.Context, container string, o dockerapi.ExecCreate) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.createErr != nil {
+		return "", f.createErr
+	}
+	f.calls = append(f.calls, sqExecCall{container, o.User, o.Cmd})
+	id := "exec" + strconv.Itoa(len(f.calls))
+	f.lines[id] = strings.Join(o.Cmd, " ")
+	return id, nil
+}
+
+func (f *sqExec) ExecStart(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.lines[id] == sqReload && !f.stuck {
+		f.gen++
+	}
+	return nil
+}
+
+func (f *sqExec) ExecInspect(_ context.Context, id string) (dockerapi.ExecInspect, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	line := f.lines[id]
+	switch {
+	case f.hang[line] && !f.releaseHang:
+		return dockerapi.ExecInspect{ID: id, Running: true}, nil
+	case f.noCode[line]:
+		return dockerapi.ExecInspect{ID: id}, nil
+	}
+	code := f.exit[line]
+	return dockerapi.ExecInspect{ID: id, ExitCode: &code}, nil
+}
+
+func (f *sqExec) ContainerTop(context.Context, string, string) (dockerapi.TopResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rows := [][]string{{"10", "1", "nginx: master process nginx"}, {strconv.Itoa(f.gen), "10", "nginx: worker process"}}
+	return dockerapi.TopResult{Titles: []string{"PID", "PPID", "COMMAND"}, Processes: rows}, nil
+}
+
+func (f *sqExec) lineCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (w *sqWorld) withExec(f *sqExec) *nginxReloader {
+	rl := newNginxReloader(f)
+	rl.wait, rl.poll = 400*time.Millisecond, 10*time.Millisecond
+	w.n.d.reload = rl.Reload
+	return rl
+}
+
+func TestA4_ReloadRunsTheTestAndThenTheReloadByExecAsTheContainersUser(t *testing.T) {
+	wantCmds := [][]string{{"nginx", "-t", "-g", "error_log off;"}, {"nginx", "-s", "reload"}}
+	for _, tc := range []struct {
+		name  string
+		env   []string
+		users []string
+	}{
+		{"PUID and PGID set", []string{"PUID=1234", "PGID=5678", "X=1"}, []string{"1234:5678"}},
+		{"unset", []string{"X=1"}, []string{"0:0", "0", "root", "root:root"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := sqNewWorld(t, sqAnswers("203.0.113.9"))
+			f := sqNewExec()
+			f.env = tc.env
+			w.withExec(f)
+			if err := w.n.reloadNginx(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(f.calls) != 2 {
+				t.Fatalf("%d execs, want 2", len(f.calls))
+			}
+			for i, c := range f.calls {
+				if !slices.Equal(c.cmd, wantCmds[i]) || c.container != "darkpanel-npm" || !slices.Contains(tc.users, c.user) {
+					t.Errorf("exec %d is %+v, want %q in darkpanel-npm as one of %q", i, c, wantCmds[i], tc.users)
+				}
+			}
+		})
+	}
+}
+
+func TestA4_RefusalsOfTheReloadBeforeTheJoin(t *testing.T) {
+	in := AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}
+	cases := []struct {
+		name    string
+		arrange func(f *sqExec)
+		seed    func(w *sqWorld)
+		code    errcode.Code
+		detail  []string
+	}{
+		{"a failed test", func(f *sqExec) { f.exit[sqTest] = 1 }, nil, errcode.NPMReserved, nil},
+		{"a failed test with an unanswered custom location", func(f *sqExec) { f.exit[sqTest] = 1 }, func(w *sqWorld) {
+			w12aSeed(w.h, "app.example.net", 8080, npmapi.Location{Path: "/x", ForwardScheme: "http", ForwardHost: "gone.invalid", ForwardPort: 80})
+			w.n.d.resolve = sqNoAnswer
+		}, errcode.NPMForwardUnanswered, []string{"/x", "gone.invalid"}},
+		{"no exit code of the test", func(f *sqExec) { f.noCode[sqTest] = true }, nil, errcode.NPMUnhealthy, nil},
+		{"the test still running at the bound", func(f *sqExec) { f.hang[sqTest] = true }, nil, errcode.NPMUnhealthy, nil},
+		{"a non-zero exit of the reload", func(f *sqExec) { f.exit[sqReload] = 1 }, nil, errcode.NPMUnhealthy, nil},
+		{"no new worker after the reload", func(f *sqExec) { f.stuck = true }, nil, errcode.NPMUnhealthy, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := sqNewWorld(t, sqAnswers("203.0.113.9"))
+			f := sqNewExec()
+			tc.arrange(f)
+			w.withExec(f)
+			if tc.seed != nil {
+				tc.seed(w)
+			}
+			err := w.attach(t, in)
+			coded := sqWantCode(t, err, tc.code)
+			for _, d := range tc.detail {
+				if !strings.Contains(coded.Detail, d) {
+					t.Errorf("detail %q does not name %q", coded.Detail, d)
+				}
+			}
+			if w.log.count("connect") != 0 || nwEndpoint(t, w.h, w.user.ID) != nil {
+				t.Error("NPM was connected")
+			}
+		})
+	}
+}
+
+func TestA5_ReloadSendsNoRequestToNPMAndNeedsNoEnabledProxyHost(t *testing.T) {
+	w := sqNewWorld(t, sqAnswers("203.0.113.9"))
+	w12aSeed(w.h, "up.invalid", 3000)
+	w.h.npm.DisableProxyHost(1)
+	w.withExec(sqNewExec())
+	hostsBefore, requestsBefore := w.h.npm.ProxyHosts(), len(w.h.npm.Requests())
+	if err := w.n.reloadNginx(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(w.h.npm.Requests()); got != requestsBefore {
+		t.Errorf("%d requests reached NPM during the reload, want none: %v", got-requestsBefore, w.h.npm.Requests()[requestsBefore:])
+	}
+	if !reflect.DeepEqual(hostsBefore, w.h.npm.ProxyHosts()) {
+		t.Error("the reload changed a proxy host")
+	}
+	w2 := sqNewWorld(t, sqAnswers("203.0.113.9"))
+	w12aSeed(w2.h, "up.invalid", 3000)
+	w2.withExec(sqNewExec())
+	if err := w2.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range w2.h.npm.Requests() {
+		if r.Method != http.MethodGet && !strings.HasSuffix(r.Path, "/tokens") && !strings.HasSuffix(r.Path, "/token") {
+			t.Errorf("the attach sent %s %s to NPM; only reads and the token are expected", r.Method, r.Path)
+		}
+	}
+}
+
+func TestA6_RefusalsOfTheReloadAreUnhealthy(t *testing.T) {
+	in := AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}
+	cases := []struct {
+		name    string
+		arrange func(f *sqExec)
+	}{
+		{"a stopped container", func(f *sqExec) { f.stopped = true }},
+		{"a missing container", func(f *sqExec) {
+			f.inspectErr = &dockerapi.APIError{StatusCode: http.StatusNotFound, Message: "No such container"}
+		}},
+		{"an Engine error", func(f *sqExec) { f.createErr = errors.New("engine unreachable") }},
+		{"an Engine error on the inspection", func(f *sqExec) { f.inspectErr = errors.New("engine unreachable") }},
+		{"a non-numeric PUID", func(f *sqExec) { f.env = []string{"PUID=abc", "PGID=1000"} }},
+		{"a non-numeric PGID", func(f *sqExec) { f.env = []string{"PUID=1000", "PGID=1000; id"} }},
+		{"an exec pair that runs past the bound", func(f *sqExec) { f.hang[sqReload] = true }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := sqNewWorld(t, sqAnswers("203.0.113.9"))
+			f := sqNewExec()
+			tc.arrange(f)
+			w.withExec(f)
+			err := w.attach(t, in)
+			sqWantCode(t, err, errcode.NPMUnhealthy)
+			if w.log.count("connect") != 0 {
+				t.Error("NPM was connected")
+			}
+			if strings.Contains(err.Error(), "nginx: [") {
+				t.Errorf("error %q holds nginx's output", err)
+			}
+		})
+	}
+	t.Run("an earlier exec of its own still running", func(t *testing.T) {
+		w := sqNewWorld(t, sqAnswers("203.0.113.9"))
+		f := sqNewExec()
+		f.hang[sqTest] = true
+		w.withExec(f)
+		sqWantCode(t, w.attach(t, in), errcode.NPMUnhealthy)
+		created := f.lineCount()
+		sqWantCode(t, w.attach(t, in), errcode.NPMUnhealthy)
+		if f.lineCount() != created {
+			t.Errorf("a second reload started %d more execs while the first still ran", f.lineCount()-created)
+		}
+	})
+	t.Run("the bound is 10 seconds and deps.reload takes neither container nor command", func(t *testing.T) {
+		if got := newNginxReloader(sqNewExec()).wait; got != 10*time.Second {
+			t.Errorf("the reload is bounded by %s, want 10s", got)
+		}
+		field, _ := reflect.TypeOf(deps{}).FieldByName("reload")
+		ft := field.Type
+		ctxType := reflect.TypeOf((*context.Context)(nil)).Elem()
+		if ft.Kind() != reflect.Func || ft.NumIn() != 1 || ft.In(0) != ctxType || ft.NumOut() != 1 {
+			t.Errorf("deps.reload is %s, want func(context.Context) error", ft)
+		}
+	})
+}
+
+func sqNoAnswer(_ context.Context, host string) ([]netip.Addr, error) {
+	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+}
