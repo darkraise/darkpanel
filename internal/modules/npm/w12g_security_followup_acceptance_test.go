@@ -1204,3 +1204,29 @@ func TestA14_AnUnresolvableForwardNameRefusesAsUnresolved(t *testing.T) {
 		}
 	})
 }
+
+func TestA21_AttachLookupPassesAndTheDeadlineBudget(t *testing.T) {
+	w := sqNewWorld(t, sqAnswers("203.0.113.9"))
+	w12aSeed(w.h, "up.invalid", 3000)
+	if err := w.attach(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.log.count("lookup"); got != 2 {
+		t.Errorf("%d lookup passes of the one name, want 2: the guard in Apply and the afresh read after the join", got)
+	}
+	if got := w.h.nginx.reloads; got != 2 {
+		t.Errorf("%d reloads, want 2", got)
+	}
+	budget := w.n.networkAttach().Spec.ApplyTimeout
+	if budget != 45*time.Second {
+		t.Errorf("the attach's apply budget is %s, want 45s", budget)
+	}
+	const lookupPass, reload, disconnect = 6 * time.Second, 10 * time.Second, 10 * time.Second
+	if worst := 2*lookupPass + 2*reload + disconnect; worst > budget {
+		t.Errorf("two lookup passes, two reloads and the disconnect take %s, over the %s budget", worst, budget)
+	}
+	if nginxReloadWait != reload || nginxDisconnectWait != disconnect || resolveTimeout+time.Second != lookupPass {
+		t.Errorf("constants reload %s, disconnect %s, lookup %s differ from the 10s, 10s and 6s the budget counts",
+			nginxReloadWait, nginxDisconnectWait, resolveTimeout+time.Second)
+	}
+}
