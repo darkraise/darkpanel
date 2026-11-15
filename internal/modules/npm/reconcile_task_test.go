@@ -171,6 +171,10 @@ func TestW12gReconcileRetriesAFailureThatIsNotTheOwnNetworkHit(t *testing.T) {
 			return core.ChangeView{State: core.StateFailed,
 				Error: &core.ChangeError{Code: string(errcode.NPMUnhealthy), Message: "nginx could not be reloaded"}}, nil
 		}},
+		{"the change failed with npm.reserved on a network that is not darkpanel-npm", func() (core.ChangeView, error) {
+			return core.ChangeView{State: core.StateFailed,
+				Error: &core.ChangeError{Code: string(errcode.NPMReserved), Message: "darkpanel-npm still holds a forwarded address"}}, nil
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, _ := w12gHit(t)
