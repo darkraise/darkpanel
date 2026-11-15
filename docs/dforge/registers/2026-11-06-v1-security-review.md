@@ -1,7 +1,7 @@
 # v1 security review register
 
 **Source:** R73 security review of `main` at dc91aa2 on 2026-11-06 by the owner's two-reviewer panel (`dforge:judge-fable` and Codex `gpt-6-astra`, one shared brief `docs/dforge/notes/v1-security-review-brief.md`); reviews `docs/dforge/notes/v1-security-review-fable.md` (Fable, F-numbers) and `docs/dforge/notes/v1-security-review-codex.md` (Codex, C-numbers); the Codex-only findings were verified by `dforge:judge-opus` the same day. Spec 9: every critical and high finding is fixed and re-reviewed; medium and low are fixed or deferred by the owner.
-**Covers:** docs/dforge/specs/2026-10-21-v1-completion-design.md, docs/dforge/specs/2026-11-13-v1-w12b-open-rows-design.md, docs/dforge/specs/2026-11-14-v1-w12c-ipv6-npm-design.md, docs/dforge/specs/2026-11-14-v1-w12e-security-residuals-design.md
+**Covers:** docs/dforge/specs/2026-10-21-v1-completion-design.md, docs/dforge/specs/2026-11-13-v1-w12b-open-rows-design.md, docs/dforge/specs/2026-11-14-v1-w12c-ipv6-npm-design.md, docs/dforge/specs/2026-11-14-v1-w12e-security-residuals-design.md, docs/dforge/specs/2026-11-15-v1-w12g-security-followup-design.md
 
 | # | Item | Assigned | Acceptance | State | Note |
 |---|---|---|---|---|---|
