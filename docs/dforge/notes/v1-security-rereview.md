@@ -75,3 +75,43 @@ Every original scenario of both rows is fixed, each with a regression test that 
 ## Register changes
 
 Rows 1 and 6 stay open with this result; row 142 goes back to open as high; new rows record residuals A and B and the two low observations.
+
+# v1 security re-review of rows 1, 6, 142 and 176-179 after w12e and w12f, 2026-11-15
+
+Re-review at `main` 6c41959f (w12e merged at ba881523, w12f at 6c41959f) of the rows whose Acceptance requires it, run from one shared brief (`.dforge/rereview-w12f-brief.md`, untracked) by two independent read-only reviewers, with a verifier for the disputed items:
+
+- Fable (`dforge:judge-fable`): `v1-security-rereview-w12f-fable.md` (its report-file write was refused; the reply is saved verbatim)
+- Codex `gpt-6-astra`: `v1-security-rereview-w12f-codex.md`
+- Verifier (`dforge:judge-opus`, read-only, against the code): `v1-security-rereview-w12f-verifier.md` (reply saved verbatim)
+
+## Verdicts
+
+| Row | Severity | Fable | Codex | Verifier | Result |
+|---|---|---|---|---|---|
+| 1 | high | PARTIAL | PARTIAL | PARTIAL (attach window, medium, not owner-accepted) | open: fix or owner acceptance of the attach window |
+| 6 | high | CLOSED | CLOSED | CLOSED | closed |
+| 142 | high | CLOSED | CLOSED | CLOSED | closed |
+| 176 | high | PARTIAL | PARTIAL | PARTIAL (same window) | open: same residual as row 1 |
+| 177 | high | CLOSED | CLOSED | CLOSED | closed |
+| 178 | low | CLOSED | CLOSED | CLOSED | closed |
+| 179 | low | CLOSED | CLOSED | CLOSED | closed |
+
+Every original scenario and each 2026-11-14 residual (A, B, C and the IPv6 link-local gap) is fixed, with regression tests that fail on revert by reading and, for the nine w12e fixes, by the recorded revert check. Rows 181-185: both reviewers found each change present and meeting its Acceptance.
+
+## The residual that keeps rows 1 and 176 PARTIAL
+
+The attach window (both reviewers; Fable medium, Codex high; verifier: confirmed in code, **medium**, not owner-accepted). An `operate` caller connects a container X it owns to a network so X holds address A, adds a proxy host forwarding to `A:3000`, starts `npm.network.attach` of NPM without a static address, and during the first reload (`network_claims.go:383`, up to 10 s) frees A with `docker.network.disconnect` or `docker.container.stop`. Those take the docker lock; the attach takes the npm lock. `ConnectNetwork` (`:388`) then lets the Engine pick the address (inference: A), and nginx forwards the caller's host to NPM's API until `joinedProblem` has resolved every forwarded name (`:870-882`, before the literal comparison at `:886-895`) and `disconnectAgain` has run. A forwarded name with no definite answer stretches the window to about 6 s. The same holds for the undo of a detach. Spec D1 residual (b) covers only a name that loses its answer between `nginx -t` and the reload, "not forced"; spec R20 rejects a design that would publish NPM's port 81 repeatably between connect and disconnect; `threat-model.md:298` and `:306` cover starts and upgrades only. It closes by a fix (compare literal targets before any lookup in `joinedProblem`, as `verifyHeld` does, and re-read the network just before the connect) or by an explicit owner acceptance.
+
+## Other residuals (new register rows 190-199)
+
+- Starts Darkpanel does not make (`unless-stopped` restart, Engine or host restart) are not verified (Fable: owner-accepted by D3/U2(a); Codex and verifier: no recorded owner sentence). Medium; needs an owner ruling.
+- The `reloadNginx` `.err` rename (row 188, graded low and deferred) is reachable by an `operate` caller and can take down a host the caller may not change, the panel exposure included. Medium (verifier); row 188 is raised.
+- An `operate` caller stops a forwarded container whose name gets a definite not-found and runs `npm.instance.upgrade`: the checks skip the name, NPM is recreated, and nginx cannot load the static location. The spec's "refuse up front" (self-review) was never implemented. Medium. Fable's claim that the upgrade finishes "done" is refuted by the verifier: the probe goes through nginx on port 81, so the upgrade rolls back instead (inference from the image layout).
+- One forwarded name with no definite answer, on any proxy host including a disabled one, refuses every attach, undo of a detach, upgrade and undo of an upgrade; the client sees only "Unavailable" because 5xx details are dropped (`agent/api/handler.go:871-877`). Medium for the blocking, low for the hidden detail.
+- Codex only: the harness `reload-follows-name` step passes the NPM bearer token in curl command text and failure errors (`test/harness/m6_npm_test.go:1073`, `vm.go:319,342`). Codex graded it high; the verifier graded it low because the token opens NPM only inside a throwaway test VM.
+- Threat-model sentences the code does not hold: line 298 ("no caller can stretch it for a literal address" holds for starts only), line 305 (still says the proxy-host update against a running NPM was not run), line 284 (a reload is confirmed by `meta.nginx_online`, but an absent field counts as confirmed, `nginx_reload.go:43`), and the "not forced" wording of spec D1 (b).
+- Low defects and test weaknesses listed in both reports: `qaSpan` accepts non-ranges (`guard/w12e_security_residuals_acceptance_test.go:21`); the harness failure half re-implements the reload call; an attach cut off between the connect and `afterJoin` has no recovery; `joinedProblem` treats a missing endpoint as holding nothing; `verifyHeld` failures are only logged although R29 says they are reported; `reloadBeforeJoin` codes every failure `npm.reserved`; the hidden-client omission of the Tailscale guard (row 180) and the missing-binding case of an NPM exposure; the reload can overwrite a concurrent NPM UI edit (no version condition).
+
+## Register changes
+
+Rows 6, 142, 177, 178 and 179 stay `verify` with the closed re-review recorded; rows 1 and 176 go back to `open`; row 188 is re-graded medium; new rows 190-199 record the residuals above.
