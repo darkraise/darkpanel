@@ -1181,13 +1181,8 @@ func (n nm) unansweredForwards(ctx context.Context, env core.Env) ([]unansweredF
 	if err != nil {
 		return nil, unresolvedRefusal(locs, err)
 	}
-	var out []unansweredForward
-	for _, r := range locs {
-		if len(answers[r.host]) == 0 {
-			out = append(out, unansweredForward{Where: r.where, Host: r.host})
-		}
-	}
-	return out, nil
+	_, us := forwardsOf(locs, answers)
+	return us, nil
 }
 
 func unansweredDetail(us []unansweredForward) string {
