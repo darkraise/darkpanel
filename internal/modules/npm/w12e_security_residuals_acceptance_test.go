@@ -1033,8 +1033,10 @@ func qaLocation(host string) npmapi.Location {
 	return npmapi.Location{Path: "/api", ForwardScheme: "http", ForwardHost: host, ForwardPort: 81}
 }
 
-// TestA12_EveryFixHasItsNamedRegressionTest: the nine tests the spec names exist, each in the package of its fix.
-func TestA12_EveryFixHasItsNamedRegressionTest(t *testing.T) {
+// TestA12_EveryNamedRegressionTestExists: the nine tests the spec names exist, each in the package of its fix. It
+// catches a deleted or renamed test only; that each test fails when its fix is undone is recorded in
+// docs/dforge/notes/w12e-evidence.md "Revert check".
+func TestA12_EveryNamedRegressionTestExists(t *testing.T) {
 	want := map[string][]string{
 		".": {"TestW12eAttachReloadsBeforeJoin", "TestW12eAttachReloadsAfterJoin", "TestW12eAttachUnconfirmedReloadDisconnects",
 			"TestW12eUpgradeUndoChecksForwards", "TestW12eUpgradeLateForwardCheck", "TestW12eStartVerifiesHeldAddresses",

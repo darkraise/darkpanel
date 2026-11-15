@@ -301,6 +301,22 @@ The image does not say it in its own text; this is nginx's load-time behaviour (
 
 No configuration in the image sets `proxy_request_buffering` (no match under `/etc/nginx` and `/app/templates` outside the bundled documentation), so nginx's default applies: `default: on` (`/etc/nginx/pod/nginx/ngx_http_proxy_module.pod`, `proxy_request_buffering`), "When buffering is enabled, the entire request body is read from the client before sending the request to a proxied server." `client_max_body_size` is `2000m` (`/etc/nginx/nginx.conf:39`).
 
+## Revert check (2026-11-15, w12f)
+
+Each fix was undone on top of `w12f-low-rows` and its named regression test run alone; every one failed, and the tree was restored after each. Where a fix commit no longer reverse-applies (later commits touched its lines), the fix's key line was disabled instead.
+
+| Named test | Fix undone | Result |
+|---|---|---|
+| TestW12eAttachReloadsBeforeJoin | `reloadBeforeJoin` skips its reload (network_claims.go) | FAIL |
+| TestW12eAttachReloadsAfterJoin | `joinedProblem` skips the reload after the join | FAIL |
+| TestW12eAttachUnconfirmedReloadDisconnects | `afterJoin` skips `disconnectAgain` | FAIL |
+| TestW12eUpgradeUndoChecksForwards | `Inverse` skips `undoForwardCheck` (upgrade_recover.go) | FAIL |
+| TestW12eUpgradeLateForwardCheck | `Apply`'s check after the pull lists targets without checking them (instance_upgrade.go) | FAIL |
+| TestW12eStartVerifiesHeldAddresses | the upgrade's recreate skips `verifyHeld`; separately, the original's start skips it | FAIL, FAIL |
+| TestW12eRestoredLocationCutAtSlash | b3bf7200 reverse-applied (non-test files) | FAIL |
+| TestW12eLinkLocalOnlyHostGuardsIPv6443 | f4d3f5d5 reverse-applied (non-test files) | FAIL |
+| TestW12eTailnetClientOfAnExposure | linkguard.go skips the NPM client flow | FAIL |
+
 ## Not run on this host
 
 The A3a demo (a proxy-host update against a running NPM from the pinned image) and the R32 try (disconnecting `darkpanel-npm` from its network on the pinned Engine) were not run, because this host forbids talking to its Docker daemon. The image source reading above (answers 1-3) and the fake NPM and test Engine tests of Tasks 5-7 (`TestW12eVerifyHeldFailures` for R32) stand in for them; the re-resolution after a successful update rests on answer 3's quoted lines, not on a run.
