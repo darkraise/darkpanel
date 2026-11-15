@@ -334,16 +334,56 @@ func TestW12gAttachWhoseConnectAnswerIsLostChecksTheAddress(t *testing.T) {
 	if err == nil {
 		t.Fatal("an attach whose connect answer was lost succeeded")
 	}
-	for _, want := range []string{"connection reset by peer", "the address " + containerName + " took on network " + nwNet, "it was disconnected again"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not say %q", err, want)
-		}
-	}
+	w12gWantLostJoin(t, err, tr.lost)
 	if nwEndpoint(t, h, user.ID) != nil {
 		t.Error("NPM stayed on a network where it holds a forwarded address after a lost connect answer")
 	}
 	if tr.index("disconnect") < 0 {
 		t.Errorf("events %v hold no disconnect", tr.events)
+	}
+}
+
+// w12gWantLostJoin checks the error of a join whose connect answer, lost, was refused by the check that followed: it
+// names the lost answer and the refusal, and keeps the connect error's classification, not Definite and with the
+// Engine error's code, so the journal still observes the endpoint.
+func w12gWantLostJoin(t *testing.T, err, lost error) {
+	t.Helper()
+	for _, want := range []string{lost.Error(), "the address " + containerName + " took on network " + nwNet, "it was disconnected again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not say %q", err, want)
+		}
+	}
+	if core.IsDefinite(err) {
+		t.Errorf("error %v is Definite; the connect's outcome is the journal's to observe", err)
+	}
+	if got, want := errcode.From(err).Code, errcode.From(engineCoded(lost)).Code; got != want {
+		t.Errorf("error code %s, want the Engine error's %s", got, want)
+	}
+}
+
+func TestW12gUndoOfADetachWhoseConnectAnswerIsLostChecksTheAddress(t *testing.T) {
+	h, user := nwSetup(t)
+	endpoint := w12gUndoEffect(t, h, user)
+	h.docker.putContainer(thContainer("holder", thEndpoint(nwNet, w12gAddr)))
+	w12aSeed(h, w12gAddr, 3000, w12gLoc("/n", "up.invalid"))
+	h.docker.pin(nwNet, netip.MustParseAddr(w12gAddr))
+	tr := newW12gTrace(h)
+	tr.hook["connect"] = func() {
+		if err := h.docker.RemoveContainer(context.Background(), "holder", dockerapi.RemoveContainerOptions{Force: true}); err != nil {
+			t.Error(err)
+		}
+	}
+	tr.lost = errors.New("connection reset by peer")
+	n := h.nm()
+	n.d.docker = tr
+	n.d.resolve = w12eAnswer("203.0.113.9")
+	_, err := n.networkDetach().Handler.Inverse(context.Background(), h.env("u1"), endpoint)
+	if err == nil {
+		t.Fatal("an undo whose connect answer was lost succeeded")
+	}
+	w12gWantLostJoin(t, err, tr.lost)
+	if nwEndpoint(t, h, user.ID) != nil {
+		t.Error("NPM stayed on a network where it holds a forwarded address after a lost connect answer")
 	}
 }
 
