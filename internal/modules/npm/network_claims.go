@@ -267,8 +267,9 @@ func (h networkAttachHandler) targetEndpoints(ctx context.Context, in AttachInpu
 	return endpoints, target.ID, nil
 }
 
-// check decides everything an attach does and changes nothing; every failure is Definite.
-func (h networkAttachHandler) check(ctx context.Context, env core.Env, in AttachInput) (networkAttachCheck, error) {
+// check decides everything an attach does and changes nothing; every failure is Definite. guard runs the forward
+// guard of a join; Apply runs its own after the reload before the join instead.
+func (h networkAttachHandler) check(ctx context.Context, env core.Env, in AttachInput, guard bool) (networkAttachCheck, error) {
 	if err := h.validate(in); err != nil {
 		return networkAttachCheck{}, err
 	}
@@ -316,7 +317,7 @@ func (h networkAttachHandler) check(ctx context.Context, env core.Env, in Attach
 	}
 	ck := networkAttachCheck{network: network, container: c, endpoint: ep, targetID: targetID, claims: all, connect: ep == nil, claim: true}
 	// Only a join can hand NPM a new address: the addresses it holds are already reserved against proxy hosts.
-	if ck.connect {
+	if ck.connect && guard {
 		if err := h.n.forwardGuard(ctx, env, network, in.Address); err != nil {
 			return networkAttachCheck{}, err
 		}
@@ -338,7 +339,7 @@ func (h networkAttachHandler) check(ctx context.Context, env core.Env, in Attach
 // Plan shows the join and the claim an attach adds. The hash covers the network, NPM's endpoint on it, the target and
 // the network's claims.
 func (h networkAttachHandler) Plan(ctx context.Context, env core.Env, in AttachInput) (core.PlanOutcome, error) {
-	ck, err := h.check(ctx, env, in)
+	ck, err := h.check(ctx, env, in, true)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -363,9 +364,11 @@ func (h networkAttachHandler) Plan(ctx context.Context, env core.Env, in AttachI
 	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{}, StateHash: hash}, nil
 }
 
-// Apply connects NPM to the network when it is not there and records the claim when the claimant has none.
+// Apply connects NPM to the network when it is not there and records the claim when the claimant has none. A join
+// reloads nginx, reads the network and the forward targets again and only then connects. NPM already on a network that
+// has no claim, which an apply cut off after its connect leaves, is checked as after a fresh join.
 func (h networkAttachHandler) Apply(ctx context.Context, env core.Env, in AttachInput) (Attachment, error) {
-	ck, err := h.check(ctx, env, in)
+	ck, err := h.check(ctx, env, in, false)
 	if err != nil {
 		return Attachment{}, err
 	}
@@ -383,17 +386,34 @@ func (h networkAttachHandler) Apply(ctx context.Context, env core.Env, in Attach
 		if err := h.reloadBeforeJoin(ctx, env, name); err != nil {
 			return Attachment{}, err
 		}
+		targets, err := h.joinGuard(ctx, env, ck.network.ID, in.Address)
+		if err != nil {
+			return Attachment{}, err
+		}
 		e := npmEffect(core.EffectModify, resource, obs.Current.State, commitWait)
 		err = h.n.run(ctx, env, e, h.n.observeEngine, func(ctx context.Context) (string, error) {
 			if err := h.n.d.docker.ConnectNetwork(ctx, ck.network.ID, ck.container.ID, settings); err != nil {
+				if !refused(err) {
+					if joinedErr := h.lostJoin(ctx, env, name, targets); joinedErr != nil {
+						return "", joinedErr
+					}
+				}
 				return "", fmt.Errorf("npm: connect %s to network %s: %w", containerName, name, engineCoded(err))
 			}
-			if err := h.afterJoin(ctx, env, name); err != nil {
+			if err := h.afterJoin(ctx, env, name, targets); err != nil {
 				return "", err
 			}
 			return resource, nil
 		})
 		if err != nil {
+			return Attachment{}, err
+		}
+	} else if len(ck.claims) == 0 {
+		targets, err := h.n.forwardTargets(ctx, env)
+		if err != nil {
+			return Attachment{}, core.Definite(err)
+		}
+		if err := h.afterJoin(ctx, env, name, targets); err != nil {
 			return Attachment{}, err
 		}
 	}
@@ -775,46 +795,58 @@ func (c networkClaims) networkUndoConnect(ctx context.Context, env core.Env, e c
 }
 
 // networkUndoDisconnect reconnects NPM to the network e left. The Engine assigns the address; a static address the
-// endpoint had is not restored. The reconnect is refused while a proxy host forwards to an address the Engine could
-// pick there, and it reloads nginx before and after the join as the attach does. NPM already on the network, found
-// first or after a refused reconnect, is an earlier run whose answer was lost: the address it holds is checked and
-// nginx reloaded once before the undo answers done.
+// endpoint had is not restored. It joins as the attach does: nginx is reloaded, the network and the forward targets are
+// read again and the reconnect is refused while a proxy host forwards to an address the Engine could pick there; after
+// the connect the address NPM took is checked before any lookup or reload. NPM already on the network, found first or
+// after a refused reconnect, is an earlier run whose answer was lost: with no claim on the network the address it holds
+// is checked as after a join before the undo answers done; a network with a claim is left as it is.
 func (c networkClaims) networkUndoDisconnect(ctx context.Context, env core.Env, network string) (core.InverseResult, error) {
+	done := core.InverseResult{Resource: resourceOf(nounEndpoint, network)}
 	on, err := c.npmOnNetwork(ctx, network)
 	if err != nil {
 		return core.InverseResult{}, fmt.Errorf("npm: inspect container %s: %w", containerName, engineCoded(err))
 	}
-	joined := func() (core.InverseResult, error) {
-		if err := c.afterJoin(ctx, env, network); err != nil {
+	if on {
+		all, err := claims(ctx, env.DB.Read(), network)
+		if err != nil {
 			return core.InverseResult{}, err
 		}
-		return core.InverseResult{Resource: resourceOf(nounEndpoint, network)}, nil
-	}
-	if on {
-		return joined()
-	}
-	nw, err := c.n.d.docker.InspectNetwork(ctx, network)
-	if err != nil {
-		return core.InverseResult{}, fmt.Errorf("npm: inspect network %s: %w", network, engineCoded(err))
-	}
-	if err := c.n.forwardGuard(ctx, env, nw, netip.Addr{}); err != nil {
-		return core.InverseResult{}, err
+		if len(all) > 0 {
+			return done, nil
+		}
+		targets, err := c.n.forwardTargets(ctx, env)
+		if err != nil {
+			return core.InverseResult{}, core.Definite(err)
+		}
+		if err := c.afterJoin(ctx, env, network, targets); err != nil {
+			return core.InverseResult{}, err
+		}
+		return done, nil
 	}
 	if err := c.reloadBeforeJoin(ctx, env, network); err != nil {
+		return core.InverseResult{}, err
+	}
+	targets, err := c.joinGuard(ctx, env, network, netip.Addr{})
+	if err != nil {
 		return core.InverseResult{}, err
 	}
 	err = c.n.d.docker.ConnectNetwork(ctx, network, containerName, nil)
 	switch {
 	case err == nil:
-		return joined()
 	case refused(err):
-		if on, inspectErr := c.npmOnNetwork(ctx, network); inspectErr == nil && on {
-			return joined()
+		if on, inspectErr := c.npmOnNetwork(ctx, network); inspectErr != nil || !on {
+			return core.InverseResult{}, core.Definite(fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, err))
 		}
-		return core.InverseResult{}, core.Definite(fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, err))
 	default:
+		if joinedErr := c.lostJoin(ctx, env, network, targets); joinedErr != nil {
+			return core.InverseResult{}, joinedErr
+		}
 		return core.InverseResult{}, fmt.Errorf("npm: connect %s to network %s: %w", containerName, network, engineCoded(err))
 	}
+	if err := c.afterJoin(ctx, env, network, targets); err != nil {
+		return core.InverseResult{}, err
+	}
+	return done, nil
 }
 
 // npmOnNetwork reports whether the NPM container is on the network; a missing container is not on it.
@@ -832,71 +864,151 @@ func (c networkClaims) npmOnNetwork(ctx context.Context, network string) (bool, 
 // nginxDisconnectWait bounds the disconnect that takes back a join nginx or the forward hosts did not allow.
 const nginxDisconnectWait = 10 * time.Second
 
+// lostJoinWait bounds the check of a join whose connect answer was lost: an inspection, a reload, a lookup pass and a
+// disconnect. It runs under a deadline of its own, since the caller's may be what ended.
+const lostJoinWait = nginxReloadWait + resolveTimeout + time.Second + nginxDisconnectWait
+
+const (
+	reloadBeforeJoinWhere = "before " + containerName + " joins network "
+	reloadAfterJoinWhere  = "after " + containerName + " joined network "
+)
+
 // reloadBeforeJoin reloads nginx before NPM joins network, so a name nginx resolved when it last loaded its
 // configuration is resolved again before NPM can take the address it held. A reload that is not confirmed refuses the
 // join, Definite: nothing has changed yet.
 func (c networkClaims) reloadBeforeJoin(ctx context.Context, env core.Env, network string) error {
-	if _, err := c.n.reloadNginx(ctx, env); err != nil {
-		return core.Definite(errcode.New(errcode.NPMReserved, fmt.Sprintf(
-			"nginx could not be reloaded before %s joins network %s: %s", containerName, network, err)))
+	if err := c.n.reloadNginx(ctx); err != nil {
+		return core.Definite(c.n.reloadRefusal(ctx, env, err, reloadBeforeJoinWhere+network))
 	}
 	return nil
 }
 
-// afterJoin checks the address NPM holds on network against every forward target and then reloads nginx, so nginx
-// resolves its names again with NPM on the network. On a forwarded address, an unconfirmed reload or a check that
-// could not be made it disconnects NPM again and refuses. The refusal is Definite once NPM is off the network; when
-// the disconnect fails, NPM stays joined, so the refusal carries neither the Definite mark nor an errcode cause.
-func (c networkClaims) afterJoin(ctx context.Context, env core.Env, network string) error {
-	refusal, problem := c.joinedProblem(ctx, env, network)
-	if problem == nil {
-		return nil
-	}
-	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), nginxDisconnectWait)
-	defer cancel()
-	if err := c.disconnectAgain(dctx, network); err != nil {
-		return fmt.Errorf("npm: %s stays on network %s: %w", containerName, network,
-			errors.New(problem.Error()+"; disconnecting it again failed: "+err.Error()))
-	}
-	if refusal {
-		return core.Definite(errcode.New(errcode.NPMReserved, problem.Error()+"; it was disconnected again"))
-	}
-	return core.Definite(fmt.Errorf("npm: %w; it was disconnected again", problem))
-}
-
-// joinedProblem is why NPM may not stay on network, nil when it may. refusal is true for a forwarded address or an
-// unconfirmed reload, false for a check that could not be made, whose problem wraps the cause.
-func (c networkClaims) joinedProblem(ctx context.Context, env core.Env, network string) (refusal bool, problem error) {
-	ct, err := c.n.d.docker.InspectContainer(ctx, containerName)
+// joinGuard reads network and the forward targets again, after the reload before a join, and refuses a target NPM
+// could take there (forwardTaken). It returns the targets for afterJoin. Every failure is Definite.
+func (c networkClaims) joinGuard(ctx context.Context, env core.Env, network string, static netip.Addr) ([]forwardTarget, error) {
+	nw, err := c.n.d.docker.InspectNetwork(ctx, network)
 	if err != nil {
-		return false, fmt.Errorf("inspect container %s: %w", containerName, engineCoded(err))
-	}
-	var held []netip.Addr
-	if ep := ct.NetworkSettings.Networks[network]; ep != nil {
-		for _, a := range []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address} {
-			if a.IsValid() {
-				held = append(held, a.Unmap())
-			}
-		}
+		return nil, networkEngine("inspect network "+network, err)
 	}
 	targets, err := c.n.forwardTargets(ctx, env)
 	if err != nil {
-		return false, fmt.Errorf("read the forward hosts of NPM's proxy hosts: %w", err)
+		return nil, core.Definite(err)
 	}
+	var statics []netip.Addr
+	if static.IsValid() {
+		statics = []netip.Addr{static}
+	}
+	if err := forwardTaken(targets, nw, statics); err != nil {
+		return nil, err
+	}
+	return targets, nil
+}
+
+// afterJoin checks the address NPM holds on network, first against targets, read before the join, with no listing or
+// lookup in between, so nothing stretches the time NPM holds a forwarded address; then it reloads nginx, so nginx
+// resolves its names again with NPM on the network, and checks the address against the targets read afresh. A
+// forwarded address, a failed reload or a check that could not be made takes NPM off the network again (leave).
+func (c networkClaims) afterJoin(ctx context.Context, env core.Env, network string, targets []forwardTarget) error {
+	ct, err := c.n.d.docker.InspectContainer(ctx, containerName)
+	if err != nil {
+		return c.leave(ctx, network, uncheckedJoin(fmt.Errorf("inspect container %s: %w", containerName, engineCoded(err))))
+	}
+	ep := ct.NetworkSettings.Networks[network]
+	if ep == nil {
+		return c.leave(ctx, network, uncheckedJoin(fmt.Errorf("%s has no endpoint on network %s after the join", containerName, network)))
+	}
+	var held []netip.Addr
+	for _, a := range []netip.Addr{ep.IPAddress, ep.GlobalIPv6Address} {
+		if a.IsValid() {
+			held = append(held, a.Unmap())
+		}
+	}
+	if hit := heldTarget(held, targets, network); hit != "" {
+		return c.leave(ctx, network, reservedJoin(hit))
+	}
+	if err := c.n.reloadNginx(ctx); err != nil {
+		where := reloadAfterJoinWhere + network
+		return c.leave(ctx, network, joinProblem{
+			err: fmt.Errorf("nginx could not be reloaded %s: %w", where, err),
+			refuse: func(suffix string) error {
+				coded := errcode.From(c.n.reloadRefusal(ctx, env, err, where))
+				return core.Definite(errcode.New(coded.Code, coded.Detail+suffix))
+			},
+		})
+	}
+	fresh, err := c.n.forwardTargets(ctx, env)
+	if err != nil {
+		return c.leave(ctx, network, uncheckedJoin(fmt.Errorf("read the forward hosts of NPM's proxy hosts: %w", err)))
+	}
+	if hit := heldTarget(held, fresh, network); hit != "" {
+		return c.leave(ctx, network, reservedJoin(hit))
+	}
+	return nil
+}
+
+// lostJoin checks a join a connect's lost answer may hide: NPM found on network is checked as afterJoin checks it. It
+// returns afterJoin's error only when NPM stayed on the network; otherwise the caller returns the connect's error.
+func (c networkClaims) lostJoin(ctx context.Context, env core.Env, network string, targets []forwardTarget) error {
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lostJoinWait)
+	defer cancel()
+	if on, err := c.npmOnNetwork(wctx, network); err != nil || !on {
+		return nil
+	}
+	if err := c.afterJoin(wctx, env, network, targets); err != nil && !core.IsDefinite(err) {
+		return err
+	}
+	return nil
+}
+
+// heldTarget describes the first target at an address NPM holds on network, "" when there is none.
+func heldTarget(held []netip.Addr, targets []forwardTarget, network string) string {
 	for _, t := range targets {
 		if !slices.Contains(held, t.addr.Unmap()) {
 			continue
 		}
 		if t.name {
-			return true, fmt.Errorf("%s forwards to %s, which resolves to %s, the address %s took on network %s",
+			return fmt.Sprintf("%s forwards to %s, which resolves to %s, the address %s took on network %s",
 				t.where, t.host, t.addr, containerName, network)
 		}
-		return true, fmt.Errorf("%s forwards to %s, the address %s took on network %s", t.where, t.addr, containerName, network)
+		return fmt.Sprintf("%s forwards to %s, the address %s took on network %s", t.where, t.addr, containerName, network)
 	}
-	if _, err := c.n.reloadNginx(ctx, env); err != nil {
-		return true, fmt.Errorf("nginx could not be reloaded after %s joined network %s: %w", containerName, network, err)
+	return ""
+}
+
+// joinProblem is why NPM may not stay on a network it joined. err names it when the disconnect fails; refuse builds
+// the refusal once NPM is off the network, suffix saying what became of the join.
+type joinProblem struct {
+	err    error
+	refuse func(suffix string) error
+}
+
+func reservedJoin(detail string) joinProblem {
+	return joinProblem{err: errors.New(detail), refuse: func(suffix string) error {
+		return core.Definite(errcode.New(errcode.NPMReserved, detail+suffix))
+	}}
+}
+
+// uncheckedJoin is a check that could not be made; the refusal wraps its cause.
+func uncheckedJoin(cause error) joinProblem {
+	return joinProblem{err: cause, refuse: func(suffix string) error {
+		return core.Definite(fmt.Errorf("npm: %w%s", cause, suffix))
+	}}
+}
+
+// leave disconnects NPM from network and then refuses. The refusal is Definite once NPM is off the network; when the
+// disconnect fails, NPM stays joined, so the error carries neither the Definite mark nor an errcode cause. NPM never
+// leaves its own network: there the refusal comes with no disconnect.
+func (c networkClaims) leave(ctx context.Context, network string, p joinProblem) error {
+	if network == networkName {
+		return p.refuse("")
 	}
-	return false, nil
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), nginxDisconnectWait)
+	defer cancel()
+	if err := c.disconnectAgain(dctx, network); err != nil {
+		return fmt.Errorf("npm: %s stays on network %s: %w", containerName, network,
+			errors.New(p.err.Error()+"; disconnecting it again failed: "+err.Error()))
+	}
+	return p.refuse("; it was disconnected again")
 }
 
 // disconnectAgain takes NPM off network; NPM already off it counts as done.
@@ -1008,7 +1120,8 @@ func unresolvedRefusal(refs []forwardRef, err error) error {
 
 // forwardTargets reads every address NPM's enabled proxy hosts and their custom locations forward to, in proxy host
 // order. A name is resolved as checkForward resolves it; a name with no answer still adds nothing here, because every
-// join of NPM reloads nginx before and after it, so nginx holds no older answer of the name than the one read here.
+// join of NPM runs nginx -t and nginx -s reload in the container, confirmed by a new worker, before the connect and
+// again after the first check of the address NPM took, so nginx holds no older answer of the name than one read here.
 func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, error) {
 	refs, err := n.forwardRefs(ctx, env)
 	if err != nil {

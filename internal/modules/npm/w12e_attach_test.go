@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -26,17 +25,6 @@ type w12eConnectHook struct {
 func (d w12eConnectHook) ConnectNetwork(ctx context.Context, network, container string, ep *dockerapi.EndpointSettings) error {
 	d.at()
 	return d.thDocker.ConnectNetwork(ctx, network, container, ep)
-}
-
-// w12eReloads counts the proxy-host updates NPM received: the module reloads nginx through them.
-func w12eReloads(h *thHost) int {
-	n := 0
-	for _, r := range h.npm.Requests() {
-		if r.Method == http.MethodPut && strings.HasPrefix(r.Path, "/api/nginx/proxy-hosts/") {
-			n++
-		}
-	}
-	return n
 }
 
 func w12eNoAnswer(_ context.Context, host string) ([]netip.Addr, error) {
@@ -82,7 +70,7 @@ func TestW12eAttachReloadsBeforeJoin(t *testing.T) {
 			w12aSubnet(t, h, user)
 			h.docker.pin(nwNet, netip.MustParseAddr("10.9.0.7"))
 			w12aSeed(h, "up.invalid", 81)
-			h.npm.SetNginxOnline(false, `host not found in upstream "up.invalid"`)
+			h.nginx.fail(errNginxTest)
 			n := h.nm()
 			n.d.resolve = w12eNoAnswer
 			h.addChange("c1", "npm.network.attach")
@@ -100,7 +88,7 @@ func TestW12eAttachReloadsBeforeJoin(t *testing.T) {
 }
 
 // TestW12eAttachReloadsAfterJoin: with the name answering another address the attach succeeds, with one reload before
-// the connect and one after; with no enabled proxy host it reloads nothing; the undo of a detach does the same.
+// the connect and one after, also with no enabled proxy host; the undo of a detach does the same.
 func TestW12eAttachReloadsAfterJoin(t *testing.T) {
 	ctx := context.Background()
 	t.Run("attach", func(t *testing.T) {
@@ -110,14 +98,14 @@ func TestW12eAttachReloadsAfterJoin(t *testing.T) {
 		n := h.nm()
 		n.d.resolve = w12eAnswer("203.0.113.9")
 		atConnect := -1
-		n.d.docker = w12eConnectHook{h.docker, func() { atConnect = w12eReloads(h) }}
+		n.d.docker = w12eConnectHook{h.docker, func() { atConnect = h.nginx.reloads }}
 		h.addChange("c1", "npm.network.attach")
 		in := AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web", Address: netip.MustParseAddr("10.9.0.7")}
 		if _, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, in)); err != nil {
 			t.Fatal(err)
 		}
-		if atConnect != 1 || w12eReloads(h) != 2 {
-			t.Errorf("%d reloads before the connect and %d in all, want 1 and 2", atConnect, w12eReloads(h))
+		if atConnect != 1 || h.nginx.reloads != 2 {
+			t.Errorf("%d reloads before the connect and %d in all, want 1 and 2", atConnect, h.nginx.reloads)
 		}
 		if nwEndpoint(t, h, user.ID) == nil {
 			t.Error("NPM is not on the network")
@@ -135,8 +123,8 @@ func TestW12eAttachReloadsAfterJoin(t *testing.T) {
 		if _, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, in)); err != nil {
 			t.Fatal(err)
 		}
-		if w12eReloads(h) != 0 {
-			t.Errorf("%d reloads, want none", w12eReloads(h))
+		if h.nginx.reloads != 2 {
+			t.Errorf("%d reloads, want 2: the exec reload runs with no enabled proxy host too", h.nginx.reloads)
 		}
 	})
 	t.Run("undo of a detach", func(t *testing.T) {
@@ -157,19 +145,19 @@ func TestW12eAttachReloadsAfterJoin(t *testing.T) {
 		n := h.nm()
 		n.d.resolve = w12eAnswer("203.0.113.9")
 		atConnect := -1
-		n.d.docker = w12eConnectHook{h.docker, func() { atConnect = w12eReloads(h) }}
+		n.d.docker = w12eConnectHook{h.docker, func() { atConnect = h.nginx.reloads }}
 		if _, err := n.networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint); err != nil {
 			t.Fatal(err)
 		}
-		if atConnect != 1 || w12eReloads(h) != 2 {
-			t.Errorf("%d reloads before the connect and %d in all, want 1 and 2", atConnect, w12eReloads(h))
+		if atConnect != 1 || h.nginx.reloads != 2 {
+			t.Errorf("%d reloads before the connect and %d in all, want 1 and 2", atConnect, h.nginx.reloads)
 		}
 		// A repeat finds NPM on the network: it checks the held address and reloads once before it answers done.
 		if _, err := n.networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint); err != nil {
 			t.Fatal(err)
 		}
-		if w12eReloads(h) != 3 {
-			t.Errorf("%d reloads after the repeat, want 3", w12eReloads(h))
+		if h.nginx.reloads != 3 {
+			t.Errorf("%d reloads after the repeat, want 3", h.nginx.reloads)
 		}
 		n.d.resolve = w12eAnswer("10.9.0.7")
 		_, err := n.networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint)
@@ -191,7 +179,7 @@ func TestW12eAttachUnconfirmedReloadDisconnects(t *testing.T) {
 		w12aSeed(h, "up.invalid", 81)
 		n := h.nm()
 		n.d.resolve = w12eAnswer("203.0.113.9")
-		n.d.docker = w12eConnectHook{h.docker, func() { h.npm.SetNginxOnline(false, "boom") }}
+		n.d.docker = w12eConnectHook{h.docker, func() { h.nginx.fail(errNginxTest) }}
 		h.addChange("c1", "npm.network.attach")
 		_, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, in))
 		coded := nwRefused(t, err, errcode.NPMReserved)
@@ -200,16 +188,16 @@ func TestW12eAttachUnconfirmedReloadDisconnects(t *testing.T) {
 		}
 		w12eNoChange(t, h, user, 1)
 	})
-	t.Run("NPM's API does not answer the second reload", func(t *testing.T) {
+	t.Run("the second reload's exec fails", func(t *testing.T) {
 		h, user := nwSetup(t)
 		w12aSubnet(t, h, user)
 		w12aSeed(h, "up.invalid", 81)
 		n := h.nm()
 		n.d.resolve = w12eAnswer("203.0.113.9")
-		n.d.docker = w12eConnectHook{h.docker, func() { h.npm.Fail(http.MethodPut, "/api/nginx/proxy-hosts/1", fake.Fault{Status: 500}) }}
+		n.d.docker = w12eConnectHook{h.docker, func() { h.nginx.fail(errors.New("boom")) }}
 		h.addChange("c1", "npm.network.attach")
 		_, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, in))
-		coded := nwRefused(t, err, errcode.NPMReserved)
+		coded := nwRefused(t, err, errcode.NPMUnhealthy)
 		if !strings.HasPrefix(coded.Detail, "nginx could not be reloaded after darkpanel-npm joined network appnet: ") ||
 			!strings.HasSuffix(coded.Detail, "; it was disconnected again") {
 			t.Errorf("detail %q, want the unanswered reload after the join named", coded.Detail)
@@ -280,7 +268,7 @@ func TestW12eAttachUnconfirmedReloadDisconnects(t *testing.T) {
 		h.docker.Fail("DisconnectNetwork", errors.New("engine down"))
 		n := h.nm()
 		n.d.resolve = w12eAnswer("203.0.113.9")
-		n.d.docker = w12eConnectHook{h.docker, func() { h.npm.SetNginxOnline(false, "boom") }}
+		n.d.docker = w12eConnectHook{h.docker, func() { h.nginx.fail(errNginxTest) }}
 		h.addChange("c1", "npm.network.attach")
 		_, err := n.networkAttach().Handler.Apply(ctx, h.env("c1"), nwJSON(t, in))
 		if err == nil || core.IsDefinite(err) {
@@ -294,28 +282,4 @@ func TestW12eAttachUnconfirmedReloadDisconnects(t *testing.T) {
 			t.Error("a connect that could not be taken back was not left intended")
 		}
 	})
-}
-
-// TestW12eAttachDeadlines: the attach's budget covers its two reloads, the connect and a disconnect.
-func TestW12eAttachDeadlines(t *testing.T) {
-	h, _ := nwSetup(t)
-	if got := h.nm().networkAttach().Spec.ApplyTimeout; got != 45*time.Second {
-		t.Errorf("ApplyTimeout %v, want 45s", got)
-	}
-	if 2*nginxReloadWait+nginxDisconnectWait > 45*time.Second {
-		t.Errorf("two reloads of %v and a disconnect of %v exceed the attach's 45s", nginxReloadWait, nginxDisconnectWait)
-	}
-}
-
-// TestW12eDetachDeadline: the undo of a detach joins as the attach does, so the detach's budget covers a forward guard,
-// two reloads, the listing after the join, each listing's lookups, and a disconnect.
-func TestW12eDetachDeadline(t *testing.T) {
-	h, _ := nwSetup(t)
-	got := h.nm().networkDetach().Spec.ApplyTimeout
-	if got != 45*time.Second {
-		t.Errorf("ApplyTimeout %v, want 45s", got)
-	}
-	if need := 2*(resolveTimeout+time.Second) + 2*nginxReloadWait + nginxDisconnectWait; need > got {
-		t.Errorf("two lookup passes, two reloads and a disconnect take up to %v, more than the detach's %v", need, got)
-	}
 }

@@ -1156,8 +1156,8 @@ func TestW12aUndoOfADetachRefusesAForwardedAddress(t *testing.T) {
 	if nwEndpoint(t, h, user.ID) != nil {
 		t.Error("the refused undo reconnected NPM")
 	}
-	// A repeat after a reconnect whose answer was lost finds NPM on the network and is done, whatever proxy hosts
-	// forward to.
+	// A repeat after a reconnect whose answer was lost finds NPM on the network and is done once the address it holds,
+	// which the Engine chose and no proxy host forwards to, is checked and nginx reloaded.
 	if err := h.docker.ConnectNetwork(ctx, nwNet, containerName, nil); err != nil {
 		t.Fatal(err)
 	}

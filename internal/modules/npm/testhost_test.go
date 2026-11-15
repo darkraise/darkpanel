@@ -1027,7 +1027,37 @@ type thHost struct {
 	files   map[string][]byte
 	managed map[string][]byte
 	agents  map[string]*coretest.FakeAgent
+	nginx   *thNginx
 	changes int
+}
+
+// thNginx is the module's nginx reload: it counts the reloads and answers each with the next queued error.
+type thNginx struct {
+	mu       sync.Mutex
+	reloads  int
+	next     []error
+	onReload func()
+}
+
+func (g *thNginx) fail(err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.next = append(g.next, err)
+}
+
+func (g *thNginx) reload(context.Context) error {
+	g.mu.Lock()
+	g.reloads++
+	hook := g.onReload
+	var err error
+	if len(g.next) > 0 {
+		err, g.next = g.next[0], g.next[1:]
+	}
+	g.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return err
 }
 
 // newTHHost returns a host with a Docker 29.9.1 engine that holds nothing, an NPM that has no administrator, an agent
@@ -1047,6 +1077,7 @@ func newTHHost(t *testing.T) *thHost {
 		files:   map[string][]byte{},
 		managed: map[string][]byte{},
 		agents:  map[string]*coretest.FakeAgent{},
+		nginx:   &thNginx{},
 	}
 }
 
@@ -1094,6 +1125,7 @@ func (h *thHost) nm() nm {
 		resolve: func(context.Context, string) ([]netip.Addr, error) {
 			return []netip.Addr{netip.MustParseAddr("203.0.113.7")}, nil
 		},
+		reload: h.nginx.reload,
 	}}
 }
 

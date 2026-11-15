@@ -83,6 +83,7 @@ type deps struct {
 	panel    func(ctx context.Context, env core.Env) (proxy.Reserved, error) // the upstreams a proxy host may not forward to
 	sockets  func() ([]netstat.Socket, error)                                // the host's listening sockets
 	resolve  func(ctx context.Context, host string) ([]netip.Addr, error)    // the host's resolver
+	reload   func(ctx context.Context) error                                 // nginx -t and nginx -s reload in darkpanel-npm
 }
 
 // dockerAPI is the part of the Engine API client the module uses.
@@ -178,6 +179,7 @@ func productionNM() nm {
 		panel:    reservedVia(docker),
 		sockets:  netstat.Sockets,
 		resolve:  resolve,
+		reload:   newNginxReloader(docker).Reload,
 	}}
 }
 

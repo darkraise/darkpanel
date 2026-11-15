@@ -23,17 +23,6 @@ import (
 
 const qaHeld = "10.9.0.7" // the address A of the statements: where NPM would land on appnet
 
-// qaReloads counts the proxy-host updates NPM received; the module reloads nginx through them.
-func qaReloads(h *thHost) int {
-	n := 0
-	for _, r := range h.npm.Requests() {
-		if r.Method == http.MethodPut && strings.HasPrefix(r.Path, "/api/nginx/proxy-hosts/") {
-			n++
-		}
-	}
-	return n
-}
-
 // qaConnectHook runs before just before and after just after each ConnectNetwork that reaches the Engine.
 type qaConnectHook struct {
 	dockerAPI
@@ -103,7 +92,7 @@ func TestA1_ANameWithoutAnAnswerRefusesTheJoinBeforeAnyConnect(t *testing.T) {
 			h, user := nwSetup(t)
 			w12aSubnet(t, h, user)
 			w12aSeed(h, "up.invalid", 81)
-			h.npm.SetNginxOnline(false, `host not found in upstream "up.invalid"`)
+			h.nginx.fail(errNginxTest)
 			n := h.nm()
 			n.d.resolve = qaNoAnswer
 			err := qaApplyAttach(t, n, h, "c1", qaAttachInput(h, static))
@@ -122,12 +111,12 @@ func TestA1_ANameWithoutAnAnswerRefusesTheJoinBeforeAnyConnect(t *testing.T) {
 			n := h.nm()
 			n.d.resolve = qaAnswers("203.0.113.9")
 			atConnect := -1
-			n.d.docker = qaConnectHook{dockerAPI: n.d.docker, before: func() { atConnect = qaReloads(h) }}
+			n.d.docker = qaConnectHook{dockerAPI: n.d.docker, before: func() { atConnect = h.nginx.reloads }}
 			if err := qaApplyAttach(t, n, h, "c1", qaAttachInput(h, static)); err != nil {
 				t.Fatalf("the attach failed: %v", err)
 			}
-			if atConnect != 1 || qaReloads(h) != 2 {
-				t.Errorf("%d reloads before the connect and %d in all, want one before and one after", atConnect, qaReloads(h))
+			if atConnect != 1 || h.nginx.reloads != 2 {
+				t.Errorf("%d reloads before the connect and %d in all, want one before and one after", atConnect, h.nginx.reloads)
 			}
 			if nwEndpoint(t, h, user.ID) == nil {
 				t.Error("NPM is not on the network")
@@ -147,12 +136,12 @@ func TestA2_AConfirmedAttachReloadsOnceBeforeAndOnceAfterTheConnect(t *testing.T
 		h.docker.putContainer(thContainer("db", thEndpoint(nwNet, "10.9.0.20")))
 		n := h.nm()
 		atConnect := -1
-		n.d.docker = qaConnectHook{dockerAPI: n.d.docker, before: func() { atConnect = qaReloads(h) }}
+		n.d.docker = qaConnectHook{dockerAPI: n.d.docker, before: func() { atConnect = h.nginx.reloads }}
 		if err := qaApplyAttach(t, n, h, "c1", qaAttachInput(h, false)); err != nil {
 			t.Fatalf("the attach failed: %v", err)
 		}
-		if atConnect != 1 || qaReloads(h) != 2 {
-			t.Errorf("%d reloads before the connect and %d in all, want 1 and 2", atConnect, qaReloads(h))
+		if atConnect != 1 || h.nginx.reloads != 2 {
+			t.Errorf("%d reloads before the connect and %d in all, want 1 and 2", atConnect, h.nginx.reloads)
 		}
 		if nwEndpoint(t, h, user.ID) == nil {
 			t.Error("NPM is not on the network")
@@ -175,8 +164,8 @@ func TestA2_AConfirmedAttachReloadsOnceBeforeAndOnceAfterTheConnect(t *testing.T
 				if err := qaApplyAttach(t, n, h, "c1", qaAttachInput(h, true)); err != nil {
 					t.Fatalf("the attach failed: %v", err)
 				}
-				if got := qaReloads(h); got != 0 {
-					t.Errorf("%d reloads, want none with no enabled proxy host", got)
+				if got := h.nginx.reloads; got != 2 {
+					t.Errorf("%d reloads, want 2: the exec reload runs with no enabled proxy host too", got)
 				}
 				if nwEndpoint(t, h, user.ID) == nil {
 					t.Error("NPM is not on the network")
@@ -209,26 +198,26 @@ func TestA2_AConfirmedAttachReloadsOnceBeforeAndOnceAfterTheConnect(t *testing.T
 		w12aSeed(h, "up.invalid", 81)
 		n := h.nm()
 		n.d.resolve = qaAnswers("203.0.113.9")
-		base := qaReloads(h)
+		base := h.nginx.reloads
 		atConnect := -1
-		n.d.docker = qaConnectHook{dockerAPI: n.d.docker, before: func() { atConnect = qaReloads(h) - base }}
+		n.d.docker = qaConnectHook{dockerAPI: n.d.docker, before: func() { atConnect = h.nginx.reloads - base }}
 		if _, err := n.networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint); err != nil {
 			t.Fatalf("the undo failed: %v", err)
 		}
-		if atConnect != 1 || qaReloads(h)-base != 2 {
-			t.Errorf("%d reloads before the connect and %d in all, want 1 and 2", atConnect, qaReloads(h)-base)
+		if atConnect != 1 || h.nginx.reloads-base != 2 {
+			t.Errorf("%d reloads before the connect and %d in all, want 1 and 2", atConnect, h.nginx.reloads-base)
 		}
 		if nwEndpoint(t, h, user.ID) == nil {
 			t.Error("NPM is not on the network after the undo")
 		}
 	})
-	t.Run("the undo of a detach with no enabled proxy host reloads nothing", func(t *testing.T) {
+	t.Run("the undo of a detach with no enabled proxy host reloads before and after the connect", func(t *testing.T) {
 		h, user, endpoint := detached(t)
 		if _, err := h.nm().networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint); err != nil {
 			t.Fatalf("the undo failed: %v", err)
 		}
-		if got := qaReloads(h); got != 0 {
-			t.Errorf("%d reloads, want none", got)
+		if got := h.nginx.reloads; got != 2 {
+			t.Errorf("%d reloads, want 2: the exec reload runs with no enabled proxy host too", got)
 		}
 		if nwEndpoint(t, h, user.ID) == nil {
 			t.Error("NPM is not on the network after the undo")
@@ -240,11 +229,11 @@ func TestA2_AConfirmedAttachReloadsOnceBeforeAndOnceAfterTheConnect(t *testing.T
 		n := h.nm()
 		n.d.resolve = qaAnswers("203.0.113.9")
 		nwConnect(t, h, user, nwStatic("10.9.0.30")) // an earlier run connected NPM and was cut off
-		base := qaReloads(h)
+		base := h.nginx.reloads
 		if _, err := n.networkDetach().Handler.Inverse(ctx, h.env("u1"), endpoint); err != nil {
 			t.Fatalf("the undo with NPM already on the network failed: %v", err)
 		}
-		if got := qaReloads(h) - base; got != 1 {
+		if got := h.nginx.reloads - base; got != 1 {
 			t.Errorf("%d reloads, want 1 before the answer", got)
 		}
 	})
@@ -259,7 +248,8 @@ func TestA2_AConfirmedAttachReloadsOnceBeforeAndOnceAfterTheConnect(t *testing.T
 	})
 }
 
-// TestA3_AnUnconfirmedSecondReloadOrAHeldTargetDisconnectsNPMAgain: the join is undone and fails with npm.reserved, the
+// TestA3_AnUnconfirmedSecondReloadOrAHeldTargetDisconnectsNPMAgain: the join is undone and fails with npm.reserved (a
+// failed nginx -t or a held target) or npm.unhealthy (an exec that failed or a reload no new worker confirmed), the
 // connect's effect recorded skipped; when the disconnect fails the effect stays intended and the error carries no
 // Definite mark.
 func TestA3_AnUnconfirmedSecondReloadOrAHeldTargetDisconnectsNPMAgain(t *testing.T) {
@@ -267,29 +257,28 @@ func TestA3_AnUnconfirmedSecondReloadOrAHeldTargetDisconnectsNPMAgain(t *testing
 		name string
 		// arm makes the second reload fail, or the held address a target; it runs once the connect happened.
 		setup func(h *thHost, n *nm)
+		code  errcode.Code
 	}
 	var scenarios = []scenario{
 		{"an nginx -t failure", func(h *thHost, n *nm) {
 			w12aSeed(h, "up.invalid", 81)
 			n.d.resolve = qaAnswers("203.0.113.9")
-			n.d.docker = qaConnectHook{dockerAPI: n.d.docker, after: func() {
-				h.npm.SetNginxOnline(false, `nginx: [emerg] host not found in upstream "up.invalid" in /data/nginx/proxy_host/1.conf:42`)
-			}}
-		}},
-		{"nginx_online false without a reason", func(h *thHost, n *nm) {
-			w12aSeed(h, "up.invalid", 81)
-			n.d.resolve = qaAnswers("203.0.113.9")
-			n.d.docker = qaConnectHook{dockerAPI: n.d.docker, after: func() { h.npm.SetNginxOnline(false, "") }}
-		}},
-		{"NPM's API not answering the reload", func(h *thHost, n *nm) {
+			n.d.docker = qaConnectHook{dockerAPI: n.d.docker, after: func() { h.nginx.fail(errNginxTest) }}
+		}, errcode.NPMReserved},
+		{"a reload no new worker confirms", func(h *thHost, n *nm) {
 			w12aSeed(h, "up.invalid", 81)
 			n.d.resolve = qaAnswers("203.0.113.9")
 			n.d.docker = qaConnectHook{dockerAPI: n.d.docker, after: func() {
-				for range 8 {
-					h.npm.Fail(http.MethodPut, "/api/nginx/proxy-hosts/1", fake.Fault{Status: http.StatusBadGateway})
-				}
+				h.nginx.fail(errors.New("npm: nginx reload: no new nginx worker after the reload"))
 			}}
-		}},
+		}, errcode.NPMUnhealthy},
+		{"the reload's exec failing", func(h *thHost, n *nm) {
+			w12aSeed(h, "up.invalid", 81)
+			n.d.resolve = qaAnswers("203.0.113.9")
+			n.d.docker = qaConnectHook{dockerAPI: n.d.docker, after: func() {
+				h.nginx.fail(errors.New("npm: nginx reload: dockerapi: daemon unavailable"))
+			}}
+		}, errcode.NPMUnhealthy},
 		{"a held address that is a target", func(h *thHost, n *nm) {
 			h.docker.putContainer(thContainer("db", thEndpoint(nwNet, qaHeld))) // holds A while NPM is planned
 			w12aSeed(h, qaHeld, 3000)
@@ -299,7 +288,7 @@ func TestA3_AnUnconfirmedSecondReloadOrAHeldTargetDisconnectsNPMAgain(t *testing
 					t.Error(err)
 				}
 			}}
-		}},
+		}, errcode.NPMReserved},
 	}
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
@@ -309,8 +298,8 @@ func TestA3_AnUnconfirmedSecondReloadOrAHeldTargetDisconnectsNPMAgain(t *testing
 			sc.setup(h, &n)
 			in := qaAttachInput(h, false)
 			err := qaApplyAttach(t, n, h, "c1", in)
-			if errcode.From(err).Code != errcode.NPMReserved {
-				t.Fatalf("error %v, want npm.reserved", err)
+			if errcode.From(err).Code != sc.code {
+				t.Fatalf("error %v, want %s", err, sc.code)
 			}
 			if nwEndpoint(t, h, user.ID) != nil {
 				t.Error("NPM is still on the network")
