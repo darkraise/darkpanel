@@ -109,6 +109,13 @@ type dockerAPI interface {
 	CopyFromContainer(ctx context.Context, id, path string) (io.ReadCloser, error)
 	CopyToContainer(ctx context.Context, id, path string, archive io.Reader) error
 	Info(ctx context.Context) (dockerapi.SystemInfo, error)
+	Events(ctx context.Context, o dockerapi.EventsOptions) (dockerEvents, error)
+}
+
+// dockerEvents yields the daemon's events.
+type dockerEvents interface {
+	Next() (dockerapi.Event, error)
+	Close() error
 }
 
 // pullStream yields the progress messages of an image pull.
@@ -143,6 +150,15 @@ type dockerClient struct{ *dockerapi.Client }
 // PullImage starts a pull; a failure returns a nil interface, not the client's nil pointer inside one.
 func (c dockerClient) PullImage(ctx context.Context, ref string) (pullStream, error) {
 	s, err := c.Client.PullImage(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// Events opens the daemon's event stream; a failure returns a nil interface, not the client's nil pointer inside one.
+func (c dockerClient) Events(ctx context.Context, o dockerapi.EventsOptions) (dockerEvents, error) {
+	s, err := c.Client.Events(ctx, o)
 	if err != nil {
 		return nil, err
 	}

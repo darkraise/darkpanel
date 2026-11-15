@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -243,4 +244,102 @@ func (h instanceReconcileHandler) Verify(ctx context.Context, env core.Env, _ Re
 // Observe reads the endpoints the action journals.
 func (h instanceReconcileHandler) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
 	return h.n.observeEngine(ctx, env, e)
+}
+
+// The background task that takes NPM off a network where it holds a forwarded address: a pass at the agent's start,
+// every reconcileEvery and on NPM's start and on each join of NPM to a network.
+const (
+	reconcileID    = ID + ".reconcile"
+	reconcileEvery = 5 * time.Minute
+)
+
+// reconcileTask declares npm.reconcile. A pass reads the host and the proxy hosts and applies npm.instance.reconcile
+// only on a hit. The hits whose last apply failed are remembered in memory, so the same hit is reported once, and
+// once more after an agent restart.
+func (n nm) reconcileTask() core.BackgroundTask {
+	var mu sync.Mutex
+	var failedKey string
+	run := func(ctx context.Context, tc core.TaskContext) error {
+		hits, err := n.reconcileHits(ctx, tc.Env)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if len(hits) == 0 {
+			failedKey = ""
+			return nil
+		}
+		var b strings.Builder
+		for _, hit := range hits {
+			b.WriteString(hit.Network + "\n" + hit.Addr.String() + "\n" + hit.Where + "\n")
+		}
+		key := b.String()
+		if key == failedKey {
+			return nil
+		}
+		failedKey = ""
+		if _, err := tc.Apply(ctx, "npm.instance.reconcile", ReconcileInput{}); err != nil {
+			failedKey = key
+			return err
+		}
+		return nil
+	}
+	return core.BackgroundTask{
+		ID:       reconcileID,
+		Every:    reconcileEvery,
+		LockKeys: []string{lockKey},
+		Run:      run,
+		Watch:    n.reconcileWatch,
+	}
+}
+
+// reconcileWatch wakes the task on a start of NPM's container and on a join of it to a network, until ctx ends (nil)
+// or the stream fails. NPM's container id is read when an event arrives, since an upgrade changes it.
+func (n nm) reconcileWatch(ctx context.Context, _ core.Env, wake func()) error {
+	stream, err := n.d.docker.Events(ctx, dockerapi.EventsOptions{Filters: dockerapi.Filters{
+		"type":  {"container", "network"},
+		"event": {"start", "connect"},
+	}})
+	if err == nil {
+		defer func() { _ = stream.Close() }()
+		for {
+			var ev dockerapi.Event
+			if ev, err = stream.Next(); err != nil {
+				break
+			}
+			if n.reconcileEvent(ctx, ev) {
+				wake()
+			}
+		}
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	return fmt.Errorf("npm: reconcile: watch Docker events: %w", err)
+}
+
+// reconcileEvent reports whether ev is a start of NPM's container or a join of it to a network. The whole action is
+// compared, since actions such as "exec_start: sh" carry a suffix.
+func (n nm) reconcileEvent(ctx context.Context, ev dockerapi.Event) bool {
+	var who string
+	switch {
+	case ev.Type == "container" && ev.Action == "start":
+		if ev.Actor.Attributes["name"] == containerName {
+			return true
+		}
+		who = ev.Actor.ID
+	case ev.Type == "network" && ev.Action == "connect":
+		who = ev.Actor.Attributes["container"]
+	default:
+		return false
+	}
+	if who == "" {
+		return false
+	}
+	if who == containerName {
+		return true
+	}
+	c, err := n.d.docker.InspectContainer(ctx, containerName)
+	return err == nil && c.ID == who
 }

@@ -300,6 +300,7 @@ type thDocker struct {
 	created    int
 	version    string
 	pinned     map[string]netip.Addr // by network name
+	events     chan dockerapi.Event  // what Events streams; nil streams nothing
 }
 
 func newTHDocker(clock core.Clock) *thDocker {
@@ -924,6 +925,27 @@ func (d *thDocker) CopyToContainer(_ context.Context, id, p string, archive io.R
 	d.archives[cid+"|"+p] = data
 	return nil
 }
+
+// Events streams what arrives on d.events until ctx ends.
+func (d *thDocker) Events(ctx context.Context, _ dockerapi.EventsOptions) (dockerEvents, error) {
+	return thEvents{ctx: ctx, ch: d.events}, nil
+}
+
+type thEvents struct {
+	ctx context.Context
+	ch  chan dockerapi.Event
+}
+
+func (s thEvents) Next() (dockerapi.Event, error) {
+	select {
+	case ev := <-s.ch:
+		return ev, nil
+	case <-s.ctx.Done():
+		return dockerapi.Event{}, s.ctx.Err()
+	}
+}
+
+func (s thEvents) Close() error { return nil }
 
 func (d *thDocker) Info(context.Context) (dockerapi.SystemInfo, error) {
 	d.mu.Lock()

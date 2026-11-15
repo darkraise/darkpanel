@@ -28,3 +28,8 @@ func (m module) Manifest() core.Manifest {
 		Migrations:     map[core.Side]fs.FS{core.SideAgent: agentMigrations()},
 	}
 }
+
+// BackgroundTasks is the module's agent-side reconcile of NPM's network memberships.
+func (m module) BackgroundTasks() []core.BackgroundTask {
+	return []core.BackgroundTask{m.n.reconcileTask()}
+}
