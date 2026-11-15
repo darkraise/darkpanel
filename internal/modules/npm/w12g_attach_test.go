@@ -468,3 +468,17 @@ func TestW12gAttachDeadlines(t *testing.T) {
 		t.Errorf("two lookup passes, two reloads and a disconnect take up to %v, more than the detach's %v", need, got)
 	}
 }
+
+// TestW12gUndoOfADetachRefusesANetworkThatIsNoLongerABridge: a network removed and created again under the same name
+// with another driver between the detach and its undo is refused before NPM is connected, as the attach refuses it.
+func TestW12gUndoOfADetachRefusesANetworkThatIsNoLongerABridge(t *testing.T) {
+	h, user := nwSetup(t)
+	endpoint := w12gUndoEffect(t, h, user)
+	h.docker.putNetwork(thNetwork(nwNet, thDriver("macvlan"), thSubnet("10.9.0.0/24", "10.9.0.1")))
+	connects := nwCalls(h, "ConnectNetwork")
+	_, err := h.nm().networkDetach().Handler.Inverse(context.Background(), h.env("u1"), endpoint)
+	_ = nwRefused(t, err, errcode.NPMUnsupportedTarget)
+	if nwCalls(h, "ConnectNetwork") != connects {
+		t.Error("the undo connected NPM to a network that is not a user-defined bridge")
+	}
+}
