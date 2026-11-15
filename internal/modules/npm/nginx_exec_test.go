@@ -14,30 +14,38 @@ import (
 
 // fakeExec scripts the Engine under the reloader. exits maps a command line (joined by spaces) to its exit code; a
 // command in hang never finishes; a command in noCode finishes with no exit code. workers is the list of worker pids
-// that ContainerTop answers before the reload signal, and after is the list it answers once the reload was started.
+// that ContainerTop answers before the reload signal, and after is the list it answers once the reload was started;
+// duringTest, when set, is the list it answers once the test was started and before the signal. afterParent is the
+// parent pid of the workers in after, the master's ("10") when empty. startErr is what ExecStart answers for a
+// command, which still starts; inspectErr1 is what the first ExecInspect of a command answers.
 type fakeExec struct {
-	mu         sync.Mutex
-	env        []string
-	inspectErr error
-	exits      map[string]int
-	hang       map[string]bool
-	noCode     map[string]bool
-	gone       map[string]bool
-	workers    []string
-	after      []string
-	created    []string
-	cmds       [][]string
-	users      []string
-	containers []string
-	stopped    bool
-	ids        map[string]string
-	started    map[string]bool
-	reloaded   bool
+	mu          sync.Mutex
+	env         []string
+	inspectErr  error
+	exits       map[string]int
+	hang        map[string]bool
+	noCode      map[string]bool
+	gone        map[string]bool
+	startErr    map[string]error
+	inspectErr1 map[string]error
+	workers     []string
+	duringTest  []string
+	after       []string
+	afterParent string
+	tested      bool
+	created     []string
+	cmds        [][]string
+	users       []string
+	containers  []string
+	stopped     bool
+	ids         map[string]string
+	started     map[string]bool
+	reloaded    bool
 }
 
 func newFakeExec() *fakeExec {
 	return &fakeExec{
-		exits: map[string]int{}, hang: map[string]bool{}, noCode: map[string]bool{}, gone: map[string]bool{}, ids: map[string]string{}, started: map[string]bool{},
+		exits: map[string]int{}, hang: map[string]bool{}, noCode: map[string]bool{}, gone: map[string]bool{}, startErr: map[string]error{}, inspectErr1: map[string]error{}, ids: map[string]string{}, started: map[string]bool{},
 		workers: []string{"11"}, after: []string{"12"},
 	}
 }
@@ -66,16 +74,23 @@ func (f *fakeExec) ExecStart(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.started[id] = true
-	if f.ids[id] == "nginx -s reload" {
+	switch f.ids[id] {
+	case "nginx -s reload":
 		f.reloaded = true
+	case testCmd:
+		f.tested = true
 	}
-	return nil
+	return f.startErr[f.ids[id]]
 }
 
 func (f *fakeExec) ExecInspect(_ context.Context, id string) (dockerapi.ExecInspect, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	line := f.ids[id]
+	if err := f.inspectErr1[line]; err != nil {
+		delete(f.inspectErr1, line)
+		return dockerapi.ExecInspect{}, err
+	}
 	if f.gone[line] {
 		delete(f.gone, line)
 		return dockerapi.ExecInspect{}, &dockerapi.APIError{StatusCode: 404, Message: "No such exec instance: " + id}
@@ -93,13 +108,19 @@ func (f *fakeExec) ExecInspect(_ context.Context, id string) (dockerapi.ExecInsp
 func (f *fakeExec) ContainerTop(_ context.Context, _, _ string) (dockerapi.TopResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	pids := f.workers
-	if f.reloaded {
+	pids, parent := f.workers, "10"
+	switch {
+	case f.reloaded:
 		pids = f.after
+		if f.afterParent != "" {
+			parent = f.afterParent
+		}
+	case f.tested && f.duringTest != nil:
+		pids = f.duringTest
 	}
 	rows := [][]string{{"10", "1", "nginx: master process nginx"}}
 	for _, p := range pids {
-		rows = append(rows, []string{p, "10", "nginx: worker process"})
+		rows = append(rows, []string{p, parent, "nginx: worker process"})
 	}
 	return dockerapi.TopResult{Titles: []string{"PID", "PPID", "COMMAND"}, Processes: rows}, nil
 }
@@ -226,5 +247,50 @@ func TestNginxReloaderForgetsAPendingExecTheEngineNoLongerKnows(t *testing.T) {
 	}
 	if r.pending != "" {
 		t.Errorf("pending = %q after a confirmed reload, want none", r.pending)
+	}
+}
+
+func TestNginxReloaderKeepsAnExecPendingAfterAnUncertainAnswer(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(f *fakeExec)
+	}{
+		{"an inspection error before the deadline", func(f *fakeExec) {
+			f.inspectErr1[testCmd] = errors.New("connection reset by peer")
+		}},
+		{"a start whose answer was lost", func(f *fakeExec) { f.startErr[testCmd] = errors.New("connection reset by peer") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeExec()
+			f.hang[testCmd] = true
+			tc.set(f)
+			r := quickReloader(f)
+			if err := r.Reload(context.Background()); err == nil {
+				t.Fatal("a reload with an uncertain answer was confirmed")
+			}
+			if err := r.Reload(context.Background()); !errors.Is(err, errNginxBusy) {
+				t.Fatalf("the next reload = %v, want errNginxBusy while the earlier exec may still run", err)
+			}
+		})
+	}
+}
+
+func TestNginxReloaderNeedsANewWorkerOfTheMasterAfterTheSignal(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(f *fakeExec)
+	}{
+		{"a new worker under another parent", func(f *fakeExec) { f.afterParent = "99" }},
+		{"a worker that appeared during the test", func(f *fakeExec) {
+			f.duringTest, f.after = []string{"12"}, []string{"12"}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeExec()
+			tc.set(f)
+			if err := quickReloader(f).Reload(context.Background()); err == nil {
+				t.Fatal("the reload was confirmed by a worker the signal did not start")
+			}
+		})
 	}
 }

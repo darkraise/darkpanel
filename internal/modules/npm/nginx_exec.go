@@ -16,6 +16,7 @@ const (
 	nginxReloadWait = 10 * time.Second
 	nginxReloadPoll = 100 * time.Millisecond
 	nginxPsArgs     = "-eo pid,ppid,args"
+	nginxMaster     = "nginx: master process"
 	nginxWorker     = "nginx: worker process"
 )
 
@@ -33,8 +34,8 @@ type execEngine interface {
 }
 
 // nginxReloader tests and reloads nginx inside darkpanel-npm by exec, as NPM's own backend does, so no proxy host is
-// sent back to NPM. pending is an exec that was still running when its call gave up: it can still signal nginx, so
-// no later call starts another until it has ended.
+// sent back to NPM. pending is an exec that may still run after its call gave up, at the deadline or on an answer
+// that was lost: it can still signal nginx, so no later call starts another until it has ended.
 type nginxReloader struct {
 	e       execEngine
 	mu      sync.Mutex
@@ -51,9 +52,9 @@ func reloadFailure(format string, a ...any) error {
 	return fmt.Errorf("npm: nginx reload: "+format, a...)
 }
 
-// Reload returns nil only once nginx -t passed, nginx -s reload exited 0 and a worker that was not running before
-// the signal appeared: the signal alone does not say the master applied the configuration, and a master that
-// rejects it keeps its old workers. A failed test is errNginxTest; every other failure is not.
+// Reload returns nil only once nginx -t passed, nginx -s reload exited 0 and a worker of the master that was not
+// running just before the signal appeared: the signal alone does not say the master applied the configuration, and a
+// master that rejects it keeps its old workers. A failed test is errNginxTest; every other failure is not.
 func (r *nginxReloader) Reload(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -74,11 +75,11 @@ func (r *nginxReloader) Reload(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	before, err := r.workers(ctx)
-	if err != nil {
+	if err := r.run(ctx, user, []string{"nginx", "-t", "-g", "error_log off;"}, true); err != nil {
 		return err
 	}
-	if err := r.run(ctx, user, []string{"nginx", "-t", "-g", "error_log off;"}, true); err != nil {
+	before, err := r.workers(ctx)
+	if err != nil {
 		return err
 	}
 	if err := r.run(ctx, user, []string{"nginx", "-s", "reload"}, false); err != nil {
@@ -129,26 +130,39 @@ func digitsOnly(s string) bool {
 	return true
 }
 
+// workers lists the pids of the nginx master's workers; a process that only looks like a worker is not counted.
 func (r *nginxReloader) workers(ctx context.Context) (map[string]bool, error) {
 	top, err := r.e.ContainerTop(ctx, containerName, nginxPsArgs)
 	if err != nil {
 		return nil, reloadFailure("%w", err)
 	}
-	pidCol, cmdCol := -1, -1
+	pidCol, ppidCol, cmdCol := -1, -1, -1
 	for i, t := range top.Titles {
 		switch strings.ToUpper(t) {
 		case "PID":
 			pidCol = i
+		case "PPID":
+			ppidCol = i
 		case "COMMAND", "ARGS":
 			cmdCol = i
 		}
 	}
-	if pidCol < 0 || cmdCol < 0 {
-		return nil, reloadFailure("the process listing has no PID or COMMAND column")
+	if pidCol < 0 || ppidCol < 0 || cmdCol < 0 {
+		return nil, reloadFailure("the process listing has no PID, PPID or COMMAND column")
+	}
+	var rows [][]string
+	masters := map[string]bool{}
+	for _, p := range top.Processes {
+		if len(p) > pidCol && len(p) > ppidCol && len(p) > cmdCol {
+			rows = append(rows, p)
+			if strings.HasPrefix(p[cmdCol], nginxMaster) {
+				masters[p[pidCol]] = true
+			}
+		}
 	}
 	pids := map[string]bool{}
-	for _, p := range top.Processes {
-		if len(p) > pidCol && len(p) > cmdCol && strings.HasPrefix(p[cmdCol], nginxWorker) {
+	for _, p := range rows {
+		if strings.HasPrefix(p[cmdCol], nginxWorker) && masters[p[ppidCol]] {
 			pids[p[pidCol]] = true
 		}
 	}
@@ -161,8 +175,9 @@ func (r *nginxReloader) run(ctx context.Context, user string, cmd []string, isTe
 		return reloadFailure("%w", err)
 	}
 	if err := r.e.ExecStart(ctx, id); err != nil {
-		// A start cut off by the deadline may have reached the Engine, which cannot kill the exec.
-		if ctx.Err() != nil {
+		// A start cut off by the deadline, or whose answer was lost, may have reached the Engine, which cannot kill
+		// the exec; only a refusal says it did not start.
+		if ctx.Err() != nil || !refused(err) {
 			r.pending = id
 		}
 		return reloadFailure("%w", err)
@@ -172,6 +187,7 @@ func (r *nginxReloader) run(ctx context.Context, user string, cmd []string, isTe
 	for {
 		st, err := r.e.ExecInspect(ctx, id)
 		if err != nil && ctx.Err() == nil {
+			r.pending = id
 			return reloadFailure("%w", err)
 		}
 		if err == nil && !st.Running {
