@@ -20,16 +20,18 @@
 
 **CI:** `.github/workflows/ci.yml .github/workflows/fuzz.yml .github/workflows/harness.yml .github/workflows/release.yml .github/workflows/runner-probe.yml` — platforms: ubuntu-24.04, self-hosted — local: `make test-adr`; `make lint-sh test-release`; `make lint-go test-go vuln`; `make lint-web test-web`; `make build verify-build` — uncovered: none
 
+**Plan review:** 2026-11-15 — dforge:judge-opus — executability 9 / coherence 14 / coverage 13 / assumptions 14 (round 2)
+
 ## Global Constraints
 
 - Scope is the rows this plan cites: security register (`docs/dforge/registers/2026-11-06-v1-security-review.md`) rows 1, 176, 188, 190-199. Out of scope (spec D10): the old workers' residual (w12e D1 (a)), the DNS re-pointing risk (w12e D7), a static-address join, a lock key on the attach, and an automatic re-attach after a reconcile.
-- Host safety (absolute). This host is live: it runs an installed `darkpanel-agent`, `darkpanel-controller` and a Docker daemon. No unit test or command of this plan talks to the Docker daemon, D-Bus or systemd; runs `systemctl`, `docker`, `ufw`, `iptables`, `nft` or `nmap`; binds an address other than `127.0.0.1` (port 0); or reads or writes `/var/lib/darkpanel`, `/etc/darkpanel`, `/etc/ufw`, `/run/darkpanel*`, or `/proc` of another process. The live proof of the exec reload, the reconcile and the unanswered-forward refusal is the harness step of Task 9, which runs on CI's VMs after the merge (gate 7), never here. Task 1 fetches the registry and the Engine documentation over HTTPS into the scratchpad with `curl`, never through Docker.
+- Host safety (absolute). This host is live: it runs an installed `darkpanel-agent`, `darkpanel-controller` and a Docker daemon. No unit test or command of this plan talks to the Docker daemon, D-Bus or systemd; runs `systemctl`, `docker`, `ufw`, `iptables`, `nft` or `nmap`; binds an address other than `127.0.0.1` (port 0); or reads or writes `/var/lib/darkpanel`, `/etc/darkpanel`, `/etc/ufw`, `/run/darkpanel*`, or `/proc` of another process. The live proof of the exec reload, the reconcile and the unanswered-forward refusal is the harness step of Task 9, which runs on CI's VMs on the pushed branch (gate 7) before the merge, never here. Task 1 fetches the registry and the Engine documentation over HTTPS into the scratchpad with `curl`, never through Docker.
 - Every `go`, `golangci-lint` and `make` command runs with `GOTOOLCHAIN=local`, an explicit `timeout`, and `TMPDIR=/root/.cache/w12g-tmp/<task number>`, also where a step's command omits one of them. Run `mkdir -p` on that directory first and remove it when the task ends. A `go test -race` of `./internal/modules/npm/` runs as `timeout 1500 go test -race -timeout 24m -count=1` (550-600 s on this host).
 - Refusal codes and detail strings are exactly as Contracts gives them; a test asserts them.
 - Every new deadline is a named constant in the file that uses it (values in Contracts).
 - Comments follow the repository's rule: none that say what the code does; a comment only for a non-obvious why. Fix the stale comments the tasks name.
 - No new dependency; `go.mod` does not change.
-- The harness (`test/harness`, build tag `harness`) is compiled by `go vet -tags harness ./test/...` here and run only by CI; a harness change is proven here by that vet and by the harness's own unit tests, and live by gate 7 on the merge.
+- The harness (`test/harness`, build tag `harness`) is compiled by `go vet -tags harness ./test/...` here and run only by CI; a harness change is proven here by that vet and by the harness's own unit tests, and live by gate 7 on the branch before the merge.
 
 ## Contracts
 
@@ -77,7 +79,8 @@
 - The first `InspectContainer` of an undo of a finished upgrade is `undoForwardCheck`'s (`internal/modules/npm/upgrade_recover.go:61`), so a fault queued on `InspectContainer` hits the refusal, not `verifyHeld`; Task 6's test fails the name lookup after the restore instead.
 - The test Engine's NPM fixture is created running by `thHost.deployed()` (`internal/modules/npm/testhost_test.go:1219`), and `nwSetup` already calls it once; a test needing the container id reads it from `h.docker.container(containerName)`.
 - The live proof of the exec reload, the process listing, the reconcile and the unanswered-forward refusal needs a Docker daemon, which Host safety forbids on this host (as w12e's A3a did). Substitution: Task 1's image and API reading and the unit tests of Tasks 2-8. The live proof is Task 9's harness steps, and gate 7 runs them on the branch, pushed and dispatched with `gh workflow run harness.yml --ref <branch>`, before the merge into `main` (`docs/dforge/gates.md` gate 7: "any branch whose diff against `main` touches `test/harness/`"), so a premise that is wrong is found before it is merged. If the exec cannot run `nginx -t` or signal the master, the reloader's user changes (spec Riskiest assumption) and Tasks 3 and 5 are amended in place.
-- `docker network connect --ip` is accepted by the Engine only on a network created with a user-configured subnet (Docker Engine documentation, "docker network connect --ip"); Task 9's `m6n-rec` is created with `--subnet`.
+- Plan review decision (executability 9, borderline, the cap of two rounds reached): the round-2 Criticals (a change id added twice in two tests) and Importants (the `requireTestDeclared` directory parameter, the rollback and recovery variants of Task 6) are fixed in this version; the one finding left open is the timing of the live proof, which cannot run on this host and is Task 9's harness step on the pushed branch before the merge (recorded as a ruling of the run: unconfirmed, no owner ruling asked).
+- `docker network connect --ip` is accepted by the Engine only on a network created with a user-configured subnet (`https://docs.docker.com/reference/cli/docker/network/connect/`, the `--ip` option, to be read in Task 1 Step 3 and quoted in the note); Task 9's `m6n-rec` is created with `--subnet`.
 - A dotted `.invalid` name gets a definite not-found from the harness VMs' resolver, where a single label did not (`docs/dforge/notes/w12e-evidence.md:324-326`) — unverified — Task 9's harness step uses it and gate 7 proves it.
 - The test Engine assigns an address only when it is static or pinned (`internal/modules/npm/testhost_test.go:321`, `pin`), so a test that needs NPM to take a freed address pins it.
 - The module's tests count reloads through `w12eReloads`, which counts proxy-host updates (`internal/modules/npm/w12e_attach_test.go:31-40`); Task 5 rewrites it to count `h.nginx.reloads`.
@@ -479,6 +482,11 @@ func TestNginxReloaderUser(t *testing.T) {
 	f.inspectErr = dockerapi.ErrUnavailable
 	if err := quickReloader(f).Reload(context.Background()); err == nil || errors.Is(err, errNginxTest) {
 		t.Errorf("an unreadable container gave %v, want a failure that is not the test's", err)
+	}
+	f = newFakeExec()
+	f.inspectErr = &dockerapi.APIError{StatusCode: 404, Message: "No such container: darkpanel-npm"}
+	if err := quickReloader(f).Reload(context.Background()); err == nil || errors.Is(err, errNginxTest) || len(f.created) != 0 {
+		t.Errorf("a missing container ran %d commands with error %v, want none and a failure that is not the test's", len(f.created), err)
 	}
 	f = newFakeExec()
 	f.stopped = true
@@ -1176,7 +1184,7 @@ Expected: FAIL to compile with `h.nginx undefined`, then, once `thNginx` is wire
 2. `nginx_reload.go`: delete the listing-and-update implementation and its comment; `func (n nm) reloadNginx(ctx context.Context) error { return n.d.reload(ctx) }` and `reloadRefusal` of Contracts, Refusal of a failed reload. Add the two `where` strings to `network_claims.go` constants.
 3. `network_claims.go`, `Apply` of attach: `check` no longer runs the forward guard when called from `Apply` (add a `guard bool` parameter: `Plan` passes true, `Apply` false). In `Apply`, with `ck.connect`, and outside the `h.n.run` closure so that a refusal journals no effect: `reloadBeforeJoin` (refuse through `reloadRefusal`, Definite, nothing changed), then re-inspect the network, read `forwardTargets` once and run `forwardTaken` against the fresh network (this is the guard and the re-read of spec D1 in one step), then connect, then `afterJoin(ctx, env, network, targets)`.
 4. `afterJoin(ctx, env, network, targets)`: inspect NPM at once and compare the addresses it took on `network` with `targets` (literal and the name answers already read) with no listing and no lookup; a hit, or a joined NPM with no endpoint on the network, disconnects NPM (`disconnectAgain`) and refuses. Only then reload (`reloadNginx`), read `forwardTargets` afresh and compare again. A failed reload disconnects first and only then builds the refusal through `reloadRefusal` with `; it was disconnected again`. A connect error that is not a refusal inspects NPM under `context.WithoutCancel` and, when NPM is on the network, runs the same `afterJoin` before returning the original error. Keep the existing rules about a failed disconnect (`networkAttach` returns a failure that is neither Definite nor 4xx).
-5. The undo of a detach (`networkUndoDisconnect`) takes the same order: reload, re-inspect and guard on fresh targets, connect, `afterJoin`. NPM already on the network and with no claim on it runs `afterJoin` once, which disconnects before any reload on a hit and reloads once otherwise (a network with a claim stays a claim-only change and runs nothing); on `darkpanel-npm` a hit never disconnects and fails with `npm.reserved`. Attach `Apply` with `ep != nil` and no claims takes the same `afterJoin` path (spec D7 (a)); with a claim it only adds the claim.
+5. The undo of a detach (`networkUndoDisconnect`) takes the same order: reload, re-inspect and guard on fresh targets, connect, `afterJoin`. NPM already on the network and with no claim on it reads `forwardTargets` once, with no reload, and runs `afterJoin` with them, which disconnects before any reload on a hit and reloads once otherwise (a network with a claim stays a claim-only change and runs nothing); on `darkpanel-npm` a hit never disconnects and fails with `npm.reserved`. Attach `Apply` with `ep != nil` and no claims takes the same `afterJoin` path (spec D7 (a)); with a claim it only adds the claim.
 6. Fix the stale comments: `forwardTargets`' ("every join of NPM reloads nginx before and after it, so nginx holds no older answer") and the `networkUndoDisconnect` doc now describe the exec reload and the check order; `network_claims_test.go`'s comment that says a repeated undo is done "whatever proxy hosts forward to".
 7. Migrate the tests (Contracts, Reload in the module): in `w12e_attach_test.go` delete `w12eReloads` and use `h.nginx.reloads`; replace the three `h.npm.SetNginxOnline(false, …)` with `h.nginx.fail(errNginxTest)`; the subtest "NPM's API does not answer the second reload" becomes `h.nginx.fail(errors.New("boom"))` expecting `errcode.NPMUnhealthy` with a detail beginning `nginx could not be reloaded after darkpanel-npm joined network appnet: `; the subtest "no enabled proxy host" now expects 2 reloads; `TestW12eAttachDeadlines` and `TestW12eDetachDeadline` are replaced by `TestW12gAttachDeadlines`, delete them. Fix the three references in `w12e_security_residuals_acceptance_test.go` the same way (`rg -n "w12eReloads|SetNginxOnline" internal/modules/npm`).
 
@@ -1225,6 +1233,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
@@ -1322,7 +1331,81 @@ func TestW12gAnUnverifiedStartIsWrittenToTheRow(t *testing.T) {
 }
 ```
 
-The rollback and the recovery take the same `verifyStart` call: add the two variants of `TestW12eStartVerifiesHeldAddresses` that drive `recoverOriginal` and `rollback` (its `recovery` and `rollback` rows, `w12e_upgrade_test.go:73-200`) with the same `w12gStartHook` and resolver, and assert the same result text and that the phase is not `failed`.
+```go
+func TestW12gAnUnverifiedStartOfARollbackOrARecovery(t *testing.T) {
+	ctx := context.Background()
+	recorded := recordedTarget{Where: "proxy host 1", Host: "up.invalid", Name: true, Addr: netip.MustParseAddr("203.0.113.9")}
+	const unverified = "the started container's addresses were unverified"
+	lookups := func(failing *atomic.Bool) func(context.Context, string) ([]netip.Addr, error) {
+		return func(context.Context, string) ([]netip.Addr, error) {
+			if failing.Load() {
+				return nil, &net.DNSError{Err: "server misbehaving", Name: "up.invalid", IsTemporary: true}
+			}
+			return []netip.Addr{netip.MustParseAddr("203.0.113.9")}, nil
+		}
+	}
+	t.Run("recovery rollback from recreating", func(t *testing.T) {
+		f := urSetup(t)
+		f.replace(urTo)
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{recorded})
+		if err := setUpgradePhase(ctx, f.h.db, urChange, "recreating", "", f.archives(), f.h.clock.Now()); err != nil {
+			t.Fatal(err)
+		}
+		var failing atomic.Bool
+		f.n.d.resolve = lookups(&failing)
+		f.n.d.docker = w12gStartHook{f.h.docker, func() { failing.Store(true) }}
+		out, err := f.recover()
+		if err != nil || out.State != core.RecoveryRolledBack {
+			t.Fatalf("recovery %+v, error %v; want rolled back", out, err)
+		}
+		row, _, _ := loadUpgrade(ctx, f.h.db.Read(), urChange)
+		if !strings.Contains(row.Result, unverified) || row.Phase == "failed" {
+			t.Errorf("phase %q result %q, want a rolled-back row whose result says %q", row.Phase, row.Result, unverified)
+		}
+	})
+	t.Run("restart of the original from a recorded list", func(t *testing.T) {
+		f := urSetup(t)
+		w12eDone(t, f, w12eAppNet(), &[]recordedTarget{recorded})
+		if err := setUpgradePhase(ctx, f.h.db, urChange, "stopped", "", nil, f.h.clock.Now()); err != nil {
+			t.Fatal(err)
+		}
+		f.setRunning(f.inst.ContainerID, false)
+		var failing atomic.Bool
+		f.n.d.resolve = lookups(&failing)
+		f.n.d.docker = w12gStartHook{f.h.docker, func() { failing.Store(true) }}
+		out, err := f.recover()
+		if err != nil || out.State != core.RecoveryRolledBack {
+			t.Fatalf("recovery %+v, error %v; want rolled back", out, err)
+		}
+		row, _, _ := loadUpgrade(ctx, f.h.db.Read(), urChange)
+		if !strings.Contains(row.Result, unverified) {
+			t.Errorf("result %q, want it to say %q", row.Result, unverified)
+		}
+	})
+	t.Run("an upgrade that fails anyway names it in the error", func(t *testing.T) {
+		s := w12eUpSetup(t)
+		var failing atomic.Bool
+		s.n.d.resolve = lookups(&failing)
+		s.dock.trace = func(call string) {
+			if call == "StartContainer" {
+				failing.Store(true)
+			}
+		}
+		s.dock.fail = func(call string, _ int) error {
+			if strings.HasPrefix(call, "CopyFromContainer") {
+				return errors.New("the archive was cut off")
+			}
+			return nil
+		}
+		_, err := s.apply()
+		if err == nil || !strings.Contains(err.Error(), unverified) {
+			t.Errorf("error %v, want it to name %q", err, unverified)
+		}
+	})
+}
+```
+
+Add `core` to the file's imports. The three subtests set the recorded name target and fail the lookups only from the first `StartContainer` on, so the comparison of literal targets passes and the name lookup of `verifyHeld` is the unverified part; the first two follow the arrangement of `w12eStartVerifiesHeldAddresses`'s `recovery rollback from recreating` and `restart of the original from a recorded list` rows (`w12e_upgrade_test.go:192-227`), the third its `the archive failed` row (`:140-180`).
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1563,8 +1646,7 @@ func TestW12gReconcileVerifyRequiresNoForwardedAddress(t *testing.T) {
 	h, _ := w12gHit(t)
 	n := h.nm()
 	n.d.resolve = w12eNoAnswer
-	h.addChange("r1", "npm.instance.reconcile")
-	if err := n.instanceReconcile().Handler.Verify(ctx, h.env("r1"), nwJSON(t, ReconcileInput{}), nwJSON(t, Reconciled{})); err == nil {
+	if err := n.instanceReconcile().Handler.Verify(ctx, h.env(""), nwJSON(t, ReconcileInput{}), nwJSON(t, Reconciled{})); err == nil {
 		t.Error("Verify passed while NPM holds a forwarded address")
 	}
 	if _, err := w12gReconcile(t, h); err != nil {
@@ -1637,6 +1719,7 @@ package npm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1647,12 +1730,16 @@ import (
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
+// w12gChanges numbers the changes the passes of w12gTask add, since a change id is a primary key.
+var w12gChanges atomic.Int32
+
 // w12gTask runs one pass of the reconcile task against h. Apply runs the action's own handler, as the engine would, and
 // counts the calls.
 func w12gTask(t *testing.T, h *thHost, task core.BackgroundTask, n nm, applies *int) error {
 	t.Helper()
-	h.addChange("r1", "npm.instance.reconcile")
-	env := h.env("r1")
+	change := fmt.Sprintf("r%d", w12gChanges.Add(1))
+	h.addChange(change, "npm.instance.reconcile")
+	env := h.env(change)
 	tc := core.TaskContext{Env: env, Apply: func(ctx context.Context, action string, input any) (core.ChangeView, error) {
 		*applies++
 		if action != "npm.instance.reconcile" {
@@ -1925,12 +2012,12 @@ func TestA23_EveryFixHasItsNamedRegressionTestDeclared(t *testing.T) {
 		"TestW12gUpgradeRefusesAnUnansweredStaticForward",      // row 192
 		"TestW12gUnansweredForwards",                           // rows 192, 193
 	} {
-		requireTestDeclared(t, name)
+		requireTestDeclared(t, ".", name)
 	}
 }
 ```
 
-`TestA12_EveryNamedRegressionTestExists` holds its parser inline (`w12e_security_residuals_acceptance_test.go:1047-1064`); extract that loop into `func requireTestDeclared(t *testing.T, name string)` in the same file, call it from A12 and from this test, and keep A12's behaviour unchanged.
+`TestA12_EveryNamedRegressionTestExists` holds its parser inline (`w12e_security_residuals_acceptance_test.go:1047-1064`); extract that loop into `func requireTestDeclared(t *testing.T, dir, name string)` in the same file, call it from A12 once per directory and name it checks today (`.`, `../firewall/guard`, `../tailscale`) and from this test with `"."`, and keep A12's behaviour unchanged.
 
 - [ ] **Step 2: Run the revert check and correct the threat model**
 
