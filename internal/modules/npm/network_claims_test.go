@@ -1227,8 +1227,8 @@ func TestW12bForwardTargets(t *testing.T) {
 		if took := time.Since(start); took > resolveTimeout+2*time.Second {
 			t.Errorf("the check took %s, want at most resolveTimeout plus one second", took)
 		}
-		coded := nwRefused(t, err, errcode.Unavailable)
-		if !strings.HasPrefix(coded.Detail, "forward host slow") || !strings.HasSuffix(coded.Detail, " could not be resolved: the resolver did not answer; retry") {
+		coded := nwRefused(t, err, errcode.NPMForwardUnresolved)
+		if !strings.HasPrefix(coded.Detail, "proxy host ") || !strings.Contains(coded.Detail, " forwards to slow") || !strings.HasSuffix(coded.Detail, ", which could not be resolved: the resolver did not answer; a stopped or removed container's name is a usual cause") {
 			t.Errorf("detail %q, want the transient resolver failure of a forward host", coded.Detail)
 		}
 		mu.Lock()
@@ -1258,7 +1258,7 @@ func TestW12bForwardTargets(t *testing.T) {
 		n.d.resolve = func(context.Context, string) ([]netip.Addr, error) { return nil, errors.New("x") }
 		in := nwJSON(t, AttachInput{Network: nwNet, Claimant: nwClaimant, Target: "web"})
 		_, err := n.networkAttach().Handler.Plan(ctx, h.env(""), in)
-		if coded := nwRefused(t, err, errcode.Unavailable); coded.Detail != "forward host odd.example.net could not be resolved: the resolver did not answer; retry" {
+		if coded := nwRefused(t, err, errcode.NPMForwardUnresolved); coded.Detail != "proxy host 1 forwards to odd.example.net, which could not be resolved: the resolver did not answer; a stopped or removed container's name is a usual cause" {
 			t.Errorf("detail %q, want the unresolved forward host", coded.Detail)
 		}
 	})

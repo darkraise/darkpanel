@@ -248,7 +248,7 @@ func TestA10_AFailedListingMakesAnUpgradeUnhealthyAtPlanAndApply(t *testing.T) {
 	}
 }
 
-const a11Detail = "forward host %s could not be resolved: the resolver did not answer; retry"
+const a11Detail = "proxy host 1 forwards to %s, which could not be resolved: the resolver did not answer; a stopped or removed container's name is a usual cause"
 
 func TestA11_ATransientResolverFailureRefusesAnAttachWithUnavailable(t *testing.T) {
 	for _, apply := range []bool{false, true} {
@@ -275,8 +275,8 @@ func a11Check(t *testing.T, err error, host string) {
 	t.Helper()
 	want := fmt.Sprintf(a11Detail, host)
 	var coded *errcode.Error
-	if !errors.As(err, &coded) || coded.Code != errcode.Unavailable || coded.Detail != want {
-		t.Fatalf("error %v, want %s %q", err, errcode.Unavailable, want)
+	if !errors.As(err, &coded) || coded.Code != errcode.NPMForwardUnresolved || coded.Detail != want {
+		t.Fatalf("error %v, want %s %q", err, errcode.NPMForwardUnresolved, want)
 	}
 	if !strings.Contains(err.Error(), want) || !strings.Contains(a10Log(err), want) {
 		t.Errorf("the error value %q or the log line carry no %q", err.Error(), want)

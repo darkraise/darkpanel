@@ -107,6 +107,8 @@ const (
 	NPMUnhealthy                     Code = "npm.unhealthy"
 	NPMNotPublic                     Code = "npm.not_public"
 	NPMReserved                      Code = "npm.reserved"
+	NPMForwardUnanswered             Code = "npm.forward_unanswered"
+	NPMForwardUnresolved             Code = "npm.forward_unresolved"
 	NPMUnsupportedTarget             Code = "npm.unsupported_target"
 	CloudflareReserved               Code = "cloudflare.reserved"
 	CloudflareUnsupportedTarget      Code = "cloudflare.unsupported_target"
@@ -219,6 +221,8 @@ var registry = map[Code]info{
 	NPMNotPublic:                     {http.StatusConflict, "Host not publicly reachable"},
 	NPMSetupFailed:                   {http.StatusInternalServerError, "Nginx Proxy Manager setup failed"},
 	NPMReserved:                      {http.StatusConflict, "Reserved by an exposure"},
+	NPMForwardUnanswered:             {http.StatusConflict, "Forward host has no answer"},
+	NPMForwardUnresolved:             {http.StatusConflict, "Forward host could not be resolved"},
 	NPMUnsupportedTarget:             {http.StatusUnprocessableEntity, "Unsupported proxy target"},
 	CloudflareReserved:               {http.StatusConflict, "Reserved by an exposure"},
 	CloudflareUnsupportedTarget:      {http.StatusUnprocessableEntity, "Unsupported tunnel target"},

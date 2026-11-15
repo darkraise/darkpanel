@@ -75,7 +75,7 @@ func TestW12dDockerNamesPastTheDeadline(t *testing.T) {
 	n := h.nm()
 	n.d.docker = w12dSlowDocker{h.docker}
 	_, err := n.forwardTargets(context.Background(), h.env(""))
-	coded := nwRefused(t, err, errcode.Unavailable)
+	coded := nwRefused(t, err, errcode.NPMForwardUnresolved)
 	if want := "Docker's names of the forward hosts could not be read in time; retry"; coded.Detail != want {
 		t.Errorf("detail %q, want %q", coded.Detail, want)
 	}

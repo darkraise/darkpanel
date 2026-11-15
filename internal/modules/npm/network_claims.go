@@ -923,12 +923,23 @@ type forwardTarget struct {
 	addr  netip.Addr
 }
 
-// forwardTargets reads every address NPM's proxy hosts and their custom locations forward to, in proxy host order. A
-// forward host is read up to its first "/", as nginx reads a proxy_pass host. A name is resolved as checkForward
-// resolves it; a name with no answer still adds nothing here, because every join of NPM reloads nginx before and after
-// it, so nginx holds no older answer of the name than the one read here, and a host holding an nginx variable is
-// resolved by nginx per request, so no address can be read from it.
-func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, error) {
+// forwardRef is one forward of an enabled proxy host or of one of its custom locations, its host read up to its first
+// "/", as nginx reads a proxy_pass host. literal is set when the host is an address.
+type forwardRef struct {
+	where, host string
+	literal     netip.Addr
+	location    bool
+}
+
+// resolvable is true for a forward host that is a name: a host holding an nginx variable is resolved by nginx per
+// request, so no address can be read from it.
+func (f forwardRef) resolvable() bool {
+	return !f.literal.IsValid() && f.host != "" && !strings.Contains(f.host, "$")
+}
+
+// forwardRefs lists the forwards of NPM's proxy hosts in proxy host order. A disabled host is skipped: NPM renders no
+// server block for it, so nginx neither forwards to its hosts nor resolves their names.
+func (n nm) forwardRefs(ctx context.Context, env core.Env) ([]forwardRef, error) {
 	api, err := n.d.api(ctx, env)
 	if err != nil {
 		return nil, err
@@ -941,39 +952,74 @@ func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, 
 		return nil, npmListingAnswer(err)
 	}
 	slices.SortFunc(hosts, func(a, b npmapi.ProxyHost) int { return cmp.Compare(a.ID, b.ID) })
-	type forward struct {
-		where, host string
-		literal     netip.Addr
-	}
-	var forwards []forward
+	var refs []forwardRef
 	for _, ph := range hosts {
+		if !bool(ph.Enabled) {
+			continue
+		}
 		id := strconv.Itoa(ph.ID)
-		forwards = append(forwards, forward{where: "proxy host " + id, host: ph.ForwardHost})
+		refs = append(refs, forwardRef{where: "proxy host " + id, host: ph.ForwardHost})
 		for _, l := range ph.Locations {
-			forwards = append(forwards, forward{where: "location " + l.Path + " of proxy host " + id, host: l.ForwardHost})
+			refs = append(refs, forwardRef{where: "location " + l.Path + " of proxy host " + id, host: l.ForwardHost, location: true})
 		}
 	}
-	var names []string
-	for i, f := range forwards {
-		host, _, _ := strings.Cut(f.host, "/")
-		forwards[i].host = host
+	for i := range refs {
+		host, _, _ := strings.Cut(refs[i].host, "/")
+		refs[i].host = host
 		if a, ok := proxy.LiteralAddr(host); ok {
-			forwards[i].literal = a
-			continue
-		}
-		if host == "" || strings.Contains(host, "$") {
-			continue
-		}
-		if !slices.Contains(names, host) {
-			names = append(names, host)
+			refs[i].literal = a
 		}
 	}
-	answers, err := n.forwardAnswers(ctx, names)
+	return refs, nil
+}
+
+func refNames(refs []forwardRef) []string {
+	var names []string
+	for _, r := range refs {
+		if r.resolvable() && !slices.Contains(names, r.host) {
+			names = append(names, r.host)
+		}
+	}
+	return names
+}
+
+// unresolvedName is forwardAnswers' failure for a name whose lookup gave neither an answer nor a definite not-found.
+type unresolvedName struct{ name string }
+
+func (u *unresolvedName) Error() string {
+	return "npm: forward host " + u.name + " could not be resolved: the resolver did not answer"
+}
+
+// unresolvedRefusal names the first forward that uses the name forwardAnswers could not resolve; any other error is
+// returned as it is.
+func unresolvedRefusal(refs []forwardRef, err error) error {
+	var u *unresolvedName
+	if !errors.As(err, &u) {
+		return err
+	}
+	for _, r := range refs {
+		if r.resolvable() && r.host == u.name {
+			return core.Definite(errcode.New(errcode.NPMForwardUnresolved, r.where+" forwards to "+r.host+
+				", which could not be resolved: the resolver did not answer; a stopped or removed container's name is a usual cause"))
+		}
+	}
+	return err
+}
+
+// forwardTargets reads every address NPM's enabled proxy hosts and their custom locations forward to, in proxy host
+// order. A name is resolved as checkForward resolves it; a name with no answer still adds nothing here, because every
+// join of NPM reloads nginx before and after it, so nginx holds no older answer of the name than the one read here.
+func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, error) {
+	refs, err := n.forwardRefs(ctx, env)
 	if err != nil {
 		return nil, err
 	}
+	answers, err := n.forwardAnswers(ctx, refNames(refs))
+	if err != nil {
+		return nil, unresolvedRefusal(refs, err)
+	}
 	var out []forwardTarget
-	for _, f := range forwards {
+	for _, f := range refs {
 		if f.literal.IsValid() {
 			out = append(out, forwardTarget{where: f.where, host: f.host, addr: f.literal})
 			continue
@@ -983,6 +1029,44 @@ func (n nm) forwardTargets(ctx context.Context, env core.Env) ([]forwardTarget, 
 		}
 	}
 	return out, nil
+}
+
+// unansweredForward is a custom location whose static forward host has no answer: nginx resolves such a name when it
+// loads its configuration, so nginx -t fails while it does not answer.
+type unansweredForward struct{ Where, Host string }
+
+// unansweredForwards lists, in proxy host order, the custom locations of enabled proxy hosts whose forward host is a
+// name that gets a definite not-found. A proxy host's own forward host is not listed: nginx resolves it per request.
+func (n nm) unansweredForwards(ctx context.Context, env core.Env) ([]unansweredForward, error) {
+	refs, err := n.forwardRefs(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	var locs []forwardRef
+	for _, r := range refs {
+		if r.location && r.resolvable() {
+			locs = append(locs, r)
+		}
+	}
+	answers, err := n.forwardAnswers(ctx, refNames(locs))
+	if err != nil {
+		return nil, unresolvedRefusal(locs, err)
+	}
+	var out []unansweredForward
+	for _, r := range locs {
+		if len(answers[r.host]) == 0 {
+			out = append(out, unansweredForward{Where: r.where, Host: r.host})
+		}
+	}
+	return out, nil
+}
+
+func unansweredDetail(us []unansweredForward) string {
+	parts := make([]string, 0, len(us))
+	for _, u := range us {
+		parts = append(parts, u.Where+" forwards to "+u.Host+", which has no answer")
+	}
+	return strings.Join(parts, "; ")
 }
 
 const forwardResolvers = 8
@@ -1004,7 +1088,7 @@ func (n nm) forwardAnswers(ctx context.Context, names []string) (map[string][]ne
 			return nil, ctx.Err()
 		}
 		if lookupCtx.Err() != nil {
-			return nil, core.Definite(errcode.New(errcode.Unavailable,
+			return nil, core.Definite(errcode.New(errcode.NPMForwardUnresolved,
 				"Docker's names of the forward hosts could not be read in time; retry"))
 		}
 		return nil, fmt.Errorf("npm: read Docker's names of the forward hosts: %w", err)
@@ -1065,8 +1149,7 @@ func (n nm) forwardAnswers(ctx context.Context, names []string) (map[string][]ne
 			out[name] = plainAddrs(r.answers)
 		case ok && errors.As(r.err, &dnsErr) && dnsErr.IsNotFound:
 		default:
-			return nil, core.Definite(errcode.New(errcode.Unavailable,
-				"forward host "+name+" could not be resolved: the resolver did not answer; retry"))
+			return nil, &unresolvedName{name: name}
 		}
 	}
 	return out, nil

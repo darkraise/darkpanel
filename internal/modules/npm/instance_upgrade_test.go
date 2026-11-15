@@ -1356,7 +1356,7 @@ func TestW12bUpgradeForwardCheck(t *testing.T) {
 			return nil, ctx.Err()
 		}
 		_, err := s.n.instanceUpgrade().Handler.Plan(ctx, s.h.env(""), json.RawMessage(`{}`))
-		if coded := nwRefused(t, err, errcode.Unavailable); coded.Detail != "forward host slow.example.net could not be resolved: the resolver did not answer; retry" {
+		if coded := nwRefused(t, err, errcode.NPMForwardUnresolved); coded.Detail != "proxy host 1 forwards to slow.example.net, which could not be resolved: the resolver did not answer; a stopped or removed container's name is a usual cause" {
 			t.Errorf("detail %q", coded.Detail)
 		}
 	})
