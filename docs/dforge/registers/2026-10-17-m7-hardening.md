@@ -10,3 +10,4 @@
 | 3 | Performance budget | docs/dforge/specs/2026-10-21-v1-completion-design.md | R76 | doing | - |
 | 4 | Accessibility | docs/dforge/specs/2026-10-21-v1-completion-design.md | R77 | doing | - |
 | 5 | Documentation | docs/dforge/specs/2026-10-21-v1-completion-design.md | R78, R79 | doing | - |
+| 6 | tailscaled 1.82.0 live check carried from the M5 audit 2026-11-16 (v1 #79): TestTailscaledLive has run only against the pinned 1.104.1; the spec's Versions section claims tailscaled 1.82 or later | - | TestTailscaledLive passes against tailscaled 1.82.0 (the spec's supported floor) in the harness or a recorded run, or the owner raises the supported floor in the spec | open | carried from M5 audit part A item 19 by owner ruling 2026-11-16, as part of the R75 compatibility matrix (epic #2) |
