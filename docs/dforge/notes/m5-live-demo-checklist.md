@@ -1,6 +1,7 @@
 # M5 live demonstration checklist
 
-The acceptance of M5 register row 4. Each step is done through Darkpanel
+The acceptance of M5 register row 4. Claude runs the demonstration with
+the owner's credentials (spec 12 item 2). Each step is done through Darkpanel
 (the web UI or the API), never by hand on a host, and its observation is
 recorded in row 4's note: what was run, on which hosts, and what was seen.
 
@@ -30,7 +31,9 @@ recorded in row 4's note: what was run, on which hosts, and what was seen.
    serves the Tailscale web certificate with the MagicDNS name.
 4. **Deploy DERP (R61, R62).** Run `derp.server.deploy` on the DERP host,
    with client verification left on. Confirm the firewall opened 80/tcp,
-   443/tcp and 3478/udp. Record the certificate mode used.
+   443/tcp and 3478/udp. Record the certificate mode used, the tailscaled
+   version pinned on the DERP host (its Tailscale package panel), and that
+   `derp.server.status` reports `verifyClients` true.
 5. **Region (R63).** Run `derp.region.set` with a region id from 900 to 999
    and `omitDefaultRegions` on, so the custom region is the only one in the
    map. Note any warning about the visibility grant.
