@@ -128,7 +128,7 @@
 | 121 | Wave 11c parked (Task 13): cannot-verify that 5c7754c holds the spec edits and W11-R13 to W11-R18 | - | - | deferred | the controller's git show at the commit shows the spec changed and the six rulings present, so the code stands |
 | 122 | Wave 11c parked (Task 13): cannot-verify that docs/dforge/notes/v1-w3-final-review-followups.md decodes as UTF-8 | - | - | deferred | the controller's decode at the commit passes with no replacement character, so the code stands |
 | 123 | Wave 11c parked (Task 13): cannot-verify Gate 7 and the push and harness.yml dispatch | - | - | deferred | they run after this task and belong to the controller |
-| 124 | Wave 11c discovered: Task 4: an automated security review flagged two missing DERP probe prefixes | - | - | deferred | resolved by amendment A9 |
+| 124 | Wave 11c discovered: Task 4: an automated security review flagged two missing DERP probe prefixes | - | - | deferred | resolved by spec rule W11-R16 (v1-completion spec; node_probe.go refuses the two prefixes, with a test); audit 2026-11-16 127b904: the earlier note cited amendment A9, which no tracked file records |
 | 125 | Wave 11c discovered: Task 9: the plan's two supplied tests needed a zero-delay timer wait | - | - | deferred | resolved by amendment A16 |
 | 126 | Wave 11c discovered: Task 10: the plan named EINVAL where Linux returns EOPNOTSUPP | - | - | deferred | resolved by amendment A17 |
 | 127 | Wave 11c discovered: Task 11: the plan's IPv6 expectation and helper name were wrong | - | - | deferred | resolved by amendments A18 and A19 |
