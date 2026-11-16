@@ -119,7 +119,9 @@ func TestWhoIs(t *testing.T) {
 
 func TestDebugDERPRegion(t *testing.T) {
 	mux := http.NewServeMux()
+	regions := make(chan string, 2)
 	mux.HandleFunc("POST /localapi/v0/debug-derp-region", func(w http.ResponseWriter, r *http.Request) {
+		regions <- r.URL.Query().Get("region")
 		if r.URL.Query().Get("region") != "900" {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(w, "no such region\n")
@@ -138,5 +140,8 @@ func TestDebugDERPRegion(t *testing.T) {
 	var apiErr *APIError
 	if _, err := c.DebugDERPRegion(t.Context(), "x&y"); !errors.As(err, &apiErr) || apiErr.Message != "no such region" {
 		t.Fatalf("bad region err = %v", err)
+	}
+	if got := []string{<-regions, <-regions}; !reflect.DeepEqual(got, []string{"900", "x&y"}) {
+		t.Fatalf("tailscaled saw regions %q, want the escaped [900 x&y]", got)
 	}
 }
