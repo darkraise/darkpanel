@@ -44,9 +44,9 @@ func TestCertPair(t *testing.T) {
 	const key = "-----BEGIN EC PRIVATE KEY-----\nAAAA\n-----END EC PRIVATE KEY-----\n" //nolint:gosec // G101: a placeholder PEM, not a key
 	const chain = "-----BEGIN CERTIFICATE-----\nBBBB\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nCCCC\n-----END CERTIFICATE-----\n"
 	mux := http.NewServeMux()
-	var path, query string
+	seen := make(chan string, 3)
 	mux.HandleFunc("GET /localapi/v0/cert/{domain}", func(w http.ResponseWriter, r *http.Request) {
-		path, query = r.URL.Path, r.URL.RawQuery
+		seen <- r.URL.Path + "?" + r.URL.RawQuery
 		switch r.PathValue("domain") {
 		case "vps.tail1234.ts.net":
 			_, _ = io.WriteString(w, key+chain)
@@ -62,8 +62,8 @@ func TestCertPair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(k) != key || string(cert) != chain || path != "/localapi/v0/cert/vps.tail1234.ts.net" || query != "type=pair" {
-		t.Fatalf("key %q cert %q (path %s?%s)", k, cert, path, query)
+	if req := <-seen; string(k) != key || string(cert) != chain || req != "/localapi/v0/cert/vps.tail1234.ts.net?type=pair" {
+		t.Fatalf("key %q cert %q (request %s)", k, cert, req)
 	}
 	grown := append(k, "appended"...) //nolint:gocritic // appendAssign: the append is the behaviour under test
 	if string(cert) != chain || !strings.HasSuffix(string(grown), "appended") {
