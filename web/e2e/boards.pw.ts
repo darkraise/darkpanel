@@ -15,8 +15,8 @@ for (const theme of ["light", "dark"] as const) {
       for (const state of board.states) {
         await expect(root.getByRole("heading", { level: 2, name: state })).toBeVisible()
       }
-      if (theme === "light") await root.screenshot({ path: `../docs/dforge/ui-ux/boards/${board.id}.png` })
-      else await root.screenshot({ path: `../docs/dforge/ui-ux/boards/${board.id}-dark.png` })
+      if (theme === "light") await root.screenshot({ path: `node_modules/.playwright-results/boards/${board.id}.png` })
+      else await root.screenshot({ path: `node_modules/.playwright-results/boards/${board.id}-dark.png` })
     })
   }
 }

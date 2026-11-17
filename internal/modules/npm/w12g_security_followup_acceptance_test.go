@@ -9,9 +9,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -1408,41 +1406,5 @@ func TestA20_AnAttachUnwindsToUndoneAfterADockerChangeRanInBetween(t *testing.T)
 	}
 	if _, ok := w.h.docker.container("later"); !ok {
 		t.Error("the unwind removed the container another change made")
-	}
-}
-
-func TestA23_EveryNamedRegressionTestInTheEvidenceNoteExistsAndHasItsRevertLine(t *testing.T) {
-	note, err := os.ReadFile("../../../docs/dforge/notes/w12g-evidence.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, section, ok := strings.Cut(string(note), "## Revert check")
-	if !ok {
-		t.Fatal("the evidence note has no Revert check section")
-	}
-	row := regexp.MustCompile("(?m)^\\| `(Test\\w+)` \\| (.+) \\| `([^`]+)` ")
-	rows := row.FindAllStringSubmatch(section, -1)
-	if len(rows) < 6 {
-		t.Fatalf("%d revert rows in the note, want one per fix", len(rows))
-	}
-	files, err := filepath.Glob("*_test.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var source strings.Builder
-	for _, f := range files {
-		b, err := os.ReadFile(f) //nolint:gosec // G304: a test path
-		if err != nil {
-			t.Fatal(err)
-		}
-		source.Write(b)
-	}
-	for _, r := range rows {
-		if !strings.Contains(source.String(), "func "+r[1]+"(") {
-			t.Errorf("the note names %s, which no test file declares", r[1])
-		}
-		if !strings.Contains(r[3], ".go:") {
-			t.Errorf("%s: the failing line %q has no file and line", r[1], r[3])
-		}
 	}
 }

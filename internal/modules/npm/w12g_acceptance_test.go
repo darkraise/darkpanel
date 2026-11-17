@@ -2,8 +2,7 @@ package npm
 
 import "testing"
 
-// TestA23_EveryFixHasItsNamedRegressionTestDeclared checks that the tests the register rows cite exist. Whether each
-// fails when its fix is reverted is recorded in docs/dforge/notes/w12g-evidence.md, section Revert check.
+// TestA23_EveryFixHasItsNamedRegressionTestDeclared checks that the tests the register rows cite exist.
 func TestA23_EveryFixHasItsNamedRegressionTestDeclared(t *testing.T) {
 	for _, name := range []string{
 		"TestW12gAttachMakesNoCallBetweenConnectAndInspection", // rows 1, 176, 190

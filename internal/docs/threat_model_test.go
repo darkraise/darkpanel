@@ -313,15 +313,6 @@ func TestW11b11GuardDocumentation(t *testing.T) {
 			t.Errorf("Firewall residual risk still states %q", gone)
 		}
 	}
-	spec := dcRead(t, "docs/dforge/specs/2026-10-21-v1-completion-design.md")
-	for _, want := range []string{"W11-R7 wildcard binds", "W11-R8 cell limit", "W11-R9 IPv6 public leg", "W11-R10 policy routing", "W11-R11 special-purpose ranges", "W11-R12 guard details"} {
-		if !strings.Contains(spec, want) {
-			t.Errorf("the spec has no ruling %q", want)
-		}
-	}
-	if strings.Contains(spec, "on the interface its route back leaves through") {
-		t.Error("the spec still limits a wildcard bind to the interface of the route back")
-	}
 }
 
 func TestW11c13ThreatModelRecordsTheRulings(t *testing.T) {

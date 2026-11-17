@@ -1192,7 +1192,7 @@ func (r *m6nRun) logDiagnostics(t *testing.T) {
 	}
 }
 
-// m6nNginxDirs are nginx's log and temp directories in the pinned image (docs/dforge/notes/w12g-evidence.md).
+// m6nNginxDirs are nginx's log and temp directories in the pinned image.
 const m6nNginxDirs = "/data/logs /var/cache/nginx /tmp/nginx /run/nginx"
 
 // m6nForwardRefusal returns the refusal of action, whether its plan refused (err) or its change failed (ch.Error).

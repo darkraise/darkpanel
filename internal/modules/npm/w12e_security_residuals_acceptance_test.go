@@ -1023,8 +1023,7 @@ func qaLocation(host string) npmapi.Location {
 }
 
 // TestA12_EveryNamedRegressionTestExists: the nine tests the spec names exist, each in the package of its fix. It
-// catches a deleted or renamed test only; that each test fails when its fix is undone is recorded in
-// docs/dforge/notes/w12e-evidence.md "Revert check".
+// catches a deleted or renamed test only.
 func TestA12_EveryNamedRegressionTestExists(t *testing.T) {
 	want := map[string][]string{
 		".": {"TestW12eAttachReloadsBeforeJoin", "TestW12eAttachReloadsAfterJoin", "TestW12eAttachUnconfirmedReloadDisconnects",

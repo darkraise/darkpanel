@@ -8,7 +8,7 @@ Proposed
 
 ## Context
 
-The v1 completion design (`docs/dforge/specs/2026-10-21-v1-completion-design.md`)
+The v1 completion design
 builds the firewall, Docker, Tailscale, DERP, Nginx Proxy Manager, Cloudflare
 Tunnel and panel-exposure modules on one set of core extensions, built first
 as wave 0 so that the module waves change no shared file. Several extensions
