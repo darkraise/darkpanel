@@ -69,10 +69,26 @@ go run ./cmd/darkpanel user create --username admin --dev
 go run ./cmd/darkpanel controller web-ca --dev
 ```
 
-Then create an API token for the CLI as the README's "Use the CLI with a
-token" shows. A second `serve` on the same paths
-fails while the first runs; stop the first with Ctrl-C. Delete
-`~/.local/state/darkpanel-dev/` to start again from nothing.
+Then create an API token for the CLI. The web UI's Tokens page does it when
+the UI is built; without the UI, log in through the API, then plan and apply
+`core.token.create`, passing the `csrfToken` of the login answer:
+
+```sh
+URL=http://127.0.0.1:8080
+curl -c session -H 'Content-Type: application/json' \
+  -d '{"username": "admin", "password": "<password>", "code": "<code>"}' $URL/api/v1/auth/login
+curl -b session -H 'Content-Type: application/json' -H 'X-CSRF-Token: <csrfToken>' \
+  -d '{"input": {"name": "laptop", "scope": "admin"}}' $URL/api/v1/actions/core.token.create/v1/plan
+curl -b session -H 'Content-Type: application/json' -H 'X-CSRF-Token: <csrfToken>' \
+  -d '{"planId": "<planId>"}' $URL/api/v1/actions/core.token.create/v1/apply
+rm session
+```
+
+The apply answer's `output.token` is shown only once. Give it to the CLI as
+[Create the first admin](docs/user/first-admin.md#next-an-api-token-for-the-cli)
+describes. A second `serve` on the same paths fails while the first runs; stop
+the first with Ctrl-C. Delete `~/.local/state/darkpanel-dev/` to start again
+from nothing.
 
 ## Schemas
 
@@ -84,7 +100,10 @@ snapshots of released versions, which a change may only extend (ADR 0002).
 
 ## Before you open a pull request
 
-Every change passes `make check`. On a fresh clone, run
+Every change passes `make check`. A change that alters what a user sees or
+does, such as an install step, a command, a default, a prerequisite or a
+version, updates [README.md](README.md) and the page of `docs/` that covers it
+in the same pull request. The pull request template carries the checklist. On a fresh clone, run
 `pnpm -C web install --frozen-lockfile` first: `make check` runs the web lint
 and tests before `make build` installs the web dependencies.
 
