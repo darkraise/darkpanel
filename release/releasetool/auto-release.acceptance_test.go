@@ -204,7 +204,8 @@ func TestA4_RevertSubjectAppearsInTheNotes(t *testing.T) {
 		}
 	}
 	git("init", "-q", "-b", "main")
-	for _, m := range []string{"feat: add widgets", "Revert \"fix: break gadgets\"", "Update stuff", "docs: explain widgets"} {
+	for _, m := range []string{"feat: add widgets", "Revert \"fix: break gadgets\"", "Update stuff", "docs: explain widgets",
+		"chore!: drop the old config", "ci: move the job\n\nBREAKING CHANGE: the runner label changed"} {
 		git("commit", "-q", "--allow-empty", "-m", m)
 	}
 	cmd := exec.Command(cliff, "--config", filepath.Join(root, "cliff.toml"), "--repository", repo, "--tag", "v9.9.9") //nolint:gosec // G204: git-cliff from GIT_CLIFF or PATH on a scratch repository
@@ -222,6 +223,11 @@ func TestA4_RevertSubjectAppearsInTheNotes(t *testing.T) {
 	}
 	if strings.Contains(notes, "Update stuff") {
 		t.Errorf("the notes hold a non-conventional commit; notes:\n%s", notes)
+	}
+	for _, want := range []string{"### Breaking changes", "drop the old config", "move the job"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("the notes lose a breaking commit of a skipped type (%q); notes:\n%s", want, notes)
+		}
 	}
 }
 
