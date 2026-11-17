@@ -7,7 +7,7 @@ pnpm -C web test
 pnpm -C web exec playwright test -c playwright.config.ts
 ```
 
-Set `E2E_CHROMIUM` to the path of a Chromium executable when the build that Playwright pins is not installed. The browser pass covers the default theme (blue accent, zinc surface) in light and dark mode, in Chromium only. The last run, on 2026-11-06 with Chromium 153.0.8010.12, passed all 88 checks.
+Set `E2E_CHROMIUM` to the path of a Chromium executable when the build that Playwright pins is not installed. The browser pass covers the default theme (blue accent, zinc surface) in light and dark mode, in Chromium only. The last run, on 2026-11-17 at 0d167f44 with Chrome Headless Shell 156.0.8078.4, passed all 88 checks.
 
 ## Scope
 
