@@ -12,6 +12,7 @@ var (
 	rmNode      = regexp.MustCompile(`"node":\s*">=(\d+)"`)
 	rmChangelog = regexp.MustCompile(`(?m)^## (\S+) - \d{4}-\d{2}-\d{2}$`)
 	rmPinned    = regexp.MustCompile(`github\.com/Darkraise/darkpanel/releases/download/v([^/\s]+)/`)
+	rmVersion   = regexp.MustCompile(`--version (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b`)
 )
 
 func rmFirst(t *testing.T, rel string, re *regexp.Regexp) string {
@@ -52,7 +53,7 @@ func TestReadmeInstallNamesNewestRelease(t *testing.T) {
 	newest := rmFirst(t, "CHANGELOG.md", rmChangelog)
 	for _, file := range []string{"README.md", "docs/user/install.md"} {
 		text := dcRead(t, file)
-		pins := rmPinned.FindAllStringSubmatch(text, -1)
+		pins := append(rmPinned.FindAllStringSubmatch(text, -1), rmVersion.FindAllStringSubmatch(text, -1)...)
 		if file == "README.md" && len(pins) == 0 && !strings.Contains(text, "/releases/latest/download/install.sh") {
 			t.Fatal("README.md has no install command")
 		}

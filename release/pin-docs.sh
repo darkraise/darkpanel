@@ -21,8 +21,12 @@ version=$1
 root=${DOCS_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 files=("$root/README.md" "$root/docs/user/install.md")
 
-pinned=$(grep -ohE 'releases/download/v[^/[:space:]]+/' "${files[@]}" | sed -E 's#^releases/download/v(.*)/$#\1#' | LC_ALL=C sort -u || true)
-[ -n "$pinned" ] || exit 0
+# grep exits 1 when nothing matches, and 2 when a file cannot be read.
+status=0
+urls=$(grep -ohE 'releases/download/v[^/[:space:]]+/' "${files[@]}") || status=$?
+[ "$status" -le 1 ] || exit 1
+[ -n "$urls" ] || exit 0
+pinned=$(sed -E 's#^releases/download/v(.*)/$#\1#' <<<"$urls" | LC_ALL=C sort -u)
 if [ "$(printf '%s\n' "$pinned" | wc -l)" -ne 1 ]; then
   echo "pin-docs: README.md and docs/user/install.md pin different versions:" >&2
   echo "  ${pinned//$'\n'/$'\n'  }" >&2
@@ -32,5 +36,9 @@ fi
 old=$(printf '%s' "$pinned" | sed 's/[.[\*^$/]/\\&/g')
 sed -i -E \
   -e "s/releases\/download\/v$old\//releases\/download\/v$version\//g" \
-  -e "s/--version $old( |\$)/--version $version\1/g" \
+  -e "s/--version $old([^0-9A-Za-z.-]|\$)/--version $version\1/g" \
   "${files[@]}"
+if grep -nE "releases/download/v$old/|--version $old([^0-9A-Za-z.-]|\$)" "${files[@]}" >&2; then
+  echo "pin-docs: the lines above still pin $pinned" >&2
+  exit 1
+fi

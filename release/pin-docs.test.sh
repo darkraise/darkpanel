@@ -67,6 +67,16 @@ seed "$nopin" "$nopin"
 expect nopin 0 bash "$script" 1.1.0-beta.1
 same nopin_readme "$DOCS_ROOT/README.md" "$nopin"
 
+cont='sudo sh -s -- --version 1.0.0-rc.2 \
+  --role controller'
+seed "$readme" "$cont"
+expect continuation 0 bash "$script" 1.0.0-rc.3
+same continuation_install "$DOCS_ROOT/docs/user/install.md" "${cont//1.0.0-rc.2/1.0.0-rc.3}"
+
+seed "$readme" "$install"
+rm "$DOCS_ROOT/docs/user/install.md"
+expect unreadable 1 bash "$script" 1.0.0-rc.3
+
 expect usage 2 bash "$script"
 expect not_a_version 2 bash "$script" 1.0
 
