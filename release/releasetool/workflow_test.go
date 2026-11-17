@@ -4,15 +4,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v4"
 )
 
 const (
 	arWorkflowYML = "../../.github/workflows/auto-release.yml"
 	arHarnessYML  = "../../.github/workflows/harness.yml"
-	arHarnessIf   = "    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release): prepare ') && github.event.head_commit.committer.email == 'release-bot@darkpanel.invalid') }}\n"
+	arHarnessIf   = "${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release): prepare ') && github.event.head_commit.committer.email == 'release-bot@darkpanel.invalid') }}"
 )
 
 var arPinned = regexp.MustCompile(`^\s*(?:-\s+)?uses:\s+[^@\s]+@[0-9a-f]{40}\s+#\s+v\S+$`)
@@ -121,16 +124,38 @@ func TestArHarnessSkipsBotReleaseCommits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	yml := string(b)
-	start := strings.Index(yml, "\n  build:\n")
-	if start < 0 {
+	var wf struct {
+		Jobs map[string]struct {
+			If string `yaml:"if"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(b, &wf); err != nil {
+		t.Fatalf("harness.yml is not valid YAML: %v", err)
+	}
+	build, ok := wf.Jobs["build"]
+	if !ok {
 		t.Fatal("harness.yml has no build job")
 	}
-	end := strings.Index(yml[start+1:], "\n  vm:\n")
-	if end < 0 {
-		t.Fatal("harness.yml has no vm job after build")
+	if build.If != arHarnessIf {
+		t.Errorf("the harness build job's if is %q, want %q", build.If, arHarnessIf)
 	}
-	if !strings.Contains(yml[start:start+1+end], arHarnessIf) {
-		t.Errorf("the harness build job does not carry %q", arHarnessIf)
+}
+
+// GitHub rejects a workflow file that is not valid YAML without running any
+// job, and the text checks above cannot see that.
+func TestWorkflowsParseAsYAML(t *testing.T) {
+	files, err := filepath.Glob("../../.github/workflows/*.yml")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no workflow files found: %v", err)
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f) //nolint:gosec // G304: f comes from a fixed glob over the repository's own workflow directory
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v map[string]any
+		if err := yaml.Unmarshal(b, &v); err != nil {
+			t.Errorf("%s: %v", filepath.Base(f), err)
+		}
 	}
 }
