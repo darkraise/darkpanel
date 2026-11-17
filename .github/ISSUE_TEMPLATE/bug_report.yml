@@ -1,0 +1,24 @@
+name: Bug report
+description: Something does not work as the documentation says.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: version
+    attributes:
+      label: Version and host
+      description: The output of `darkpanel version`, the host's operating system, and whether the host is the controller or an agent.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant lines from `journalctl -u darkpanel-controller` or `journalctl -u darkpanel-agent`. Remove tokens, keys and addresses you want to keep private.
+      render: text
