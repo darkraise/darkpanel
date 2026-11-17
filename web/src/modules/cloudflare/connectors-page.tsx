@@ -44,6 +44,7 @@ function ConnectorsTable({ connectors, tunnels, onPlan }: { connectors: Connecto
       <TableHeader>
         <TableRow>
           <TableHead>Tunnel</TableHead>
+          <TableHead className="whitespace-nowrap">Tunnel status</TableHead>
           <TableHead>Container</TableHead>
           <TableHead>State</TableHead>
           <TableHead>
@@ -54,9 +55,15 @@ function ConnectorsTable({ connectors, tunnels, onPlan }: { connectors: Connecto
       <TableBody>
         {connectors.map((c) => {
           const label = tunnelLabel(c.tunnel, tunnels)
+          const status = tunnels.find((t) => t.id === c.tunnel)?.status ?? "unknown"
           return (
             <TableRow key={c.tunnel}>
               <TableCell className="wrap-anywhere">{label}</TableCell>
+              <TableCell className="whitespace-nowrap">
+                <Badge size="sm" variant={status === "healthy" ? "default" : "secondary"}>
+                  {status}
+                </Badge>
+              </TableCell>
               <TableCell className="font-mono wrap-anywhere">{c.container}</TableCell>
               <TableCell className="whitespace-nowrap">
                 <Badge size="sm" variant={c.state === "running" ? "default" : "secondary"}>

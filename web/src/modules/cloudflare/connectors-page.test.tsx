@@ -75,23 +75,27 @@ async function cnTable() {
 }
 
 describe("ConnectorsPage", () => {
-  test("lists the connectors of the only host with the tunnel's name, the container and the state", async () => {
+  test("lists the connectors of the only host with the tunnel's name, its Cloudflare status, the container and the state", async () => {
     const { calls } = cnRender([cnHost("h1", "web-1")], {
       [cnList("h1")]: {
         body: {
           output: {
             connectors: [
               cfConnector({ tunnel: "t1", container: "darkpanel-cloudflared-t1", state: "running" }),
+              cfConnector({ tunnel: "t2", container: "darkpanel-cloudflared-t2", state: "running" }),
               cfConnector({ tunnel: "t-gone", container: "darkpanel-cloudflared-t-gone", state: "missing" }),
             ],
           },
         },
       },
     })
-    const rows = within(await cnTable()).getAllByRole("row").slice(1)
-    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 3).map((c) => c.textContent))).toEqual([
-      ["darkpanel-c1", "darkpanel-cloudflared-t1", "running"],
-      ["t-gone", "darkpanel-cloudflared-t-gone", "missing"],
+    const table = await cnTable()
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Tunnel", "Tunnel status", "Container", "State", "Actions"])
+    const rows = within(table).getAllByRole("row").slice(1)
+    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 4).map((c) => c.textContent))).toEqual([
+      ["darkpanel-c1", "healthy", "darkpanel-cloudflared-t1", "running"],
+      ["darkpanel-c2", "inactive", "darkpanel-cloudflared-t2", "running"],
+      ["t-gone", "unknown", "darkpanel-cloudflared-t-gone", "missing"],
     ])
     expect(screen.getByText("Connectors on web-1")).toBeTruthy()
     expect(screen.queryByRole("radiogroup", { name: "Host" })).toBeNull()
@@ -206,7 +210,7 @@ describe("ConnectorsPage", () => {
       },
     })
     const rows = within(await cnTable()).getAllByRole("row").slice(1)
-    expect(rows.map((r) => within(r).getAllByRole("cell")[0]?.textContent)).toEqual(["t1"])
+    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 2).map((c) => c.textContent))).toEqual([["t1", "unknown"]])
     expect((await screen.findByRole("alert")).textContent).toBe("no Cloudflare account is connected")
     const form = screen.getByRole("form", { name: "Deploy a connector" })
     expect(within(form).getAllByRole("radio")).toHaveLength(1)
@@ -216,7 +220,7 @@ describe("ConnectorsPage", () => {
   test("a tunnel list that is still pending does not hold back the connectors", async () => {
     cnRender([cnHost("h1", "web-1")], { [TUNNELS]: () => new Promise(() => {}) })
     const rows = within(await cnTable()).getAllByRole("row").slice(1)
-    expect(rows.map((r) => within(r).getAllByRole("cell")[0]?.textContent)).toEqual(["t1"])
+    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 2).map((c) => c.textContent))).toEqual([["t1", "unknown"]])
     expect(screen.getByLabelText("Loading the tunnels")).toBeTruthy()
   })
 
@@ -256,8 +260,8 @@ describe("ConnectorsPage", () => {
     await client.invalidateQueries({ queryKey: connectorListKey("h1") })
     expect((await screen.findByRole("alert")).textContent).toBe("the Docker Engine is not reachable")
     const rows = within(screen.getByRole("table", { name: "Connectors" })).getAllByRole("row").slice(1)
-    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 3).map((c) => c.textContent))).toEqual([
-      ["darkpanel-c1", "darkpanel-cloudflared-t1", "running"],
+    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 4).map((c) => c.textContent))).toEqual([
+      ["darkpanel-c1", "healthy", "darkpanel-cloudflared-t1", "running"],
     ])
     const form = screen.getByRole("form", { name: "Deploy a connector" })
     expect(within(form).queryByRole("radio", { name: "darkpanel-c1" })).toBeNull()
