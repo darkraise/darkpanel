@@ -525,6 +525,31 @@ func TestInstallAgentEndToEnd(t *testing.T) {
 	}
 }
 
+func TestInstallChecksTheOSRelease(t *testing.T) {
+	for _, c := range []struct {
+		id, versionID, pretty string
+		ok                    bool
+	}{
+		{"ubuntu", "22.04", "Ubuntu 22.04.5 LTS", true},
+		{"ubuntu", "24.04", "Ubuntu 24.04.3 LTS", true},
+		{"ubuntu", "26.04", "Ubuntu 26.04.1 LTS", true},
+		{"debian", "12", "Debian GNU/Linux 12 (bookworm)", true},
+		{"debian", "13", "Debian GNU/Linux 13 (trixie)", true},
+		{"ubuntu", "25.10", "Ubuntu 25.10", false},
+		{"ubuntu", "26.10", "Ubuntu 26.10", false},
+	} {
+		f := newFixture(t)
+		writeFile(t, filepath.Join(f.root, "etc", "os-release"), fmt.Sprintf("ID=%s\nVERSION_ID=%q\nPRETTY_NAME=%q\n", c.id, c.versionID, c.pretty))
+		out, err := f.run("--role", "controller")
+		if c.ok && err != nil {
+			t.Errorf("%s: install.sh refused a supported OS: %v\n%s", c.pretty, err, out)
+		}
+		if !c.ok && (err == nil || !strings.Contains(string(out), "Ubuntu 22.04, 24.04 and 26.04 and Debian 12 and 13; this host is "+c.pretty)) {
+			t.Errorf("%s: err %v, want the supported list and the host named; output %s", c.pretty, err, out)
+		}
+	}
+}
+
 func TestInstallControllerPassesListenArgs(t *testing.T) {
 	f := newFixture(t)
 	if out, err := f.run("--role", "controller", "--agent-listen", "0.0.0.0:7443", "--agent-listen", "[::1]:7443", "--agent-advertise", "panel.example:7443"); err != nil {

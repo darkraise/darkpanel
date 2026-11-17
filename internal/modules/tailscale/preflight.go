@@ -11,7 +11,7 @@ import (
 // supportedReleases are the codenames of each distribution Tailscale's stable
 // track publishes packages for.
 var supportedReleases = map[string][]string{
-	"ubuntu": {"jammy", "noble"},
+	"ubuntu": {"jammy", "noble", "resolute"},
 	"debian": {"bookworm", "trixie"},
 }
 
@@ -27,7 +27,7 @@ func (t ts) preflight() []core.PreflightCheck {
 				return err
 			}
 			if !slices.Contains(supportedReleases[info.ID], info.Codename) {
-				return fmt.Errorf("tailscale: the operating system %q release %q is not supported; Ubuntu jammy or noble, or Debian bookworm or trixie, is needed", info.ID, info.Codename)
+				return fmt.Errorf("tailscale: the operating system %q release %q is not supported; Ubuntu jammy, noble or resolute, or Debian bookworm or trixie, is needed", info.ID, info.Codename)
 			}
 			if t.d.arch != "amd64" && t.d.arch != "arm64" {
 				return fmt.Errorf("tailscale: the architecture %s is not supported; amd64 or arm64 is needed", t.d.arch)

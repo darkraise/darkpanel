@@ -25,7 +25,7 @@ func TestTHPreflightPasses(t *testing.T) {
 		info osInfo
 		arch string
 	}{
-		{osInfo{"ubuntu", "jammy"}, "amd64"}, {osInfo{"ubuntu", "noble"}, "arm64"},
+		{osInfo{"ubuntu", "jammy"}, "amd64"}, {osInfo{"ubuntu", "noble"}, "arm64"}, {osInfo{"ubuntu", "resolute"}, "amd64"},
 		{osInfo{"debian", "bookworm"}, "amd64"}, {osInfo{"debian", "trixie"}, "arm64"},
 	} {
 		if err := thPreflight(t, c.info, nil, c.arch); err != nil {
@@ -43,6 +43,7 @@ func TestTHPreflightFails(t *testing.T) {
 		want []string
 	}{
 		"ubuntu too old":               {osInfo{"ubuntu", "focal"}, "amd64", []string{"ubuntu", "focal"}},
+		"ubuntu interim release":       {osInfo{"ubuntu", "questing"}, "amd64", []string{"ubuntu", "questing", "resolute"}},
 		"debian too old":               {osInfo{"debian", "bullseye"}, "amd64", []string{"debian", "bullseye"}},
 		"codename of the other distro": {osInfo{"ubuntu", "bookworm"}, "amd64", []string{"ubuntu", "bookworm"}},
 		"another distribution":         {osInfo{"alpine", ""}, "amd64", []string{"alpine"}},

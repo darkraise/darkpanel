@@ -40,7 +40,7 @@ func piSources(id, codename string) string {
 
 func TestPiRepoFiles(t *testing.T) {
 	for _, tc := range []struct{ id, codename, arch string }{
-		{"ubuntu", "jammy", "amd64"}, {"ubuntu", "noble", "arm64"}, {"debian", "bookworm", "amd64"}, {"debian", "trixie", "arm64"},
+		{"ubuntu", "jammy", "amd64"}, {"ubuntu", "noble", "arm64"}, {"ubuntu", "resolute", "amd64"}, {"debian", "bookworm", "amd64"}, {"debian", "trixie", "arm64"},
 	} {
 		t.Run(tc.id+" "+tc.codename+" "+tc.arch, func(t *testing.T) {
 			keyring, sources, err := piTS(newTSHost(t), tc.id, tc.codename, tc.arch).repoFiles()

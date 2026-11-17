@@ -9,8 +9,8 @@ changes. You install the controller first, then add the other hosts.
 
 You need:
 
-- A host running Ubuntu 22.04 or 24.04, or Debian 12 or 13, on x86_64 or
-  aarch64. `install.sh` stops on any other system.
+- A host running Ubuntu 22.04, 24.04 or 26.04, or Debian 12 or 13, on x86_64
+  or aarch64. `install.sh` stops on any other system.
 - Root access. Run the installer with `sudo`.
 - These tools on the host: `openssl`, `sha256sum`, `tar`, `base64`, `od`, and
   either `curl` or `wget`. `install.sh` names the first one it cannot find.

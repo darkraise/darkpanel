@@ -54,8 +54,8 @@ check_os() {
 	id=$(os_value ID)
 	version_id=$(os_value VERSION_ID)
 	case "$id $version_id" in
-	"ubuntu 22.04" | "ubuntu 24.04" | "debian 12" | "debian 13") ;;
-	*) die "darkpanel supports Ubuntu 22.04 and 24.04 and Debian 12 and 13; this host is $(os_value PRETTY_NAME)" ;;
+	"ubuntu 22.04" | "ubuntu 24.04" | "ubuntu 26.04" | "debian 12" | "debian 13") ;;
+	*) die "darkpanel supports Ubuntu 22.04, 24.04 and 26.04 and Debian 12 and 13; this host is $(os_value PRETTY_NAME)" ;;
 	esac
 }
 

@@ -34,8 +34,8 @@ itself from signed releases with automatic rollback.
 - **Open interfaces.** Every action is a CLI command and a REST route, with an
   [API reference](docs/api/README.md) and an OpenAPI description.
 
-Supported hosts: Ubuntu 22.04 and 24.04, and Debian 12 and 13, on amd64 and
-arm64.
+Supported hosts: Ubuntu 22.04, 24.04 and 26.04, and Debian 12 and 13, on amd64
+and arm64.
 
 ## Status
 

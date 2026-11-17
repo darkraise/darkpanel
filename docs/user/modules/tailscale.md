@@ -12,8 +12,9 @@ tailnet itself.
 
 ## Requirements
 
-- A supported operating system and architecture: Ubuntu 22.04 (jammy) or 24.04
-  (noble), or Debian 12 (bookworm) or 13 (trixie), on amd64 or arm64. The
+- A supported operating system and architecture: Ubuntu 22.04 (jammy), 24.04
+  (noble) or 26.04 (resolute), or Debian 12 (bookworm) or 13 (trixie), on amd64
+  or arm64. The
   module checks nothing else, so it is available on a host before Tailscale is
   installed.
 - For everything except `tailscale.package.install`, `tailscaled` must be
