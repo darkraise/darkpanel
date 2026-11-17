@@ -1,5 +1,7 @@
 # Contributing to Darkpanel
 
+Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Prerequisites
 
 - Go 1.27.4. The build sets `GOTOOLCHAIN=local`, so it never downloads another

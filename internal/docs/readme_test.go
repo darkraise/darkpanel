@@ -24,7 +24,7 @@ func rmFirst(t *testing.T, rel string, re *regexp.Regexp) string {
 }
 
 func TestReadmeLinksResolve(t *testing.T) {
-	for _, rel := range []string{"README.md", "CONTRIBUTING.md", "SECURITY.md"} {
+	for _, rel := range []string{"README.md", "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md"} {
 		dcLinks(t, rel)
 	}
 }

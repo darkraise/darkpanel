@@ -106,8 +106,9 @@ This builds the web UI, then static Linux binaries with the UI embedded:
 Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains the make
 targets, how to run a development server and what a pull request needs,
 including updating this README and the docs when a change alters what users
-see or do. Report a vulnerability as [SECURITY.md](SECURITY.md) describes, not
-in a public issue.
+see or do. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+Report a vulnerability as [SECURITY.md](SECURITY.md) describes, not in a public
+issue.
 
 ## License
 
