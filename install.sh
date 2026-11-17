@@ -4,6 +4,11 @@
 # template, never install.sh.
 #
 # Usage:
+#   sudo sh install.sh
+#       With no arguments, on a terminal, a wizard asks for the role, the
+#       version and the addresses or the enrollment token, shows the
+#       equivalent command line and installs once confirmed. Prompts read
+#       /dev/tty, so curl ... | sudo sh works too.
 #   sudo sh install.sh --role controller [--version X.Y.Z] [--base-url URL]
 #       [--agent-listen ADDR:PORT]... [--agent-advertise HOST:PORT]
 #   sudo sh install.sh --role agent [--version X.Y.Z] [--base-url URL]
@@ -23,6 +28,9 @@
 #   is safe because the variable only narrows where the script writes: a
 #   caller who is not root can write only what it could write anyway, and sudo
 #   does not pass the variable through by default.
+# The wizard's prompts read and write the terminal itself, so a script piped
+# into sh still asks its questions.
+# shellcheck disable=SC2094
 set -eu
 
 KEYS='A4259AE92D6E34B3:b3346e2de99a25a4:MCowBQYDK2VwAyEAMzgvlPUVKgfHqaFbRjx9UwVb2scU6ZSJjNCQPIlsSuk='
@@ -217,12 +225,368 @@ usage() {
 	die "usage: install.sh --role controller|agent [--version X.Y.Z] [--base-url URL] [--token-file PATH] [--agent-listen ADDR:PORT]... [--agent-advertise HOST:PORT]; with --role agent, the token file holds an enrollment token or bootstrap bundle"
 }
 
-# check_address refuses an address that is not a plain host:port, since
-# addresses are passed on as separate words.
-check_address() {
+# valid_address succeeds for a plain host:port; check_address refuses
+# anything else, since addresses are passed on as separate words.
+valid_address() {
 	case $1 in
-	'' | *[!][A-Za-z0-9.:-]*) die "address $1 is not host:port" ;;
+	'' | *[!][A-Za-z0-9.:-]*) return 1 ;;
 	esac
+}
+
+check_address() {
+	valid_address "$1" || die "address $1 is not host:port"
+}
+
+# release_versions prints every well-formed version the release index $1
+# lists, in the way newest_stable reads it.
+release_versions() {
+	tr -d ' \t\r\n' <"$1" |
+		sed 's/}/}\
+/g' |
+		sed -n 's/.*"version":"\([^"]*\)".*/\1/p' |
+		grep -E "$VERSION_RE" || true
+}
+
+# version_choices prints the versions the wizard offers from the release
+# index $1, one "<version> <label>" per line, the default first: the newest
+# stable release, then the newest pre-release when it belongs to a newer
+# release than that.
+version_choices() {
+	stable=$(newest_stable "$1")
+	pre=$(release_versions "$1" | grep -- '-' | sort -V | tail -n 1)
+	[ -z "$stable" ] || echo "$stable stable"
+	[ -n "$pre" ] || return 0
+	core=${pre%%-*}
+	if [ -z "$stable" ] || {
+		[ "$core" != "$stable" ] &&
+			[ "$(printf '%s\n%s\n' "$stable" "$core" | sort -t . -k 1,1n -k 2,2n -k 3,3n | tail -n 1)" = "$core" ]
+	}; then
+		echo "$pre pre-release"
+	fi
+}
+
+IPV4_RE='^[0-9]{1,3}(\.[0-9]{1,3}){3}$'
+
+# address_choices prints the ways agents could reach this controller, one per
+# line: "tailscale <ip>" and "route <ip>" when the host has those addresses,
+# then "custom" and "later".
+address_choices() {
+	ts=$(tailscale ip -4 2>/dev/null | head -n 1) || ts=
+	route=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([^ ]*\).*/\1/p' | head -n 1) || route=
+	if printf '%s' "$ts" | grep -Eq "$IPV4_RE"; then
+		echo "tailscale $ts"
+	fi
+	if printf '%s' "$route" | grep -Eq "$IPV4_RE"; then
+		echo "route $route"
+	fi
+	echo custom
+	echo later
+}
+
+TTY=/dev/tty
+
+# ui_init picks whiptail dialogs when the terminal can draw them, else plain
+# prompts.
+ui_init() {
+	if command -v whiptail >/dev/null 2>&1 && [ -n "${TERM:-}" ] && [ "$TERM" != dumb ]; then
+		UI=whiptail
+	else
+		UI=plain
+	fi
+	TITLE='Darkpanel installer'
+}
+
+cancel() {
+	printf '\nInstallation cancelled; nothing was changed.\n' >&2
+	exit 1
+}
+
+# ui_menu asks the question $1 with the default tag $2 and the remaining
+# arguments as tag and text pairs, and sets answer to the chosen tag.
+ui_menu() {
+	u_text=$1
+	u_default=$2
+	shift 2
+	if [ "$UI" = whiptail ]; then
+		answer=$(whiptail --title "$TITLE" --notags --default-item "$u_default" --menu "$u_text" 16 76 $(($# / 2)) "$@" 3>&1 1>"$TTY" 2>&3 <"$TTY") || cancel
+		return 0
+	fi
+	printf '\n%s\n' "$u_text" >"$TTY"
+	u_n=0
+	u_def=1
+	u_j=0
+	for u_x; do
+		u_j=$((u_j + 1))
+		if [ $((u_j % 2)) = 1 ]; then
+			u_tag=$u_x
+		else
+			u_n=$((u_n + 1))
+			printf '  %s) %s\n' "$u_n" "$u_x" >"$TTY"
+			[ "$u_tag" != "$u_default" ] || u_def=$u_n
+		fi
+	done
+	while :; do
+		printf 'Choice [%s, q to quit]: ' "$u_def" >"$TTY"
+		IFS= read -r u_reply <"$TTY" || cancel
+		[ -n "$u_reply" ] || u_reply=$u_def
+		case $u_reply in
+		q | Q) cancel ;;
+		'' | *[!0-9]*) ;;
+		*)
+			if [ "$u_reply" -ge 1 ] && [ "$u_reply" -le "$u_n" ]; then
+				u_j=0
+				for u_x; do
+					u_j=$((u_j + 1))
+					if [ $((u_j % 2)) = 1 ] && [ $(((u_j + 1) / 2)) = "$u_reply" ]; then
+						answer=$u_x
+						return 0
+					fi
+				done
+			fi
+			;;
+		esac
+		printf 'Enter a number from 1 to %s, or q to quit.\n' "$u_n" >"$TTY"
+	done
+}
+
+# ui_input asks for the text $1 with the default $2 and sets answer.
+ui_input() {
+	if [ "$UI" = whiptail ]; then
+		answer=$(whiptail --title "$TITLE" --inputbox "$1" 10 76 "$2" 3>&1 1>"$TTY" 2>&3 <"$TTY") || cancel
+		return 0
+	fi
+	if [ -n "$2" ]; then
+		printf '%s [%s]: ' "$1" "$2" >"$TTY"
+	else
+		printf '%s: ' "$1" >"$TTY"
+	fi
+	IFS= read -r answer <"$TTY" || cancel
+	[ -n "$answer" ] || answer=$2
+}
+
+# ui_secret asks for the text $1 without echo and sets answer.
+ui_secret() {
+	if [ "$UI" = whiptail ]; then
+		answer=$(whiptail --title "$TITLE" --passwordbox "$1" 10 76 3>&1 1>"$TTY" 2>&3 <"$TTY") || cancel
+		return 0
+	fi
+	printf '%s: ' "$1" >"$TTY"
+	trap 'stty echo <"$TTY"; cancel' INT
+	stty -echo <"$TTY"
+	IFS= read -r answer <"$TTY" || answer=
+	stty echo <"$TTY"
+	trap cancel INT
+	printf '\n' >"$TTY"
+}
+
+# ui_error shows why an answer was refused.
+ui_error() {
+	if [ "$UI" = whiptail ]; then
+		whiptail --title "$TITLE" --msgbox "$1" 10 76 <"$TTY" >"$TTY" 2>&1 || true
+		return 0
+	fi
+	printf '%s\n' "$1" >"$TTY"
+}
+
+# ui_yesno shows the text $1 and asks the question $2; it succeeds on yes.
+ui_yesno() {
+	if [ "$UI" = whiptail ]; then
+		u_status=0
+		whiptail --title "$TITLE" --yesno "$1
+
+$2" 20 76 <"$TTY" >"$TTY" 2>&1 || u_status=$?
+		[ "$u_status" != 255 ] || cancel
+		return "$u_status"
+	fi
+	printf '\n%s\n' "$1" >"$TTY"
+	while :; do
+		printf '%s [Y/n]: ' "$2" >"$TTY"
+		IFS= read -r u_reply <"$TTY" || cancel
+		case $u_reply in
+		'' | y | Y | yes | Yes) return 0 ;;
+		n | N | no | No) return 1 ;;
+		esac
+	done
+}
+
+# choose_version sets version from the release index, or as typed when the
+# index is out of reach or the operator wants another version.
+choose_version() {
+	if fetch "$base/index/releases.json" "$tmp/releases.json" 2>/dev/null; then
+		version_choices "$tmp/releases.json" >"$tmp/choices"
+	else
+		ui_error "The list of releases could not be downloaded from $base."
+		: >"$tmp/choices"
+	fi
+	answer=other
+	if [ -s "$tmp/choices" ]; then
+		set --
+		u_first=
+		u_note=
+		while read -r u_v u_label; do
+			[ -n "$u_first" ] || u_first=$u_v
+			if [ "$u_label" = stable ]; then
+				set -- "$@" "$u_v" "$u_v - stable release"
+			else
+				set -- "$@" "$u_v" "$u_v - pre-release"
+			fi
+		done <"$tmp/choices"
+		grep -q ' stable$' "$tmp/choices" || u_note='
+
+There is no stable release yet.'
+		ui_menu "Which version should be installed?$u_note" "$u_first" "$@" other 'Another version'
+	fi
+	while [ "$answer" = other ]; do
+		ui_input 'Version to install, for example 1.2.0 or 1.3.0-rc.1' ''
+		case $answer in *'
+'*) ;;
+		*) if printf '%s' "$answer" | grep -Eq "$VERSION_RE"; then break; fi ;;
+		esac
+		ui_error "version $answer is not a semantic version"
+		answer=other
+	done
+	version=$answer
+}
+
+# ask_address asks with ui_input until the answer is a host:port, adding
+# port 7443 to a bare host when $3 is "port"; an empty answer is allowed when
+# there is no default.
+ask_address() {
+	while :; do
+		ui_input "$1" "$2"
+		[ -n "$answer" ] || return 0
+		if [ "$3" = port ]; then
+			case $answer in *:*) ;; *) answer=$answer:7443 ;; esac
+		fi
+		if valid_address "$answer"; then
+			return 0
+		fi
+		ui_error "address $answer is not host:port"
+	done
+}
+
+# choose_addresses sets listen_args for the controller.
+choose_addresses() {
+	address_choices >"$tmp/addresses"
+	set --
+	u_first=
+	while read -r u_kind u_ip; do
+		[ -n "$u_first" ] || u_first=$u_kind
+		case $u_kind in
+		tailscale)
+			ts_ip=$u_ip
+			set -- "$@" tailscale "Tailscale $u_ip:7443"
+			;;
+		route)
+			route_ip=$u_ip
+			set -- "$@" route "This server's address $u_ip:7443 (port 7443 must be open)"
+			;;
+		custom) set -- "$@" custom 'Another name or address' ;;
+		later) set -- "$@" later 'Decide later - each enrollment token names the address' ;;
+		esac
+	done <"$tmp/addresses"
+	ui_menu 'How will agents reach this controller?' "$u_first" "$@"
+	advertise=
+	listen=
+	case $answer in
+	tailscale) advertise=$ts_ip:7443 ;;
+	route)
+		advertise=$route_ip:7443
+		listen=$route_ip:7443
+		;;
+	custom)
+		answer=
+		while [ -z "$answer" ]; do
+			ask_address 'Address agents connect to (host or host:port)' '' port
+		done
+		advertise=$answer
+		ask_address 'Address of this server to listen on (ip:port)' "${route_ip:+$route_ip:7443}" ''
+		listen=$answer
+		;;
+	esac
+	listen_args=
+	[ -z "$listen" ] || listen_args=" --agent-listen $listen"
+	[ -z "$advertise" ] || listen_args="$listen_args --agent-advertise $advertise"
+}
+
+# choose_token sets token, or leaves it empty to reinstall with the saved
+# agent credentials.
+choose_token() {
+	if [ -e "$ROOT/etc/darkpanel/agent/current" ] &&
+		ui_yesno 'Saved agent credentials were found on this server.' 'Reinstall with them? Answer no to enter a new enrollment token.'; then
+		token=
+		return 0
+	fi
+	while :; do
+		ui_secret 'Enrollment token or bootstrap bundle'
+		token=$answer
+		[ -z "$token" ] || return 0
+		if [ "$UI" = whiptail ]; then
+			ui_error 'Enter the enrollment token or bootstrap bundle, or choose Cancel to quit.'
+		else
+			ui_error 'Enter the enrollment token or bootstrap bundle, or press Ctrl-C to quit.'
+		fi
+	done
+}
+
+# wizard asks for what the command line would otherwise give.
+wizard() {
+	ui_init
+	trap cancel INT
+	ts_ip=
+	route_ip=
+	ui_menu 'What should this server be?' controller \
+		controller 'Controller - runs the panel and manages hosts' \
+		agent 'Agent - joins this server to a controller'
+	role=$answer
+	choose_version
+	TITLE="Darkpanel $version installer"
+	u_cmd="sudo sh install.sh --role $role --version $version"
+	if [ "$role" = controller ]; then
+		choose_addresses
+		u_cmd="$u_cmd$listen_args"
+		u_summary="Role: controller
+Version: $version
+Agents connect to: ${advertise:-the address each enrollment token names}
+Agent listener: loopback and Tailscale addresses${listen:+, $listen}"
+	else
+		choose_token
+		if [ -n "$token" ]; then
+			u_cmd="$u_cmd --token-file <file holding the token>"
+			u_summary="Role: agent
+Version: $version
+Enrollment: the token you entered"
+		else
+			u_summary="Role: agent
+Version: $version
+Enrollment: the saved agent credentials"
+		fi
+	fi
+	ui_yesno "$u_summary
+
+The same install without questions:
+  $u_cmd" 'Install now?' || cancel
+	trap 'exit 130' INT
+	[ "$UI" = plain ] || clear >"$TTY" 2>/dev/null || true
+}
+
+# next_steps tells the operator what to do after the wizard installed.
+next_steps() {
+	if [ "$role" = controller ]; then
+		cat <<EOF
+
+Next steps:
+  1. Create the first admin:
+       sudo darkpanel user create --username admin
+  2. Open the panel from your computer:
+       ssh -L 8080:127.0.0.1:8080 <this server>
+     then browse to http://127.0.0.1:8080${ts_ip:+
+     or, over Tailscale, to https://$ts_ip:8443}
+  3. Add hosts on the Hosts page.
+EOF
+	else
+		printf '\nThis server now appears on the controller'"'"'s Hosts page.\n'
+	fi
 }
 
 main() {
@@ -231,6 +595,8 @@ main() {
 	base_url=''
 	token_file=''
 	listen_args=''
+	interactive=
+	[ $# -gt 0 ] || interactive=1
 	while [ $# -gt 0 ]; do
 		[ $# -ge 2 ] || usage
 		case "$1" in
@@ -250,11 +616,15 @@ main() {
 		esac
 		shift 2
 	done
-	case "$role" in
-	controller) [ -z "$token_file" ] || die "--token-file is for --role agent" ;;
-	agent) [ -z "$listen_args" ] || die "--agent-listen and --agent-advertise are for --role controller" ;;
-	*) usage ;;
-	esac
+	if [ -n "$interactive" ]; then
+		(: <"$TTY") 2>/dev/null || usage
+	else
+		case "$role" in
+		controller) [ -z "$token_file" ] || die "--token-file is for --role agent" ;;
+		agent) [ -z "$listen_args" ] || die "--agent-listen and --agent-advertise are for --role controller" ;;
+		*) usage ;;
+		esac
+	fi
 	[ -n "$ROOT" ] || [ "$(id -u)" = 0 ] || die "run as root: sudo sh install.sh ..."
 	# Read before anything is downloaded, so a bad token file costs nothing.
 	token=''
@@ -280,6 +650,7 @@ main() {
 	trap 'rm -rf "$tmp"' EXIT
 	trap 'exit 130' INT
 	trap 'exit 143' TERM
+	[ -z "$interactive" ] || wizard
 	if [ -z "$version" ]; then
 		fetch "$base/index/releases.json" "$tmp/releases.json" || die "cannot download $base/index/releases.json"
 		version=$(newest_stable "$tmp/releases.json")
@@ -319,6 +690,7 @@ main() {
 		read_token
 		printf '%s\n' "$token" | "$bin" system install --role agent
 	fi
+	[ -z "$interactive" ] || next_steps
 }
 
 if [ "${DARKPANEL_INSTALL_SH_LIB:-}" != 1 ]; then
