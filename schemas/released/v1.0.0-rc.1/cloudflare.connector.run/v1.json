@@ -1,0 +1,60 @@
+{
+  "name": "cloudflare.connector.run",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectorRunInput",
+    "$defs": {
+      "ConnectorRunInput": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tunnel",
+          "token"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Connector",
+    "$defs": {
+      "Connector": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          },
+          "containerId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tunnel",
+          "container",
+          "containerId",
+          "state"
+        ]
+      }
+    }
+  }
+}

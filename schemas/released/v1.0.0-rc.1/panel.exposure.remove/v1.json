@@ -1,0 +1,39 @@
+{
+  "name": "panel.exposure.remove",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RemoveInput",
+    "$defs": {
+      "RemoveInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RemoveOutput",
+    "$defs": {
+      "RemoveOutput": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exposureId",
+          "hostname"
+        ]
+      }
+    }
+  }
+}

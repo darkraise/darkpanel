@@ -2,14 +2,293 @@
 
 All notable changes to Darkpanel. Versions follow docs/versioning.md.
 
-## Unreleased
+## 1.0.0-rc.1 - 2026-11-17
 
 ### Features
 
-- **npm:** `npm.instance.deploy-public` version 2 opens ports 80 and 443 as UFW rules, for IPv6 too, when the Docker firewall integration is off
-- **firewall:** `firewall.rules.apply` takes `keepManual`, which leaves out an added rule that a manual rule already allows
-- **guard:** protect the userland proxy's IPv6 relay to NPM
+- **web:** add state boards for the host pages
+- **web:** carry the R27 host fields in the Host type
+- **web:** add badge variants and the rollouts query
+- **web:** show last seen, versions and platform per host
+- **web:** add the host Overview tab with update history
+- **web:** revoke, delete and re-enroll hosts from the web
+- **web:** set a host's update channel and window
+- **web:** update one host from its Overview tab
+- **web:** add the Rollouts page with cancel
+- **web:** start a rollout from the Rollouts page
+- **web:** colour update transaction badges
+- **web:** stack the update history when narrow
+- **firewall:** keep manual rules that hold an add
+- **npm:** compare firewall support and IPv6 at check
+- **npm:** open the ports in UFW with deploy-public v2
+- **guard:** protect the userland proxy's IPv6 relay
+- **web:** deploy NPM through deploy-public v2
+- **npm:** read enabled and nginx_online from NPM
+- **dockerapi:** add exec and container top calls
+- **npm:** add the nginx reloader that runs in the container
+- **npm:** look only at enabled hosts and name unanswered forwards
+- **npm:** add the action that takes NPM off a forwarded address
+- **npm:** add the reconcile task with a timer and a Docker-events watch
+- **cloudflare:** show tunnel status by connectors
 
+### Fixes
+
+- **schema:** compare boolean schema fields
+- **lifecycle:** keep updates and uninstall apart
+- **install:** stop the rollback unit on uninstall
+- **install:** remove only a user install created
+- **install:** plan uninstall past a damaged key
+- **install:** migrate agent.db under the agent lock
+- **coreactions:** copy owned paths into the manifest
+- **web:** focus a form's first field once it mounts
+- **web:** scroll narrow host and rollout tables
+- **web:** match the rollout and history copy to the boards
+- **web:** close the gaps the UI proof found
+- **web:** return focus to Update now and Start rollout
+- **web:** keep rollout dialogs mounted across a refresh
+- **web:** focus the revoked host's controls
+- **web:** refresh the update history after Update now
+- **web:** keep history state and kind whole
+- **update:** restore Version.String
+- **npm:** refuse attach to a forwarded address
+- **npm:** refuse upgrade onto a forwarded address
+- **firewall:** guard the NPM client's own address
+- **npm:** keep no answer text from failed requests
+- **docker:** quote no resolved value in refusals
+- **npm:** remove the instance on a cut-off bootstrap
+- **npm:** keep the operator's / location config
+- **npm:** keep an operator's / read timeout
+- **npm:** name the method in NPM answer failures
+- **panel:** avoid host routes when choosing subnet
+- **api:** drop hidden children from steps
+- **server:** drop hidden children from step events
+- **dispatch:** end a host lock wait with its context
+- **derp:** warn only for hosts that run tailscale
+- **web:** keep held data when a refetch fails
+- **web:** show hosts refetch error by empty state
+- **firewall:** guard the client NPM cannot see
+- **lifecycle:** give composite steps the requester
+- **docker:** keep config values out of check errors
+- **npm:** bound and classify forward host checks
+- **npm:** read docker names once, refuse unknown lookups
+- **npm:** check every network an upgrade joins
+- **npm:** drop any client header line, name a timeout
+- **web:** keep long names inside their containers
+- **docker:** name a truncated Engine answer undecodable
+- **npmapi:** mark an oversize answer undecodable
+- **guard:** name the unicast space in the limit text
+- **guard:** enter a runtime session on the panel bridge
+- **guard:** model loose rp_filter on addressless links
+- **guard:** keep remote peers off loopback listeners
+- **web:** let the planned changes block take focus
+- **lifecycle:** fingerprint composite guards by outcome
+- **guard:** name an unseen relay listener holder
+- **lifecycle:** fingerprint a composite step by its input
+- **docker:** name the service Validate asked first
+- **docker:** answer a cancelled compose check as such
+- **npm:** answer cut-short forward reads plainly
+- **firewall:** never probe a bridge port as a way in
+- **tslocal:** keep a cancelled dial apart from an outage
+- **npm:** check a restored location's host before /
+- **tailscale:** guard an NPM exposure's tailnet client
+- **firewall:** guard the IPv6 leg on link-local hosts
+- **npm:** reload nginx around every join of NPM
+- **npm:** verify the upgraded NPM's addresses at start
+- **npm:** check forwards before undoing an upgrade
+- **npm:** verify the original NPM's addresses at start
+- **npm:** keep nginx -t output out of reload errors
+- **npm:** use recorded targets on undo retry
+- **npm:** save restored container before verify
+- **npm:** keep the code of a failed join check
+- **npm:** give network detach a 45s timeout
+- **npm:** wrap the reload cause in joinedProblem
+- **harness:** move the A3a name to an address of its own
+- **harness:** make the A3a reload call itself
+- **npm:** reload nginx by exec and check an attach before any lookup
+- **npm:** refuse an upgrade nginx could not start and report unverified starts
+- **harness:** drive the real attach and add the reconcile and unanswered-forward steps
+- **npm:** retry reconcile failures other than the own-network hit
+- **tailscale:** refuse an NPM exposure with no public binding
+- **harness:** accept a plan-time refusal of the unanswered attach
+- **npm:** name the refusal a lost connect hides
+- **npm:** remember only own-network reconcile hits
+- **npm:** tighten the exec reload's pending and witness
+- **npm:** read the network last in joinGuard
+- **npm:** refuse an undo onto a non-bridge network
+- **npm:** check NPM when an attach's connect is refused
+- **npm:** hold a reload exec until its exit or expiry
+- **npm:** reconnect an undone detach by network id
+- **npm:** take a refused connect's join as preexisting
+- **npm:** bound reconcile retries on unresolved names
+- **dockerapi:** renegotiate after a too-new refusal
+
+### Refactoring
+
+- **web:** share the state badge mapping
+- move test-only helpers into test files
+- **docker:** share the daemon 4xx check
+- drop dead assignments and an unused knob
+- **npm:** parse each literal forward once
+- **npm:** share the upgrade checks' target listing
+- **npm:** share the unanswered-forward predicate
+
+### Documentation
+
+- **registers:** record the first signed release
+- **register:** move M2 epics to verify
+- **register:** reopen M2 rows from the audit
+- **plan:** plan the M2 audit gaps
+- **adr:** reconcile ADR 0012 with the code
+- **register:** mark the M2 audit gap rows doing
+- **install:** note the agent wait in PollInterval
+- **user:** describe the uninstall user and update rules
+- **contributing:** list the test-race target
+- **plans:** complete m2-audit-gaps
+- **registers:** accept m2 release hardening row
+- **registers:** move M2 epics to verify
+- **gates:** accept GO-2026-5932 until x/crypto tags a fix
+- **registers:** reopen M2 rows from the audit
+- **registers:** close the lifecycle flake row
+- **plans:** draft the m2 web hosts plan
+- **plans:** finish and review the m2 web hosts plan
+- **registers:** start the m2 web hosts plan
+- **user:** describe host management in the web
+- **ui-ux:** prove the M2 web host pages
+- **ui-ux:** re-prove the web host pages after review fixes
+- **plans:** complete m2-web-hosts
+- **plans:** plan the transaction badge states
+- **registers:** mark badge states in flight
+- **ui-ux:** prove the transaction badge variants
+- **ui-ux:** refresh the web hosts proof for UI-4
+- **plans:** complete m2-badge-states
+- **specs:** stack the update history when narrow
+- **plans:** plan m2-history-narrow
+- **registers:** mark narrow history in flight
+- **ui-ux:** prove the narrow update history
+- **ui-ux:** refresh the proofs for the narrow history
+- **registers:** record the CI Playwright gap
+- **ui-ux:** restamp the proofs after the test guard
+- **ui-ux:** mark the history specs as manual proof
+- **plans:** complete m2-history-narrow
+- **registers:** move the M2 fleet epic to verify
+- **adr:** accept ADR 0012 at the M2 close
+- **roadmap:** close M2 Fleet and lifecycle
+- **registers:** scope M3 rows for its audit
+- **registers:** reopen rows the M3 audit found
+- **registers:** apply owner M3 audit rulings
+- **security:** record the 2026-11-12 re-review
+- **registers:** record the M3 deferral rulings
+- **registers:** record the repeated race runs
+- **plans:** plan the M3 audit gaps and w12a fixes
+- **plans:** review the w12a plan
+- **spec:** record the wave 12a rulings
+- **registers:** start the w12a rows
+- **security:** record the wave 12a fixes
+- **npm:** cover a failed removal in setup_failed
+- **npm:** correct the upgrade and wait comments
+- **plans:** complete v1-w12a-security-residuals
+- **plans:** negate the expected-empty rg check
+- **plans:** apply the m3-audit-gaps plan review
+- **registers:** start the m3-audit-gaps rows
+- **spec:** reconcile live apply and gate budget
+- **derp:** state when the probe's host read fails
+- **gates:** add gate 7 times with the full scans
+- **plans:** complete m3-audit-gaps
+- **specs:** add the w12b open rows design
+- **plans:** add the w12b open rows plan
+- **registers:** mark the w12b rows in flight
+- **security:** record the w12b guard and NPM rules
+- **security:** drop row numbers, state the hidden client
+- **dforge:** fix the proof's hostname length, add rows
+- **harness:** give the reason m6pULAAdmits pins its source
+- **dforge:** record the exposure view EXDEV hazard
+- **plans:** complete v1-w12b-open-rows
+- **specs:** add the w12c ipv6 npm design
+- **plans:** add the w12c ipv6 npm plan
+- **plans:** revise the w12c plan after review
+- **registers:** reopen the m3g flake row
+- describe deploy-public v2 and the relay guard
+- **plans:** complete v1-w12c-ipv6-npm
+- **registers:** rule on the open w12b and w12c rows
+- **registers:** keep the w12c rulings on rows 490-491
+- **registers:** close rows fixed before the follow-up
+- **registers:** reopen the M3 audit gaps
+- **registers:** record the M3 audit rulings
+- **registers:** mark the w12d rows verify
+- **security:** record the rows 1 and 6 re-review at 10a0973a
+- **registers:** record the M3 audit rerun gaps
+- **specs:** design the w12e security residual fixes
+- **specs:** answer the critic on the w12e design
+- **specs:** apply Fable's w12e spec rulings
+- **specs:** apply the owner's w12e review answers
+- **specs:** move the w12e round-2 self-review
+- **specs:** apply Fable's round-2 w12e rulings
+- **specs:** record the owner's U4 and F17 answers
+- **plans:** plan the w12e security residual fixes
+- **plans:** apply the w12e plan review rounds
+- **notes:** record the w12e route and NPM evidence
+- **security:** record the w12e residual fixes
+- **security:** keep known risks to accepted ones
+- **npm:** describe the w12e upgrade and join checks
+- **security:** update the w12e exposure residuals
+- **plans:** complete v1-w12e-security-residuals
+- **registers:** rule on the w12e residual rows
+- **registers:** mark the w12f rows verify
+- **security:** record the w12f panel re-review
+- **spec:** add the w12g security follow-up design
+- **spec:** answer the w12g critic's findings
+- **spec:** apply the w12g spec review rulings
+- **spec:** record the owner's rulings on w12g
+- **plan:** draft the w12g plan, tasks 1-3
+- **plan:** draft the w12g plan, tasks 4-6
+- **plan:** draft the w12g plan, tasks 7-10
+- **plan:** answer the first plan review round
+- **plan:** record the w12g plan review and assign the rows
+- **register:** mark the w12g rows in flight
+- **notes:** record the w12g image and Engine evidence
+- record the w12g fixes in the threat model, the user page and the registers
+- drop the closed unapplied-reload residual
+- defer the redundant reload subtests to test-simplifier
+- **plans:** complete v1-w12g-security-followup
+- **registers:** record the w12h rulings and fixes
+- **npm:** state when lostJoin appends the refusal
+- **security:** record the w12g/w12h panel re-review
+- **npm:** correct forwardTargets on older answers
+- **security:** correct and extend the NPM residuals
+- **registers:** record the w12i fixes and acceptances
+- **security:** record the w12i panel re-review
+- **registers:** rule the w12i residual rows
+- **security:** correct the NPM reconcile and join text
+- **notes:** record the w12j mutation checks
+- **registers:** mark the w12j rows verify
+- **registers:** record the 2026-11-16 M3 audit gaps
+- **registers:** record the owner's M3 audit rulings
+- **registers:** record the w12b Playwright run
+- **roadmap:** close M3 Firewall
+- **registers:** mark M4 Docker management for audit
+- **registers:** record the 2026-11-16 M4 audit gaps
+- **registers:** close the M4 audit gaps fixed in code
+- **registers:** carry the M4 allow and deny check to M6
+- **roadmap:** carry M4 allow and deny check to M6
+- **roadmap:** close M4 Docker
+- **registers:** mark M5 Tailscale epics for audit
+- **registers:** record the M5 demo ruling
+- **registers:** record the 2026-11-16 M5 audit gaps
+- **registers:** rule the M5 audit owner items
+- **registers:** record the M5 tslocal test fixes
+- **registers:** settle the M5 re-audit minors
+- **roadmap:** close M5 Tailscale
+- **registers:** mark M6 Exposure epics for audit
+- **registers:** record the M6 owner-check ruling
+- **registers:** record the 2026-11-17 M6 audit gap
+- **ui-ux:** record the tunnel status proof
+- **registers:** record the M6 tunnel status fix
+- **roadmap:** close M6 Exposure after the audit
+- **registers:** record the tailscaled 1.82.0 run
+- **registers:** mark M7 Hardening epics for audit
+- **accessibility:** refresh the browser pass evidence
+- **roadmap:** close M7 Hardening after the audit
+- **registers:** mark M8 release pipeline for audit
 ## 1.0.0-beta.1 - 2026-11-11
 
 ### Features

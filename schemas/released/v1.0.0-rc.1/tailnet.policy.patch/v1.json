@@ -1,0 +1,62 @@
+{
+  "name": "tailnet.policy.patch",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PolicyPatchInput",
+    "$defs": {
+      "Edit": {
+        "properties": {
+          "op": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "value": true
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "op",
+          "path"
+        ]
+      },
+      "PolicyPatchInput": {
+        "properties": {
+          "edits": {
+            "items": {
+              "$ref": "#/$defs/Edit"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "edits"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PolicyWritten",
+    "$defs": {
+      "PolicyWritten": {
+        "properties": {
+          "etag": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "etag"
+        ]
+      }
+    }
+  }
+}

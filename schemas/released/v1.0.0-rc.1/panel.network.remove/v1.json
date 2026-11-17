@@ -1,0 +1,39 @@
+{
+  "name": "panel.network.remove",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NetworkRemoveInput",
+    "$defs": {
+      "NetworkRemoveInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NetworkRemoveOutput",
+    "$defs": {
+      "NetworkRemoveOutput": {
+        "properties": {
+          "network": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "network",
+          "removed"
+        ]
+      }
+    }
+  }
+}

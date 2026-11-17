@@ -1,0 +1,110 @@
+{
+  "name": "derp.region.edits",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RegionEditsInput",
+    "$defs": {
+      "RegionEditsInput": {
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "set",
+              "remove",
+              "rotate"
+            ],
+            "description": "The region change: set, remove or rotate."
+          },
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of the host running the server; set and rotate."
+          },
+          "regionId": {
+            "type": "integer",
+            "maximum": 999,
+            "minimum": 900,
+            "description": "The region id, 900 to 999."
+          },
+          "regionCode": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$",
+            "description": "The region code; set."
+          },
+          "regionName": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "The region name; set."
+          },
+          "omitDefaultRegions": {
+            "type": "boolean",
+            "description": "Whether to drop Tailscale's default regions; set."
+          },
+          "acknowledge": {
+            "type": "string",
+            "description": "The typed acknowledgement of omitting the default regions; set."
+          },
+          "certName": {
+            "type": "string",
+            "description": "The new certificate pin; rotate."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "op",
+          "regionId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RegionEdits",
+    "$defs": {
+      "Edit": {
+        "properties": {
+          "op": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "value": true
+        },
+        "type": "object",
+        "required": [
+          "op",
+          "path"
+        ]
+      },
+      "RegionEdits": {
+        "properties": {
+          "edits": {
+            "items": {
+              "$ref": "#/$defs/Edit"
+            },
+            "type": "array",
+            "description": "The policy edits; empty when the policy already holds the result."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Warnings about the change."
+          }
+        },
+        "type": "object",
+        "required": [
+          "edits",
+          "warnings"
+        ]
+      }
+    }
+  }
+}

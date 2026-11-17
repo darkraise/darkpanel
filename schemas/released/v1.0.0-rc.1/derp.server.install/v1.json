@@ -1,0 +1,83 @@
+{
+  "name": "derp.server.install",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ServerInstallInput",
+    "$defs": {
+      "ServerInstallInput": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "letsencrypt",
+              "ip"
+            ],
+            "description": "How derper gets its certificate: letsencrypt or ip."
+          },
+          "hostName": {
+            "type": "string",
+            "maxLength": 253,
+            "description": "The server's DNS name, or its public IP literal in ip mode."
+          },
+          "verifyClients": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether derper admits only nodes of this tailnet; absent means true."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "hostName"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ServerInstalled",
+    "$defs": {
+      "ServerInstalled": {
+        "properties": {
+          "derperVersion": {
+            "type": "string",
+            "description": "The derper version installed."
+          },
+          "certName": {
+            "type": "string",
+            "description": "The certificate pin in ip mode; empty for letsencrypt."
+          },
+          "certNotAfter": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the ip certificate expires; null for letsencrypt."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "derperVersion",
+          "certName",
+          "certNotAfter"
+        ]
+      }
+    }
+  }
+}

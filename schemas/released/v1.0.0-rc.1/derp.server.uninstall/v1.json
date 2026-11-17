@@ -1,0 +1,39 @@
+{
+  "name": "derp.server.uninstall",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ServerUninstallInput",
+    "$defs": {
+      "ServerUninstallInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ServerUninstalled",
+    "$defs": {
+      "ServerUninstalled": {
+        "properties": {
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The effect resources removed, in order; empty when nothing was installed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "removed"
+        ]
+      }
+    }
+  }
+}

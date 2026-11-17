@@ -1,0 +1,50 @@
+{
+  "name": "derp.binary.update",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/BinaryUpdateInput",
+    "$defs": {
+      "BinaryUpdateInput": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "description": "The derper version to install."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/BinaryUpdated",
+    "$defs": {
+      "BinaryUpdated": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "The derper version replaced."
+          },
+          "to": {
+            "type": "string",
+            "description": "The derper version now installed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ]
+      }
+    }
+  }
+}

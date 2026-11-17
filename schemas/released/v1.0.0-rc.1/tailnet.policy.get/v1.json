@@ -1,0 +1,39 @@
+{
+  "name": "tailnet.policy.get",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PolicyGetInput",
+    "$defs": {
+      "PolicyGetInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Policy",
+    "$defs": {
+      "Policy": {
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "etag": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "etag"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "docker.image.remove",
+  "version": 1,
+  "class": "irreversible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ImageRemoveInput",
+    "$defs": {
+      "ImageRemoveInput": {
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "force": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "image"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RemovedImage",
+    "$defs": {
+      "RemovedImage": {
+        "properties": {
+          "untagged": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "deleted": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "untagged",
+          "deleted"
+        ]
+      }
+    }
+  }
+}

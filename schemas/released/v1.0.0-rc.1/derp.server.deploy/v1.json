@@ -1,0 +1,89 @@
+{
+  "name": "derp.server.deploy",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeployInput",
+    "$defs": {
+      "DeployInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of the host to run the server on."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "letsencrypt",
+              "ip"
+            ],
+            "description": "How derper gets its certificate: letsencrypt or ip."
+          },
+          "hostName": {
+            "type": "string",
+            "maxLength": 253,
+            "description": "The server's DNS name, or its public IP literal in ip mode."
+          },
+          "verifyClients": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether derper admits only nodes of this tailnet; absent means true."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "mode",
+          "hostName"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Deployed",
+    "$defs": {
+      "Deployed": {
+        "properties": {
+          "derperVersion": {
+            "type": "string",
+            "description": "The derper version installed."
+          },
+          "certName": {
+            "type": "string",
+            "description": "The certificate pin in ip mode; empty for letsencrypt."
+          },
+          "certNotAfter": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the ip certificate expires; null for letsencrypt."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "derperVersion",
+          "certName",
+          "certNotAfter"
+        ]
+      }
+    }
+  }
+}

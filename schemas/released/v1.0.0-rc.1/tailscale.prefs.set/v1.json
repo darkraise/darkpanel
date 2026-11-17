@@ -1,0 +1,298 @@
+{
+  "name": "tailscale.prefs.set",
+  "version": 1,
+  "class": "revertible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PrefsSetInput",
+    "$defs": {
+      "GuardContext": {
+        "properties": {
+          "client": {
+            "$ref": "#/$defs/Peer"
+          },
+          "via": {
+            "$ref": "#/$defs/ProxyPath"
+          },
+          "panelListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "type": "string",
+              "format": "ip-address"
+            },
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "Peer": {
+        "properties": {
+          "addr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "addr",
+          "port"
+        ]
+      },
+      "PrefsSetInput": {
+        "properties": {
+          "guard": {
+            "$ref": "#/$defs/GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "wantRunning": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node should be connected."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "advertiseRoutes": {
+            "oneOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The subnet routes the node advertises, as prefixes; never 0.0.0.0/0 or ::/0."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exitNode": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "The exit node in use, by stable id or Tailscale address; empty clears it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "advertiseExitNode": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node offers itself as an exit node."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acceptRoutes": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node accepts the subnet routes other nodes advertise."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shieldsUp": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node refuses every incoming connection."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runSSH": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node runs Tailscale SSH."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "ProxyPath": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "proxyAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "listenerAddr": {
+            "type": "string",
+            "format": "ip-address-port"
+          },
+          "public": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PrefsResult",
+    "$defs": {
+      "PrefsFields": {
+        "properties": {
+          "wantRunning": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node should be connected."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "advertiseRoutes": {
+            "oneOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "description": "The subnet routes the node advertises, as prefixes; never 0.0.0.0/0 or ::/0."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exitNode": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "The exit node in use, by stable id or Tailscale address; empty clears it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "advertiseExitNode": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node offers itself as an exit node."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acceptRoutes": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node accepts the subnet routes other nodes advertise."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shieldsUp": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node refuses every incoming connection."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runSSH": {
+            "oneOf": [
+              {
+                "type": "boolean",
+                "description": "Whether the node runs Tailscale SSH."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PrefsResult": {
+        "properties": {
+          "prefs": {
+            "$ref": "#/$defs/PrefsFields",
+            "description": "The values now, for exactly the fields the input set."
+          }
+        },
+        "type": "object",
+        "required": [
+          "prefs"
+        ]
+      }
+    }
+  }
+}

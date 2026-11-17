@@ -1,0 +1,108 @@
+{
+  "name": "panel.exposure.status",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/StatusInput",
+    "$defs": {
+      "StatusInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/StatusOutput",
+    "$defs": {
+      "ExposureView": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "hostId": {
+            "type": "string"
+          },
+          "tunnel": {
+            "type": "string"
+          },
+          "subnet": {
+            "type": "string",
+            "format": "ip-prefix"
+          },
+          "gateway": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "proxy": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "revoked",
+              "needs_repair"
+            ]
+          },
+          "listenerId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "via",
+          "hostname",
+          "hostId",
+          "subnet",
+          "gateway",
+          "proxy",
+          "port",
+          "state",
+          "listenerId",
+          "createdAt"
+        ]
+      },
+      "StatusOutput": {
+        "properties": {
+          "exposed": {
+            "type": "boolean"
+          },
+          "exposure": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ExposureView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "exposed"
+        ]
+      }
+    }
+  }
+}

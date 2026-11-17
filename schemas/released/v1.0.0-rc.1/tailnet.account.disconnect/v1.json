@@ -1,0 +1,42 @@
+{
+  "name": "tailnet.account.disconnect",
+  "version": 1,
+  "class": "irreversible",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DisconnectInput",
+    "$defs": {
+      "DisconnectInput": {
+        "properties": {
+          "abandonCleanup": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Disconnected",
+    "$defs": {
+      "Disconnected": {
+        "properties": {
+          "abandoned": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "abandoned"
+        ]
+      }
+    }
+  }
+}

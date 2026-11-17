@@ -1,0 +1,163 @@
+{
+  "name": "hostinfo.summary",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Summary",
+    "$defs": {
+      "CPU": {
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "logicalCount": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "logicalCount"
+        ]
+      },
+      "Load": {
+        "properties": {
+          "one": {
+            "type": "number"
+          },
+          "five": {
+            "type": "number"
+          },
+          "fifteen": {
+            "type": "number"
+          }
+        },
+        "type": "object",
+        "required": [
+          "one",
+          "five",
+          "fifteen"
+        ]
+      },
+      "Memory": {
+        "properties": {
+          "totalBytes": {
+            "type": "integer"
+          },
+          "availableBytes": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "totalBytes",
+          "availableBytes"
+        ]
+      },
+      "OS": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "versionId": {
+            "type": "string"
+          },
+          "prettyName": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "versionId",
+          "prettyName"
+        ]
+      },
+      "RootFS": {
+        "properties": {
+          "totalBytes": {
+            "type": "integer"
+          },
+          "availableBytes": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "totalBytes",
+          "availableBytes"
+        ]
+      },
+      "Summary": {
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "os": {
+            "$ref": "#/$defs/OS"
+          },
+          "kernel": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          },
+          "uptimeSeconds": {
+            "type": "integer"
+          },
+          "bootTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cpu": {
+            "$ref": "#/$defs/CPU"
+          },
+          "memory": {
+            "$ref": "#/$defs/Memory"
+          },
+          "swap": {
+            "$ref": "#/$defs/Swap"
+          },
+          "load": {
+            "$ref": "#/$defs/Load"
+          },
+          "rootFs": {
+            "$ref": "#/$defs/RootFS"
+          },
+          "darkpanelVersion": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostname",
+          "os",
+          "kernel",
+          "arch",
+          "uptimeSeconds",
+          "bootTime",
+          "cpu",
+          "memory",
+          "swap",
+          "load",
+          "rootFs",
+          "darkpanelVersion"
+        ]
+      },
+      "Swap": {
+        "properties": {
+          "totalBytes": {
+            "type": "integer"
+          },
+          "freeBytes": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "totalBytes",
+          "freeBytes"
+        ]
+      }
+    }
+  }
+}

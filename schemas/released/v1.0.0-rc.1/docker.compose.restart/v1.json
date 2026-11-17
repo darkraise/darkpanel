@@ -1,0 +1,74 @@
+{
+  "name": "docker.compose.restart",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ComposeInput",
+    "$defs": {
+      "ComposeInput": {
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "profiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ComposeResult",
+    "$defs": {
+      "ComposeResult": {
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "containers": {
+            "items": {
+              "$ref": "#/$defs/ContainerState"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project",
+          "containers"
+        ]
+      },
+      "ContainerState": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "running"
+        ]
+      }
+    }
+  }
+}

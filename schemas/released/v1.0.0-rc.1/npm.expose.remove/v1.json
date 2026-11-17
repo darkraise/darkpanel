@@ -1,0 +1,47 @@
+{
+  "name": "npm.expose.remove",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ExposeRemoveInput",
+    "$defs": {
+      "ExposeRemoveInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "domain": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "domain"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ExposeRemoveOutput",
+    "$defs": {
+      "ExposeRemoveOutput": {
+        "properties": {
+          "domain": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "domain"
+        ]
+      }
+    }
+  }
+}
