@@ -1,0 +1,66 @@
+{
+  "name": "cloudflare.network.detach",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NetworkDetachInput",
+    "$defs": {
+      "NetworkDetachInput": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string"
+          },
+          "claimant": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tunnel",
+          "network",
+          "claimant"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NetworkAttachment",
+    "$defs": {
+      "NetworkAttachment": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string"
+          },
+          "claimant": {
+            "type": "string"
+          },
+          "preexisting": {
+            "type": "boolean"
+          },
+          "attached": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tunnel",
+          "network",
+          "claimant",
+          "preexisting",
+          "attached"
+        ]
+      }
+    }
+  }
+}

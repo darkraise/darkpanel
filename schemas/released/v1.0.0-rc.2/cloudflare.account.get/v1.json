@@ -1,0 +1,86 @@
+{
+  "name": "cloudflare.account.get",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AccountGetInput",
+    "$defs": {
+      "AccountGetInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AccountStatus",
+    "$defs": {
+      "AccountStatus": {
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "account": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/AccountView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "connected"
+        ]
+      },
+      "AccountView": {
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "$ref": "#/$defs/Capability"
+            },
+            "type": "array"
+          },
+          "connectedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accountId",
+          "capabilities",
+          "connectedAt"
+        ]
+      },
+      "Capability": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "state"
+        ]
+      }
+    }
+  }
+}

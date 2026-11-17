@@ -1,0 +1,54 @@
+{
+  "name": "panel.network.create",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NetworkCreateInput",
+    "$defs": {
+      "NetworkCreateInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NetworkView",
+    "$defs": {
+      "NetworkView": {
+        "properties": {
+          "network": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "subnet": {
+            "type": "string",
+            "format": "ip-prefix"
+          },
+          "gateway": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "proxy": {
+            "type": "string",
+            "format": "ip-address"
+          }
+        },
+        "type": "object",
+        "required": [
+          "network",
+          "id",
+          "subnet",
+          "gateway",
+          "proxy"
+        ]
+      }
+    }
+  }
+}

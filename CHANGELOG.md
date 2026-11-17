@@ -2,6 +2,24 @@
 
 All notable changes to Darkpanel. Versions follow docs/versioning.md.
 
+## 1.0.0-rc.2 - 2026-11-17
+
+### Features
+
+- **install:** guide an install run with no options
+
+### Refactoring
+
+- **docs:** drop references to internal planning notes
+
+### Documentation
+
+- **readme:** install with a one-line curl pipe
+- **install:** lead with the guided install
+- **user:** add release candidate install, fix token links
+- **contributing:** carry the token bootstrap, add docs rule
+- **readme:** rewrite as a project front page
+- add the Contributor Covenant code of conduct
 ## 1.0.0-rc.1 - 2026-11-17
 
 ### Features

@@ -1,0 +1,42 @@
+{
+  "name": "tailnet.policy.set",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PolicySetInput",
+    "$defs": {
+      "PolicySetInput": {
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PolicyWritten",
+    "$defs": {
+      "PolicyWritten": {
+        "properties": {
+          "etag": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "etag"
+        ]
+      }
+    }
+  }
+}

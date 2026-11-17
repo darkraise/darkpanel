@@ -1,0 +1,133 @@
+{
+  "name": "derp.server.list",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ServerListInput",
+    "$defs": {
+      "ServerListInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Servers",
+    "$defs": {
+      "ServerView": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "description": "Id of the host running the server."
+          },
+          "host": {
+            "type": "string",
+            "description": "The host's name."
+          },
+          "mode": {
+            "type": "string",
+            "description": "The server's certificate mode: letsencrypt or ip."
+          },
+          "hostName": {
+            "type": "string",
+            "description": "The server's DNS name or public IP literal."
+          },
+          "regionId": {
+            "type": "integer",
+            "description": "The server's region id; 0 when the region is not published."
+          },
+          "regionCode": {
+            "type": "string",
+            "description": "The server's region code; empty when the region is not published."
+          },
+          "derperVersion": {
+            "type": "string",
+            "description": "The derper version installed."
+          },
+          "certName": {
+            "type": "string",
+            "description": "The certificate pin in ip mode; empty for letsencrypt."
+          },
+          "certNotAfter": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the ip certificate expires; null for letsencrypt."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitActive": {
+            "type": "boolean",
+            "description": "Whether derper's unit is active."
+          },
+          "health": {
+            "type": "string",
+            "description": "The server's health: ok, degraded or broken."
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "One sentence per health reason; empty when ok."
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the server was last checked."
+          },
+          "error": {
+            "type": "string",
+            "description": "Why the last check failed; empty when it succeeded."
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostId",
+          "host",
+          "mode",
+          "hostName",
+          "regionId",
+          "regionCode",
+          "derperVersion",
+          "certName",
+          "certNotAfter",
+          "unitActive",
+          "health",
+          "reasons",
+          "checkedAt",
+          "error"
+        ]
+      },
+      "Servers": {
+        "properties": {
+          "servers": {
+            "items": {
+              "$ref": "#/$defs/ServerView"
+            },
+            "type": "array",
+            "description": "The known DERP servers, by host id."
+          },
+          "availableVersion": {
+            "type": "string",
+            "description": "The derper version this release carries."
+          }
+        },
+        "type": "object",
+        "required": [
+          "servers",
+          "availableVersion"
+        ]
+      }
+    }
+  }
+}

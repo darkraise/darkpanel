@@ -1,0 +1,43 @@
+{
+  "name": "cloudflare.tunnel.token",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TunnelInput",
+    "$defs": {
+      "TunnelInput": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tunnel"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TunnelToken",
+    "$defs": {
+      "TunnelToken": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "x-secret": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ]
+      }
+    }
+  }
+}

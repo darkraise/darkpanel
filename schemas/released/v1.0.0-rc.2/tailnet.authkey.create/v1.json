@@ -1,0 +1,71 @@
+{
+  "name": "tailnet.authkey.create",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AuthKeyInput",
+    "$defs": {
+      "AuthKeyInput": {
+        "properties": {
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reusable": {
+            "type": "boolean"
+          },
+          "ephemeral": {
+            "type": "boolean"
+          },
+          "preauthorized": {
+            "type": "boolean"
+          },
+          "expirySeconds": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tags"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CreatedKey",
+    "$defs": {
+      "CreatedKey": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "x-secret": true
+          },
+          "expires": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "expires",
+          "description"
+        ]
+      }
+    }
+  }
+}

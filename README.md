@@ -50,7 +50,7 @@ for what changed and [SECURITY.md](SECURITY.md) for the support policy.
 On the server that will run the controller:
 
 ```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.1/install.sh | sudo sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.2/install.sh | sudo sh
 ```
 
 The script asks whether the server is the controller or an agent, which version

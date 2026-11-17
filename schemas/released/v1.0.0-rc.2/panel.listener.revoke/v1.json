@@ -1,0 +1,47 @@
+{
+  "name": "panel.listener.revoke",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": true,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ListenerRevokeInput",
+    "$defs": {
+      "ListenerRevokeInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ListenerRevokeOutput",
+    "$defs": {
+      "ListenerRevokeOutput": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "listenerId": {
+            "type": "string"
+          },
+          "ruleId": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exposureId",
+          "listenerId",
+          "ruleId",
+          "revoked"
+        ]
+      }
+    }
+  }
+}

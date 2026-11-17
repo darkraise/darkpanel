@@ -1,0 +1,78 @@
+{
+  "name": "tailscale.latency",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Latency",
+    "$defs": {
+      "Latency": {
+        "properties": {
+          "regions": {
+            "items": {
+              "$ref": "#/$defs/RegionLatency"
+            },
+            "type": "array",
+            "description": "Each DERP region, sorted by region id."
+          }
+        },
+        "type": "object",
+        "required": [
+          "regions"
+        ]
+      },
+      "Measurement": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Whether a latency was measured."
+          },
+          "medianMs": {
+            "type": "number",
+            "description": "The median round trip in milliseconds; 0 when unavailable."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why no latency was measured; empty when available."
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "medianMs",
+          "reason"
+        ]
+      },
+      "RegionLatency": {
+        "properties": {
+          "regionId": {
+            "type": "integer",
+            "description": "The DERP region id."
+          },
+          "code": {
+            "type": "string",
+            "description": "The DERP region code."
+          },
+          "name": {
+            "type": "string",
+            "description": "The DERP region name."
+          },
+          "stun": {
+            "$ref": "#/$defs/Measurement",
+            "description": "The STUN latency to the region."
+          },
+          "https": {
+            "$ref": "#/$defs/Measurement",
+            "description": "The DERP HTTPS probe latency to the region."
+          }
+        },
+        "type": "object",
+        "required": [
+          "regionId",
+          "code",
+          "name",
+          "stun",
+          "https"
+        ]
+      }
+    }
+  }
+}

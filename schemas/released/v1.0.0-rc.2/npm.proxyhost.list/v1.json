@@ -1,0 +1,96 @@
+{
+  "name": "npm.proxyhost.list",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ProxyHostListInput",
+    "$defs": {
+      "ProxyHostListInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ProxyHostList",
+    "$defs": {
+      "ProxyHostList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/ProxyHostView"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ]
+      },
+      "ProxyHostView": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "forwardScheme": {
+            "type": "string"
+          },
+          "forwardHost": {
+            "type": "string"
+          },
+          "forwardPort": {
+            "type": "integer"
+          },
+          "certificateId": {
+            "type": "integer"
+          },
+          "accessListId": {
+            "type": "integer"
+          },
+          "sslForced": {
+            "type": "boolean"
+          },
+          "hsts": {
+            "type": "boolean"
+          },
+          "websockets": {
+            "type": "boolean"
+          },
+          "reserved": {
+            "type": "string"
+          },
+          "unclaimed": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "domains",
+          "forwardScheme",
+          "forwardHost",
+          "forwardPort",
+          "certificateId",
+          "accessListId",
+          "sslForced",
+          "hsts",
+          "websockets",
+          "reserved",
+          "unclaimed"
+        ]
+      }
+    }
+  }
+}

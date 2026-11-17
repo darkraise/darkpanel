@@ -1,0 +1,61 @@
+{
+  "name": "cloudflare.connector.list",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectorListInput",
+    "$defs": {
+      "ConnectorListInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectorList",
+    "$defs": {
+      "Connector": {
+        "properties": {
+          "tunnel": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          },
+          "containerId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tunnel",
+          "container",
+          "containerId",
+          "state"
+        ]
+      },
+      "ConnectorList": {
+        "properties": {
+          "connectors": {
+            "items": {
+              "$ref": "#/$defs/Connector"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connectors"
+        ]
+      }
+    }
+  }
+}

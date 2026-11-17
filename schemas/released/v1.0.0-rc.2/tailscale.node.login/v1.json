@@ -1,0 +1,170 @@
+{
+  "name": "tailscale.node.login",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/LoginInput",
+    "$defs": {
+      "GuardContext": {
+        "properties": {
+          "client": {
+            "$ref": "#/$defs/Peer"
+          },
+          "via": {
+            "$ref": "#/$defs/ProxyPath"
+          },
+          "panelListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "type": "string",
+              "format": "ip-address"
+            },
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "LoginInput": {
+        "properties": {
+          "guard": {
+            "$ref": "#/$defs/GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "authKey": {
+            "type": "string",
+            "description": "The Tailscale auth key to log in with.",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "hostname": {
+            "type": "string",
+            "description": "The host name the node takes in the tailnet."
+          },
+          "advertiseTags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The ACL tags the node advertises, each tag:\u003cname\u003e."
+          },
+          "relogin": {
+            "type": "boolean",
+            "description": "Whether to log in again when the node is logged in already."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "authKey"
+        ]
+      },
+      "Peer": {
+        "properties": {
+          "addr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "addr",
+          "port"
+        ]
+      },
+      "ProxyPath": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "proxyAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "listenerAddr": {
+            "type": "string",
+            "format": "ip-address-port"
+          },
+          "public": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/LoginResult",
+    "$defs": {
+      "LoginResult": {
+        "properties": {
+          "backendState": {
+            "type": "string",
+            "description": "The backend state after the login."
+          },
+          "dnsName": {
+            "type": "string",
+            "description": "The node's MagicDNS name, without the trailing dot."
+          },
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The node's Tailscale addresses, IPv4 first."
+          }
+        },
+        "type": "object",
+        "required": [
+          "backendState",
+          "dnsName",
+          "addresses"
+        ]
+      }
+    }
+  }
+}

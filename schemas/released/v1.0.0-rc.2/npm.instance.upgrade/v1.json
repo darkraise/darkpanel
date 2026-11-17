@@ -1,0 +1,39 @@
+{
+  "name": "npm.instance.upgrade",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UpgradeInput",
+    "$defs": {
+      "UpgradeInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Upgraded",
+    "$defs": {
+      "Upgraded": {
+        "properties": {
+          "fromImage": {
+            "type": "string"
+          },
+          "toImage": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fromImage",
+          "toImage"
+        ]
+      }
+    }
+  }
+}
