@@ -158,6 +158,24 @@ func TestNegotiationCompilesIdenticalSnapshotsOnce(t *testing.T) {
 		released["released/"+tag+"/"+refGet.Name+"/v1.json"] = &fstest.MapFile{Data: get}
 		released["released/"+tag+"/"+refSet.Name+"/v1.json"] = &fstest.MapFile{Data: set}
 	}
+	// A later release changed kv.item.get: its snapshot has another hash and
+	// must compile too, beside the older one.
+	def, ok := h.reg.Action(refGet)
+	if !ok {
+		t.Fatalf("%s is not registered", refGet)
+	}
+	newer, err := schema.ActionSnapshot(def)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newerHash, err := schemas.SnapshotHashes(newer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newerHash == getHash {
+		t.Fatal("test setup: the current and the older kv.item.get snapshots share a hash")
+	}
+	released["released/v1.5.0/"+refGet.Name+"/v1.json"] = &fstest.MapFile{Data: newer}
 	compiled := 0
 	orig := compileSnapshot
 	compileSnapshot = func(url string, doc any) (*jsonschema.Schema, error) {
@@ -169,10 +187,11 @@ func TestNegotiationCompilesIdenticalSnapshotsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compiled != 2 {
-		t.Errorf("compiled %d snapshots, want 2: identical snapshots of three releases compile once", compiled)
+	if compiled != 3 {
+		t.Errorf("compiled %d snapshots, want 3: identical snapshots of three releases compile once, a changed one again", compiled)
 	}
-	if n.released[schemas.HashKey(refGet)][getHash] == nil || n.released[schemas.HashKey(refSet)][setHash] == nil {
+	if n.released[schemas.HashKey(refGet)][getHash] == nil || n.released[schemas.HashKey(refGet)][newerHash] == nil ||
+		n.released[schemas.HashKey(refSet)][setHash] == nil {
 		t.Error("a released snapshot is missing from the negotiation")
 	}
 }
