@@ -17,8 +17,15 @@ You need:
 
 ## Install the controller
 
-Download `install.sh` from the latest release and run it on the controller's
-host:
+Run `install.sh` from the latest release on the controller's host. With no
+options it asks for the role, the version and the address agents connect to,
+shows the equivalent command line, and installs once you confirm:
+
+```sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh
+```
+
+To install without questions, download it and pass the options:
 
 ```sh
 curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh -o install.sh

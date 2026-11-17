@@ -50,6 +50,16 @@ embeds, checks the tarball's checksum, installs the binary under
 runs `darkpanel system install` for the role. On the controller's host:
 
 ```sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh
+```
+
+With no options it asks whether this server is the controller or an agent,
+which version to install, and how agents reach the controller (or, on an
+agent, for the enrollment token). It then shows the same install as a command
+line and installs once you confirm. To install without questions, pass the
+options:
+
+```sh
 curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh -s -- --role controller --agent-advertise <address agents reach>:7443
 ```
 
@@ -78,10 +88,11 @@ listener from another machine through SSH port forwarding:
 ### Install a release candidate
 
 `releases/latest` points only at stable releases. To install a release
-candidate or beta, take `install.sh` from that release's tag and name the
-version:
+candidate or beta, take `install.sh` from that release's tag. The questions
+offer the newest pre-release; without them, name the version:
 
 ```sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.1/install.sh | sudo sh
 curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.1/install.sh | sudo sh -s -- --role controller --version 1.0.0-rc.1 --agent-advertise <address agents reach>:7443
 ```
 
@@ -120,10 +131,13 @@ Create the host on the web UI's Hosts page ("Add host"), or with
 enrollment token once. On the new host:
 
 ```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh -s -- --role agent
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh
 ```
 
-For a release candidate, use its tag's URL and `--version` as above. The
+Choose Agent and paste the token, or pass `-s -- --role agent` to skip the
+questions.
+
+For a release candidate, use its tag's URL as above. The
 script asks for the token on the terminal (or reads it from `--token-file`, a
 root-owned file with mode 0600). The agent connects out to the controller; it
 opens no listening port. `darkpanel host revoke` closes a host's session and
