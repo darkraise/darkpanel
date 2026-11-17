@@ -1,0 +1,89 @@
+{
+  "name": "panel.listener.open",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ListenerOpenInput",
+    "$defs": {
+      "ListenerOpenInput": {
+        "properties": {
+          "via": {
+            "type": "string",
+            "enum": [
+              "npm",
+              "tunnel"
+            ]
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "hostId": {
+            "type": "string"
+          },
+          "tunnel": {
+            "type": "string"
+          },
+          "subnet": {
+            "type": "string",
+            "format": "ip-prefix"
+          },
+          "gateway": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "proxy": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "via",
+          "hostname",
+          "hostId",
+          "subnet",
+          "gateway",
+          "proxy",
+          "port"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ListenerOpenOutput",
+    "$defs": {
+      "ListenerOpenOutput": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "listenerId": {
+            "type": "string"
+          },
+          "ruleId": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string",
+            "format": "ip-address-port"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exposureId",
+          "listenerId",
+          "ruleId",
+          "address"
+        ]
+      }
+    }
+  }
+}

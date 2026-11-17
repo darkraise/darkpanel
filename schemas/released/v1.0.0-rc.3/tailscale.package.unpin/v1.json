@@ -1,0 +1,41 @@
+{
+  "name": "tailscale.package.unpin",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UnpinInput",
+    "$defs": {
+      "UnpinInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Unpinned",
+    "$defs": {
+      "Unpinned": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The installed tailscale version, unchanged."
+          },
+          "held": {
+            "type": "boolean",
+            "description": "Whether the package is held now: the pin's prior hold state."
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "held"
+        ]
+      }
+    }
+  }
+}

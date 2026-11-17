@@ -1,0 +1,78 @@
+{
+  "name": "cloudflare.account.connect",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ConnectInput",
+    "$defs": {
+      "ConnectInput": {
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "apiToken": {
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "accountId",
+          "apiToken"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AccountView",
+    "$defs": {
+      "AccountView": {
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "$ref": "#/$defs/Capability"
+            },
+            "type": "array"
+          },
+          "connectedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accountId",
+          "capabilities",
+          "connectedAt"
+        ]
+      },
+      "Capability": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "state"
+        ]
+      }
+    }
+  }
+}

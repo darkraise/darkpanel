@@ -2,6 +2,32 @@
 
 All notable changes to Darkpanel. Versions follow docs/versioning.md.
 
+## 1.0.0-rc.3 - 2026-11-17
+
+### Features
+
+- **install:** support Ubuntu 26.04 hosts
+- **release:** pick the next version from commits
+- **release:** gate and check automatic releases
+- **release:** move docs pins when preparing an RC
+- **release:** commit, sign and push a release
+- **ci:** release main automatically
+
+### Fixes
+
+- **ci:** check the release patch in the push job
+- **release:** fail unless main alone went stale
+- **release:** fail when a docs pin stays stale
+- **ci:** quote the harness release-skip condition
+
+### Performance
+
+- **dispatch:** compile each released schema once
+
+### Documentation
+
+- **release:** document automatic releases
+- **adr:** note ADR 0015 supersedes approval
 ## 1.0.0-rc.2 - 2026-11-17
 
 ### Features

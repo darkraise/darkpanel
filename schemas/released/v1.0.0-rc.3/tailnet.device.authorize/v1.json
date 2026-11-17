@@ -1,0 +1,108 @@
+{
+  "name": "tailnet.device.authorize",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeviceInput",
+    "$defs": {
+      "DeviceInput": {
+        "properties": {
+          "device": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Device",
+    "$defs": {
+      "Device": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "authorized": {
+            "type": "boolean"
+          },
+          "lastSeen": {
+            "type": "string"
+          },
+          "expires": {
+            "type": "string"
+          },
+          "keyExpiryDisabled": {
+            "type": "boolean"
+          },
+          "advertisedRoutes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabledRoutes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "exitNode": {
+            "type": "boolean"
+          },
+          "exitNodeEnabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "hostname",
+          "os",
+          "user",
+          "addresses",
+          "tags",
+          "authorized",
+          "keyExpiryDisabled",
+          "advertisedRoutes",
+          "enabledRoutes",
+          "exitNode",
+          "exitNodeEnabled"
+        ]
+      }
+    }
+  }
+}

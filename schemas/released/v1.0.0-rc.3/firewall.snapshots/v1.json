@@ -1,0 +1,62 @@
+{
+  "name": "firewall.snapshots",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SnapshotList",
+    "$defs": {
+      "SnapshotInfo": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "changeId": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "system": {
+            "type": "boolean"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "baseline": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "createdAt",
+          "actor",
+          "system",
+          "pinned",
+          "baseline",
+          "enabled"
+        ]
+      },
+      "SnapshotList": {
+        "properties": {
+          "snapshots": {
+            "items": {
+              "$ref": "#/$defs/SnapshotInfo"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshots"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "name": "docker.projects",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ProjectList",
+    "$defs": {
+      "Project": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "envFiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "profiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "configHash": {
+            "type": "string"
+          },
+          "hashChanged": {
+            "type": "boolean"
+          },
+          "containers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "running": {
+            "type": "integer"
+          },
+          "firstSeen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastRun": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "directory",
+          "files",
+          "envFiles",
+          "profiles",
+          "configHash",
+          "hashChanged",
+          "containers",
+          "running",
+          "firstSeen"
+        ]
+      },
+      "ProjectList": {
+        "properties": {
+          "projects": {
+            "items": {
+              "$ref": "#/$defs/Project"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "projects"
+        ]
+      }
+    }
+  }
+}

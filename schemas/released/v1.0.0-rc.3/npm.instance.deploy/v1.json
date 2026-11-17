@@ -1,0 +1,52 @@
+{
+  "name": "npm.instance.deploy",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DeployInput",
+    "$defs": {
+      "DeployInput": {
+        "properties": {
+          "acmeEmail": {
+            "type": "string",
+            "maxLength": 254,
+            "minLength": 3
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "acmeEmail"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Deployed",
+    "$defs": {
+      "Deployed": {
+        "properties": {
+          "containerId": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "adminEmail": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "containerId",
+          "image",
+          "adminEmail"
+        ]
+      }
+    }
+  }
+}

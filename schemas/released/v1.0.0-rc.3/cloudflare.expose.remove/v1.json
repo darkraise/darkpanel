@@ -1,0 +1,46 @@
+{
+  "name": "cloudflare.expose.remove",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ExposeRemoveInput",
+    "$defs": {
+      "ExposeRemoveInput": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "hostname"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ExposeRemoveOutput",
+    "$defs": {
+      "ExposeRemoveOutput": {
+        "properties": {
+          "hostname": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostname"
+        ]
+      }
+    }
+  }
+}

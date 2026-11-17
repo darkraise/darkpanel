@@ -1,0 +1,72 @@
+{
+  "name": "npm.certificate.list",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertificateListInput",
+    "$defs": {
+      "CertificateListInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CertificateList",
+    "$defs": {
+      "CertificateList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/CertificateView"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ]
+      },
+      "CertificateView": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expiresOn": {
+            "type": "string"
+          },
+          "reserved": {
+            "type": "string"
+          },
+          "unclaimed": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "domains",
+          "expiresOn",
+          "reserved",
+          "unclaimed"
+        ]
+      }
+    }
+  }
+}

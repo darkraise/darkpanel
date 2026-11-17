@@ -1,0 +1,92 @@
+{
+  "name": "core.token.list",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NoInput",
+    "$defs": {
+      "NoInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TokenList",
+    "$defs": {
+      "TokenInfo": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revokedAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "scope",
+          "createdAt",
+          "expiresAt",
+          "lastUsedAt",
+          "revokedAt"
+        ]
+      },
+      "TokenList": {
+        "properties": {
+          "tokens": {
+            "items": {
+              "$ref": "#/$defs/TokenInfo"
+            },
+            "type": "array",
+            "description": "The calling user's tokens, newest first; revoked and expired tokens stay listed until they are purged."
+          }
+        },
+        "type": "object",
+        "required": [
+          "tokens"
+        ]
+      }
+    }
+  }
+}

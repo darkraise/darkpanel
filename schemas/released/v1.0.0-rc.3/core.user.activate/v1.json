@@ -1,0 +1,69 @@
+{
+  "name": "core.user.activate",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": true,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UserActivateInput",
+    "$defs": {
+      "UserActivateInput": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "description": "The pending user's name."
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9]{6}$",
+            "description": "The six-digit code the authenticator shows for the user's new TOTP secret.",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "code"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/User",
+    "$defs": {
+      "User": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt"
+        ]
+      }
+    }
+  }
+}

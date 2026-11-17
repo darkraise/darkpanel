@@ -1,0 +1,110 @@
+{
+  "name": "npm.accesslist.add",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AccessListInput",
+    "$defs": {
+      "AccessClientInput": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "directive": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "address",
+          "directive"
+        ]
+      },
+      "AccessListInput": {
+        "properties": {
+          "satisfyAny": {
+            "type": "boolean"
+          },
+          "clients": {
+            "items": {
+              "$ref": "#/$defs/AccessClientInput"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "clients"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AccessListView",
+    "$defs": {
+      "AccessClientInput": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "directive": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "address",
+          "directive"
+        ]
+      },
+      "AccessListView": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "satisfyAny": {
+            "type": "boolean"
+          },
+          "clients": {
+            "items": {
+              "$ref": "#/$defs/AccessClientInput"
+            },
+            "type": "array"
+          },
+          "reserved": {
+            "type": "string"
+          },
+          "unclaimed": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "satisfyAny",
+          "clients",
+          "reserved",
+          "unclaimed"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "tailscale.package.update",
+  "version": 1,
+  "class": "irreversible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PackageUpdateInput",
+    "$defs": {
+      "PackageUpdateInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/PackageUpdated",
+    "$defs": {
+      "PackageUpdated": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "The tailscale version before the update."
+          },
+          "to": {
+            "type": "string",
+            "description": "The tailscale version after the update."
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ]
+      }
+    }
+  }
+}
