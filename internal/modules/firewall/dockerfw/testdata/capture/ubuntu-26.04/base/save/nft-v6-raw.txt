@@ -1,0 +1,5 @@
+*raw
+:PREROUTING ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A PREROUTING -d fd00:dead::2/128 ! -i br-65f6f482f8e2 -j DROP
+COMMIT

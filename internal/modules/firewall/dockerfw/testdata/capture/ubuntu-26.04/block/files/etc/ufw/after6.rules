@@ -1,0 +1,50 @@
+#
+# rules.input-after
+#
+# Rules that should be run after the ufw command line added rules. Custom
+# rules should be added to one of these chains:
+#   ufw6-after-input
+#   ufw6-after-output
+#   ufw6-after-forward
+#
+
+# Don't delete these required lines, otherwise there will be errors
+*filter
+:ufw6-after-input - [0:0]
+:ufw6-after-output - [0:0]
+:ufw6-after-forward - [0:0]
+# End required lines
+
+# don't log noisy services by default
+-A ufw6-after-input -p udp --dport 137 -j ufw6-skip-to-policy-input
+-A ufw6-after-input -p udp --dport 138 -j ufw6-skip-to-policy-input
+-A ufw6-after-input -p tcp --dport 139 -j ufw6-skip-to-policy-input
+-A ufw6-after-input -p tcp --dport 445 -j ufw6-skip-to-policy-input
+-A ufw6-after-input -p udp --dport 546 -j ufw6-skip-to-policy-input
+-A ufw6-after-input -p udp --dport 547 -j ufw6-skip-to-policy-input
+
+# don't delete the 'COMMIT' line or these rules won't be processed
+COMMIT
+# BEGIN DARKPANEL docker
+*filter
+:ufw6-user-forward - [0:0]
+:DOCKER-USER - [0:0]
+:darkpanel-docker-bindings - [0:0]
+:darkpanel-docker-deny - [0:0]
+-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+-A DOCKER-USER -i docker0 -j RETURN
+-A DOCKER-USER -i br-+ -j RETURN
+-A DOCKER-USER -i dpcustom -j RETURN
+-A DOCKER-USER -s fc00::/7 -j RETURN
+-A DOCKER-USER -s fe80::/10 -j RETURN
+-A DOCKER-USER -m conntrack --ctstate DNAT -j darkpanel-docker-bindings
+-A DOCKER-USER -o docker0 -j darkpanel-docker-deny
+-A DOCKER-USER -o br-+ -j darkpanel-docker-deny
+-A DOCKER-USER -o dpcustom -j darkpanel-docker-deny
+-A DOCKER-USER -d fc00::/7 -j darkpanel-docker-deny
+-A DOCKER-USER -j RETURN
+-A darkpanel-docker-bindings -j darkpanel-docker-deny
+-A darkpanel-docker-deny -m limit --limit 3/min -j LOG --log-prefix "[DARKPANEL DOCKER DENY] "
+-A darkpanel-docker-deny -j DROP
+COMMIT
+# END DARKPANEL docker

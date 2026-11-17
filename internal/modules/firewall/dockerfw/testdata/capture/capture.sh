@@ -4,7 +4,7 @@
 # the daemon's view of its networks and containers, for each scenario.
 #
 # Usage: capture.sh <image> <outdir>
-#   image is one of ubuntu:22.04, ubuntu:24.04, debian:12, debian:13
+#   image is one of ubuntu:22.04, ubuntu:24.04, ubuntu:26.04, debian:12, debian:13
 #   for example: capture.sh ubuntu:24.04 internal/modules/firewall/dockerfw/testdata/capture
 # Writes <outdir>/<image-slug>/<scenario>/ for the scenarios base, block,
 # cleanup and routed. Docker's packages are the ones test/harness/images.json

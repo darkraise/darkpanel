@@ -1,0 +1,10 @@
+*filter
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -j RETURN
+-F darkpanel-docker-bindings
+-F darkpanel-docker-deny
+-F dp-b-76d26265fc2a
+-X darkpanel-docker-bindings
+-X darkpanel-docker-deny
+-X dp-b-76d26265fc2a
+COMMIT

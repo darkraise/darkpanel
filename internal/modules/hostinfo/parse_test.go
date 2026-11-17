@@ -43,6 +43,7 @@ func TestParseOSRelease(t *testing.T) {
 	}{
 		{"ubuntu-22.04", osRelease{ID: "ubuntu", VersionID: "22.04", PrettyName: "Ubuntu 22.04.5 LTS"}},
 		{"ubuntu-24.04", osRelease{ID: "ubuntu", VersionID: "24.04", PrettyName: "Ubuntu 24.04.3 LTS"}},
+		{"ubuntu-26.04", osRelease{ID: "ubuntu", VersionID: "26.04", PrettyName: "Ubuntu 26.04.1 LTS"}},
 		{"debian-12", osRelease{ID: "debian", VersionID: "12", PrettyName: "Debian GNU/Linux 12 (bookworm)"}},
 		{"debian-13", osRelease{ID: "debian", VersionID: "13", PrettyName: "Debian GNU/Linux 13 (trixie)"}},
 	}

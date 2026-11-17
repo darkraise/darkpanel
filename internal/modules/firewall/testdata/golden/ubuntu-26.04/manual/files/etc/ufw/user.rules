@@ -1,0 +1,69 @@
+*filter
+:ufw-user-input - [0:0]
+:ufw-user-output - [0:0]
+:ufw-user-forward - [0:0]
+:ufw-before-logging-input - [0:0]
+:ufw-before-logging-output - [0:0]
+:ufw-before-logging-forward - [0:0]
+:ufw-user-logging-input - [0:0]
+:ufw-user-logging-output - [0:0]
+:ufw-user-logging-forward - [0:0]
+:ufw-after-logging-input - [0:0]
+:ufw-after-logging-output - [0:0]
+:ufw-after-logging-forward - [0:0]
+:ufw-logging-deny - [0:0]
+:ufw-logging-allow - [0:0]
+:ufw-user-limit - [0:0]
+:ufw-user-limit-accept - [0:0]
+### RULES ###
+
+### tuple ### allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 in comment=6461726b70616e656c3a30314a303030303030303030303030303030303030303030303020737368
+-A ufw-user-input -p tcp --dport 22 -j ACCEPT
+
+### tuple ### route:allow tcp 80 172.17.0.2 any 0.0.0.0/0 out_eth0
+-A ufw-user-forward -o eth0 -p tcp -d 172.17.0.2 --dport 80 -j ACCEPT
+
+### tuple ### limit tcp 2222 0.0.0.0/0 any 0.0.0.0/0 in
+-A ufw-user-input -p tcp --dport 2222 -m conntrack --ctstate NEW -m recent --set
+-A ufw-user-input -p tcp --dport 2222 -m conntrack --ctstate NEW -m recent --update --seconds 30 --hitcount 6 -j ufw-user-limit
+-A ufw-user-input -p tcp --dport 2222 -j ufw-user-limit-accept
+
+### tuple ### reject any 3000 0.0.0.0/0 any 0.0.0.0/0 in
+-A ufw-user-input -p tcp --dport 3000 -j REJECT --reject-with tcp-reset
+-A ufw-user-input -p udp --dport 3000 -j REJECT
+
+### tuple ### allow_log tcp 443,8000:8100 0.0.0.0/0 any 10.0.0.0/8 in
+-A ufw-user-logging-input -p tcp -m multiport --dports 443,8000:8100 -s 10.0.0.0/8 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[UFW ALLOW] "
+-A ufw-user-logging-input -p tcp -m multiport --dports 443,8000:8100 -s 10.0.0.0/8 -j RETURN
+-A ufw-user-input -p tcp -m multiport --dports 443,8000:8100 -s 10.0.0.0/8 -j ufw-user-logging-input
+-A ufw-user-input -p tcp -m multiport --dports 443,8000:8100 -s 10.0.0.0/8 -j ACCEPT
+
+### tuple ### allow any 53 0.0.0.0/0 any 0.0.0.0/0 out_eth0
+-A ufw-user-output -o eth0 -p tcp --dport 53 -j ACCEPT
+-A ufw-user-output -o eth0 -p udp --dport 53 -j ACCEPT
+
+### tuple ### allow esp any 0.0.0.0/0 any 0.0.0.0/0 in_eth0
+-A ufw-user-input -i eth0 -p esp -j ACCEPT
+
+### tuple ### allow tcp 8443,9443 0.0.0.0/0 any 0.0.0.0/0 DP%20Web - in
+-A ufw-user-input -p tcp -m multiport --dports 8443,9443 -j ACCEPT -m comment --comment 'dapp_DP%20Web'
+
+### tuple ### allow tcp 8080 0.0.0.0/0 any 0.0.0.0/0 in comment=68616e642072756c65
+-A ufw-user-input -p tcp --dport 8080 -j ACCEPT
+
+### END RULES ###
+
+### LOGGING ###
+-A ufw-after-logging-input -j LOG --log-prefix "[UFW BLOCK] " -m limit --limit 3/min --limit-burst 10
+-A ufw-after-logging-forward -j LOG --log-prefix "[UFW BLOCK] " -m limit --limit 3/min --limit-burst 10
+-I ufw-logging-deny -m conntrack --ctstate INVALID -j RETURN -m limit --limit 3/min --limit-burst 10
+-A ufw-logging-deny -j LOG --log-prefix "[UFW BLOCK] " -m limit --limit 3/min --limit-burst 10
+-A ufw-logging-allow -j LOG --log-prefix "[UFW ALLOW] " -m limit --limit 3/min --limit-burst 10
+### END LOGGING ###
+
+### RATE LIMITING ###
+-A ufw-user-limit -m limit --limit 3/minute -j LOG --log-prefix "[UFW LIMIT BLOCK] "
+-A ufw-user-limit -j REJECT
+-A ufw-user-limit-accept -j ACCEPT
+### END RATE LIMITING ###
+COMMIT

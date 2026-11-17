@@ -1,0 +1,8 @@
+*filter
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -j RETURN
+-F darkpanel-docker-bindings
+-F darkpanel-docker-deny
+-X darkpanel-docker-bindings
+-X darkpanel-docker-deny
+COMMIT

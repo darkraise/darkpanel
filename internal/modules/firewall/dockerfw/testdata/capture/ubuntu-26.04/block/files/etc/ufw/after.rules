@@ -1,0 +1,62 @@
+#
+# rules.input-after
+#
+# Rules that should be run after the ufw command line added rules. Custom
+# rules should be added to one of these chains:
+#   ufw-after-input
+#   ufw-after-output
+#   ufw-after-forward
+#
+
+# Don't delete these required lines, otherwise there will be errors
+*filter
+:ufw-after-input - [0:0]
+:ufw-after-output - [0:0]
+:ufw-after-forward - [0:0]
+# End required lines
+
+# don't log noisy services by default
+-A ufw-after-input -p udp --dport 137 -j ufw-skip-to-policy-input
+-A ufw-after-input -p udp --dport 138 -j ufw-skip-to-policy-input
+-A ufw-after-input -p tcp --dport 139 -j ufw-skip-to-policy-input
+-A ufw-after-input -p tcp --dport 445 -j ufw-skip-to-policy-input
+-A ufw-after-input -p udp --dport 67 -j ufw-skip-to-policy-input
+-A ufw-after-input -p udp --dport 68 -j ufw-skip-to-policy-input
+
+# don't log noisy broadcast
+-A ufw-after-input -m addrtype --dst-type BROADCAST -j ufw-skip-to-policy-input
+
+# don't delete the 'COMMIT' line or these rules won't be processed
+COMMIT
+# BEGIN DARKPANEL docker
+*filter
+:ufw-user-forward - [0:0]
+:DOCKER-USER - [0:0]
+:darkpanel-docker-bindings - [0:0]
+:darkpanel-docker-deny - [0:0]
+:dp-b-76d26265fc2a - [0:0]
+-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+-A DOCKER-USER -i docker0 -j RETURN
+-A DOCKER-USER -i br-+ -j RETURN
+-A DOCKER-USER -i dpcustom -j RETURN
+-A DOCKER-USER -s 10.0.0.0/8 -j RETURN
+-A DOCKER-USER -s 172.16.0.0/12 -j RETURN
+-A DOCKER-USER -s 192.168.0.0/16 -j RETURN
+-A DOCKER-USER -s 100.64.0.0/10 -j RETURN
+-A DOCKER-USER -m conntrack --ctstate DNAT -j darkpanel-docker-bindings
+-A DOCKER-USER -o docker0 -j darkpanel-docker-deny
+-A DOCKER-USER -o br-+ -j darkpanel-docker-deny
+-A DOCKER-USER -o dpcustom -j darkpanel-docker-deny
+-A DOCKER-USER -d 10.0.0.0/8 -j darkpanel-docker-deny
+-A DOCKER-USER -d 172.16.0.0/12 -j darkpanel-docker-deny
+-A DOCKER-USER -d 192.168.0.0/16 -j darkpanel-docker-deny
+-A DOCKER-USER -j RETURN
+-A darkpanel-docker-bindings -p tcp -d 172.18.0.2 --dport 80 -m conntrack --ctorigdstport 8080 -j dp-b-76d26265fc2a
+-A darkpanel-docker-bindings -j darkpanel-docker-deny
+-A dp-b-76d26265fc2a -s 203.0.113.0/24 -j darkpanel-docker-deny
+-A dp-b-76d26265fc2a -s 0.0.0.0/0 -j ufw-user-forward
+-A dp-b-76d26265fc2a -j darkpanel-docker-deny
+-A darkpanel-docker-deny -m limit --limit 3/min -j LOG --log-prefix "[DARKPANEL DOCKER DENY] "
+-A darkpanel-docker-deny -j DROP
+COMMIT
+# END DARKPANEL docker

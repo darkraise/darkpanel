@@ -17,7 +17,7 @@ import (
 const goldenDir = "../testdata/golden"
 
 var (
-	goldenImages    = []string{"ubuntu-22.04", "ubuntu-24.04", "debian-12", "debian-13"}
+	goldenImages    = []string{"ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13"}
 	goldenScenarios = []string{"fresh", "enabled", "rules", "disabled", "ipv6no", "logging", "manual", "sysctl"}
 	goldenVersionRe = regexp.MustCompile(`^iptables v1\.8\.[0-9]+ \(nf_tables\)\nufw 0\.36\.[0-9][^\n]*\n$`)
 )

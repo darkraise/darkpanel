@@ -56,6 +56,7 @@ func TestSummaryPerOSAndArch(t *testing.T) {
 	oses := map[string]OS{
 		"ubuntu-22.04": {ID: "ubuntu", VersionID: "22.04", PrettyName: "Ubuntu 22.04.5 LTS"},
 		"ubuntu-24.04": {ID: "ubuntu", VersionID: "24.04", PrettyName: "Ubuntu 24.04.3 LTS"},
+		"ubuntu-26.04": {ID: "ubuntu", VersionID: "26.04", PrettyName: "Ubuntu 26.04.1 LTS"},
 		"debian-12":    {ID: "debian", VersionID: "12", PrettyName: "Debian GNU/Linux 12 (bookworm)"},
 		"debian-13":    {ID: "debian", VersionID: "13", PrettyName: "Debian GNU/Linux 13 (trixie)"},
 	}

@@ -22,7 +22,7 @@ import (
 const capDir = "testdata/capture"
 
 var (
-	capImages    = []string{"ubuntu-22.04", "ubuntu-24.04", "debian-12", "debian-13"}
+	capImages    = []string{"ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13"}
 	capScenarios = []string{"base", "block", "cleanup", "routed"}
 	capFamilies  = []fwstate.Family{fwstate.V4, fwstate.V6}
 )

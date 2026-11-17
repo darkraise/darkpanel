@@ -14,7 +14,7 @@ import (
 
 // ufwImages are the OS images whose UFW files and filter tables
 // testdata/ufw holds (testdata/ufw/capture.sh).
-var ufwImages = []string{"debian-12", "debian-13", "ubuntu-22-04", "ubuntu-24-04"}
+var ufwImages = []string{"debian-12", "debian-13", "ubuntu-22-04", "ubuntu-24-04", "ubuntu-26-04"}
 
 // ufwLoad is the restore input UFW's first start loads for one family of
 // an image, in the order of ufw_start in ufw-init-functions: the primary
