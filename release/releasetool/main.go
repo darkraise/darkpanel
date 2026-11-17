@@ -25,7 +25,8 @@ const usage = `usage: releasetool check-tag <tag>
        releasetool keyid <file.minisig>
        releasetool check-build <version> <key id>[,<key id>] < version.json
        releasetool derper <darkpanel version> <out dir> [-arch amd64|arm64]
-       releasetool derper <darkpanel version> <release dir> -checksums`
+       releasetool derper <darkpanel version> <release dir> -checksums
+       releasetool next-version <version> < commits`
 
 func main() {
 	if err := run(os.Args[1:], os.Stdin, os.Stdout); err != nil {
@@ -89,6 +90,27 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 		return checkBuild(info, rest[0], keys)
 	case cmd == "derper":
 		return runDerper(context.Background(), rest, stdout, buildDerper)
+	case cmd == "next-version" && len(rest) == 1:
+		current, err := parseVersion(rest[0])
+		if err != nil {
+			return err
+		}
+		in, err := io.ReadAll(stdin)
+		if err != nil {
+			return err
+		}
+		var messages []string
+		for msg := range strings.SplitSeq(string(in), "\x00") {
+			if strings.TrimSpace(msg) != "" {
+				messages = append(messages, msg)
+			}
+		}
+		next, err := nextVersion(current, messages)
+		if err != nil || next == "" {
+			return err
+		}
+		_, err = fmt.Fprintln(stdout, next)
+		return err
 	}
 	return errors.New(usage)
 }
