@@ -5,15 +5,15 @@
 
 ## One-time owner setup
 
-Done once by the owner, never by automation. Until all five are done, the
+The steps below are the owner's; automatic releases need the further setup
+in [Automatic releases](#automatic-releases). Until these are done, the
 workflow stops at its `verify` or `sign` job; `build` also stops while
 `install.sh` is not committed or is stale.
 
 1. Generate the minisign key pair with a password:
    `minisign -G -p darkpanel.pub -s darkpanel.key`.
-2. Create the GitHub environment `release` with the owner as required
-   reviewer and its deployment branches and tags limited to tags matching
-   `v*`, and store in it the secrets `MINISIGN_KEY_1` (the text of
+2. Create the GitHub environment `release` with its deployment branches and
+   tags limited to tags matching `v*`, and store in it the secrets `MINISIGN_KEY_1` (the text of
    `darkpanel.key`) and `MINISIGN_PASSWORD_1`.
 3. Add the public key to `internal/update/trustedkeys`, then run
    `make install-sh` and commit `install.sh`; `build` fails while the
@@ -25,16 +25,76 @@ workflow stops at its `verify` or `sign` job; `build` also stops while
    delete those tags. A `v*` tag runs the `release.yml` of its own commit, so
    anyone who can push one can remove the `verify` job.
 
+## Automatic releases
+
+`.github/workflows/auto-release.yml` releases `main` once CI and Harness
+pass on its tip and a commit since the current release ships: a `feat`,
+`fix`, `perf`, `refactor` or `revert` commit (git's own `Revert "…"` subject
+included), or a breaking one (a `!` after the type, or a `BREAKING CHANGE:`
+footer). `docs`, `test`, `chore`, `ci`, `style` and `build` commits release
+nothing.
+
+While the newest release is a pre-release, each automatic release is the
+next one (`1.0.0-rc.2` → `1.0.0-rc.3`). The owner declares a stable release
+by pushing a signed tag by hand; from then on a `fix` releases a patch, a
+`feat` a minor version and a breaking commit a major version.
+
+The workflow's `prepare` job holds no secret: it picks the version, runs
+`make release-prep` and the Go tests, and checks that the change touches only
+what release-prep writes. The `push` job alone holds `RELEASE_BOT_SSH_KEY`
+and runs no build tool: it commits `chore(release): prepare <version>` to
+`main` as `darkpanel-release-bot`, signs the tag `v<version>` with the bot
+key, verifies it as `release.yml` does, and pushes both atomically. The tag
+then runs `release.yml`.
+
+- The bot commits to `main`, so pull before your next push. Never
+  force-push `main`.
+- Adding any deploy key with write access grants `v*` tag creation, because
+  the tag ruleset's bypass names deploy keys, not one key.
+- Each release adds the full snapshot set under `schemas/released/` (171
+  files for `v1.0.0-rc.2`); a follow-up will store identical snapshots once.
+
+### Setup
+
+In this order:
+
+1. Generate an ed25519 key with no passphrase for the bot:
+   `ssh-keygen -t ed25519 -N '' -C release-bot@darkpanel.invalid -f release-bot`.
+2. Add `release-bot.pub` as a deploy key with write access, and add
+   `DeployKey` as a bypass actor of the `release tags` ruleset.
+3. Create the environment `auto-release` with its deployment branches
+   limited to `main`, and store the private key in it as
+   `RELEASE_BOT_SSH_KEY`, before the workflow lands on `main`.
+4. Add the public key to `release/allowed_signers` on `main` with the
+   principal `release-bot@darkpanel.invalid`.
+5. Remove the required reviewer from the environment `release`.
+6. Confirm every `v*` tag has a published release: the workflow refuses to
+   release on top of a tag that never published.
+7. Only then push `auto-release.yml` to `main`.
+
+### Recovery
+
+- A red `Auto release` run names its cause in the failing step.
+- A failed or flaky CI or Harness run releases nothing until a re-run passes
+  on the same commit; or dispatch `Auto release` by hand once both have
+  passed.
+- A `release.yml` failure blocks later automatic releases until that tag
+  publishes. When re-running it cannot fix it, fix the cause on `main` and
+  cut the next version by hand. The unpublished tag stays: deleting it is no
+  recovery, because its snapshots are already on `main`.
+- A leaked bot key: delete the deploy key and its `allowed_signers` line. If
+  any release was signed after the leak, rotate the minisign key as
+  [Rotating the signing key](#rotating-the-signing-key) describes, since
+  hosts trust every signature the old key made.
+
 ## Cutting a release
 
 1. `make release-prep VERSION=x.y.z` freezes the action schemas under
    `schemas/released/vx.y.z/` and rewrites `CHANGELOG.md` (needs git-cliff).
 2. Commit both on `main`, then push a signed tag:
    `git tag -s vx.y.z -m vx.y.z && git push origin main vx.y.z`.
-3. When GitHub asks you to approve the `sign` job, first check the pushed tag
-   locally: `git fetch --force origin tag vx.y.z`, then
-   `git -c gpg.ssh.allowedSignersFile=release/allowed_signers verify-tag vx.y.z`,
-   and compare `git rev-parse vx.y.z^{commit}` with the run's commit.
+3. Hand releases still work alongside automatic ones, and `sign` runs
+   without approval.
 
 The workflow:
 

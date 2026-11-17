@@ -22,6 +22,7 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
   additions](0012-m2-contract-and-layout-additions.md)
 - [ADR 0013: Go toolchain patch version](0013-go-toolchain-patch-version.md)
 - [ADR 0014: v1 core extensions](0014-v1-core-extensions.md)
+- [ADR 0015: Automatic release](0015-automatic-release.md)
 
 ## Format
 
@@ -110,7 +111,7 @@ decided by its own epic, not by an ADR.
 | R29 | 0007 (release hosting), 0012 (install script verification) |
 | R30 | 0009 (files) |
 | R31 | 0006 (local access), 0007 (rollback) |
-| R32 | 0007 (signing, keys) |
+| R32 | 0007 (signing, keys), 0015 (automatic release) |
 | R33 | 0007 (update action, update transaction, rollback), 0012 (update lock, rollback claim, health rule) |
 | R34 | 0005 (migrations, expand then contract, backups), 0007 (update transaction, stepping) |
 | R35 | 0007 (trusted comment carries the channel; scheduling is decided by the self-update epic) |

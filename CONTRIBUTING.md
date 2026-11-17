@@ -114,8 +114,14 @@ and tests before `make build` installs the web dependencies.
 Commit messages use `<type>(<scope>): <subject>`:
 
 - `<type>` is one of `feat`, `fix`, `docs`, `style`, `refactor`, `test`,
-  `chore`, `perf`;
+  `chore`, `perf`, `revert`, `ci`, `build`;
 - `<subject>` is imperative, at most 50 characters, with no trailing period.
+
+Commit types decide releases ([release/README.md](release/README.md)):
+`feat`, `fix`, `perf`, `refactor` and `revert` ship, and a `!` after the type
+or a `BREAKING CHANGE:` footer marks an incompatible change. A bump of a
+shipped dependency, the Go toolchain or `release/derper.version` is a `fix`.
+A commit that adds a migration, an action or an action version is a `feat`.
 
 ## Decisions
 
