@@ -1,249 +1,113 @@
 # Darkpanel
 
-Darkpanel is an MIT-licensed, single-binary VPS and self-hosted fleet manager,
-with a CLI and a web UI, for owners of unmanaged Linux servers. It starts with
-a Docker-aware UFW firewall, Docker, Tailscale and DERP, reverse-proxy exposure
-and safe self-update.
+[![CI](https://github.com/Darkraise/darkpanel/actions/workflows/ci.yml/badge.svg)](https://github.com/Darkraise/darkpanel/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Darkraise/darkpanel?include_prereleases)](https://github.com/Darkraise/darkpanel/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Darkpanel is a single-binary fleet manager for owners of unmanaged Linux
+servers. One controller, with a CLI and a web UI, manages the firewall, Docker,
+Tailscale and the services you expose on each host, and every host updates
+itself from signed releases with automatic rollback.
+
+## Features
+
+- **One binary, two roles.** `darkpanel serve` runs the controller; `darkpanel
+  agent run` runs the agent on every host. Agents connect out to the controller
+  over mutual TLS and open no listening port of their own.
+- **Safe changes.** Every change shows a plan before it applies, lands in an
+  audit log, and where it can, comes with an undo. A firewall change reverts by
+  itself unless you confirm it, and is refused when it would cut your own
+  access.
+- **Modules.** [hostinfo](docs/user/modules/hostinfo.md), a Docker-aware UFW
+  [firewall](docs/user/modules/firewall.md), [Docker](docs/user/modules/docker.md),
+  [Tailscale](docs/user/modules/tailscale.md) and its
+  [tailnet](docs/user/modules/tailnet.md), [DERP](docs/user/modules/derp.md)
+  relays, and exposure through [Nginx Proxy Manager](docs/user/modules/npm.md)
+  or [Cloudflare tunnels](docs/user/modules/cloudflare.md).
+- **Signed updates.** A host updates one at a time, the controller's own host
+  first, from releases whose minisign signature it verifies. Each update takes a
+  backup, keeps the previous binary, and rolls back within two minutes when the
+  new version fails its health check.
+- **Private by default.** There is no default account. The web interface
+  listens on loopback and on Tailscale addresses only, and sign-in needs a
+  password and a TOTP code.
+- **Open interfaces.** Every action is a CLI command and a REST route, with an
+  [API reference](docs/api/README.md) and an OpenAPI description.
+
+Supported hosts: Ubuntu 22.04 and 24.04, and Debian 12 and 13, on amd64 and
+arm64.
 
 ## Status
 
-Pre-release, in milestone M2 (Fleet and lifecycle). `darkpanel serve` runs the
-controller: the REST API with TOTP login, the web UI, the audit log and the
-agent listener. `darkpanel agent run` runs the agent on every host, the
-controller's own included, over mutual TLS. `install.sh` and
-`darkpanel system install` install either role, and hosts update themselves
-from signed releases with automatic rollback. No release has been published
-yet; do not use it on a server you care about.
+Darkpanel is pre-1.0. The newest build is a release candidate, published as a
+pre-release on the [Releases](https://github.com/Darkraise/darkpanel/releases)
+page; it is the build the install command below installs. Use it on servers you
+can rebuild, and expect changes before v1.0. See [CHANGELOG.md](CHANGELOG.md)
+for what changed and [SECURITY.md](SECURITY.md) for the support policy.
 
-## Prerequisites
+## Quick start
 
-- Go 1.27.4
-- Node 24
-- pnpm 11.17.0
-- GNU make
-
-## Build
-
-```sh
-make build
-```
-
-This builds the web UI, then two static Linux binaries with the UI embedded:
-
-- `bin/darkpanel-linux-amd64`
-- `bin/darkpanel-linux-arm64`
-
-`bin/darkpanel-linux-amd64 version` prints the version the binary was built
-from. The commands below call it `darkpanel`; copy the binary for your
-machine's architecture onto your `PATH` under that name:
-
-```sh
-sudo install -m 0755 bin/darkpanel-linux-amd64 /usr/local/bin/darkpanel
-```
-
-## Install
-
-`install.sh` installs a release on Ubuntu 22.04 or 24.04 or Debian 12 or 13. It
-verifies the release's minisign signature with OpenSSL against the keys it
-embeds, checks the tarball's checksum, installs the binary under
-`/usr/local/lib/darkpanel/` with `/usr/local/bin/darkpanel` pointing at it, and
-runs `darkpanel system install` for the role. On the controller's host:
-
-```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh
-```
-
-With no options it asks whether this server is the controller or an agent,
-which version to install, and how agents reach the controller (or, on an
-agent, for the enrollment token). It then shows the same install as a command
-line and installs once you confirm. To install without questions, pass the
-options:
-
-```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh -s -- --role controller --agent-advertise <address agents reach>:7443
-```
-
-The script does nothing until its last line, so a download cut short installs
-nothing.
-
-`system install` creates the `darkpanel` user and the directories, keys and
-systemd units, starts `darkpanel-controller.service`, enrolls the host's own
-agent and starts `darkpanel-agent.service`. Rerunning it finishes or repairs an
-install. The controller runs as `darkpanel`, the agent as root. The agent
-listener is always bound on `127.0.0.1:7443` and on port 7443 of each
-Tailscale address; `--agent-listen <ip>:<port>` adds a bind, and
-`--agent-advertise` is the address enrollment tokens carry when the request
-names none. Both are written to
-`/etc/systemd/system/darkpanel-controller.service.d/10-agent.conf`.
-
-The controller keeps its database under `/var/lib/darkpanel/controller/`, the
-agent under `/var/lib/darkpanel/agent/`, the keys and the agent's credentials
-under `/etc/darkpanel/`, and serves HTTP on `127.0.0.1:8080` and `[::1]:8080`
-and HTTPS on port 8443 of each Tailscale address. `--listen` in a drop-in
-replaces those web listeners and may be repeated: `loopback`, `tailscale`,
-`https://<ip>:<port>` or `http://<loopback ip>:<port>`. Reach the loopback
-listener from another machine through SSH port forwarding:
-`ssh -L 8080:127.0.0.1:8080 <host>`.
-
-### Install a release candidate
-
-`releases/latest` points only at stable releases. To install a release
-candidate or beta, take `install.sh` from that release's tag. The questions
-offer the newest pre-release; without them, name the version:
+On the server that will run the controller:
 
 ```sh
 curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.1/install.sh | sudo sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.1/install.sh | sudo sh -s -- --role controller --version 1.0.0-rc.1 --agent-advertise <address agents reach>:7443
 ```
 
-Hosts start on the `stable` update channel. Set a host's channel to `beta` on
-its Overview tab for it to take the next release candidate automatically.
+The script asks whether the server is the controller or an agent, which version
+to install and how agents reach the controller, shows the equivalent command
+line, and installs once you confirm. It verifies the release's signature and
+checksum before it installs anything. To read it first, see [Check install.sh
+before you run it](docs/user/install.md#check-installsh-before-you-run-it).
 
-### Check install.sh first
-
-`install.sh` is listed in the release's signed `checksums.txt`, like the
-tarballs. To check it before running it as root, download it instead of piping
-it, then verify the signature with
-[minisign](https://jedisct1.github.io/minisign/), using a release public key
-and its key id from `internal/update/trustedkeys/production.go`, then the
-checksum:
-
-```sh
-base=https://github.com/Darkraise/darkpanel/releases/latest/download
-curl -fsSLO "$base/install.sh"
-curl -fsSLO "$base/checksums.txt"
-curl -fsSLO "$base/checksums.txt.<key id>.minisig"
-minisign -V -P <public key> -m checksums.txt -x checksums.txt.<key id>.minisig
-sha256sum --check --ignore-missing checksums.txt
-sudo sh install.sh --role controller --agent-advertise <address agents reach>:7443
-```
-
-The trusted comment minisign prints names the version and channel. Check that
-they are the release you meant to install: an older release's `checksums.txt`
-is signed too, and verifies together with that release's older `install.sh`.
-The release workflow also attests every file, so `gh attestation verify
-install.sh --repo darkraise/darkpanel` is a second check.
-
-### Add a host
-
-Create the host on the web UI's Hosts page ("Add host"), or with
-`darkpanel host create --name <name>`. The answer shows a one-hour, single-use
-enrollment token once. On the new host:
-
-```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh
-```
-
-Choose Agent and paste the token, or pass `-s -- --role agent` to skip the
-questions.
-
-For a release candidate, use its tag's URL as above. The
-script asks for the token on the terminal (or reads it from `--token-file`, a
-root-owned file with mode 0600). The agent connects out to the controller; it
-opens no listening port. `darkpanel host revoke` closes a host's session and
-refuses its certificate; `darkpanel host token` issues a revoked host a new
-token, and `sudo darkpanel agent enroll` on the host takes it.
-
-### Updates
-
-A host updates to a signed release with `darkpanel update rollout --hosts <id>
---version <version> --channel stable`, one host at a time, the controller's own host first,
-stopping at the first failure; `darkpanel host update-policy` sets a host's
-channel (`stable` or `beta`) and an optional weekly update window. Each update
-takes a database backup before migrating, keeps the previous binary as
-`darkpanel.prev`, and rolls back by itself, within two minutes, when the new
-version fails its health check or does not pass it within the deadline.
-[docs/versioning.md](docs/versioning.md) explains the
-version and compatibility rules.
-
-### Break-glass
-
-On a host whose controller cannot be reached, `sudo darkpanel --local
-<command>` sends an agent-side command to the local agent's socket instead,
-for example `sudo darkpanel hostinfo summary get --local`. With the agent
-stopped too, `sudo darkpanel update rollback --local --yes` puts the previous
-binary back; neither Ctrl+C nor a closed terminal stops it once it runs. If
-the rollback is still cut short, for example by a crash or a power loss, the
-services can stay stopped until the next boot; `sudo darkpanel update
-recover` finishes a rollback that had started replacing the binary and
-restarts the services, or ends one that had not, so it can be run again.
-
-### Uninstall
-
-`sudo darkpanel uninstall` stops and removes the services, units, binary,
-users, data and keys listed in the host's ownership manifest, after printing
-the plan. `--keep-data` keeps the databases, backups, keys and credentials, so
-a later install finds them.
-
-### The first admin
-
-There is no default account and no setup page. Create the first admin on the
-controller's host itself, through the controller socket:
+Then create the first admin on that server. It asks for a password and shows a
+QR code for an authenticator app:
 
 ```sh
 sudo darkpanel user create --username admin
 ```
 
-It asks for the password twice, shows a QR code and the TOTP secret for an
-authenticator app, and asks for a code to activate the user. The secret is not
-shown again; `sudo darkpanel user reset-totp --username admin` issues a new
-one.
-
-### Trust the web root
-
-HTTPS listeners present a certificate from the controller's own web root.
-Print it and its SHA-256 fingerprint:
+The web interface listens on the server's loopback address. From your own
+machine, forward the port and open `http://127.0.0.1:8080`:
 
 ```sh
-sudo darkpanel controller web-ca
+ssh -L 8080:127.0.0.1:8080 <host>
 ```
 
-Import the PEM block into your browser's or system's trusted roots. To let the
-CLI verify the HTTPS listeners against it, put the fingerprint in
-`~/.config/darkpanel/cli.json`, which must have mode 0600:
+Add each other server from the Hosts page, or with `darkpanel host create
+--name <name>`, and run the same install command there as an agent with the
+enrollment token it shows.
 
-```json
-{"url": "https://100.64.0.1:8443", "caFingerprint": "<fingerprint>"}
-```
+## Documentation
 
-### Use the CLI with a token
+| Read | To |
+|---|---|
+| [User guide](docs/user/README.md) | install, administer and uninstall Darkpanel, and use each module |
+| [Runbook](docs/runbook.md) | recover from a lockout, a failed update or a lost controller |
+| [API reference](docs/api/README.md) | script against the REST API |
+| [Versioning and compatibility](docs/versioning.md) | understand versions, channels and update rules |
+| [Threat model](docs/security/threat-model.md) | see what Darkpanel defends against |
+| [Architecture decisions](docs/adr/README.md) | learn why it is built this way |
+| [Module guide](docs/dev/module-guide.md) | write a module |
 
-The CLI has no login command. It authenticates with an API token, which you
-create once with your session: on the web UI's Tokens page when the UI is
-built, or through the API. With the API, log in, then plan and apply
-`core.token.create`, passing the `csrfToken` of the login answer:
+## Build from source
+
+You need Go 1.27.4, Node 24, pnpm 11.17.0 and GNU make.
 
 ```sh
-URL=http://127.0.0.1:8080
-curl -c session -H 'Content-Type: application/json' \
-  -d '{"username": "admin", "password": "<password>", "code": "<code>"}' $URL/api/v1/auth/login
-curl -b session -H 'Content-Type: application/json' -H 'X-CSRF-Token: <csrfToken>' \
-  -d '{"input": {"name": "laptop", "scope": "admin"}}' $URL/api/v1/actions/core.token.create/v1/plan
-curl -b session -H 'Content-Type: application/json' -H 'X-CSRF-Token: <csrfToken>' \
-  -d '{"planId": "<planId>"}' $URL/api/v1/actions/core.token.create/v1/apply
-rm session
+make build
 ```
 
-The apply answer's `output.token` is shown only this once. Give it to the CLI
-in `DARKPANEL_TOKEN` or as `"token"` in `cli.json`. A token in `cli.json` is
-sent only to the `"url"` in the same file (or to `http://127.0.0.1:8080` when
-the file names none), and the CLI refuses to send any token over plain `http`
-except to a loopback address:
+This builds the web UI, then static Linux binaries with the UI embedded:
+`bin/darkpanel-linux-amd64` and `bin/darkpanel-linux-arm64`.
+`bin/darkpanel-linux-amd64 version` prints the version a binary was built from.
 
-```sh
-export DARKPANEL_URL=http://127.0.0.1:8080 DARKPANEL_TOKEN=<token>
-darkpanel hostinfo summary get
-darkpanel audit list
-darkpanel --help
-```
+## Contributing
 
-A token's scope is `read`, `operate` or `admin`, and it expires after 90 days
-unless `expiresInDays` says otherwise; `darkpanel token revoke --id <id>`
-revokes one.
-
-[CONTRIBUTING.md](CONTRIBUTING.md) explains the make targets and how to run a
-development server. [SECURITY.md](SECURITY.md) explains how to report a
-vulnerability.
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains the make
+targets, how to run a development server and what a pull request needs,
+including updating this README and the docs when a change alters what users
+see or do. Report a vulnerability as [SECURITY.md](SECURITY.md) describes, not
+in a public issue.
 
 ## License
 
