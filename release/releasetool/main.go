@@ -26,13 +26,18 @@ const usage = `usage: releasetool check-tag <tag>
        releasetool check-build <version> <key id>[,<key id>] < version.json
        releasetool derper <darkpanel version> <out dir> [-arch amd64|arm64]
        releasetool derper <darkpanel version> <release dir> -checksums
-       releasetool next-version <version> < commits`
+       releasetool next-version <version> < commits
+       releasetool current <tags file> < release-list.json
+       releasetool gate <tip sha> < workflow-runs.json
+       releasetool check-prep <version> <changelog> < changed-paths`
 
 func main() {
-	if err := run(os.Args[1:], os.Stdin, os.Stdout); err != nil {
+	err := run(os.Args[1:], os.Stdin, os.Stdout)
+	code := exitCode(err)
+	if code == 1 {
 		fmt.Fprintln(os.Stderr, "releasetool:", err)
-		os.Exit(1)
 	}
+	os.Exit(code)
 }
 
 func run(args []string, stdin io.Reader, stdout io.Writer) error {
@@ -111,6 +116,21 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 		}
 		_, err = fmt.Fprintln(stdout, next)
 		return err
+	case cmd == "current" && len(rest) == 1:
+		v, err := current(rest[0], stdin)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(stdout, v)
+		return err
+	case cmd == "gate" && len(rest) == 1:
+		return gate(rest[0], stdin, stdout)
+	case cmd == "check-prep" && len(rest) == 2:
+		v, err := parseVersion(rest[0])
+		if err != nil {
+			return err
+		}
+		return checkPrep(v, rest[1], stdin)
 	}
 	return errors.New(usage)
 }
