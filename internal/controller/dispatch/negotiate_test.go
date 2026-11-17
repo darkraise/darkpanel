@@ -13,6 +13,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/schemas"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // olderSnapshot is ref's snapshot as a previous minor released it: the
@@ -145,5 +146,33 @@ func TestNewRefusesABrokenReleasedSnapshot(t *testing.T) {
 	cfg.Snapshots = fstest.MapFS{"released/v1.2.0/kv.item.get/v1.json": &fstest.MapFile{Data: []byte(`{"input":`)}}
 	if _, err := New(cfg); err == nil || !strings.Contains(err.Error(), "released/v1.2.0/kv.item.get/v1.json") {
 		t.Errorf("New = %v, want an error naming the broken snapshot", err)
+	}
+}
+
+func TestNegotiationCompilesIdenticalSnapshotsOnce(t *testing.T) {
+	h := newHarness(t)
+	get, getHash := h.olderSnapshot(refGet)
+	set, setHash := h.olderSnapshot(refSet)
+	released := fstest.MapFS{}
+	for _, tag := range []string{"v1.2.0", "v1.3.0", "v1.4.0"} {
+		released["released/"+tag+"/"+refGet.Name+"/v1.json"] = &fstest.MapFile{Data: get}
+		released["released/"+tag+"/"+refSet.Name+"/v1.json"] = &fstest.MapFile{Data: set}
+	}
+	compiled := 0
+	orig := compileSnapshot
+	compileSnapshot = func(url string, doc any) (*jsonschema.Schema, error) {
+		compiled++
+		return orig(url, doc)
+	}
+	t.Cleanup(func() { compileSnapshot = orig })
+	n, err := newNegotiation(h.reg, released)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiled != 2 {
+		t.Errorf("compiled %d snapshots, want 2: identical snapshots of three releases compile once", compiled)
+	}
+	if n.released[schemas.HashKey(refGet)][getHash] == nil || n.released[schemas.HashKey(refSet)][setHash] == nil {
+		t.Error("a released snapshot is missing from the negotiation")
 	}
 }

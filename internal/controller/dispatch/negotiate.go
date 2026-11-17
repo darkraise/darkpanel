@@ -58,8 +58,20 @@ func newNegotiation(reg *core.Registry, snapshots fs.FS) (negotiation, error) {
 	return n, nil
 }
 
+// compileSnapshot compiles one released input schema; tests replace it to
+// count compiles.
+var compileSnapshot = func(url string, doc any) (*jsonschema.Schema, error) {
+	c := jsonschema.NewCompiler()
+	c.AssertFormat()
+	if err := c.AddResource(url, doc); err != nil {
+		return nil, err
+	}
+	return c.Compile(url)
+}
+
 // add compiles the input schema of the released snapshot at name. A resource
-// snapshot has no input and names no action, so it is skipped.
+// snapshot has no input and names no action, so it is skipped, and so is a
+// snapshot identical to one of an earlier release.
 func (n negotiation) add(snapshots fs.FS, name string, ref core.ActionRef) error {
 	raw, err := fs.ReadFile(snapshots, name)
 	if err != nil {
@@ -78,22 +90,19 @@ func (n negotiation) add(snapshots fs.FS, name string, ref core.ActionRef) error
 	if err != nil {
 		return fmt.Errorf("dispatch: snapshot %s: %w", name, err)
 	}
+	key := schemas.HashKey(ref)
+	if n.released[key][hash] != nil {
+		return nil
+	}
 	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(snap.Input))
 	if err != nil {
 		return fmt.Errorf("dispatch: snapshot %s: %w", name, err)
 	}
 	closeObjects(doc)
-	c := jsonschema.NewCompiler()
-	c.AssertFormat()
-	url := "urn:darkpanel:" + name
-	if err := c.AddResource(url, doc); err != nil {
-		return fmt.Errorf("dispatch: snapshot %s: %w", name, err)
-	}
-	sch, err := c.Compile(url)
+	sch, err := compileSnapshot("urn:darkpanel:"+name, doc)
 	if err != nil {
 		return fmt.Errorf("dispatch: compile snapshot %s: %w", name, err)
 	}
-	key := schemas.HashKey(ref)
 	if n.released[key] == nil {
 		n.released[key] = map[core.SchemaHash]*jsonschema.Schema{}
 	}
