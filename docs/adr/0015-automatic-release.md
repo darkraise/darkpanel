@@ -22,7 +22,8 @@ with no approval step.
   `fix`, `perf`, `refactor`, `revert`, or any breaking commit), its
   `prepare` job, which holds no secret, picks the next version, runs
   `make release-prep` and the Go tests, and checks that the change touches
-  only what release-prep writes. Its `push` job commits
+  only what release-prep writes. Its `push` job checks the patch's paths
+  again with git and the shell alone, before the key is written, then commits
   `chore(release): prepare <version>` as `darkpanel-release-bot`, signs the
   tag `v<version>` with the bot's SSH key, verifies it with the checks of
   `release.yml`'s `verify` job and pushes `main` and the tag atomically. The

@@ -23,9 +23,16 @@ concurrency:
 env:
   GOTOOLCHAIN: local
 
+# An explicit bash adds pipefail to GitHub's default `bash -e`, so a failing
+# command early in a pipeline fails its step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   prepare:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.event == 'push' || (github.event.workflow_run.name == 'Harness' && (github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')))) }}
+    timeout-minutes: 40
     runs-on: ubuntu-24.04
     outputs:
       tip: ${{ steps.version.outputs.tip }}
@@ -98,10 +105,11 @@ jobs:
         run: |
           make release-prep VERSION="$VERSION"
           git add -A
-          git diff --cached --name-only | "$RUNNER_TEMP/releasetool" check-prep "$VERSION" CHANGELOG.md
-          go test -timeout 20m ./...
           mkdir -p "$RUNNER_TEMP/auto-release"
-          git diff --cached --binary >"$RUNNER_TEMP/auto-release/release.patch"
+          git diff --cached --binary --no-renames >"$RUNNER_TEMP/auto-release/release.patch"
+          git diff --cached --name-only --no-renames >"$RUNNER_TEMP/paths"
+          "$RUNNER_TEMP/releasetool" check-prep "$VERSION" CHANGELOG.md <"$RUNNER_TEMP/paths"
+          go test -timeout 20m ./...
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.gate.outputs.release == 'true'
         with:
@@ -124,6 +132,24 @@ jobs:
         with:
           name: auto-release-patch
           path: ${{ runner.temp }}/auto-release
+      # Anything the prepare job ran, its tests included, could have changed the
+      # patch, so this job checks the patch's paths itself, with git and the
+      # shell only, before the key exists or any repository script runs.
+      - name: Apply and check the release patch
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          git apply --index "$RUNNER_TEMP/auto-release/release.patch"
+          git diff --cached --name-only --no-renames -z >"$RUNNER_TEMP/paths"
+          while IFS= read -r -d '' p; do
+            case $p in
+              CHANGELOG.md | README.md | docs/user/install.md | "schemas/released/v$VERSION/"*) ;;
+              *)
+                echo "::error::the release patch touches $p, which release-prep does not write"
+                exit 1
+                ;;
+            esac
+          done <"$RUNNER_TEMP/paths"
       - name: Commit, tag and push
         env:
           RELEASE_BOT_SSH_KEY: ${{ secrets.RELEASE_BOT_SSH_KEY }}
@@ -132,10 +158,10 @@ jobs:
         run: |
           umask 077
           key="$RUNNER_TEMP/bot_key"
+          trap 'rm -f "$key"' EXIT
           printf '%s\n' "$RELEASE_BOT_SSH_KEY" >"$key"
           # GitHub's published ed25519 host key, pinned rather than trusted on first use.
           echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >"$RUNNER_TEMP/known_hosts"
-          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts -o StrictHostKeyChecking=yes"
+          export GIT_SSH_COMMAND="ssh -i '$key' -o IdentitiesOnly=yes -o 'UserKnownHostsFile=$RUNNER_TEMP/known_hosts' -o StrictHostKeyChecking=yes"
           git remote set-url origin "git@github.com:$GITHUB_REPOSITORY.git"
-          git apply --index "$RUNNER_TEMP/auto-release/release.patch"
           BOT_KEY="$key" bash release/auto-push.sh "$VERSION" "$TIP"

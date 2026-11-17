@@ -42,7 +42,8 @@ by pushing a signed tag by hand; from then on a `fix` releases a patch, a
 The workflow's `prepare` job holds no secret: it picks the version, runs
 `make release-prep` and the Go tests, and checks that the change touches only
 what release-prep writes. The `push` job alone holds `RELEASE_BOT_SSH_KEY`
-and runs no build tool: it commits `chore(release): prepare <version>` to
+and runs no build tool: it checks the patch's paths again with git and the
+shell before the key exists, then commits `chore(release): prepare <version>` to
 `main` as `darkpanel-release-bot`, signs the tag `v<version>` with the bot
 key, verifies it as `release.yml` does, and pushes both atomically. The tag
 then runs `release.yml`.
