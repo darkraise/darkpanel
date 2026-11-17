@@ -12,7 +12,8 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
 - [ADR 0004: Change lifecycle, locking and recovery](0004-change-lifecycle.md)
 - [ADR 0005: Storage, migrations, secrets and keys](0005-storage-and-secrets.md)
 - [ADR 0006: API, listeners, authentication and CLI](0006-api-and-cli.md)
-- [ADR 0007: Release, signing, update and rollback](0007-release-and-update.md)
+- [ADR 0007: Release, signing, update and rollback](0007-release-and-update.md);
+  its approval-gated signing is superseded by ADR 0015
 - [ADR 0008: Integration test harness](0008-test-harness.md)
 - [ADR 0009: Host execution safety](0009-host-execution-safety.md)
 - [ADR 0010: Web certificate authority](0010-web-certificate-authority.md)
