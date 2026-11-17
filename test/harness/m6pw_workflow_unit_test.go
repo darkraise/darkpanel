@@ -43,7 +43,7 @@ func m6pYmlCheck(yml string) error {
 	if !ok {
 		return fmt.Errorf("harness: the workflow has no %s job", m6pYmlJob)
 	}
-	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]"}
+	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]"}
 	for _, want := range append(musts, m4lSetup...) {
 		if !strings.Contains(job, want) {
 			return fmt.Errorf("harness: the %s job lacks %s", m6pYmlJob, want)
@@ -137,7 +137,7 @@ const m6pYmlDoc = `jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]
     steps:
       - name: Enable KVM
         run: test -e /dev/kvm
@@ -187,7 +187,7 @@ func TestM6pwUnitWorkflow(t *testing.T) {
 		{"limit under 70", "runs-on: ubuntu-24.04\n    timeout-minutes: 70", "runs-on: ubuntu-24.04\n    timeout-minutes: 60", "timeout-minutes 60, want 70"},
 		{"limit past the 120 minutes", "runs-on: ubuntu-24.04\n    timeout-minutes: 70", "runs-on: ubuntu-24.04\n    timeout-minutes: 130", "timeout-minutes 130, want 70"},
 		{"no needs", "  vm-m6p:\n    needs: build\n", "  vm-m6p:\n    needs: other\n", "needs: build"},
-		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, debian-12]", "debian-13"},
+		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12]", "debian-13"},
 		{"no KVM", "test -e /dev/kvm", "test -e /dev/none", "/dev/kvm"},
 		{"no panel step", "Run the M6 panel harness", "Run M6 panel", `no step named "Run the M6 panel harness"`},
 		{"wrong test", "'^TestM6Panel$'", "'^TestM6Other$'", "TestM6Panel"},

@@ -43,7 +43,7 @@ func m6nwWorkflow(yml string) error {
 	if !ok {
 		return fmt.Errorf("harness: the workflow has no %s job", m6nwJob)
 	}
-	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]"}
+	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]"}
 	for _, want := range append(musts, m4lSetup...) {
 		if !strings.Contains(job, want) {
 			return fmt.Errorf("harness: the %s job lacks %s", m6nwJob, want)
@@ -122,7 +122,7 @@ const m6nwWorkflowDoc = `jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]
     steps:
       - name: Enable KVM
         run: test -e /dev/kvm
@@ -164,7 +164,7 @@ func TestM6nwUnitWorkflow(t *testing.T) {
 		{"limit of vm-m5d", "timeout-minutes: 70", "timeout-minutes: 60", "timeout-minutes 60, want 70"},
 		{"limit past the 120 minutes", "timeout-minutes: 70", "timeout-minutes: 130", "timeout-minutes 130, want 70"},
 		{"no needs", "    needs: build\n    runs-on: ubuntu-24.04\n    timeout-minutes: 70", "    needs: other\n    runs-on: ubuntu-24.04\n    timeout-minutes: 70", "needs: build"},
-		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, debian-12]", "debian-13"},
+		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12]", "debian-13"},
 		{"no KVM", "/dev/kvm", "/dev/none", "/dev/kvm"},
 		{"no NPM step", "Run the M6 NPM harness", "Run M6 NPM", `no step named "Run the M6 NPM harness"`},
 		{"wrong test", "'^TestM6NPM$'", "'^TestM6Other$'", "TestM6NPM"},

@@ -86,7 +86,7 @@ func fpYmlWorkflow(yml string) error {
 		}
 	}
 
-	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]"}
+	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]"}
 	for _, want := range append(musts, m4lSetup...) {
 		if !strings.Contains(job, want) {
 			return fmt.Errorf("harness: the %s job lacks %s", fpYmlJob, want)
@@ -199,7 +199,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]
     steps:
       - name: Enable KVM
         run: test -e /dev/kvm
@@ -255,7 +255,7 @@ func TestFpwUnitWorkflow(t *testing.T) {
 		{"limit of vm-m5d", "timeout-minutes: 80", "timeout-minutes: 60", "timeout-minutes 60, want 80"},
 		{"limit past 120", "timeout-minutes: 80", "timeout-minutes: 130", "timeout-minutes 130, want 80"},
 		{"no needs", "    needs: build\n    runs-on: ubuntu-24.04\n    timeout-minutes: 80", "    runs-on: ubuntu-24.04\n    timeout-minutes: 80", "needs: build"},
-		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, debian-12]", "debian-13"},
+		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12]", "debian-13"},
 		{"no KVM", "/dev/kvm", "/dev/none", "/dev/kvm"},
 		{"no run step", "Run the footprint harness", "Run footprint", `no step named "Run the footprint harness"`},
 		{"wrong test", "'^TestFootprint$'", "'^TestOther$'", "TestFootprint"},

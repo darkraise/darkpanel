@@ -79,7 +79,7 @@ func m5dwWorkflow(yml string) error {
 	if !ok {
 		return fmt.Errorf("harness: the workflow has no %s job", m5dwJob)
 	}
-	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]"}
+	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]"}
 	for _, want := range append(musts, m4lSetup...) {
 		if !strings.Contains(job, want) {
 			return fmt.Errorf("harness: the %s job lacks %s", m5dwJob, want)
@@ -167,7 +167,7 @@ const (
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]
     steps:
       - name: Enable KVM
         run: test -e /dev/kvm
@@ -217,7 +217,7 @@ func TestM5dwUnitWorkflow(t *testing.T) {
 		{"no vm-m5d job", "  vm-m5d:\n", "  vm-other:\n", "no vm-m5d job"},
 		{"limit of vm-m5", "timeout-minutes: 60", "timeout-minutes: 100", "timeout-minutes 100, want 60"},
 		{"no needs", "needs: build", "needs: other", "needs: build"},
-		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, debian-12]", "debian-13"},
+		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12]", "debian-13"},
 		{"no KVM", "/dev/kvm", "/dev/none", "/dev/kvm"},
 		{"no DERP step", "Run the M5 DERP harness", "Run M5 DERP", `no step named "Run the M5 DERP harness"`},
 		{"wrong test", "'^TestM5DERP$'", "'^TestM5Other$'", "TestM5DERP"},

@@ -21,7 +21,7 @@ func TestPinFile(t *testing.T) {
 	for _, o := range p.OS {
 		ids = append(ids, o.ID)
 	}
-	if want := []string{"ubuntu-22.04", "ubuntu-24.04", "debian-12", "debian-13"}; !slices.Equal(ids, want) {
+	if want := []string{"ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "debian-12", "debian-13"}; !slices.Equal(ids, want) {
 		t.Errorf("pinned OS ids = %v, want %v", ids, want)
 	}
 	if p.Scanner != "debian-13" {

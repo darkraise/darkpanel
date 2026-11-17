@@ -105,7 +105,7 @@ const m4lWorkflowDoc = `jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]
     steps:
       - name: Enable KVM
         run: test -e /dev/kvm

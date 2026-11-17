@@ -84,6 +84,47 @@
       ]
     },
     {
+      "id": "ubuntu-26.04",
+      "family": "ubuntu",
+      "versionId": "26.04",
+      "image": {
+        "url": "https://cloud-images.ubuntu.com/releases/resolute/release-20261108/ubuntu-26.04-server-cloudimg-amd64.img",
+        "sha256": "7b90593f5532b49b7e3fe3d2743f0d1f0d822e5b07cebcd8e00c0df8069ecab9"
+      },
+      "packages": [
+        {
+          "name": "docker-ce",
+          "version": "5:29.9.1-1~ubuntu.26.04~resolute",
+          "url": "https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-ce_29.9.1-1~ubuntu.26.04~resolute_amd64.deb",
+          "sha256": "cb283f77ac1a9e010d1dbe656be58063617e1360ca9f48e5ebe61cf72d2ac96b"
+        },
+        {
+          "name": "docker-ce-cli",
+          "version": "5:29.9.1-1~ubuntu.26.04~resolute",
+          "url": "https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-ce-cli_29.9.1-1~ubuntu.26.04~resolute_amd64.deb",
+          "sha256": "3a72d12eccd38f5e0e7b4752ea1912ff36de7238acf7344badebe1c58ae36c82"
+        },
+        {
+          "name": "containerd.io",
+          "version": "2.4.2-2~ubuntu.26.04~resolute",
+          "url": "https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/containerd.io_2.4.2-2~ubuntu.26.04~resolute_amd64.deb",
+          "sha256": "6bb52a00ac068d78f0fc090b69bb8e5efe355d2069b9f90d2ebbae23b9d5b36b"
+        },
+        {
+          "name": "docker-compose-plugin",
+          "version": "5.6.0-1~ubuntu.26.04~resolute",
+          "url": "https://download.docker.com/linux/ubuntu/dists/resolute/pool/stable/amd64/docker-compose-plugin_5.6.0-1~ubuntu.26.04~resolute_amd64.deb",
+          "sha256": "a0b9c82230ed64bed886f7ac569641fd6aa4e30598c72318ce3bf94cfbe884e6"
+        },
+        {
+          "name": "tailscale",
+          "version": "1.104.1",
+          "url": "https://pkgs.tailscale.com/stable/ubuntu/pool/tailscale_1.104.1_amd64.deb",
+          "sha256": "509753a4ff223efc70234e7f539afc51f743b3af043d9e55313960bd7327700f"
+        }
+      ]
+    },
+    {
       "id": "debian-12",
       "family": "debian",
       "versionId": "12",

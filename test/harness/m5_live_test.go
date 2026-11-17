@@ -161,7 +161,7 @@ func m5lJobCheck(yml string, s m5lJobSpec) error {
 	if !ok {
 		return fmt.Errorf("harness: the workflow has no %s job", s.job)
 	}
-	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]"}
+	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]"}
 	for _, want := range append(musts, m4lSetup...) {
 		if !strings.Contains(job, want) {
 			return fmt.Errorf("harness: the %s job lacks %s", s.job, want)

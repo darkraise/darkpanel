@@ -73,7 +73,7 @@ func upgwYmlCheck(yml string) error {
 			return fmt.Errorf("harness: the workflow holds %s outside the %s job", text, upgwYmlJob)
 		}
 	}
-	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]"}
+	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]"}
 	for _, want := range append(musts, m4lSetup...) {
 		if !strings.Contains(job, want) {
 			return fmt.Errorf("harness: the %s job lacks %s", upgwYmlJob, want)
@@ -161,7 +161,7 @@ const upgwYmlDoc = `jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]
     steps:
       - name: Enable KVM
         run: test -e /dev/kvm
@@ -215,7 +215,7 @@ func TestUpgwUnitWorkflow(t *testing.T) {
 		{"limit under 90", "runs-on: ubuntu-24.04\n    timeout-minutes: 90", "runs-on: ubuntu-24.04\n    timeout-minutes: 80", "timeout-minutes 80, want 90"},
 		{"limit past the 120 minutes", "runs-on: ubuntu-24.04\n    timeout-minutes: 90", "runs-on: ubuntu-24.04\n    timeout-minutes: 130", "timeout-minutes 130, want 90"},
 		{"no needs", "  vm-upg:\n    needs: build\n", "  vm-upg:\n    needs: other\n", "needs: build"},
-		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, debian-12]", "debian-13"},
+		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12]", "debian-13"},
 		{"no KVM", "test -e /dev/kvm", "test -e /dev/none", "/dev/kvm"},
 		{"no matrix step", "Run the upgrade matrix", "Run upgrades", `no step named "Run the upgrade matrix"`},
 		{"wrong test", "'^TestUpgradeMatrix$'", "'^TestUpgradeOther$'", "TestUpgradeMatrix"},

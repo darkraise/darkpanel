@@ -43,7 +43,7 @@ func m6cwWorkflow(yml string) error {
 	if !ok {
 		return fmt.Errorf("harness: the workflow has no %s job", m6cwJob)
 	}
-	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]"}
+	musts := []string{"needs: build", "runs-on: ubuntu-24.04", "fail-fast: false", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]"}
 	for _, want := range append(musts, m4lSetup...) {
 		if !strings.Contains(job, want) {
 			return fmt.Errorf("harness: the %s job lacks %s", m6cwJob, want)
@@ -129,7 +129,7 @@ const m6cwWorkflowDoc = `jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]
     steps:
       - name: Enable KVM
         run: test -e /dev/kvm
@@ -171,7 +171,7 @@ func TestM6cwUnitWorkflow(t *testing.T) {
 		{"limit under 60", "runs-on: ubuntu-24.04\n    timeout-minutes: 60", "runs-on: ubuntu-24.04\n    timeout-minutes: 50", "timeout-minutes 50, want 60"},
 		{"limit past the 120 minutes", "runs-on: ubuntu-24.04\n    timeout-minutes: 60", "runs-on: ubuntu-24.04\n    timeout-minutes: 130", "timeout-minutes 130, want 60"},
 		{"no needs", "  vm-m6c:\n    needs: build\n", "  vm-m6c:\n    needs: other\n", "needs: build"},
-		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, debian-12]", "debian-13"},
+		{"os matrix without debian-13", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12, debian-13]", "os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, debian-12]", "debian-13"},
 		{"no KVM", "test -e /dev/kvm", "test -e /dev/none", "/dev/kvm"},
 		{"no Cloudflare step", "Run the M6 Cloudflare harness", "Run M6 Cloudflare", `no step named "Run the M6 Cloudflare harness"`},
 		{"wrong test", "'^TestM6Cloudflare$'", "'^TestM6Other$'", "TestM6Cloudflare"},
