@@ -46,12 +46,25 @@ git fetch -q origin main
 git show refs/remotes/origin/main:release/allowed_signers >"$signers"
 git -c gpg.ssh.allowedSignersFile="$signers" verify-tag "refs/tags/$tag" || fail "the signature is not from a signer on origin's main"
 
-if ! out=$(git push --atomic origin HEAD:refs/heads/main "refs/tags/$tag" 2>&1); then
-  if git fetch -q origin main && [ "$(git rev-parse refs/remotes/origin/main)" != "$tip" ]; then
+if out=$(git push --atomic origin HEAD:refs/heads/main "refs/tags/$tag" 2>&1); then
+  echo "$out"
+  exit 0
+fi
+# Only a refusal of main as out of date means a newer push supersedes this
+# one; any other refusal (a ruleset, a permission, an existing tag) fails.
+release=$(git rev-parse HEAD)
+if remote=$(git ls-remote --exit-code origin refs/heads/main) && remote=${remote%%[[:space:]]*}; then
+  if [ "$remote" = "$release" ]; then
+    echo "$out"
+    echo "::notice::git reported an error, but main is at the release commit $release."
+    exit 0
+  fi
+  others=$(grep -F '! [' <<<"$out" | grep -v ' HEAD -> main (' | grep -vF '(atomic push failed)' || true)
+  if [ "$remote" != "$tip" ] && [ -z "$others" ] &&
+    grep -Eq '\] +HEAD -> main \((fetch first|non-fast-forward|stale info)\)' <<<"$out"; then
     echo "::notice::main moved past $tip; the newer push releases."
     exit 0
   fi
-  echo "$out" >&2
-  exit 1
 fi
-echo "$out"
+echo "$out" >&2
+exit 1

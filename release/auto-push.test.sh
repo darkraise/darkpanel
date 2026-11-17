@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Tests for release/auto-push.sh. Run: bash release/auto-push.test.sh
+# shellcheck disable=SC2016 # bash -c scripts take their arguments as $1
 set -euo pipefail
 
 script="$(cd "$(dirname "$0")" && pwd)/auto-push.sh"
@@ -77,13 +78,20 @@ expect moved 0 env -C "$work/moved/clone" BOT_KEY="$work/bot" bash "$script" 1.0
 check moved_notice grep -q '^::notice::' "$work/out"
 check moved_no_tag no_tag "$work/moved/remote.git"
 
+tip=$(setup taken "$work/bot.pub")
+git clone -q "$work/taken/remote.git" "$work/taken/other"
+git -C "$work/taken/other" commit -q --allow-empty -m 'fix: newer'
+git -C "$work/taken/other" tag v1.0.0-rc.3
+git -C "$work/taken/other" push -q origin main v1.0.0-rc.3
+expect taken 1 env -C "$work/taken/clone" BOT_KEY="$work/bot" bash "$script" 1.0.0-rc.3 "$tip"
+check taken_no_notice bash -c '! grep -q "::notice::" "$1"' _ "$work/out"
+
 tip=$(setup rejected "$work/bot.pub")
 mkdir -p "$work/rejected/remote.git/hooks"
 printf '#!/bin/sh\necho "denied by policy" >&2\nexit 1\n' >"$work/rejected/remote.git/hooks/pre-receive"
 chmod +x "$work/rejected/remote.git/hooks/pre-receive"
 expect rejected 1 env -C "$work/rejected/clone" BOT_KEY="$work/bot" bash "$script" 1.0.0-rc.3 "$tip"
 check rejected_error grep -q 'denied by policy' "$work/out"
-# shellcheck disable=SC2016 # $1 is the inner shell's argument
 check rejected_no_notice bash -c '! grep -q "::notice::" "$1"' _ "$work/out"
 check rejected_no_tag no_tag "$work/rejected/remote.git"
 
