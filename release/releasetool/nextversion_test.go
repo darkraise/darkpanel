@@ -29,6 +29,8 @@ func TestNextVersion(t *testing.T) {
 		{"breaking text in a subject is no footer", "1.4.2", []string{"docs: explain BREAKING CHANGE: footers\n", "fix: c\n"}, "1.4.3"},
 		{"nothing ships", "1.4.2", []string{"docs: a\n", "test: b\n", "chore(deps): c\n", "ci: d\n", "style: e\n", "build: f\n"}, ""},
 		{"non-conventional is ignored", "1.4.2", []string{"Update stuff\n", "docs: a\n"}, ""},
+		{"non-conventional with a breaking footer is ignored", "1.4.2", []string{"Update stuff\n\nBREAKING CHANGE: x\n"}, ""},
+		{"git revert with a breaking footer is major", "1.4.2", []string{"Revert \"feat: b\"\n\nBREAKING CHANGE: x\n"}, "2.0.0"},
 		{"no commits", "1.0.0-rc.2", nil, ""},
 		{"no numeric identifier but nothing ships", "1.0.0-rc", []string{"docs: a\n"}, ""},
 	} {
