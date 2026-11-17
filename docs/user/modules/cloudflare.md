@@ -79,8 +79,8 @@ action. It asks for the tunnel, the network, the port and the hostname.
 
 ## Use it from the CLI
 
-Commands reach the controller with an API token that you set up as the
-[repository README](../../../README.md#use-the-cli-with-a-token) shows. Each
+Commands reach the controller with an API token, which [Create the first
+admin](../first-admin.md#next-an-api-token-for-the-cli) explains how to create. Each
 command below is the generated command of one action, and the [Cloudflare API
 reference](../../api/cloudflare.md) lists its input and output.
 

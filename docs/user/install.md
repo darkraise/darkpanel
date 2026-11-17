@@ -17,7 +17,10 @@ You need:
 
 ## Install the controller
 
-Run `install.sh` from the latest release on the controller's host. With no
+Run `install.sh` from the latest release on the controller's host. Until a
+stable v1.0.0 is published, `releases/latest` has no release, so use the
+release candidate's address from [Install a release
+candidate](#install-a-release-candidate). With no
 options it asks for the role, the version and the address agents connect to,
 shows the equivalent command line, and installs once you confirm:
 
@@ -55,6 +58,21 @@ connect to. Use a name or an IP address that every host you add can reach.
 `--agent-listen` and `--agent-advertise` are for the controller role only, and
 `--token-file` is for the agent role only. `install.sh` refuses a command line
 that mixes them.
+
+## Install a release candidate
+
+`releases/latest` points only at stable releases. To install a release
+candidate or a beta, take `install.sh` from that release's tag. The questions
+offer the newest pre-release. Without them, name the version:
+
+```sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.1/install.sh | sudo sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.1/install.sh | sudo sh -s -- --role controller --version 1.0.0-rc.1 --agent-advertise <address agents reach>:7443
+```
+
+Hosts start on the `stable` update channel. Set a host's channel to `beta` on
+its Overview tab for it to take the next release candidate automatically.
+[Versioning and compatibility](../versioning.md) explains the channels.
 
 ## What the installer does
 

@@ -64,8 +64,8 @@ status, it says so, because silence would look like "not exposed".
 
 ## Use it from the CLI
 
-Commands reach the controller with an API token that you set up as the
-[repository README](../../../README.md#use-the-cli-with-a-token) shows. Each
+Commands reach the controller with an API token, which [Create the first
+admin](../first-admin.md#next-an-api-token-for-the-cli) explains how to create. Each
 command below is the generated command of one action, and the [panel API
 reference](../../api/panel.md) lists its input and output.
 
