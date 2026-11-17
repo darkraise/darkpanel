@@ -50,29 +50,11 @@ embeds, checks the tarball's checksum, installs the binary under
 runs `darkpanel system install` for the role. On the controller's host:
 
 ```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh -o install.sh
-sudo sh install.sh --role controller --agent-advertise <address agents reach>:7443
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh -s -- --role controller --agent-advertise <address agents reach>:7443
 ```
 
-`install.sh` is listed in the release's signed `checksums.txt`, like the
-tarballs. To check it before running it as root, verify the signature with
-[minisign](https://jedisct1.github.io/minisign/), using a release public key
-and its key id from `internal/update/trustedkeys/production.go`, then the
-checksum:
-
-```sh
-base=https://github.com/Darkraise/darkpanel/releases/latest/download
-curl -fsSLO "$base/checksums.txt"
-curl -fsSLO "$base/checksums.txt.<key id>.minisig"
-minisign -V -P <public key> -m checksums.txt -x checksums.txt.<key id>.minisig
-sha256sum --check --ignore-missing checksums.txt
-```
-
-The trusted comment minisign prints names the version and channel. Check that
-they are the release you meant to install: an older release's `checksums.txt`
-is signed too, and verifies together with that release's older `install.sh`.
-The release workflow also attests every file, so `gh attestation verify
-install.sh --repo darkraise/darkpanel` is a second check.
+The script does nothing until its last line, so a download cut short installs
+nothing.
 
 `system install` creates the `darkpanel` user and the directories, keys and
 systemd units, starts `darkpanel-controller.service`, enrolls the host's own
@@ -93,6 +75,44 @@ replaces those web listeners and may be repeated: `loopback`, `tailscale`,
 listener from another machine through SSH port forwarding:
 `ssh -L 8080:127.0.0.1:8080 <host>`.
 
+### Install a release candidate
+
+`releases/latest` points only at stable releases. To install a release
+candidate or beta, take `install.sh` from that release's tag and name the
+version:
+
+```sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.1/install.sh | sudo sh -s -- --role controller --version 1.0.0-rc.1 --agent-advertise <address agents reach>:7443
+```
+
+Hosts start on the `stable` update channel. Set a host's channel to `beta` on
+its Overview tab for it to take the next release candidate automatically.
+
+### Check install.sh first
+
+`install.sh` is listed in the release's signed `checksums.txt`, like the
+tarballs. To check it before running it as root, download it instead of piping
+it, then verify the signature with
+[minisign](https://jedisct1.github.io/minisign/), using a release public key
+and its key id from `internal/update/trustedkeys/production.go`, then the
+checksum:
+
+```sh
+base=https://github.com/Darkraise/darkpanel/releases/latest/download
+curl -fsSLO "$base/install.sh"
+curl -fsSLO "$base/checksums.txt"
+curl -fsSLO "$base/checksums.txt.<key id>.minisig"
+minisign -V -P <public key> -m checksums.txt -x checksums.txt.<key id>.minisig
+sha256sum --check --ignore-missing checksums.txt
+sudo sh install.sh --role controller --agent-advertise <address agents reach>:7443
+```
+
+The trusted comment minisign prints names the version and channel. Check that
+they are the release you meant to install: an older release's `checksums.txt`
+is signed too, and verifies together with that release's older `install.sh`.
+The release workflow also attests every file, so `gh attestation verify
+install.sh --repo darkraise/darkpanel` is a second check.
+
 ### Add a host
 
 Create the host on the web UI's Hosts page ("Add host"), or with
@@ -100,11 +120,11 @@ Create the host on the web UI's Hosts page ("Add host"), or with
 enrollment token once. On the new host:
 
 ```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh -o install.sh
-sudo sh install.sh --role agent
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh -s -- --role agent
 ```
 
-It asks for the token on the terminal (or reads it from `--token-file`, a
+For a release candidate, use its tag's URL and `--version` as above. The
+script asks for the token on the terminal (or reads it from `--token-file`, a
 root-owned file with mode 0600). The agent connects out to the controller; it
 opens no listening port. `darkpanel host revoke` closes a host's session and
 refuses its certificate; `darkpanel host token` issues a revoked host a new
