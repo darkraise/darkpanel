@@ -98,6 +98,7 @@ test-release:
 	bash release/package.test.sh
 	bash release/sign.test.sh
 	bash release/pin-docs.test.sh
+	bash release/auto-push.test.sh
 	bash scripts/fuzz.test.sh
 
 test: test-go test-race test-web test-adr test-release
