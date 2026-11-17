@@ -217,14 +217,14 @@ func (tm *term) output() string {
 }
 
 // wait returns the exit error and the whole output once the script ends.
-func (tm *term) wait() (error, string) {
+func (tm *term) wait() (string, error) {
 	tm.t.Helper()
 	err := tm.cmd.Wait()
 	select {
 	case <-tm.done:
 	case <-time.After(10 * time.Second):
 	}
-	return err, tm.output()
+	return tm.output(), err
 }
 
 // wizard starts install.sh with no arguments on a terminal against the
@@ -268,7 +268,7 @@ func TestWizardInstallsAControllerWithPlainPrompts(t *testing.T) {
 	tm.expect("sudo sh install.sh --role controller --version 1.10.0 --agent-listen 203.0.113.5:7443 --agent-advertise panel.example.com:7443")
 	tm.expect("Install now? [Y/n]: ")
 	tm.send("y")
-	err, out := tm.wait()
+	out, err := tm.wait()
 	if err != nil {
 		t.Fatalf("install.sh: %v\n%s", err, out)
 	}
@@ -298,7 +298,7 @@ func TestWizardInstallsAnAgentWithPlainPrompts(t *testing.T) {
 	tm.expect("sudo sh install.sh --role agent --version 1.10.0 --token-file <file holding the token>")
 	tm.expect("Install now? [Y/n]: ")
 	tm.send("")
-	err, out := tm.wait()
+	out, err := tm.wait()
 	if err != nil {
 		t.Fatalf("install.sh: %v\n%s", err, out)
 	}
@@ -331,7 +331,7 @@ func TestWizardCancelChangesNothing(t *testing.T) {
 				tm.expect("]: ")
 				tm.send(a)
 			}
-			err, out := tm.wait()
+			out, err := tm.wait()
 			if err == nil || !strings.Contains(out, "Installation cancelled; nothing was changed.") {
 				t.Errorf("err %v, output:\n%s", err, out)
 			}
@@ -375,7 +375,7 @@ func TestWizardUsesWhiptail(t *testing.T) {
 		"0 ",
 	)
 	tm := f.wizard(t, tools, "TERM=xterm")
-	err, out := tm.wait()
+	out, err := tm.wait()
 	if err != nil {
 		t.Fatalf("install.sh: %v\n%s", err, out)
 	}
@@ -412,7 +412,7 @@ func TestWizardWhiptailCancel(t *testing.T) {
 			f := newFixture(t)
 			tools, _ := fakeWhiptail(t, "0 agent", status+" ")
 			tm := f.wizard(t, tools, "TERM=xterm")
-			err, out := tm.wait()
+			out, err := tm.wait()
 			if err == nil || !strings.Contains(out, "Installation cancelled; nothing was changed.") {
 				t.Errorf("err %v, output:\n%s", err, out)
 			}
