@@ -97,6 +97,7 @@ test-release:
 	bash release/snapshots.test.sh
 	bash release/package.test.sh
 	bash release/sign.test.sh
+	bash release/pin-docs.test.sh
 	bash scripts/fuzz.test.sh
 
 test: test-go test-race test-web test-adr test-release
@@ -135,11 +136,13 @@ release: release-check verify-build
 		-output $(RELEASE_DIR)/darkpanel_$(VERSION).cdx.json .
 	bash release/package.sh $(VERSION) bin $(RELEASE_DIR)
 
-# make release-prep VERSION=x.y.z freezes the schema snapshots and rewrites
-# CHANGELOG.md; the owner commits both, then pushes a signed tag vx.y.z.
+# make release-prep VERSION=x.y.z freezes the schema snapshots, moves a
+# pre-release's install pins in the docs and rewrites CHANGELOG.md; the
+# owner commits them, then pushes a signed tag vx.y.z.
 # Released snapshots are immutable, so git-cliff is checked before they are frozen.
 release-prep: release-check
 	@command -v $(GIT_CLIFF) >/dev/null || { echo "release-prep: $(GIT_CLIFF) not found; install git-cliff 2.14.2 or set GIT_CLIFF" >&2; exit 1; }
+	bash release/pin-docs.sh $(VERSION)
 	bash release/snapshots.sh copy v$(VERSION)
 	$(GIT_CLIFF) --tag v$(VERSION) -o CHANGELOG.md
 

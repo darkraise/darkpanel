@@ -45,19 +45,21 @@ func TestReadmePrerequisitesMatchToolchain(t *testing.T) {
 	}
 }
 
-// The install command in the README names a release tag while no stable
-// release exists, so it goes stale with each release candidate unless a test
-// holds it to the changelog's newest version.
+// The install command in the README and the install guide names a release
+// tag while no stable release exists, so it goes stale with each release
+// candidate unless a test holds it to the changelog's newest version.
 func TestReadmeInstallNamesNewestRelease(t *testing.T) {
 	newest := rmFirst(t, "CHANGELOG.md", rmChangelog)
-	readme := dcRead(t, "README.md")
-	pins := rmPinned.FindAllStringSubmatch(readme, -1)
-	if len(pins) == 0 && !strings.Contains(readme, "/releases/latest/download/install.sh") {
-		t.Fatal("README.md has no install command")
-	}
-	for _, m := range pins {
-		if m[1] != newest {
-			t.Errorf("README.md installs v%s, but the newest release in CHANGELOG.md is %s", m[1], newest)
+	for _, file := range []string{"README.md", "docs/user/install.md"} {
+		text := dcRead(t, file)
+		pins := rmPinned.FindAllStringSubmatch(text, -1)
+		if file == "README.md" && len(pins) == 0 && !strings.Contains(text, "/releases/latest/download/install.sh") {
+			t.Fatal("README.md has no install command")
+		}
+		for _, m := range pins {
+			if m[1] != newest {
+				t.Errorf("%s installs v%s, but the newest release in CHANGELOG.md is %s", file, m[1], newest)
+			}
 		}
 	}
 }
