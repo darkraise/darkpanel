@@ -13,7 +13,7 @@ import (
 func pinTestBinary(t *testing.T, root string) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "docs.test")
-	cmd := exec.Command("go", "test", "-c", "-o", bin, "./internal/docs")
+	cmd := exec.Command("go", "test", "-c", "-o", bin, "./internal/docs") //nolint:gosec // G204: compiles this package into a temporary path
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go test -c: %v\n%s", err, out)
@@ -57,7 +57,7 @@ func writeDocCopy(t *testing.T, root, newest string) string {
 		if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(dst, raw, 0o600); err != nil {
+		if err := os.WriteFile(dst, raw, 0o600); err != nil { //nolint:gosec // G703: a path under the test's temporary directory
 			t.Fatal(err)
 		}
 	}
@@ -79,7 +79,7 @@ func readCopy(t *testing.T, repo, rel string) string {
 
 func pinDocs(t *testing.T, root, repo, version string) {
 	t.Helper()
-	cmd := exec.Command("bash", filepath.Join(root, "release", "pin-docs.sh"), version)
+	cmd := exec.Command("bash", filepath.Join(root, "release", "pin-docs.sh"), version) //nolint:gosec // G204: the repository's own script and a test version
 	cmd.Env = append(os.Environ(), "DOCS_ROOT="+repo)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("pin-docs.sh %s: %v\n%s", version, err, out)
@@ -154,7 +154,7 @@ func TestA5_MakeReleasePrepMovesThePinsBeforeFreezingSnapshots(t *testing.T) {
 	if err != nil {
 		t.Skip("make is not installed")
 	}
-	cmd := exec.Command(makeBin, "-n", "release-prep", "VERSION=7.0.0-rc.3")
+	cmd := exec.Command(makeBin, "-n", "release-prep", "VERSION=7.0.0-rc.3") //nolint:gosec // G204: make from PATH, a dry run of the repository's Makefile
 	cmd.Dir = dcRoot(t)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

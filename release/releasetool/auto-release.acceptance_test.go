@@ -23,7 +23,7 @@ type cliResult struct {
 func buildReleasetool(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "releasetool")
-	out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput()
+	out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput() //nolint:gosec // G204: builds this package into a temporary path
 	if err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
@@ -32,7 +32,7 @@ func buildReleasetool(t *testing.T) string {
 
 func runCLI(t *testing.T, bin, stdin string, args ...string) cliResult {
 	t.Helper()
-	cmd := exec.Command(bin, args...)
+	cmd := exec.Command(bin, args...) //nolint:gosec // G204: the binary this test built
 	cmd.Stdin = strings.NewReader(stdin)
 	var so, se bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &so, &se
@@ -196,7 +196,7 @@ func TestA4_RevertSubjectAppearsInTheNotes(t *testing.T) {
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
+		cmd := exec.Command("git", args...) //nolint:gosec // G204: git with the test's own arguments
 		cmd.Dir = repo
 		cmd.Env = env
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -207,7 +207,7 @@ func TestA4_RevertSubjectAppearsInTheNotes(t *testing.T) {
 	for _, m := range []string{"feat: add widgets", "Revert \"fix: break gadgets\"", "Update stuff", "docs: explain widgets"} {
 		git("commit", "-q", "--allow-empty", "-m", m)
 	}
-	cmd := exec.Command(cliff, "--config", filepath.Join(root, "cliff.toml"), "--repository", repo, "--tag", "v9.9.9")
+	cmd := exec.Command(cliff, "--config", filepath.Join(root, "cliff.toml"), "--repository", repo, "--tag", "v9.9.9") //nolint:gosec // G204: git-cliff from GIT_CLIFF or PATH on a scratch repository
 	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {
@@ -427,7 +427,7 @@ func TestA15_CheckPrepRefusesAnythingReleasePrepDoesNotWrite(t *testing.T) {
 	dir := t.TempDir()
 	changelog := func(body string) string {
 		p := filepath.Join(dir, "CHANGELOG.md")
-		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil { //nolint:gosec // G703: a path under the test's temporary directory
 			t.Fatal(err)
 		}
 		return p
@@ -566,11 +566,11 @@ func workflowProblems(text string) []string {
 	for _, j := range jobs {
 		names = append(names, j.name)
 	}
-	if len(jobs) != 2 || !(contains(names, "prepare") && contains(names, "push")) {
+	if len(jobs) != 2 || !contains(names, "prepare") || !contains(names, "push") {
 		problems = append(problems, fmt.Sprintf("jobs are %v, want prepare and push", names))
 	}
 
-	const secret = "RELEASE_BOT_SSH_KEY"
+	const secret = "RELEASE_BOT_SSH_KEY" //nolint:gosec // G101: the secret's name, not its value
 	if strings.Contains(strings.Join(preamble, "\n"), secret) {
 		problems = append(problems, secret+" is referenced outside the jobs")
 	}
