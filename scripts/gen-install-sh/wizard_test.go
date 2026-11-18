@@ -432,3 +432,36 @@ func TestWizardNeedsATerminal(t *testing.T) {
 		t.Errorf("err %v, output %q; want the usage error", err, out)
 	}
 }
+
+// startInBackground starts cmd on a terminal in a process group other than
+// the terminal's foreground one, where sudo with use_pty puts a script piped
+// into it: the terminal opens, but no key typed on it arrives.
+func startInBackground(t *testing.T, cmd *exec.Cmd) *term {
+	t.Helper()
+	wrapper := exec.Command("sh", append([]string{"-c", `set -m; "$@" & wait $!`, "sh"}, cmd.Args...)...) //nolint:gosec // G204: the generated test script
+	wrapper.Env = cmd.Env
+	return startTerm(t, wrapper)
+}
+
+const backgroundRefusal = "download install.sh and run it as sudo sh install.sh"
+
+func TestWizardRefusesABackgroundTerminal(t *testing.T) {
+	f := newFixture(t)
+	tm := startInBackground(t, f.command([]string{"TERM=dumb"}))
+	tm.expect(backgroundRefusal)
+	if _, err := tm.wait(); err == nil {
+		t.Error("the wizard succeeded in the background of its terminal")
+	}
+	if got := f.tarballRequests.Load(); got != 0 {
+		t.Errorf("the refused wizard fetched %d tarballs, want none", got)
+	}
+}
+
+func TestTokenPromptRefusesABackgroundTerminal(t *testing.T) {
+	f := newFixture(t)
+	tm := startInBackground(t, f.command(nil, "--role", "agent"))
+	tm.expect(backgroundRefusal + ", or pass --token-file")
+	if _, err := tm.wait(); err == nil {
+		t.Error("the token prompt succeeded in the background of its terminal")
+	}
+}

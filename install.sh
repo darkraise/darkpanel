@@ -202,6 +202,21 @@ read_token_file() {
 	[ -n "$token" ] || die "token file $1 is empty"
 }
 
+# need_foreground stops the script when it runs in the background of its
+# terminal, where no key typed on it arrives and every prompt would wait
+# forever. sudo with use_pty, the default on Debian and Ubuntu, starts a script
+# piped into it that way. $1 is appended to the advice.
+need_foreground() {
+	nf_hint=$1
+	nf_stat=$(sed 's/.*) //' "/proc/$$/stat" 2>/dev/null) || return 0
+	# shellcheck disable=SC2086 # the fields after the command name hold no spaces
+	set -- $nf_stat
+	# After the command name: state, ppid, pgrp, session, tty_nr, tpgid.
+	[ "$#" -ge 6 ] || return 0
+	[ "$6" -le 0 ] || [ "$3" = "$6" ] ||
+		die "keys typed on this terminal cannot reach a script piped into sudo; download install.sh and run it as sudo sh install.sh$nf_hint"
+}
+
 # read_token prompts for the enrollment token or bootstrap bundle on the
 # terminal without echo. /dev/tty exists without a controlling terminal too,
 # so only opening it tells whether there is one.
@@ -209,6 +224,7 @@ read_token() {
 	if ! (: </dev/tty) 2>/dev/null; then
 		die "no terminal to read the enrollment token or bootstrap bundle from; pass --token-file"
 	fi
+	need_foreground ', or pass --token-file'
 	printf 'Enrollment token or bootstrap bundle: ' >/dev/tty
 	trap 'stty echo </dev/tty; exit 130' INT
 	trap 'stty echo </dev/tty; exit 143' TERM
@@ -618,6 +634,7 @@ main() {
 	done
 	if [ -n "$interactive" ]; then
 		(: <"$TTY") 2>/dev/null || usage
+		need_foreground ''
 	else
 		case "$role" in
 		controller) [ -z "$token_file" ] || die "--token-file is for --role agent" ;;
