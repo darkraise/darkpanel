@@ -71,9 +71,9 @@ candidate or a beta, take `install.sh` from that release's tag. The questions
 offer the newest pre-release. Without them, name the version:
 
 ```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.3/install.sh -o install.sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.4/install.sh -o install.sh
 sudo sh install.sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.3/install.sh | sudo sh -s -- --role controller --version 1.0.0-rc.3 --agent-advertise <address agents reach>:7443
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.4/install.sh | sudo sh -s -- --role controller --version 1.0.0-rc.4 --agent-advertise <address agents reach>:7443
 ```
 
 Hosts start on the `stable` update channel. Set a host's channel to `beta` on

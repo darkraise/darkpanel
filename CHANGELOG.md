@@ -2,6 +2,17 @@
 
 All notable changes to Darkpanel. Versions follow docs/versioning.md.
 
+## 1.0.0-rc.4 - 2026-11-18
+
+### Fixes
+
+- **install-sh:** refuse prompts sudo cannot reach
+
+### Documentation
+
+- **schemas:** describe snapshots stored once
+- **release:** note the full set on a new major
+- **install:** download install.sh before running it
 ## 1.0.0-rc.3 - 2026-11-17
 
 ### Features

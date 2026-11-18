@@ -50,7 +50,7 @@ for what changed and [SECURITY.md](SECURITY.md) for the support policy.
 On the server that will run the controller:
 
 ```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.3/install.sh -o install.sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.4/install.sh -o install.sh
 sudo sh install.sh
 ```
 
