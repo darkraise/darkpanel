@@ -65,7 +65,7 @@ func TestDuIndexLinksEveryPage(t *testing.T) {
 func TestDuInstall(t *testing.T) {
 	// The flags install.sh accepts are its case labels in main.
 	flags := duFlags(t, "install.sh.in", regexp.MustCompile(`(?m)^\t\t--([a-z][a-z-]*)\)`))
-	want := []string{"agent-advertise", "agent-listen", "base-url", "role", "token-file", "version"}
+	want := []string{"agent-advertise", "agent-listen", "base-url", "role", "token-file", "version", "web-listen"}
 	if !slices.Equal(flags, want) {
 		t.Fatalf("docs: install.sh.in accepts %v, want %v; update this test and docs/user/install.md together", flags, want)
 	}

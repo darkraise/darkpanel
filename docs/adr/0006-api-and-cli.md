@@ -33,6 +33,11 @@ Review findings 7, 17, 18, 22, 25, 28 and 32 shape this decision:
   internal authority carrying the host's DNS name and Tailscale addresses as
   SANs, separate from the agent-listener certificate. Plain HTTP only on
   127.0.0.1. Agent listener: ADR 0003, no web routes. Local sockets: below.
+  - Amended (owner, 2026-11-18): plain HTTP is allowed on any specific address
+    of the host when it is explicitly configured; loopback stays the default.
+    An explicitly listed non-loopback listener that cannot bind is retried at
+    every check instead of stopping the controller. Logins on the loopback and
+    Tailscale listeners are exempt from the login limiter's full-table refusal.
 - **Authentication boundary.** One middleware wraps every route on every
   listener and denies unless the route is in an explicit public list (login, and
   `/healthz`, which returns status only; its version and schema version require

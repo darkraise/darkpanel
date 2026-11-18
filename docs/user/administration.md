@@ -154,6 +154,13 @@ update history while the host is online. The Rollouts page lists every rollout
 with its hosts, starts one with "Start rollout" and stops a running one with
 "Cancel rollout". It refreshes every 5 seconds while a rollout is in progress.
 
+A controller with a public web listener (`--web-listen`) cannot run
+1.0.0-rc.4 or older, which refuse a plain-HTTP listener on an address other
+than loopback. Before you roll it back to, or install, such a version, rerun
+`sudo darkpanel system install --role controller` without `--web-listen`; see
+[Open the web UI on a public
+address](install.md#open-the-web-ui-on-a-public-address).
+
 ## Backup and restore
 
 A backup holds the controller's database and its key, in one file that is

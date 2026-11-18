@@ -39,7 +39,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 ### Browser and controller
 
-- HTTPS listeners on loopback and the Tailscale interface by default, with plain HTTP only on 127.0.0.1. The certificate comes from `tailscale cert` or the internal web root (ECDSA P-256).
+- HTTPS listeners on loopback and the Tailscale interface by default, with plain HTTP on 127.0.0.1. An operator can add a plain-HTTP listener on any specific address of the host (`--listen http://<ip>:<port>`, or `--web-listen` at install); across it, passwords, session cookies, CSRF tokens, enrollment tokens, bootstrap bundles, API tokens and tailnet auth keys travel in cleartext, and the installer and the UI footer say so. The certificate comes from `tailscale cert` or the internal web root (ECDSA P-256).
 - Cookie sessions (Secure on HTTPS, HttpOnly, SameSite=Strict) plus a CSRF token, and scoped, expiring API tokens. One middleware denies every route that is not on the public list, whatever the method. A strict Content-Security-Policy and the other headers are set by `internal/controller/api/middleware.go`.
 
 ### Proxy and controller
@@ -86,6 +86,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 #### Residual risk
 
 - The rate limiter's counters live in memory, so a restart clears them.
+- Logins that arrive on a loopback or Tailscale listener, and not through a runtime proxy listener, are exempt from the limiter's refusal of new sources when its table is full, so a flood on a public listener cannot lock the operator out. Anything on the host that forwards traffic to loopback (a reverse proxy, a tunnel) gives its clients the same exemption. Every login still waits in the shared password-hashing queue (`MaxConcurrentHashes = 2`), so a flood of logins on any listener can slow sign-in for everyone: a denial-of-service path that remains.
 - TOTP uses SHA-1 because authenticator apps implement it.
 - The web listeners accept TLS 1.2 for browsers; the agent transport requires TLS 1.3.
 - An admin whose session and CSRF token are both stolen acts as that admin until the session ends. The accepted risk of a request without an Origin header is listed in Known residual risks.

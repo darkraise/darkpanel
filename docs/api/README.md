@@ -6,7 +6,7 @@ This reference is generated from the action schemas. `openapi.json` is the OpenA
 
 | Scheme | Type | Credential | Description |
 |---|---|---|---|
-| `session` | apiKey | cookie `__Host-darkpanel_session` | Session cookie; darkpanel_session on the plain-HTTP loopback listener. |
+| `session` | apiKey | cookie `__Host-darkpanel_session` | Session cookie; darkpanel_session on any plain-HTTP listener. |
 | `token` | http | `Authorization: Bearer` header | API token dpt_\<id\>_\<secret\>. |
 
 ## Common components

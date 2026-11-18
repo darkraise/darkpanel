@@ -59,6 +59,9 @@ to install and how agents reach the controller, shows the equivalent command
 line, and installs once you confirm. It verifies the release's signature and
 checksum before it installs anything. To read it first, see [Check install.sh
 before you run it](docs/user/install.md#check-installsh-before-you-run-it).
+The installer can also open the web UI on the server's own address over plain
+HTTP; see [Open the web UI on a public
+address](docs/user/install.md#open-the-web-ui-on-a-public-address).
 
 Then create the first admin on that server. It asks for a password and shows a
 QR code for an authenticator app:
