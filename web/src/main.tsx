@@ -7,6 +7,7 @@ import "@fontsource-variable/jetbrains-mono"
 import { ApiError } from "@/api/client"
 import { App } from "@/app"
 import { applyBrand } from "@/brand"
+import { installClipboardFallback } from "@/lib/clipboard-fallback"
 import { Providers } from "@/providers"
 import "./styles/globals.css"
 
@@ -22,6 +23,7 @@ const client = new QueryClient({
 })
 
 applyBrand()
+installClipboardFallback()
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

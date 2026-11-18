@@ -1,7 +1,8 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { axe } from "vitest-axe"
+import { installClipboardFallback } from "@/lib/clipboard-fallback"
 import { renderWithProviders, stubFetch, type FetchCall, type StubResponse } from "@/test/utils"
 import { tnKey } from "./fixtures"
 import { KeysPage } from "./keys-page"
@@ -188,4 +189,25 @@ test("the key the dialog shows is a read-only field named for the key", async ()
   expect((field as HTMLInputElement).value).toBe(KY_SECRET)
   expect((field as HTMLInputElement).readOnly).toBe(true)
   expect(await axe(done)).toHaveNoViolations()
+})
+
+test("Copy works on an insecure origin through the fallback", async () => {
+  kyRender({ [KY_APPLY]: kyChange() })
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("checkbox", { name: "tag:server" }))
+  await user.click(screen.getByRole("button", { name: "Create key" }))
+  const plan = await screen.findByRole("dialog", { name: "Create an auth key" })
+  const apply = within(plan).getByRole("button", { name: "Apply" })
+  await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false))
+  await user.click(apply)
+  const done = await screen.findByRole("dialog", { name: "Auth key created" })
+  Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true })
+  let copied = ""
+  document.execCommand = vi.fn(() => {
+    copied = (document.activeElement as HTMLTextAreaElement).value
+    return true
+  })
+  installClipboardFallback()
+  await user.click(within(done).getByRole("button", { name: /^Copy/ }))
+  await waitFor(() => expect(copied).toBe(KY_SECRET))
 })
