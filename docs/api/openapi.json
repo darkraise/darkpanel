@@ -14833,7 +14833,7 @@
     },
     "securitySchemes": {
       "session": {
-        "description": "Session cookie; darkpanel_session on the plain-HTTP loopback listener.",
+        "description": "Session cookie; darkpanel_session on any plain-HTTP listener.",
         "in": "cookie",
         "name": "__Host-darkpanel_session",
         "type": "apiKey"

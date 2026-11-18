@@ -300,7 +300,7 @@ func TestAdIndexPage(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## Authentication",
-		"| `session` | apiKey | cookie `__Host-darkpanel_session` | Session cookie; darkpanel_session on the plain-HTTP loopback listener. |",
+		"| `session` | apiKey | cookie `__Host-darkpanel_session` | Session cookie; darkpanel_session on any plain-HTTP listener. |",
 		"| `token` | http | `Authorization: Bearer` header | API token dpt_\\<id\\>_\\<secret\\>. |",
 		"## Common components",
 		"### Plan",
