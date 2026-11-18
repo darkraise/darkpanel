@@ -26,6 +26,8 @@ func TestParseSpecsValues(t *testing.T) {
 		"http://127.0.0.2:8081",
 		"http://[::1]:9090",
 		"https://[::ffff:10.0.0.1]:8443",
+		"http://192.168.1.5:8080",
+		"http://[2001:db8::1]:8080",
 		"tailscale",
 	})
 	if err != nil {
@@ -38,6 +40,8 @@ func TestParseSpecsValues(t *testing.T) {
 		{Kind: KindHTTP, Addr: netip.MustParseAddrPort("127.0.0.2:8081")},
 		{Kind: KindHTTP, Addr: netip.MustParseAddrPort("[::1]:9090")},
 		{Kind: KindHTTPS, Addr: netip.MustParseAddrPort("10.0.0.1:8443")},
+		{Kind: KindHTTP, Addr: netip.MustParseAddrPort("192.168.1.5:8080")},
+		{Kind: KindHTTP, Addr: netip.MustParseAddrPort("[2001:db8::1]:8080")},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ParseSpecs = %v, want %v", got, want)
@@ -46,7 +50,7 @@ func TestParseSpecsValues(t *testing.T) {
 	for _, sp := range got {
 		s = append(s, sp.String())
 	}
-	if joined := strings.Join(s, " "); joined != "tailscale https://192.168.1.5:9443 https://[2001:db8::5]:443 http://127.0.0.2:8081 http://[::1]:9090 https://10.0.0.1:8443" {
+	if joined := strings.Join(s, " "); joined != "tailscale https://192.168.1.5:9443 https://[2001:db8::5]:443 http://127.0.0.2:8081 http://[::1]:9090 https://10.0.0.1:8443 http://192.168.1.5:8080 http://[2001:db8::1]:8080" {
 		t.Fatalf("String() = %q", joined)
 	}
 }
@@ -55,19 +59,20 @@ func TestParseSpecsRefuses(t *testing.T) {
 	cases := []struct {
 		value, msg string
 	}{
-		{"http://192.168.1.5:8080", "plain HTTP is allowed only on a loopback address"},
-		{"http://[2001:db8::1]:8080", "plain HTTP is allowed only on a loopback address"},
-		{"http://localhost:8080", "is not loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>"},
-		{"https://example.com:443", "is not loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>"},
-		{"https://192.168.1.5", "is not loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>"},
-		{"https://192.168.1.5:8443/", "is not loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>"},
-		{"tcp://127.0.0.1:80", "is not loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>"},
-		{"", "is not loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>"},
+		{"http://localhost:8080", "is not loopback, tailscale, https://<ip>:<port> or http://<ip>:<port>"},
+		{"https://example.com:443", "is not loopback, tailscale, https://<ip>:<port> or http://<ip>:<port>"},
+		{"https://192.168.1.5", "is not loopback, tailscale, https://<ip>:<port> or http://<ip>:<port>"},
+		{"https://192.168.1.5:8443/", "is not loopback, tailscale, https://<ip>:<port> or http://<ip>:<port>"},
+		{"tcp://127.0.0.1:80", "is not loopback, tailscale, https://<ip>:<port> or http://<ip>:<port>"},
+		{"", "is not loopback, tailscale, https://<ip>:<port> or http://<ip>:<port>"},
 		{"https://192.168.1.5:0", "needs a port between 1 and 65535"},
 		{"https://0.0.0.0:8443", "must be a specific address"},
 		{"https://[::]:8443", "must be a specific address"},
 		{"https://224.0.0.1:8443", "must be a specific address"},
 		{"https://[fe80::1%eth0]:8443", "must not carry a zone"},
+		{"http://0.0.0.0:8080", "must be a specific address"},
+		{"http://[::]:8080", "must be a specific address"},
+		{"http://224.0.0.1:8080", "must be a specific address"},
 	}
 	for _, c := range cases {
 		_, err := ParseSpecs([]string{c.value})
@@ -100,9 +105,9 @@ func TestEndpoints(t *testing.T) {
 	ts := []netip.Addr{netip.MustParseAddr("fd7a:115c:a1e0::7"), netip.MustParseAddr("100.64.0.7")}
 	got := Endpoints(specs, ts)
 	want := []Endpoint{
-		{Addr: netip.MustParseAddrPort("100.64.0.7:8443"), TLS: true, FreeBind: true},
+		{Addr: netip.MustParseAddrPort("100.64.0.7:8443"), TLS: true, FreeBind: true, Retry: true},
 		{Addr: netip.MustParseAddrPort("127.0.0.1:8080")},
-		{Addr: netip.MustParseAddrPort("192.168.1.5:9443"), TLS: true},
+		{Addr: netip.MustParseAddrPort("192.168.1.5:9443"), TLS: true, Retry: true},
 		{Addr: netip.MustParseAddrPort("[::1]:8080"), Optional: true},
 		{Addr: netip.MustParseAddrPort("[fd7a:115c:a1e0::7]:8443"), TLS: true, FreeBind: true},
 	}
@@ -114,6 +119,37 @@ func TestEndpoints(t *testing.T) {
 	}
 	if u := got[1].URL(); u != "http://127.0.0.1:8080" {
 		t.Fatalf("URL() = %q", u)
+	}
+}
+
+// TestEndpointsRetryAndTLSMerge: an explicit non-loopback listener is Retry,
+// the defaults and an explicit loopback one are not, and a plain listing of
+// a Tailscale address never strips its TLS (spec A21, A22).
+func TestEndpointsRetryAndTLSMerge(t *testing.T) {
+	specs, err := ParseSpecs([]string{"loopback", "tailscale", "http://127.0.0.2:8081",
+		"http://203.0.113.7:8080", "https://[2001:db8::7]:9443", "http://100.64.0.7:8443"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := Endpoints(specs, []netip.Addr{netip.MustParseAddr("100.64.0.7")})
+	want := []Endpoint{
+		{Addr: netip.MustParseAddrPort("100.64.0.7:8443"), TLS: true, FreeBind: true, Retry: true},
+		{Addr: netip.MustParseAddrPort("127.0.0.1:8080")},
+		{Addr: netip.MustParseAddrPort("127.0.0.2:8081")},
+		{Addr: netip.MustParseAddrPort("203.0.113.7:8080"), Retry: true},
+		{Addr: netip.MustParseAddrPort("[::1]:8080"), Optional: true},
+		{Addr: netip.MustParseAddrPort("[2001:db8::7]:9443"), TLS: true, Retry: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Endpoints = %v,\nwant %v", got, want)
+	}
+	// The listing order must not matter for the TLS merge.
+	rev, err := ParseSpecs([]string{"http://100.64.0.7:8443", "tailscale"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := Endpoints(rev, []netip.Addr{netip.MustParseAddr("100.64.0.7")}); len(e) != 1 || !e[0].TLS {
+		t.Fatalf("Endpoints = %v, want the Tailscale address kept on TLS", e)
 	}
 }
 

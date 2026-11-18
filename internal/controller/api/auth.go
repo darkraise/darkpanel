@@ -28,7 +28,7 @@ type sessionResponse struct {
 // It has no expiry; the server ends the session. A negative maxAge clears
 // it.
 func sessionCookie(r *http.Request, value string, maxAge int) *http.Cookie {
-	return &http.Cookie{ //nolint:gosec // G124: Secure is set on HTTPS; the plain-HTTP loopback cookie cannot be Secure (spec section 9)
+	return &http.Cookie{ //nolint:gosec // G124: Secure is set on HTTPS; the plain-HTTP cookie cannot be Secure (spec section 9)
 		Name:     sessionCookieName(r),
 		Value:    value,
 		Path:     "/",

@@ -20,8 +20,9 @@ import (
 )
 
 // Session cookie names and the CSRF header (spec section 9). HTTPS
-// listeners use the __Host- cookie with Secure; the plain-HTTP loopback
-// listener uses the other name without Secure.
+// listeners use the __Host- cookie with Secure; the plain-HTTP listeners
+// (loopback, or an explicitly listed address) use the other name without
+// Secure.
 const (
 	SessionCookieSecure = "__Host-darkpanel_session"
 	SessionCookiePlain  = "darkpanel_session"

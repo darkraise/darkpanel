@@ -61,7 +61,7 @@ func TestExitCodes(t *testing.T) {
 		{[]string{"version", "extra"}, cli.ExitUsage, `unknown command "extra"`},
 		{[]string{"nope"}, cli.ExitUsage, `unknown command "nope"`},
 		{[]string{"serve", "--nope"}, cli.ExitUsage, "unknown flag: --nope"},
-		{[]string{"serve", "--dev", "--listen", "http://192.0.2.1:80"}, cli.ExitUsage, "plain HTTP is allowed only on a loopback address"},
+		{[]string{"serve", "--dev", "--listen", "http://0.0.0.0:80"}, cli.ExitUsage, "the address must be a specific address of this host"},
 		{[]string{"serve", "--dev", "--listen", "ftp://127.0.0.1:21"}, cli.ExitUsage, "is not loopback, tailscale"},
 		{[]string{"serve"}, cli.ExitUsage, "serve runs as the darkpanel user in production; start it with systemctl start darkpanel-controller, or add --dev"},
 		{[]string{"serve", "--embedded-agent"}, cli.ExitUsage, "--embedded-agent runs the M1 in-process agent and needs --dev"},

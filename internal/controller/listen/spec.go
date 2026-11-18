@@ -1,7 +1,7 @@
 // Package listen opens the controller's web and API listeners (spec section
-// 13, ADR 0006): plain HTTP on loopback, HTTPS on the Tailscale addresses and
-// on explicit binds, with a certificate from the controller's web authority
-// (ADR 0010).
+// 13, ADR 0006): plain HTTP on loopback by default and on any specific address
+// when listed, HTTPS on the Tailscale addresses and on explicit binds, with a
+// certificate from the controller's web authority (ADR 0010).
 package listen
 
 import (
@@ -25,7 +25,7 @@ const (
 	KindLoopback  Kind = iota + 1 // plain HTTP on 127.0.0.1:8080 and [::1]:8080
 	KindTailscale                 // HTTPS on port 8443 of each Tailscale address
 	KindHTTPS                     // https://<ip>:<port>
-	KindHTTP                      // http://<loopback ip>:<port>
+	KindHTTP                      // http://<ip>:<port>
 )
 
 // Spec is one parsed --listen value. Addr is set for KindHTTPS and KindHTTP.
@@ -50,9 +50,8 @@ func (s Spec) String() string {
 }
 
 // ParseSpecs parses the --listen values; none means the defaults, loopback
-// and tailscale. Repeated values count once. It refuses plain HTTP on an
-// address that is not loopback, and one address listed as both HTTP and
-// HTTPS.
+// and tailscale. Repeated values count once. It refuses one address listed as
+// both HTTP and HTTPS.
 func ParseSpecs(values []string) ([]Spec, error) {
 	if len(values) == 0 {
 		return []Spec{{Kind: KindLoopback}, {Kind: KindTailscale}}, nil
@@ -109,14 +108,11 @@ func parseSpec(v string) (Spec, error) {
 	if addr.IsUnspecified() || addr.IsMulticast() {
 		return Spec{}, fmt.Errorf("listen: %q: the address must be a specific address of this host", v)
 	}
-	if kind == KindHTTP && !addr.IsLoopback() {
-		return Spec{}, fmt.Errorf("listen: %q: plain HTTP is allowed only on a loopback address; use https://%s", v, ap)
-	}
 	return Spec{Kind: kind, Addr: netip.AddrPortFrom(addr, ap.Port())}, nil
 }
 
 func badValue(v string) error {
-	return fmt.Errorf("listen: %q is not loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>", v)
+	return fmt.Errorf("listen: %q is not loopback, tailscale, https://<ip>:<port> or http://<ip>:<port>", v)
 }
 
 // HasTailscale reports whether specs include the tailscale listener.
@@ -134,6 +130,9 @@ type Endpoint struct {
 	// Optional marks the IPv6 loopback endpoint: a host without that address
 	// skips it with one log line instead of failing.
 	Optional bool
+	// Retry marks an explicitly listed non-loopback endpoint: its bind failure
+	// is retried at later checks without failing the set.
+	Retry bool
 }
 
 // URL returns the endpoint as a base URL, such as https://100.64.0.1:8443.
@@ -151,12 +150,15 @@ var (
 
 // Endpoints expands specs into endpoints, with tailscale as the current
 // Tailscale addresses. One address listed twice is one endpoint; it keeps
-// FreeBind if either listing has it. The result is sorted by address.
+// FreeBind, TLS and Retry if either listing has them, so a plain listing of a
+// Tailscale address never strips its TLS. The result is sorted by address.
 func Endpoints(specs []Spec, tailscale []netip.Addr) []Endpoint {
 	byAddr := map[netip.AddrPort]Endpoint{}
 	add := func(e Endpoint) {
 		if prev, ok := byAddr[e.Addr]; ok {
 			e.FreeBind = e.FreeBind || prev.FreeBind
+			e.TLS = e.TLS || prev.TLS
+			e.Retry = e.Retry || prev.Retry
 			e.Optional = e.Optional && prev.Optional
 		}
 		byAddr[e.Addr] = e
@@ -185,9 +187,9 @@ func expand(s Spec, tailscale []netip.Addr) []Endpoint {
 		}
 		return out
 	case KindHTTPS:
-		return []Endpoint{{Addr: s.Addr, TLS: true}}
+		return []Endpoint{{Addr: s.Addr, TLS: true, Retry: !s.Addr.Addr().IsLoopback()}}
 	case KindHTTP:
-		return []Endpoint{{Addr: s.Addr}}
+		return []Endpoint{{Addr: s.Addr, Retry: !s.Addr.Addr().IsLoopback()}}
 	}
 	return nil
 }

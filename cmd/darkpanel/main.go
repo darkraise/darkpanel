@@ -211,7 +211,7 @@ func newServeCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&dev, "dev", false, "use per-user development paths under $XDG_STATE_HOME/darkpanel-dev")
 	cmd.Flags().StringArrayVar(&listenFlags, "listen", nil,
-		"listener to open instead of the defaults (repeatable): loopback, tailscale, https://<ip>:<port> or http://<loopback ip>:<port>")
+		"listener to open instead of the defaults (repeatable): loopback, tailscale, https://<ip>:<port> or http://<ip>:<port>")
 	cmd.Flags().StringArrayVar(&agentFlags, "agent-listen", nil,
 		"extra address of this host for the agent listener, <ip>:<port> (repeatable); 127.0.0.1:7443 and the Tailscale addresses are always bound")
 	cmd.Flags().StringVar(&agentAdvertise, "agent-advertise", "",
