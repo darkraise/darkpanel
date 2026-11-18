@@ -25,8 +25,13 @@ options it asks for the role, the version and the address agents connect to,
 shows the equivalent command line, and installs once you confirm:
 
 ```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh | sudo sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh -o install.sh
+sudo sh install.sh
 ```
+
+Download the script before you run it. Piped into `sudo sh`, its questions
+cannot read your keys where sudo runs commands in a terminal of its own, as it
+does by default on Debian and Ubuntu, and `install.sh` stops with that advice.
 
 To install without questions, download it and pass the options:
 
@@ -66,7 +71,8 @@ candidate or a beta, take `install.sh` from that release's tag. The questions
 offer the newest pre-release. Without them, name the version:
 
 ```sh
-curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.3/install.sh | sudo sh
+curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.3/install.sh -o install.sh
+sudo sh install.sh
 curl -fsSL https://github.com/Darkraise/darkpanel/releases/download/v1.0.0-rc.3/install.sh | sudo sh -s -- --role controller --version 1.0.0-rc.3 --agent-advertise <address agents reach>:7443
 ```
 
