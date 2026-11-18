@@ -11,6 +11,7 @@
 #       /dev/tty, so curl ... | sudo sh works too.
 #   sudo sh install.sh --role controller [--version X.Y.Z] [--base-url URL]
 #       [--agent-listen ADDR:PORT]... [--agent-advertise HOST:PORT]
+#       [--web-listen http://<ip>:<port>]...
 #   sudo sh install.sh --role agent [--version X.Y.Z] [--base-url URL]
 #       [--token-file PATH]
 #
@@ -238,7 +239,7 @@ read_token() {
 }
 
 usage() {
-	die "usage: install.sh --role controller|agent [--version X.Y.Z] [--base-url URL] [--token-file PATH] [--agent-listen ADDR:PORT]... [--agent-advertise HOST:PORT]; with --role agent, the token file holds an enrollment token or bootstrap bundle"
+	die "usage: install.sh --role controller|agent [--version X.Y.Z] [--base-url URL] [--token-file PATH] [--agent-listen ADDR:PORT]... [--agent-advertise HOST:PORT] [--web-listen URL]...; with --role agent, the token file holds an enrollment token or bootstrap bundle"
 }
 
 # valid_address succeeds for a plain host:port; check_address refuses
@@ -251,6 +252,16 @@ valid_address() {
 
 check_address() {
 	valid_address "$1" || die "address $1 is not host:port"
+}
+
+# check_web refuses a --web-listen value that is not http:// or https://
+# followed by an IPv4 address or a bracketed IPv6 address and a port;
+# darkpanel system install checks the rest.
+check_web() {
+	case $1 in *'
+'*) die "--web-listen $1 is not http://<ip>:<port> or https://<ip>:<port>" ;; esac
+	printf '%s' "$1" | grep -Eq '^https?://([0-9]{1,3}(\.[0-9]{1,3}){3}|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$' ||
+		die "--web-listen $1 is not http://<ip>:<port> or https://<ip>:<port>"
 }
 
 # release_versions prints every well-formed version the release index $1
@@ -611,6 +622,7 @@ main() {
 	base_url=''
 	token_file=''
 	listen_args=''
+	web_args=''
 	interactive=
 	[ $# -gt 0 ] || interactive=1
 	while [ $# -gt 0 ]; do
@@ -628,6 +640,10 @@ main() {
 			check_address "$2"
 			listen_args="$listen_args --agent-advertise $2"
 			;;
+		--web-listen)
+			check_web "$2"
+			web_args="$web_args --web-listen $2"
+			;;
 		*) usage ;;
 		esac
 		shift 2
@@ -638,7 +654,10 @@ main() {
 	else
 		case "$role" in
 		controller) [ -z "$token_file" ] || die "--token-file is for --role agent" ;;
-		agent) [ -z "$listen_args" ] || die "--agent-listen and --agent-advertise are for --role controller" ;;
+		agent)
+			[ -z "$listen_args" ] || die "--agent-listen and --agent-advertise are for --role controller"
+			[ -z "$web_args" ] || die "--web-listen is for --role controller"
+			;;
 		*) usage ;;
 		esac
 	fi
@@ -693,9 +712,13 @@ main() {
 
 	bin="$ROOT/usr/local/lib/darkpanel/darkpanel"
 	if [ "$role" = controller ]; then
+		if [ -n "$web_args" ] && ! "$bin" system install --help </dev/null 2>/dev/null | grep -q -- --web-listen; then
+			echo "darkpanel $version cannot open a public web listener; installing without it" >&2
+			web_args=''
+		fi
 		set -f
-		# shellcheck disable=SC2086 # listen_args holds checked words
-		"$bin" system install --role controller $listen_args </dev/null
+		# shellcheck disable=SC2086 # listen_args and web_args hold checked words
+		"$bin" system install --role controller $listen_args $web_args </dev/null
 		set +f
 	elif [ -n "$token" ]; then
 		printf '%s\n' "$token" | "$bin" system install --role agent
