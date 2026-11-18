@@ -260,3 +260,31 @@ func TestRetryAfterSeconds(t *testing.T) {
 		}
 	}
 }
+
+// TestTrustedAttemptPassesAFullTable: with every key locked, an untrusted
+// attempt needing a new key is refused, a trusted one is evaluated and its
+// failures are recorded past the cap and still lock it (spec A19).
+func TestTrustedAttemptPassesAFullTable(t *testing.T) {
+	clock := coretest.NewFakeClock(t0)
+	l := newLimiter(clock)
+	for range SourceFailureLimit {
+		l.fail("alice", "10.0.0.1") // u:alice@10.0.0.1 and s:10.0.0.1 both locked
+	}
+	l.max = 2
+	if d := l.blockedFor("carol", "127.0.0.1", false); d == 0 {
+		t.Fatal("an untrusted attempt needing new keys passed a table full of locked keys")
+	}
+	if d := l.blockedFor("carol", "127.0.0.1", true); d != 0 {
+		t.Fatalf("a trusted attempt is blocked for %s, want it evaluated", d)
+	}
+	l.failFor("carol", "127.0.0.1", true)
+	if l.keys[pairKey("carol", "127.0.0.1")] == nil || l.keys[sourceKey("127.0.0.1")] == nil {
+		t.Fatal("a trusted failure was not recorded past the cap")
+	}
+	for range UsernameFailureLimit - 1 {
+		l.failFor("carol", "127.0.0.1", true)
+	}
+	if d := l.blockedFor("carol", "127.0.0.1", true); d != LockDuration {
+		t.Errorf("trusted pair after %d failures is blocked for %s, want %s", UsernameFailureLimit, d, LockDuration)
+	}
+}

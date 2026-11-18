@@ -23,6 +23,9 @@ const (
 // UserAgent its User-Agent header; both are stored with the session.
 type LoginRequest struct {
 	Username, Password, Code, Source, UserAgent string
+	// Trusted is true when the attempt arrived on a loopback or Tailscale
+	// listener.
+	Trusted bool
 }
 
 // LoginResult is a successful login. SessionID is the session cookie's value.
@@ -67,7 +70,7 @@ func (s *Service) Login(ctx context.Context, r LoginRequest) (LoginResult, error
 	if checkUsername(r.Username) != nil {
 		return LoginResult{}, errInvalidCredentials()
 	}
-	if d := s.limiter.blocked(r.Username, limitSource(ctx, r.Source)); d > 0 {
+	if d := s.limiter.blockedFor(r.Username, limitSource(ctx, r.Source), trustedAttempt(ctx, r)); d > 0 {
 		return LoginResult{}, errRateLimited(d)
 	}
 	if err := s.hasher.acquire(ctx); err != nil {
@@ -87,7 +90,7 @@ func (s *Service) Login(ctx context.Context, r LoginRequest) (LoginResult, error
 		return LoginResult{}, err
 	}
 	if err := s.recordLogin(ctx, r, userID, ""); err != nil {
-		s.limiter.fail(r.Username, limitSource(ctx, r.Source))
+		s.limiter.failFor(r.Username, limitSource(ctx, r.Source), trustedAttempt(ctx, r))
 		_ = s.recordLogin(ctx, r, userID, errcode.Internal)
 		return LoginResult{}, err
 	}
@@ -104,6 +107,13 @@ func limitSource(ctx context.Context, source string) string {
 	return source
 }
 
+// trustedAttempt reports whether r counts as arriving on a trusted listener:
+// a request a runtime listener proxied never does, whatever r.Trusted says.
+func trustedAttempt(ctx context.Context, r LoginRequest) bool {
+	_, proxied := core.ProxiedFrom(ctx)
+	return r.Trusted && !proxied
+}
+
 func errRateLimited(d time.Duration) error {
 	return errcode.Wrap(errcode.RateLimited, &RetryAfterError{After: d},
 		"too many failed login attempts; try again later")
@@ -115,12 +125,13 @@ func errRateLimited(d time.Duration) error {
 // evaluated before any of their failures counted. Invalid credentials and
 // any error after the password verified count as failures.
 func (s *Service) evaluate(ctx context.Context, r LoginRequest) (LoginResult, string, bool, error) {
-	if d := s.limiter.blocked(r.Username, limitSource(ctx, r.Source)); d > 0 {
+	trusted := trustedAttempt(ctx, r)
+	if d := s.limiter.blockedFor(r.Username, limitSource(ctx, r.Source), trusted); d > 0 {
 		return LoginResult{}, "", false, errRateLimited(d)
 	}
 	res, userID, verified, err := s.attempt(ctx, r)
 	if err != nil && (verified || errcode.From(err).Code == errcode.InvalidCredentials) {
-		s.limiter.fail(r.Username, limitSource(ctx, r.Source))
+		s.limiter.failFor(r.Username, limitSource(ctx, r.Source), trusted)
 	}
 	return res, userID, verified, err
 }
