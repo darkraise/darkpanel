@@ -100,6 +100,9 @@ func TestReleasedDuplicates(t *testing.T) {
 			t.Errorf("%s: releasedDuplicates = %q, want %q", c.name, got, c.want)
 		}
 	}
+	if got, err := releasedDuplicates(fstest.MapFS{}); err == nil {
+		t.Errorf("no released directory: releasedDuplicates = %q, want an error", got)
+	}
 }
 
 // Each released snapshot is stored once per major (ADR 0002).

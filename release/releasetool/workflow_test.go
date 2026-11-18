@@ -167,9 +167,11 @@ func TestSnapshotsRetainedGuardRuns(t *testing.T) {
 	const assign = `ref=$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_SHA^")`
 	const call = `bash release/snapshots.sh retained "$ref"`
 	type step struct {
-		Uses string         `yaml:"uses"`
-		With map[string]any `yaml:"with"`
-		Run  string         `yaml:"run"`
+		Uses            string         `yaml:"uses"`
+		With            map[string]any `yaml:"with"`
+		Run             string         `yaml:"run"`
+		If              string         `yaml:"if"`
+		ContinueOnError any            `yaml:"continue-on-error"`
 	}
 	for _, c := range []struct{ file, job string }{
 		{"../../.github/workflows/ci.yml", "release-scripts"},
@@ -198,6 +200,9 @@ func TestSnapshotsRetainedGuardRuns(t *testing.T) {
 			}
 			if a, k := strings.Index(s.Run, assign+"\n"), strings.Index(s.Run, call); a >= 0 && k > a {
 				guarded = true
+				if s.If != "" || s.ContinueOnError != nil {
+					t.Errorf("%s job %s: the guard step must fail the job: drop its if: and continue-on-error:", c.file, c.job)
+				}
 			}
 		}
 		if !fullHistory {

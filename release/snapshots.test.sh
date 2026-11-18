@@ -178,6 +178,7 @@ expect retained_empty_baseline 1 bash "$script" retained "$empty"
 # Pins the git behaviour the call sites rely on (Task 5 pins the lines
 # themselves): a tagged HEAD resolves to the previous tag, never itself.
 git -C "$repo" tag -a v10.0.1 -m v10.0.1
+expect callsite_tag_on_head 0 test "$(git -C "$repo" describe --tags --abbrev=0 --match 'v*' "$(git -C "$repo" rev-parse HEAD)")" = v10.0.1
 expect callsite_previous_tag 0 test "$(git -C "$repo" describe --tags --abbrev=0 --match 'v*' "$(git -C "$repo" rev-parse HEAD)^")" = v10.0.0
 
 echo "snapshots tests: $pass passed, $fail failed"
