@@ -123,3 +123,19 @@ func TestTrustedLoginPassesAFullTable(t *testing.T) {
 		t.Errorf("trusted sign-in with a full table: %v, want a session", err)
 	}
 }
+
+func TestTrustedFailuresStillLockOnAFullTable(t *testing.T) {
+	s, clock, _ := newTestService(t)
+	_, secret := createActive(t, s, clock, "alice")
+	for range SourceFailureLimit {
+		s.limiter.fail("mallory", "198.51.100.7")
+	}
+	s.limiter.max = 2
+	ctx := context.Background()
+	for range UsernameFailureLimit {
+		_, err := s.Login(ctx, LoginRequest{Username: "alice", Password: "wrong horse battery", Code: "000000", Source: "127.0.0.1", Trusted: true})
+		wantCode(t, err, errcode.InvalidCredentials)
+	}
+	_, err := s.Login(ctx, LoginRequest{Username: "alice", Password: testPassword, Code: code(t, secret, clock), Source: "127.0.0.1", Trusted: true})
+	wantCode(t, err, errcode.RateLimited)
+}
