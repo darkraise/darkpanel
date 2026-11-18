@@ -152,5 +152,33 @@ commit v10.0.0 v10.0.0
 expect check_v1_ignores_v10 1 bash "$script" check v1.0.3
 said check_v1_ignores_v10_names_file "core.user.list/v1.json"
 
+# retained: no released content may disappear from the working tree.
+expect retained_usage 2 bash "$script" retained
+expect retained_unchanged 0 bash "$script" retained v10.0.0
+expect retained_older_tag 0 bash "$script" retained v1.0.2
+cp -r "$R/v1.0.0" "$R/v1.0.9"
+commit duplicate
+dup=$(git -C "$repo" rev-parse HEAD)
+rm -r "$R/v1.0.9"
+expect retained_duplicate_removed 0 bash "$script" retained "$dup"
+commit drop-duplicate
+# {"input":0} lives only in v0.1.0/core.host.list/v1.json.
+rm "$R/v0.1.0/core.host.list/v1.json"
+expect retained_last_copy_deleted 1 bash "$script" retained v1.0.2
+said retained_deleted_names_file "v0.1.0/core.host.list/v1.json"
+git -C "$repo" checkout -q -- schemas/released
+echo '{"input":5}' >"$R/v0.1.0/core.host.list/v1.json"
+expect retained_last_copy_edited 1 bash "$script" retained v1.0.2
+said retained_edited_names_file "v0.1.0/core.host.list/v1.json"
+git -C "$repo" checkout -q -- schemas/released
+expect retained_empty_ref 1 bash "$script" retained ""
+expect retained_unknown_ref 1 bash "$script" retained no-such-ref
+empty=$(git -C "$repo" commit-tree "$(git -C "$repo" mktree </dev/null)" -m empty)
+expect retained_empty_baseline 1 bash "$script" retained "$empty"
+# Pins the git behaviour the call sites rely on (Task 5 pins the lines
+# themselves): a tagged HEAD resolves to the previous tag, never itself.
+git -C "$repo" tag -a v10.0.1 -m v10.0.1
+expect callsite_previous_tag 0 test "$(git -C "$repo" describe --tags --abbrev=0 --match 'v*' "$(git -C "$repo" rev-parse HEAD)^")" = v10.0.0
+
 echo "snapshots tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
