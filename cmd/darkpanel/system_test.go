@@ -25,8 +25,19 @@ import (
 
 // fakeInstall replaces the installer and the systemd provider for one test
 // and records the Config system install passed.
+// fakeInterfaceAddrs makes 203.0.113.7 and 127.0.0.1 this host's addresses.
+func fakeInterfaceAddrs(t *testing.T) {
+	t.Helper()
+	old := interfaceAddrs
+	t.Cleanup(func() { interfaceAddrs = old })
+	interfaceAddrs = func() ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("203.0.113.7")}, nil
+	}
+}
+
 func fakeInstall(t *testing.T, euid int, terminal bool) (*[]install.Config, *agentSeams) {
 	t.Helper()
+	fakeInterfaceAddrs(t)
 	s := fakeAgent(t, euid)
 	var got []install.Config
 	oldInstall, oldTerm := runInstall, stdinTerminal
@@ -53,6 +64,13 @@ func TestSystemInstallRefusals(t *testing.T) {
 		{[]string{"system", "install", "--role", "controller", "--agent-listen", "192.0.2.7"}, 0, `agent address "192.0.2.7" is not host:port`},
 		{[]string{"system", "install", "--role", "controller", "--agent-advertise", "panel.example:0"}, 0, `agent address "panel.example:0" is not host:port`},
 		{[]string{"system", "nope"}, 0, `unknown command "nope" for "darkpanel system"`},
+		{[]string{"system", "install", "--role", "agent", "--web-listen", "http://203.0.113.7:8080"}, 0, "--web-listen is for the controller role"},
+		{[]string{"system", "install", "--role", "controller", "--web-listen", "loopback"}, 0, `--web-listen "loopback": want http://<ip>:<port> or https://<ip>:<port>`},
+		{[]string{"system", "install", "--role", "controller", "--web-listen", "tailscale"}, 0, `--web-listen "tailscale": want http://<ip>:<port> or https://<ip>:<port>`},
+		{[]string{"system", "install", "--role", "controller", "--web-listen", "http://0.0.0.0:8080"}, 0, "the address must be a specific address of this host"},
+		{[]string{"system", "install", "--role", "controller", "--web-listen", "https://127.0.0.1:8080"}, 0, "is listed as both HTTP and HTTPS"},
+		{[]string{"system", "install", "--role", "controller", "--web-listen", "http://198.51.100.9:8080"}, 0, "--web-listen: 198.51.100.9 is not an address of this host; behind NAT, give the server's own address"},
+		{[]string{"system", "install", "--role", "controller", "--web-listen", "http://198.51.100.9:8080"}, 1000, "--web-listen: 198.51.100.9 is not an address of this host"},
 	}
 	for _, tt := range tests {
 		got, _ := fakeInstall(t, tt.euid, false)
@@ -80,6 +98,8 @@ func TestSystemInstallConfig(t *testing.T) {
 			"ignored\n", false, install.RoleController, "", true},
 		{"agent with a piped token", []string{"--role", "agent"}, "  piped-token \n", false, install.RoleAgent, "piped-token", false},
 		{"agent on a terminal", []string{"--role", "agent"}, "typed\n", true, install.RoleAgent, "", false},
+		{"controller with a web listener", []string{"--role", "controller", "--web-listen", "http://203.0.113.7:8080"},
+			"", false, install.RoleController, "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,6 +119,9 @@ func TestSystemInstallConfig(t *testing.T) {
 			if got := cfg.Controller != nil; got != tt.controller {
 				t.Errorf("Controller set %v, want %v", got, tt.controller)
 			}
+			if tt.name == "controller with a web listener" && !slices.Equal(cfg.WebListen, []string{"http://203.0.113.7:8080"}) {
+				t.Errorf("WebListen = %q, want the flag's value", cfg.WebListen)
+			}
 			if a, ok := cfg.Agent.(installAgent); !ok || a.socket != s.layout.Paths.AgentSocket || a.tlsDir != s.layout.Paths.AgentTLSDir {
 				t.Errorf("Agent = %#v, want the installed agent socket and credentials", cfg.Agent)
 			}
@@ -113,7 +136,7 @@ func TestSystemInstallConfig(t *testing.T) {
 			if !slices.Equal(gotModules, wantModules) {
 				t.Errorf("Modules = %v, want %v", gotModules, wantModules)
 			}
-			if tt.role == install.RoleController && (!slices.Equal(cfg.AgentListen, []string{"192.0.2.7:7443"}) || cfg.AgentAdvertise != "panel.example:7443") {
+			if tt.name == "controller" && (!slices.Equal(cfg.AgentListen, []string{"192.0.2.7:7443"}) || cfg.AgentAdvertise != "panel.example:7443") {
 				t.Errorf("agent listener flags = %v %q", cfg.AgentListen, cfg.AgentAdvertise)
 			}
 			if s.systemd.closed != 1 {

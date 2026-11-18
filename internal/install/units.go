@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"text/template"
 
-	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/update"
 )
 
@@ -74,20 +73,9 @@ func Units(l Layout, role Role, agentListen []string, agentAdvertise string, web
 			return nil, err
 		}
 	}
-	var web []string
-	if len(webListen) > 0 {
-		for _, v := range webListen {
-			if v == "loopback" || v == "tailscale" {
-				return nil, fmt.Errorf("install: --web-listen %q: want http://<ip>:<port> or https://<ip>:<port>", v)
-			}
-		}
-		specs, err := listen.ParseSpecs(append([]string{"loopback", "tailscale"}, webListen...))
-		if err != nil {
-			return nil, fmt.Errorf("install: %w", err)
-		}
-		for _, s := range specs[2:] {
-			web = append(web, s.String())
-		}
+	web, err := WebListenValues(webListen)
+	if err != nil {
+		return nil, fmt.Errorf("install: %w", err)
 	}
 	data := unitData{
 		Binary: l.Paths.Binary(), Recovery: l.Paths.RecoveryBinary(), ControllerDir: l.Paths.ControllerDir,

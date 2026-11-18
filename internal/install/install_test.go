@@ -169,10 +169,31 @@ func TestInstallRerunChangesNothing(t *testing.T) {
 					t.Errorf("second run output lacks %q:\n%s", line, h.out)
 				}
 			}
+			if role == RoleAgent && strings.Contains(h.out.String(), "web listeners:") {
+				t.Errorf("the agent role printed web listeners:\n%s", h.out)
+			}
+			if role == RoleController && !strings.Contains(h.out.String(), "web listeners: loopback, tailscale\n") {
+				t.Errorf("the controller role did not print its web listeners:\n%s", h.out)
+			}
 			if role == RoleController && len(h.runner.commands()) != 1 {
 				t.Errorf("useradd ran %d times, want once", len(h.runner.commands()))
 			}
 		})
+	}
+}
+
+func TestInstallPrintsTheWebListeners(t *testing.T) {
+	h := newTestHost(t)
+	cfg := h.config(RoleController)
+	cfg.WebListen = []string{"http://203.0.113.7:8080"}
+	if err := Install(context.Background(), cfg); err != nil {
+		t.Fatalf("Install: %v\n%s", err, h.out)
+	}
+	if !strings.Contains(h.out.String(), "web listeners: loopback, tailscale, http://203.0.113.7:8080\n") {
+		t.Errorf("output lacks the web listener line:\n%s", h.out)
+	}
+	if d := string(readBytes(t, h.layout.DropInPath())); !strings.Contains(d, "--listen loopback --listen tailscale --listen http://203.0.113.7:8080") {
+		t.Errorf("drop-in lacks the web listener:\n%s", d)
 	}
 }
 
