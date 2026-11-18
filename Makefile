@@ -137,14 +137,16 @@ release: release-check verify-build
 		-output $(RELEASE_DIR)/darkpanel_$(VERSION).cdx.json .
 	bash release/package.sh $(VERSION) bin $(RELEASE_DIR)
 
-# make release-prep VERSION=x.y.z freezes the schema snapshots, moves a
-# pre-release's install pins in the docs and rewrites CHANGELOG.md; the
-# owner commits them, then pushes a signed tag vx.y.z.
+# make release-prep VERSION=x.y.z moves a pre-release's install pins in the
+# docs, freezes only the schema snapshots no earlier release of the same
+# major holds, checks them and rewrites CHANGELOG.md; the owner commits them,
+# then pushes a signed tag vx.y.z.
 # Released snapshots are immutable, so git-cliff is checked before they are frozen.
 release-prep: release-check
 	@command -v $(GIT_CLIFF) >/dev/null || { echo "release-prep: $(GIT_CLIFF) not found; install git-cliff 2.14.2 or set GIT_CLIFF" >&2; exit 1; }
 	bash release/pin-docs.sh $(VERSION)
 	bash release/snapshots.sh copy v$(VERSION)
+	bash release/snapshots.sh check v$(VERSION)
 	$(GIT_CLIFF) --tag v$(VERSION) -o CHANGELOG.md
 
 install-sh:

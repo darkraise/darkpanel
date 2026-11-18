@@ -116,6 +116,8 @@ func TestCheckPrep(t *testing.T) {
 	for _, c := range []struct{ name, changelog, paths, errWant string }{
 		{"prepared", good, paths, ""},
 		{"changelog and snapshot only", good, "CHANGELOG.md\nschemas/released/v1.0.0-rc.3/core.host.list/v1.json\n", ""},
+		{"changelog only", good, "CHANGELOG.md\n", ""},
+		{"changelog and docs pins", good, "CHANGELOG.md\nREADME.md\ndocs/user/install.md\n", ""},
 		{"code changed", good, paths + "internal/core/x.go\n", "internal/core/x.go"},
 		{"older snapshot changed", good, paths + "schemas/released/v1.0.0-rc.2/core.host.list/v1.json\n", "schemas/released/v1.0.0-rc.2/core.host.list/v1.json"},
 		{"current schema changed", good, paths + "schemas/core.host.list/v1.json\n", "schemas/core.host.list/v1.json"},
