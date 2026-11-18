@@ -23,8 +23,6 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/tailscale"
 )
 
-// fakeInstall replaces the installer and the systemd provider for one test
-// and records the Config system install passed.
 // fakeInterfaceAddrs makes 203.0.113.7 and 127.0.0.1 this host's addresses.
 func fakeInterfaceAddrs(t *testing.T) {
 	t.Helper()
@@ -35,6 +33,8 @@ func fakeInterfaceAddrs(t *testing.T) {
 	}
 }
 
+// fakeInstall replaces the installer and the systemd provider for one test
+// and records the Config system install passed.
 func fakeInstall(t *testing.T, euid int, terminal bool) (*[]install.Config, *agentSeams) {
 	t.Helper()
 	fakeInterfaceAddrs(t)
@@ -71,6 +71,7 @@ func TestSystemInstallRefusals(t *testing.T) {
 		{[]string{"system", "install", "--role", "controller", "--web-listen", "https://127.0.0.1:8080"}, 0, "is listed as both HTTP and HTTPS"},
 		{[]string{"system", "install", "--role", "controller", "--web-listen", "http://198.51.100.9:8080"}, 0, "--web-listen: 198.51.100.9 is not an address of this host; behind NAT, give the server's own address"},
 		{[]string{"system", "install", "--role", "controller", "--web-listen", "http://198.51.100.9:8080"}, 1000, "--web-listen: 198.51.100.9 is not an address of this host"},
+		{[]string{"system", "install", "--role", "controller", "--web-listen", "http://203.0.113.7:80"}, 0, "--web-listen: port 80 needs root to bind and the controller runs as darkpanel; use port 1024 or higher, such as 8080"},
 	}
 	for _, tt := range tests {
 		got, _ := fakeInstall(t, tt.euid, false)

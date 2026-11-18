@@ -92,8 +92,15 @@ func checkWebListen(role install.Role, values []string) error {
 		if err != nil {
 			return err
 		}
-		if a := specs[0].Addr.Addr(); !slices.Contains(have, a) {
+		// Linux binds all of 127.0.0.0/8, but the interface list names only
+		// 127.0.0.1.
+		if a := specs[0].Addr.Addr(); !a.IsLoopback() && !slices.Contains(have, a) {
 			return fmt.Errorf("--web-listen: %s is not an address of this host; behind NAT, give the server's own address", a)
+		}
+		// The controller runs as the darkpanel user, without the capability to
+		// bind a privileged port, so such a listener would never bind.
+		if port := specs[0].Addr.Port(); port < 1024 {
+			return fmt.Errorf("--web-listen: port %d needs root to bind and the controller runs as darkpanel; use port 1024 or higher, such as 8080", port)
 		}
 	}
 	return nil

@@ -438,8 +438,6 @@ func (in *installer) database(ctx context.Context) (string, error) {
 	return fmt.Sprintf("agent.db migrated, %d owned paths recorded", recorded), nil
 }
 
-// units writes the unit files that differ, reloads systemd and enables the
-// role's units.
 // WebListenValues checks the --web-listen values the way serve will read them
 // after its defaults, loopback and tailscale, and returns them as serve writes
 // them; nil for none.
@@ -476,6 +474,8 @@ func (in *installer) webListeners(context.Context) (string, error) {
 	return strings.Join(append([]string{"loopback", "tailscale"}, web...), ", "), nil
 }
 
+// units writes the unit files that differ, reloads systemd and enables the
+// role's units.
 func (in *installer) units(ctx context.Context) (string, error) {
 	files, err := Units(in.cfg.Layout, in.cfg.Role, in.cfg.AgentListen, in.cfg.AgentAdvertise, in.cfg.WebListen)
 	if err != nil {

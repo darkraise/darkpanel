@@ -633,7 +633,11 @@ choose_web() {
 			*:*) u_addr=$answer ;;
 			*) u_addr=$answer:8080 ;;
 			esac
-			valid_web_address "$u_addr" && break
+			if valid_web_address "$u_addr"; then
+				[ "${u_addr##*:}" -ge 1024 ] && break
+				ui_error "port ${u_addr##*:} needs root and the panel runs as darkpanel; use port 1024 or higher, such as 8080"
+				continue
+			fi
 			ui_error "address $answer is not an IPv4 address of this server"
 		done
 		web_url=http://$u_addr

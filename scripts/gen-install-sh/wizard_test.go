@@ -510,8 +510,36 @@ func TestWizardOpensThePublicWebListener(t *testing.T) {
 	if got := readFile(t, f.logBase+".args"); got != "system\ninstall\n--role\ncontroller\n--web-listen\nhttp://203.0.113.5:8080\n" {
 		t.Errorf("darkpanel ran with %q", got)
 	}
-	if !strings.Contains(out, "Open the panel at http://203.0.113.5:8080") || !strings.Contains(out, "ssh -L 8080:127.0.0.1:8080") {
-		t.Errorf("closing steps lack the public URL or the tunnel alternative:\n%s", out)
+	open := strings.Index(out, "2. Open the panel at http://203.0.113.5:8080")
+	tunnel := strings.Index(out, "ssh -L 8080:127.0.0.1:8080")
+	tailnet := strings.Index(out, "or, over Tailscale, to https://100.64.0.5:8443")
+	if open < 0 || tunnel < open || tailnet < tunnel {
+		t.Errorf("closing steps do not name the public URL first, then the tunnel and Tailscale routes:\n%s", out)
+	}
+}
+
+func TestWizardWebDefaultsToNoWithoutAnAddress(t *testing.T) {
+	f := newFixture(t)
+	tm := f.wizard(t, map[string]string{"ip": "\n"}, "TERM=dumb")
+	tm.expect("What should this server be?")
+	tm.expect("Choice [1, q to quit]: ")
+	tm.send("")
+	tm.expect("Which version should be installed?")
+	tm.expect("Choice [1, q to quit]: ")
+	tm.send("")
+	tm.expect("How will agents reach this controller?")
+	tm.expect("Choice [1, q to quit]: ")
+	tm.send("3")
+	tm.expect("Open the web UI on a public address?")
+	tm.expect("1) Another address of this server")
+	tm.expect("2) No - reach it through an SSH tunnel or Tailscale")
+	tm.expect("Choice [2, q to quit]: ")
+	tm.send("")
+	tm.expect("Web UI: SSH tunnel or Tailscale only")
+	tm.expect("Install now? [Y/n]: ")
+	tm.send("n")
+	if out, err := tm.wait(); err == nil {
+		t.Fatalf("declining the summary succeeded:\n%s", out)
 	}
 }
 
@@ -526,6 +554,9 @@ func TestWizardCustomWebAddress(t *testing.T) {
 		tm.expect("is not an IPv4 address of this server")
 	}
 	tm.expect("Address of this server for the web UI (IPv4, optionally :port) [203.0.113.5:8080]: ")
+	tm.send("203.0.113.5:80")
+	tm.expect("port 80 needs root and the panel runs as darkpanel; use port 1024 or higher, such as 8080")
+	tm.expect("Address of this server for the web UI (IPv4, optionally :port) [203.0.113.5:8080]: ")
 	tm.send("203.0.113.5")
 	tm.expect("--web-listen http://203.0.113.5:8080")
 	tm.expect("Install now? [Y/n]: ")
@@ -538,7 +569,7 @@ func TestWizardCustomWebAddress(t *testing.T) {
 func TestWizardWebDefaultFollowsTheDropIn(t *testing.T) {
 	dropIn := func(f *fixture, execStart string) {
 		p := filepath.Join(f.root, "etc/systemd/system/darkpanel-controller.service.d/10-agent.conf")
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 			t.Fatal(err)
 		}
 		writeFile(t, p, "[Service]\nExecStart=\nExecStart="+execStart+"\n")
@@ -548,7 +579,6 @@ func TestWizardWebDefaultFollowsTheDropIn(t *testing.T) {
 	}{
 		{"no web value", "/usr/local/lib/darkpanel/darkpanel serve", "Choice [3, q to quit]: "},
 		{"the detected address", "/usr/local/lib/darkpanel/darkpanel serve --listen loopback --listen tailscale --listen http://203.0.113.5:8080", "Choice [1, q to quit]: "},
-		{"another address", "/usr/local/lib/darkpanel/darkpanel serve --listen loopback --listen tailscale --listen http://203.0.113.5:9090", "Choice [2, q to quit]: "},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
