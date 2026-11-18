@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"text/template"
 
+	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/update"
 )
 
@@ -32,6 +33,7 @@ type unitData struct {
 	ControllerDir  string // the only directory the controller may write
 	AgentListen    []string
 	AgentAdvertise string
+	WebListen      []string // the --web-listen values as serve writes them
 }
 
 // agentAddress is the character set install.sh allows in the flags it
@@ -51,11 +53,16 @@ func CheckAgentAddress(s string) error {
 
 // Units renders the unit files of role: the agent, rollback and boot
 // recovery units, and for the controller role also the controller unit and
-// its drop-in holding the agent listener flags. Both flags are for the
+// its drop-in holding the agent listener flags and the web listeners. With
+// web listeners the drop-in passes serve --listen loopback --listen tailscale
+// and then each value, so the defaults stay. All three flags are for the
 // controller role only.
-func Units(l Layout, role Role, agentListen []string, agentAdvertise string) ([]UnitFile, error) {
+func Units(l Layout, role Role, agentListen []string, agentAdvertise string, webListen []string) ([]UnitFile, error) {
 	if role != RoleController && (len(agentListen) > 0 || agentAdvertise != "") {
 		return nil, errors.New("install: --agent-listen and --agent-advertise are for the controller role")
+	}
+	if role != RoleController && len(webListen) > 0 {
+		return nil, errors.New("install: --web-listen is for the controller role")
 	}
 	for _, a := range agentListen {
 		if err := CheckAgentAddress(a); err != nil {
@@ -67,9 +74,24 @@ func Units(l Layout, role Role, agentListen []string, agentAdvertise string) ([]
 			return nil, err
 		}
 	}
+	var web []string
+	if len(webListen) > 0 {
+		for _, v := range webListen {
+			if v == "loopback" || v == "tailscale" {
+				return nil, fmt.Errorf("install: --web-listen %q: want http://<ip>:<port> or https://<ip>:<port>", v)
+			}
+		}
+		specs, err := listen.ParseSpecs(append([]string{"loopback", "tailscale"}, webListen...))
+		if err != nil {
+			return nil, fmt.Errorf("install: %w", err)
+		}
+		for _, s := range specs[2:] {
+			web = append(web, s.String())
+		}
+	}
 	data := unitData{
 		Binary: l.Paths.Binary(), Recovery: l.Paths.RecoveryBinary(), ControllerDir: l.Paths.ControllerDir,
-		AgentListen: agentListen, AgentAdvertise: agentAdvertise,
+		AgentListen: agentListen, AgentAdvertise: agentAdvertise, WebListen: web,
 	}
 	files := []struct{ template, path string }{
 		{update.AgentUnit, l.UnitPath(update.AgentUnit)},

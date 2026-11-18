@@ -112,7 +112,7 @@ func TestInstallController(t *testing.T) {
 	if got, want := manifest(t, l), wantManifest(l, RoleController); !reflect.DeepEqual(got, want) {
 		t.Errorf("manifest\n got %v\nwant %v", got, want)
 	}
-	files, err := Units(l, RoleController, cfg.AgentListen, "")
+	files, err := Units(l, RoleController, cfg.AgentListen, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

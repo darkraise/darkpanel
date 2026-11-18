@@ -107,6 +107,7 @@ type Config struct {
 	Role           Role
 	AgentListen    []string // controller role: the --agent-listen values
 	AgentAdvertise string   // controller role: the --agent-advertise value
+	WebListen      []string // controller role: the --web-listen values
 	// Token is the agent role's enrollment token or bootstrap bundle from
 	// standard input, trimmed; empty when none was given.
 	Token string
@@ -160,7 +161,7 @@ func (c Config) check() error {
 	}
 	// Rendering the units checks the flags; doing it here refuses them before
 	// anything on the host changes.
-	_, err = Units(c.Layout, c.Role, c.AgentListen, c.AgentAdvertise)
+	_, err = Units(c.Layout, c.Role, c.AgentListen, c.AgentAdvertise, c.WebListen)
 	return err
 }
 
@@ -438,7 +439,7 @@ func (in *installer) database(ctx context.Context) (string, error) {
 // units writes the unit files that differ, reloads systemd and enables the
 // role's units.
 func (in *installer) units(ctx context.Context) (string, error) {
-	files, err := Units(in.cfg.Layout, in.cfg.Role, in.cfg.AgentListen, in.cfg.AgentAdvertise)
+	files, err := Units(in.cfg.Layout, in.cfg.Role, in.cfg.AgentListen, in.cfg.AgentAdvertise, in.cfg.WebListen)
 	if err != nil {
 		return "", err
 	}
