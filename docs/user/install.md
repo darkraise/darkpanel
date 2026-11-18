@@ -22,7 +22,8 @@ stable v1.0.0 is published, `releases/latest` has no release, so use the
 release candidate's address from [Install a release
 candidate](#install-a-release-candidate). With no
 options it asks for the role, the version and the address agents connect to,
-shows the equivalent command line, and installs once you confirm:
+and for a controller whether to open the web UI on a public address, shows
+the equivalent command line, and installs once you confirm:
 
 ```sh
 curl -fsSL https://github.com/Darkraise/darkpanel/releases/latest/download/install.sh -o install.sh
@@ -57,10 +58,15 @@ connect to. Use a name or an IP address that every host you add can reach.
   listener. Repeat it for more than one address.
 - `--agent-advertise <host>:<port>` sets the address enrollment tokens carry
   when a request names none.
+- `--web-listen http://<ip>:<port>` adds a plain-HTTP or HTTPS web listener on
+  an address of this host (`https://<ip>:<port>` for HTTPS). Repeat it for
+  more than one address. See [Open the web UI on a public
+  address](#open-the-web-ui-on-a-public-address).
 - `--token-file <token-file>` reads the enrollment token or bootstrap bundle of
   an agent from a file. See the section on adding a host.
 
-`--agent-listen` and `--agent-advertise` are for the controller role only, and
+`--agent-listen`, `--agent-advertise` and `--web-listen` are for the controller
+role only, and
 `--token-file` is for the agent role only. `install.sh` refuses a command line
 that mixes them.
 
@@ -211,7 +217,40 @@ make the CLI verify the HTTPS listener against it, put the fingerprint in
 To replace these web listeners, add `--listen` to the `darkpanel serve` command
 of `darkpanel-controller.service` in a systemd drop-in. You can repeat it, and
 each value is `loopback`, `tailscale`, `https://<ip>:<port>` or
-`http://<loopback ip>:<port>`.
+`http://<ip>:<port>`. A listener you list on an address other than loopback
+that cannot bind does not stop the controller: it is retried at every check,
+and the footer names it until it binds.
+
+## Open the web UI on a public address
+
+The installer's wizard asks whether to open the web UI on this server's
+address, port 8080 by default, over plain HTTP. Plain HTTP is not encrypted:
+passwords, session cookies, enrollment tokens, bootstrap bundles, API tokens
+and tailnet auth keys cross the network in cleartext. Sign in and create those
+secrets over Tailscale or an SSH tunnel instead whenever you can.
+
+Open the port in the host's firewall and in any cloud security group in front
+of it. The address must be one of this host's own addresses: behind NAT, give
+the server's private address and forward the port. The `darkpanel` CLI
+refuses to send a token over plain HTTP to a host other than loopback.
+
+To add the listener to an existing controller, read its current flags first:
+
+```sh
+systemctl cat darkpanel-controller
+```
+
+Then rerun `system install`, repeating its `--agent-listen` and
+`--agent-advertise` flags:
+
+```sh
+sudo darkpanel system install --role controller --web-listen http://<ip>:8080
+```
+
+Before you roll back to, or install, 1.0.0-rc.4 or older, rerun
+`sudo darkpanel system install --role controller` without `--web-listen`:
+those versions refuse a plain-HTTP listener on an address other than loopback
+and the controller would not start.
 
 ## Next step
 

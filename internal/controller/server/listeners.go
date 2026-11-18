@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -94,6 +95,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 		st := svc.State()
 		return api.ListenerState{TailscaleBound: st.TailscaleBound, Message: withUnbound(st.Message, s.runtimeListeners.Unbound())}
 	})
+	srv.SetTailscaleAddrs(func() []netip.Addr { return svc.State().Tailscale })
 
 	listenSocket := s.opts.ListenSocket
 	if listenSocket == nil {

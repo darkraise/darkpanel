@@ -139,7 +139,7 @@ func OpenAPI(reg *core.Registry, routes []Route) ([]byte, error) {
 			"schemas": d.schemas,
 			"securitySchemes": map[string]any{
 				"session": map[string]any{"type": "apiKey", "in": "cookie", "name": "__Host-darkpanel_session",
-					"description": "Session cookie; darkpanel_session on the plain-HTTP loopback listener."},
+					"description": "Session cookie; darkpanel_session on any plain-HTTP listener."},
 				"token": map[string]any{"type": "http", "scheme": "bearer", "description": "API token dpt_<id>_<secret>."},
 			},
 			"responses": map[string]any{

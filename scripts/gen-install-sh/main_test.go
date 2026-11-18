@@ -402,10 +402,18 @@ type fixture struct {
 
 const (
 	fixtureVersion = "1.10.0"
-	fixtureStub    = "#!/bin/sh\nprintf '%s\\n' \"$@\" >\"$DARKPANEL_STUB_LOG.args\"\ncat >\"$DARKPANEL_STUB_LOG.stdin\"\n"
+	fixtureStub    = "#!/bin/sh\nif [ \"$3\" = --help ]; then echo '      --web-listen stringArray'; exit 0; fi\nprintf '%s\\n' \"$@\" >\"$DARKPANEL_STUB_LOG.args\"\ncat >\"$DARKPANEL_STUB_LOG.stdin\"\n"
+	// oldStub is a darkpanel from before --web-listen: its help lists no such flag.
+	oldStub = "#!/bin/sh\nif [ \"$3\" = --help ]; then echo '      --agent-listen stringArray'; exit 0; fi\nprintf '%s\\n' \"$@\" >\"$DARKPANEL_STUB_LOG.args\"\ncat >\"$DARKPANEL_STUB_LOG.stdin\"\n"
 )
 
 func newFixture(t *testing.T) *fixture {
+	t.Helper()
+	return newFixtureStub(t, fixtureStub)
+}
+
+// newFixtureStub is newFixture with stub as the tarball's darkpanel.
+func newFixtureStub(t *testing.T, stub string) *fixture {
 	t.Helper()
 	needTools(t, "sh", "openssl", "base64", "od", "sha256sum", "tar", "stat")
 	if _, err := exec.LookPath("curl"); err != nil {
@@ -420,7 +428,7 @@ func newFixture(t *testing.T) *fixture {
 		tarball: "darkpanel_" + fixtureVersion + "_linux_" + runtime.GOARCH + ".tar.gz",
 	}
 	s := newSigner(t)
-	writeFile(t, filepath.Join(f.release, f.tarball), string(tarGz(t, map[string]string{"darkpanel": fixtureStub, "LICENSE": "license\n", "README.md": "readme\n"})))
+	writeFile(t, filepath.Join(f.release, f.tarball), string(tarGz(t, map[string]string{"darkpanel": stub, "LICENSE": "license\n", "README.md": "readme\n"})))
 	sum := sha256.Sum256([]byte(readFile(t, filepath.Join(f.release, f.tarball))))
 	// The other architecture's tarball and the SBOM are listed but never fetched.
 	writeFile(t, filepath.Join(f.release, "checksums.txt"), hex.EncodeToString(sum[:])+"  "+f.tarball+"\n"+
@@ -817,5 +825,54 @@ func TestIjInstallNamesTheBootstrapBundle(t *testing.T) {
 	out, err = f.run()
 	if err == nil || !strings.Contains(string(out), "enrollment token or bootstrap bundle") {
 		t.Errorf("usage: err %v, output %q; want a usage line that names the bundle", err, out)
+	}
+}
+
+func TestInstallWebListen(t *testing.T) {
+	f := newFixture(t)
+	out, err := f.run("--role", "controller", "--web-listen", "http://203.0.113.7:8080", "--web-listen", "https://[2001:db8::7]:9443")
+	if err != nil {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	want := "system\ninstall\n--role\ncontroller\n--web-listen\nhttp://203.0.113.7:8080\n--web-listen\nhttps://[2001:db8::7]:9443\n"
+	if got := readFile(t, f.logBase+".args"); got != want {
+		t.Errorf("darkpanel ran with %q, want %q", got, want)
+	}
+}
+
+func TestInstallWebListenRefusals(t *testing.T) {
+	f := newFixture(t)
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--role", "agent", "--web-listen", "http://203.0.113.7:8080"}, "--web-listen is for --role controller"},
+		{[]string{"--role", "controller", "--web-listen", "http://myhost:8080"}, "--web-listen http://myhost:8080 is not http://<ip>:<port> or https://<ip>:<port>"},
+		{[]string{"--role", "controller", "--web-listen", "203.0.113.7:8080"}, "--web-listen 203.0.113.7:8080 is not http://<ip>:<port> or https://<ip>:<port>"},
+		{[]string{"--role", "controller", "--web-listen", "http://203.0.113.7"}, "--web-listen http://203.0.113.7 is not http://<ip>:<port> or https://<ip>:<port>"},
+		{[]string{"--role", "controller", "--web-listen", "http://2001:db8::7:8080"}, "--web-listen http://2001:db8::7:8080 is not http://<ip>:<port> or https://<ip>:<port>"},
+		{[]string{"--role", "controller", "--web-listen", "http://203.0.113.7:8080\n--x"}, "is not http://<ip>:<port> or https://<ip>:<port>"},
+	} {
+		out, err := f.run(tt.args...)
+		if err == nil || !strings.Contains(string(out), tt.want) {
+			t.Errorf("install.sh %q: err %v, output %q; want %q", tt.args, err, out, tt.want)
+		}
+	}
+	if got := f.tarballRequests.Load(); got != 0 {
+		t.Errorf("refused web listeners fetched %d tarballs, want none", got)
+	}
+}
+
+func TestInstallWebListenOnAnOldBinary(t *testing.T) {
+	f := newFixtureStub(t, oldStub)
+	out, err := f.run("--role", "controller", "--web-listen", "http://203.0.113.7:8080")
+	if err != nil {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "darkpanel 1.10.0 cannot open a public web listener; installing without it") {
+		t.Errorf("output lacks the old-binary warning:\n%s", out)
+	}
+	if got := readFile(t, f.logBase+".args"); got != "system\ninstall\n--role\ncontroller\n" {
+		t.Errorf("darkpanel ran with %q, want system install without --web-listen", got)
 	}
 }

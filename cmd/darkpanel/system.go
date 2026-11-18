@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/agent/api"
 	"github.com/darkraise/darkpanel/internal/buildinfo"
+	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/install"
@@ -49,12 +51,68 @@ func newSystemCmd() *cobra.Command {
 	return cmd
 }
 
+// interfaceAddrs lists this host's interface addresses, unmapped.
+var interfaceAddrs = func() ([]netip.Addr, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]netip.Addr, 0, len(addrs))
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok {
+			if ip, ok := netip.AddrFromSlice(n.IP); ok {
+				out = append(out, ip.Unmap())
+			}
+		}
+	}
+	return out, nil
+}
+
+// checkWebListen refuses --web-listen values system install cannot write:
+// any for a role other than the controller, any serve would refuse, and an
+// address this host lacks, such as the public address of a NAT in front of
+// it.
+func checkWebListen(role install.Role, values []string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	if role != install.RoleController {
+		return errors.New("--web-listen is for the controller role")
+	}
+	canonical, err := install.WebListenValues(values)
+	if err != nil {
+		return err
+	}
+	have, err := interfaceAddrs()
+	if err != nil {
+		return fmt.Errorf("read this host's addresses: %w", err)
+	}
+	for _, v := range canonical {
+		specs, err := listen.ParseSpecs([]string{v})
+		if err != nil {
+			return err
+		}
+		// Linux binds all of 127.0.0.0/8, but the interface list names only
+		// 127.0.0.1.
+		if a := specs[0].Addr.Addr(); !a.IsLoopback() && !slices.Contains(have, a) {
+			return fmt.Errorf("--web-listen: %s is not an address of this host; behind NAT, give the server's own address", a)
+		}
+		// The controller runs as the darkpanel user, without the capability to
+		// bind a privileged port, so such a listener would never bind.
+		if port := specs[0].Addr.Port(); port < 1024 {
+			return fmt.Errorf("--web-listen: port %d needs root to bind and the controller runs as darkpanel; use port 1024 or higher, such as 8080", port)
+		}
+	}
+	return nil
+}
+
 func newSystemInstallCmd() *cobra.Command {
 	var (
 		roleFlag       string
 		role           install.Role
 		agentListen    []string
 		agentAdvertise string
+		webListen      []string
 	)
 	cmd := &cobra.Command{
 		Use:   "install",
@@ -83,6 +141,9 @@ func newSystemInstallCmd() *cobra.Command {
 					return err
 				}
 			}
+			if err := checkWebListen(role, webListen); err != nil {
+				return err
+			}
 			if geteuid() != 0 {
 				return errors.New("system install runs as root; run it with sudo")
 			}
@@ -106,7 +167,7 @@ func newSystemInstallCmd() *cobra.Command {
 			}
 			l := installLayout()
 			cfg := install.Config{
-				Layout: l, Role: role, AgentListen: agentListen, AgentAdvertise: agentAdvertise, Token: token,
+				Layout: l, Role: role, AgentListen: agentListen, AgentAdvertise: agentAdvertise, WebListen: webListen, Token: token,
 				Modules: manifests(modules.All()), BinaryVersion: buildinfo.Version,
 				Systemd: sd, Exec: platform.NewRunner(platform.ProductionRules()), Users: install.SystemUsers{},
 				Agent: installAgent{socket: l.Paths.AgentSocket, tlsDir: l.Paths.AgentTLSDir},
@@ -124,6 +185,8 @@ func newSystemInstallCmd() *cobra.Command {
 	cmd.Flags().StringVar(&roleFlag, "role", "", "controller or agent")
 	cmd.Flags().StringArrayVar(&agentListen, "agent-listen", nil,
 		"controller role: extra address of this host for the agent listener, <ip>:<port> (repeatable)")
+	cmd.Flags().StringArrayVar(&webListen, "web-listen", nil,
+		"controller role: plain-HTTP or HTTPS web listener on an address of this host, http://<ip>:<port> or https://<ip>:<port> (repeatable)")
 	cmd.Flags().StringVar(&agentAdvertise, "agent-advertise", "",
 		"controller role: <host>:<port> that enrollment tokens tell agents to connect to")
 	return cmd

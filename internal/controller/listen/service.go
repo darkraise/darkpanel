@@ -49,6 +49,8 @@ type State struct {
 	// address found; serving loopback only."
 	Message   string
 	Listeners []Bound
+	// Tailscale holds the Tailscale addresses with a bound endpoint.
+	Tailscale []netip.Addr
 }
 
 // Service runs the controller's listeners: it binds the endpoints of the
@@ -71,7 +73,8 @@ type Service struct {
 // listener it first binds the addresses saved in core_meta, replaced by
 // those of tailscale0 when that interface exists, so a restart serves the
 // tailnet before tailscaled is up. A failed bind fails Start, except an
-// IPv6 loopback address the host lacks.
+// IPv6 loopback address the host lacks and a Retry endpoint, which later
+// checks retry.
 func Start(ctx context.Context, cfg Config) (*Service, error) {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
@@ -205,6 +208,7 @@ func (s *Service) publish(force bool) {
 	for _, b := range bound {
 		if slices.Contains(addrs, b.Endpoint.Addr.Addr()) {
 			tsURLs = append(tsURLs, b.Endpoint.URL())
+			st.Tailscale = append(st.Tailscale, b.Endpoint.Addr.Addr())
 		}
 		if b.Endpoint.Addr.Addr().IsLoopback() {
 			servesLoopback = true
@@ -224,6 +228,23 @@ func (s *Service) publish(force bool) {
 		st.Message = "No Tailscale address found; serving loopback only."
 	default:
 		st.Message = "No Tailscale address found; not serving on the tailnet."
+	}
+	var plain, unbound []string
+	for _, b := range bound {
+		if !b.Endpoint.TLS && !b.Endpoint.Addr.Addr().IsLoopback() {
+			plain = append(plain, b.Endpoint.URL())
+		}
+	}
+	for _, e := range Endpoints(s.cfg.Specs, addrs) {
+		if e.Retry && !slices.ContainsFunc(bound, func(b Bound) bool { return b.Endpoint == e }) {
+			unbound = append(unbound, e.URL())
+		}
+	}
+	if len(plain) > 0 {
+		st.Message += " Plain HTTP, not encrypted: " + strings.Join(plain, ", ") + "."
+	}
+	if len(unbound) > 0 {
+		st.Message += " Not bound: " + strings.Join(unbound, ", ") + "; see the serve log."
 	}
 	prev := s.state.Swap(st)
 	if force || prev == nil || prev.Message != st.Message {

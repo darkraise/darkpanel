@@ -1,8 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { axe } from "vitest-axe"
 import type { Change, NewToken, Plan } from "@/api/types"
+import { installClipboardFallback } from "@/lib/clipboard-fallback"
 import { renderWithProviders, stubFetch } from "@/test/utils"
 import { CreateTokenDialog } from "./create-token-dialog"
 
@@ -148,4 +149,36 @@ test("the token the dialog shows is a read-only field named for the token", asyn
   expect((field as HTMLInputElement).value).toBe("dpt_example_secret")
   expect((field as HTMLInputElement).readOnly).toBe(true)
   expect(await axe(dialog)).toHaveNoViolations()
+})
+
+test("Copy works on an insecure origin through the fallback", async () => {
+  stubFetch({ [PLAN]: { body: plan }, [APPLY]: { body: change("completed", created) } })
+  renderWithProviders(<CreateTokenDialog />)
+  const user = userEvent.setup()
+  const dialog = await fillAndCreate(user)
+  await within(dialog).findByDisplayValue("dpt_example_secret")
+  Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true })
+  let copied = ""
+  document.execCommand = vi.fn(() => {
+    copied = (document.activeElement as HTMLTextAreaElement).value
+    return true
+  })
+  installClipboardFallback()
+  await user.click(within(dialog).getByRole("button", { name: "Copy" }))
+  await waitFor(() => expect(copied).toBe("dpt_example_secret"))
+  expect((await within(dialog).findAllByText("Copied")).length).toBeGreaterThan(0)
+})
+
+test("a failed copy says so and leaves the token in its field", async () => {
+  stubFetch({ [PLAN]: { body: plan }, [APPLY]: { body: change("completed", created) } })
+  renderWithProviders(<CreateTokenDialog />)
+  const user = userEvent.setup()
+  const dialog = await fillAndCreate(user)
+  const field = await within(dialog).findByDisplayValue("dpt_example_secret")
+  Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true })
+  document.execCommand = vi.fn(() => false)
+  installClipboardFallback()
+  await user.click(within(dialog).getByRole("button", { name: "Copy" }))
+  expect((await within(dialog).findByRole("alert")).textContent).toBe("Copy failed. Select the text and copy it yourself.")
+  expect((field as HTMLInputElement).value).toBe("dpt_example_secret")
 })

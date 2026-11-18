@@ -54,8 +54,10 @@ type Set struct {
 	mu      sync.Mutex
 	servers map[Endpoint]*running
 	skipped map[Endpoint]bool
-	closed  bool
-	wg      sync.WaitGroup
+	// retryErr is the last bind error logged for each unbound Retry endpoint.
+	retryErr map[Endpoint]string
+	closed   bool
+	wg       sync.WaitGroup
 }
 
 type running struct {
@@ -71,15 +73,17 @@ func NewSet(cfg SetConfig) *Set {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
-	return &Set{cfg: cfg, servers: map[Endpoint]*running{}, skipped: map[Endpoint]bool{}}
+	return &Set{cfg: cfg, servers: map[Endpoint]*running{}, skipped: map[Endpoint]bool{}, retryErr: map[Endpoint]string{}}
 }
 
 // Update makes want the bound endpoints: it shuts down the servers of
 // endpoints not in want (gracefully until ctx ends, then forcibly) and binds
 // those not yet bound, leaving unchanged ones untouched. An optional endpoint
 // whose address the host lacks is skipped once with a log line and never
-// retried. It returns every other bind failure joined; the endpoints that did
-// bind keep serving, and a later Update retries the failed ones.
+// retried. A Retry endpoint's bind failure is not returned: it is logged when
+// it first appears or its error changes, and every later Update retries it.
+// It returns every other bind failure joined; the endpoints that did bind keep
+// serving, and a later Update retries the failed ones.
 func (s *Set) Update(ctx context.Context, want []Endpoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -94,6 +98,11 @@ func (s *Set) Update(ctx context.Context, want []Endpoint) error {
 				s.cfg.Log.Info("listen: stopped", "url", e.URL())
 			}
 			delete(s.servers, e)
+		}
+	}
+	for e := range s.retryErr {
+		if !slices.Contains(want, e) {
+			delete(s.retryErr, e)
 		}
 	}
 	var errs []error
@@ -112,9 +121,17 @@ func (s *Set) Update(ctx context.Context, want []Endpoint) error {
 				s.cfg.Log.Info("listen: skipped: this host lacks the address", "url", e.URL(), "err", err)
 				continue
 			}
+			if e.Retry {
+				if s.retryErr[e] != err.Error() {
+					s.cfg.Log.Warn("listen: not bound; retrying at the next check", "url", e.URL(), "err", err)
+					s.retryErr[e] = err.Error()
+				}
+				continue
+			}
 			errs = append(errs, err)
 			continue
 		}
+		delete(s.retryErr, e)
 		s.servers[e] = s.serve(e, ln)
 		s.cfg.Log.Info("listen: serving", "url", e.URL(), "addr", ln.Addr().String())
 	}

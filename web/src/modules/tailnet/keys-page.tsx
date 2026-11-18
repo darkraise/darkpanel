@@ -5,7 +5,8 @@ import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { Checkbox } from "darkraise-ui/components/checkbox"
-import { Clipboard, ClipboardControl, ClipboardInput, ClipboardLabel, ClipboardTrigger } from "darkraise-ui/components/clipboard"
+import { ClipboardControl, ClipboardInput, ClipboardLabel, ClipboardTrigger } from "darkraise-ui/components/clipboard"
+import { SecretClipboard } from "@/components/secret-clipboard"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Input } from "darkraise-ui/components/input"
@@ -61,13 +62,13 @@ function CreatedDialog({ created, open, onDone }: { created: CreatedKey | null; 
             </Alert>
           ) : (
             <>
-              <Clipboard value={created.key}>
+              <SecretClipboard value={created.key}>
                 <ClipboardLabel htmlFor="authkey-secret">{`Auth key ${created.description}`}</ClipboardLabel>
                 <ClipboardControl>
                   <ClipboardInput id="authkey-secret" className="font-mono" />
                   <ClipboardTrigger>Copy</ClipboardTrigger>
                 </ClipboardControl>
-              </Clipboard>
+              </SecretClipboard>
               {typeof created.expires === "string" && <p className="text-sm text-muted-foreground">{`Expires ${formatTime(created.expires)}.`}</p>}
             </>
           )}

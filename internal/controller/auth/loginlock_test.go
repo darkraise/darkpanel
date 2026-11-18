@@ -99,3 +99,43 @@ func TestV1r17LoginKeysTheProxiedClient(t *testing.T) {
 		t.Errorf("audit entries %+v, want the source text %q", entries, "2001:db8:1:3::1 via 172.31.255.2")
 	}
 }
+
+// TestTrustedLoginPassesAFullTable: a full table refuses a public sign-in and
+// a proxied one even when marked trusted, while a trusted sign-in is checked
+// and succeeds (spec A19).
+func TestTrustedLoginPassesAFullTable(t *testing.T) {
+	s, clock, _ := newTestService(t)
+	_, secret := createActive(t, s, clock, "alice")
+	for range SourceFailureLimit {
+		s.limiter.fail("mallory", "198.51.100.7")
+	}
+	s.limiter.max = 2
+	ctx := context.Background()
+	_, err := s.Login(ctx, LoginRequest{Username: "alice", Password: testPassword, Code: code(t, secret, clock), Source: "198.51.100.8"})
+	wantCode(t, err, errcode.RateLimited)
+	pctx, req := v1r17Via("2001:db8:9::1", "alice")
+	req.Trusted = true
+	_, err = s.Login(pctx, req)
+	wantCode(t, err, errcode.RateLimited)
+	_, err = s.Login(ctx, LoginRequest{Username: "alice", Password: "wrong horse battery", Code: "000000", Source: "127.0.0.1", Trusted: true})
+	wantCode(t, err, errcode.InvalidCredentials)
+	if _, err := s.Login(ctx, LoginRequest{Username: "alice", Password: testPassword, Code: code(t, secret, clock), Source: "127.0.0.1", Trusted: true}); err != nil {
+		t.Errorf("trusted sign-in with a full table: %v, want a session", err)
+	}
+}
+
+func TestTrustedFailuresStillLockOnAFullTable(t *testing.T) {
+	s, clock, _ := newTestService(t)
+	_, secret := createActive(t, s, clock, "alice")
+	for range SourceFailureLimit {
+		s.limiter.fail("mallory", "198.51.100.7")
+	}
+	s.limiter.max = 2
+	ctx := context.Background()
+	for range UsernameFailureLimit {
+		_, err := s.Login(ctx, LoginRequest{Username: "alice", Password: "wrong horse battery", Code: "000000", Source: "127.0.0.1", Trusted: true})
+		wantCode(t, err, errcode.InvalidCredentials)
+	}
+	_, err := s.Login(ctx, LoginRequest{Username: "alice", Password: testPassword, Code: code(t, secret, clock), Source: "127.0.0.1", Trusted: true})
+	wantCode(t, err, errcode.RateLimited)
+}

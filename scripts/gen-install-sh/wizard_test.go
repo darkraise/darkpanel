@@ -265,6 +265,13 @@ func TestWizardInstallsAControllerWithPlainPrompts(t *testing.T) {
 	tm.send("panel.example.com")
 	tm.expect("Address of this server to listen on (ip:port) [203.0.113.5:7443]: ")
 	tm.send("")
+	tm.expect("Open the web UI on a public address? It serves plain HTTP: passwords, sessions and the tokens and keys the panel shows cross the network unencrypted.")
+	tm.expect("1) This server's address http://203.0.113.5:8080 (port 8080 must be open)")
+	tm.expect("2) Another address of this server")
+	tm.expect("3) No - reach it through an SSH tunnel or Tailscale")
+	tm.expect("Choice [1, q to quit]: ")
+	tm.send("3")
+	tm.expect("Web UI: SSH tunnel or Tailscale only")
 	tm.expect("sudo sh install.sh --role controller --version 1.10.0 --agent-listen 203.0.113.5:7443 --agent-advertise panel.example.com:7443")
 	tm.expect("Install now? [Y/n]: ")
 	tm.send("y")
@@ -305,6 +312,9 @@ func TestWizardInstallsAnAgentWithPlainPrompts(t *testing.T) {
 	if got := readFile(t, f.logBase+".args"); got != "system\ninstall\n--role\nagent\n" {
 		t.Errorf("darkpanel ran with %q, want system install --role agent", got)
 	}
+	if strings.Contains(out, "Open the web UI on a public address?") {
+		t.Errorf("the agent path asked the web question:\n%s", out)
+	}
 	if got := readFile(t, f.logBase+".stdin"); got != "dpe1.secret-token\n" {
 		t.Errorf("darkpanel read %q on standard input, want the token", got)
 	}
@@ -322,7 +332,8 @@ func TestWizardCancelChangesNothing(t *testing.T) {
 		answers []string
 	}{
 		{"q at the first question", []string{"q"}},
-		{"no at the summary", []string{"", "", "4", "n"}},
+		{"no at the summary", []string{"", "", "4", "3", "n"}},
+		{"q at the web question", []string{"", "", "4", "q"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -372,6 +383,7 @@ func TestWizardUsesWhiptail(t *testing.T) {
 		"0 ",
 		"0 1.10.0",
 		"0 route",
+		"0 no",
 		"0 ",
 	)
 	tm := f.wizard(t, tools, "TERM=xterm")
@@ -387,6 +399,7 @@ func TestWizardUsesWhiptail(t *testing.T) {
 		"--title|Darkpanel installer|--msgbox|version 1.10 is not a semantic version",
 		"--title|Darkpanel installer|--inputbox|Version to install, for example 1.2.0 or 1.3.0-rc.1",
 		"--title|Darkpanel 1.10.0 installer|--notags|--default-item|tailscale|--menu|How will agents reach this controller?",
+		"--title|Darkpanel 1.10.0 installer|--notags|--default-item|route|--menu|Open the web UI on a public address?",
 		"--title|Darkpanel 1.10.0 installer|--yesno|",
 	}
 	if len(calls) != len(want) {
@@ -397,8 +410,8 @@ func TestWizardUsesWhiptail(t *testing.T) {
 			t.Errorf("call %d = %q, want it to start with %q", i+1, calls[i], w)
 		}
 	}
-	if !strings.Contains(calls[6], "sudo sh install.sh --role controller --version 1.10.0 --agent-listen 203.0.113.5:7443 --agent-advertise 203.0.113.5:7443") {
-		t.Errorf("the summary does not show the command line: %q", calls[6])
+	if !strings.Contains(calls[7], "sudo sh install.sh --role controller --version 1.10.0 --agent-listen 203.0.113.5:7443 --agent-advertise 203.0.113.5:7443") {
+		t.Errorf("the summary does not show the command line: %q", calls[7])
 	}
 	want2 := "system\ninstall\n--role\ncontroller\n--agent-listen\n203.0.113.5:7443\n--agent-advertise\n203.0.113.5:7443\n"
 	if got := readFile(t, f.logBase+".args"); got != want2 {
@@ -463,5 +476,207 @@ func TestTokenPromptRefusesABackgroundTerminal(t *testing.T) {
 	tm.expect(backgroundRefusal + ", or pass --token-file")
 	if _, err := tm.wait(); err == nil {
 		t.Error("the token prompt succeeded in the background of its terminal")
+	}
+}
+
+const fakeIPAddrs = fakeIP + `[ "$*" = "-4 -o addr show" ] && echo "2: eth0    inet 203.0.113.5/24 brd 203.0.113.255 scope global eth0"` + "\n"
+
+// webWizard walks a controller install to the web question: stable version,
+// agents later.
+func webWizard(t *testing.T, f *fixture) *term {
+	t.Helper()
+	tm := f.wizard(t, map[string]string{"ip": fakeIPAddrs}, "TERM=dumb")
+	for _, a := range []string{"", "", "4"} {
+		tm.expect("]: ")
+		tm.send(a)
+	}
+	tm.expect("Open the web UI on a public address?")
+	return tm
+}
+
+func TestWizardOpensThePublicWebListener(t *testing.T) {
+	f := newFixture(t)
+	tm := webWizard(t, f)
+	tm.expect("Choice [1, q to quit]: ")
+	tm.send("")
+	tm.expect("Web UI: http://203.0.113.5:8080 (plain HTTP, not encrypted)")
+	tm.expect("sudo sh install.sh --role controller --version 1.10.0 --web-listen http://203.0.113.5:8080")
+	tm.expect("Install now? [Y/n]: ")
+	tm.send("")
+	out, err := tm.wait()
+	if err != nil {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	if got := readFile(t, f.logBase+".args"); got != "system\ninstall\n--role\ncontroller\n--web-listen\nhttp://203.0.113.5:8080\n" {
+		t.Errorf("darkpanel ran with %q", got)
+	}
+	open := strings.Index(out, "2. Open the panel at http://203.0.113.5:8080")
+	tunnel := strings.Index(out, "ssh -L 8080:127.0.0.1:8080")
+	tailnet := strings.Index(out, "or, over Tailscale, to https://100.64.0.5:8443")
+	if open < 0 || tunnel < open || tailnet < tunnel {
+		t.Errorf("closing steps do not name the public URL first, then the tunnel and Tailscale routes:\n%s", out)
+	}
+}
+
+func TestWizardWebDefaultsToNoWithoutAnAddress(t *testing.T) {
+	f := newFixture(t)
+	tm := f.wizard(t, map[string]string{"ip": "\n"}, "TERM=dumb")
+	tm.expect("What should this server be?")
+	tm.expect("Choice [1, q to quit]: ")
+	tm.send("")
+	tm.expect("Which version should be installed?")
+	tm.expect("Choice [1, q to quit]: ")
+	tm.send("")
+	tm.expect("How will agents reach this controller?")
+	tm.expect("Choice [1, q to quit]: ")
+	tm.send("3")
+	tm.expect("Open the web UI on a public address?")
+	tm.expect("1) Another address of this server")
+	tm.expect("2) No - reach it through an SSH tunnel or Tailscale")
+	tm.expect("Choice [2, q to quit]: ")
+	tm.send("")
+	tm.expect("Web UI: SSH tunnel or Tailscale only")
+	tm.expect("Install now? [Y/n]: ")
+	tm.send("n")
+	if out, err := tm.wait(); err == nil {
+		t.Fatalf("declining the summary succeeded:\n%s", out)
+	}
+}
+
+func TestWizardCustomWebAddress(t *testing.T) {
+	f := newFixture(t)
+	tm := webWizard(t, f)
+	tm.expect("Choice [1, q to quit]: ")
+	tm.send("2")
+	for _, bad := range []string{"0.0.0.0", "256.1.1.1", "203.0.113.5:0", "2001:db8::7", "panel.example", "198.51.100.9"} {
+		tm.expect("Address of this server for the web UI (IPv4, optionally :port) [203.0.113.5:8080]: ")
+		tm.send(bad)
+		tm.expect("is not an IPv4 address of this server")
+	}
+	tm.expect("Address of this server for the web UI (IPv4, optionally :port) [203.0.113.5:8080]: ")
+	tm.send("203.0.113.5:80")
+	tm.expect("port 80 needs root and the panel runs as darkpanel; use port 1024 or higher, such as 8080")
+	tm.expect("Address of this server for the web UI (IPv4, optionally :port) [203.0.113.5:8080]: ")
+	tm.send("203.0.113.5")
+	tm.expect("--web-listen http://203.0.113.5:8080")
+	tm.expect("Install now? [Y/n]: ")
+	tm.send("n")
+	if out, err := tm.wait(); err == nil {
+		t.Fatalf("declining the summary succeeded:\n%s", out)
+	}
+}
+
+func TestWizardWebDefaultFollowsTheDropIn(t *testing.T) {
+	dropIn := func(f *fixture, execStart string) {
+		p := filepath.Join(f.root, "etc/systemd/system/darkpanel-controller.service.d/10-agent.conf")
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, p, "[Service]\nExecStart=\nExecStart="+execStart+"\n")
+	}
+	for _, tt := range []struct {
+		name, execStart, prompt string
+	}{
+		{"no web value", "/usr/local/lib/darkpanel/darkpanel serve", "Choice [3, q to quit]: "},
+		{"the detected address", "/usr/local/lib/darkpanel/darkpanel serve --listen loopback --listen tailscale --listen http://203.0.113.5:8080", "Choice [1, q to quit]: "},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			dropIn(f, tt.execStart)
+			tm := webWizard(t, f)
+			tm.expect(tt.prompt)
+			tm.send("q")
+			_, _ = tm.wait()
+		})
+	}
+	t.Run("another address is the custom default", func(t *testing.T) {
+		f := newFixture(t)
+		dropIn(f, "/usr/local/lib/darkpanel/darkpanel serve --listen loopback --listen tailscale --listen http://203.0.113.5:9090")
+		tm := webWizard(t, f)
+		tm.expect("Choice [2, q to quit]: ")
+		tm.send("")
+		// ui_input has no q: accept the prefilled answer, decline at the summary.
+		tm.expect("[203.0.113.5:9090]: ")
+		tm.send("")
+		tm.expect("Web UI: http://203.0.113.5:9090 (plain HTTP, not encrypted)")
+		tm.expect("--web-listen http://203.0.113.5:9090")
+		tm.expect("Install now? [Y/n]: ")
+		tm.send("n")
+		if out, err := tm.wait(); err == nil {
+			t.Fatalf("declining the summary succeeded:\n%s", out)
+		}
+	})
+	for _, kept := range []string{"https://203.0.113.5:9443", "http://[2001:db8::7]:8080", "http://203.0.113.5:8080 http://203.0.113.6:8080"} {
+		t.Run("kept "+kept, func(t *testing.T) {
+			f := newFixture(t)
+			dropIn(f, "/usr/local/lib/darkpanel/darkpanel serve --listen loopback --listen tailscale --listen "+strings.ReplaceAll(kept, " ", " --listen "))
+			tm := f.wizard(t, map[string]string{"ip": fakeIPAddrs}, "TERM=dumb")
+			for _, a := range []string{"", "", "4"} {
+				tm.expect("]: ")
+				tm.send(a)
+			}
+			tm.expect("Web UI: " + kept + " (kept from the current install)")
+			tm.expect("--web-listen " + strings.ReplaceAll(kept, " ", " --web-listen "))
+			tm.expect("Install now? [Y/n]: ")
+			tm.send("n")
+			out, _ := tm.wait()
+			if strings.Contains(out, "Open the web UI on a public address?") {
+				t.Errorf("the wizard asked although the drop-in holds %s:\n%s", kept, out)
+			}
+		})
+	}
+}
+
+func TestWizardWhiptailWebRoute(t *testing.T) {
+	f := newFixture(t)
+	tools, log := fakeWhiptail(t, "0 controller", "0 1.10.0", "0 later", "0 route", "0 ")
+	tools["ip"] = fakeIPAddrs
+	tm := f.wizard(t, tools, "TERM=xterm")
+	out, err := tm.wait()
+	if err != nil {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	calls := strings.Split(strings.TrimSuffix(readFile(t, log), "\n---\n"), "\n---\n")
+	if len(calls) != 5 || !strings.HasPrefix(calls[3], "--title|Darkpanel 1.10.0 installer|--notags|--default-item|route|--menu|Open the web UI on a public address?") {
+		t.Fatalf("whiptail calls:\n%s", strings.Join(calls, "\n"))
+	}
+	if !strings.Contains(calls[4], "Web UI: http://203.0.113.5:8080 (plain HTTP, not encrypted)") || !strings.Contains(calls[4], "--web-listen http://203.0.113.5:8080") {
+		t.Errorf("the summary does not show the web listener: %q", calls[4])
+	}
+	if got := readFile(t, f.logBase+".args"); got != "system\ninstall\n--role\ncontroller\n--web-listen\nhttp://203.0.113.5:8080\n" {
+		t.Errorf("darkpanel ran with %q", got)
+	}
+}
+
+func TestWizardWhiptailCancelAtTheWebQuestion(t *testing.T) {
+	for _, status := range []string{"1", "255"} {
+		t.Run("exit "+status, func(t *testing.T) {
+			f := newFixture(t)
+			tools, _ := fakeWhiptail(t, "0 controller", "0 1.10.0", "0 later", status+" ")
+			tm := f.wizard(t, tools, "TERM=xterm")
+			out, err := tm.wait()
+			if err == nil || !strings.Contains(out, "Installation cancelled; nothing was changed.") {
+				t.Errorf("err %v, output:\n%s", err, out)
+			}
+			if got := f.tarballRequests.Load(); got != 0 {
+				t.Errorf("a cancelled install fetched %d tarballs", got)
+			}
+		})
+	}
+}
+
+func TestWizardWebOnAnOldBinary(t *testing.T) {
+	f := newFixtureStub(t, oldStub)
+	tm := webWizard(t, f)
+	tm.expect("Choice [1, q to quit]: ")
+	tm.send("")
+	tm.expect("Install now? [Y/n]: ")
+	tm.send("")
+	out, err := tm.wait()
+	if err != nil {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "cannot open a public web listener; installing without it") || strings.Contains(out, "Open the panel at http://203.0.113.5:8080") {
+		t.Errorf("the old binary's install kept the public URL in the closing steps (spec A18):\n%s", out)
 	}
 }

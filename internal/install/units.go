@@ -32,6 +32,7 @@ type unitData struct {
 	ControllerDir  string // the only directory the controller may write
 	AgentListen    []string
 	AgentAdvertise string
+	WebListen      []string // the --web-listen values as serve writes them
 }
 
 // agentAddress is the character set install.sh allows in the flags it
@@ -51,11 +52,16 @@ func CheckAgentAddress(s string) error {
 
 // Units renders the unit files of role: the agent, rollback and boot
 // recovery units, and for the controller role also the controller unit and
-// its drop-in holding the agent listener flags. Both flags are for the
+// its drop-in holding the agent listener flags and the web listeners. With
+// web listeners the drop-in passes serve --listen loopback --listen tailscale
+// and then each value, so the defaults stay. All three flags are for the
 // controller role only.
-func Units(l Layout, role Role, agentListen []string, agentAdvertise string) ([]UnitFile, error) {
+func Units(l Layout, role Role, agentListen []string, agentAdvertise string, webListen []string) ([]UnitFile, error) {
 	if role != RoleController && (len(agentListen) > 0 || agentAdvertise != "") {
 		return nil, errors.New("install: --agent-listen and --agent-advertise are for the controller role")
+	}
+	if role != RoleController && len(webListen) > 0 {
+		return nil, errors.New("install: --web-listen is for the controller role")
 	}
 	for _, a := range agentListen {
 		if err := CheckAgentAddress(a); err != nil {
@@ -67,9 +73,13 @@ func Units(l Layout, role Role, agentListen []string, agentAdvertise string) ([]
 			return nil, err
 		}
 	}
+	web, err := WebListenValues(webListen)
+	if err != nil {
+		return nil, fmt.Errorf("install: %w", err)
+	}
 	data := unitData{
 		Binary: l.Paths.Binary(), Recovery: l.Paths.RecoveryBinary(), ControllerDir: l.Paths.ControllerDir,
-		AgentListen: agentListen, AgentAdvertise: agentAdvertise,
+		AgentListen: agentListen, AgentAdvertise: agentAdvertise, WebListen: web,
 	}
 	files := []struct{ template, path string }{
 		{update.AgentUnit, l.UnitPath(update.AgentUnit)},

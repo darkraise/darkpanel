@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -573,5 +574,53 @@ func TestServiceRenewsTheLeafTLSConfigIssued(t *testing.T) {
 	}
 	if !reflect.DeepEqual(leaf.DNSNames, []string{"panel", "localhost"}) || len(leaf.IPAddresses) != 0 {
 		t.Fatalf("renewed leaf SANs %v %v, want the hostname and localhost without IP addresses", leaf.DNSNames, leaf.IPAddresses)
+	}
+}
+
+// TestServicePublicPlainHTTP: a listed public plain-HTTP address that cannot
+// bind leaves the controller serving and names it; once it binds, the
+// message names it as unencrypted (spec A3, A12, A16).
+func TestServicePublicPlainHTTP(t *testing.T) {
+	f := newServiceFixture(t)
+	public := netip.MustParseAddrPort("203.0.113.7:8080")
+	f.binder.fail = map[netip.AddrPort]error{public: syscall.EADDRNOTAVAIL}
+	s, err := f.start(t, "loopback", "http://203.0.113.7:8080")
+	if err != nil {
+		t.Fatalf("Start = %v, want the controller to start without the public address", err)
+	}
+	st := s.State()
+	if want := "Tailscale listener disabled by --listen. Not bound: http://203.0.113.7:8080; see the serve log."; st.Message != want {
+		t.Fatalf("message %q, want %q", st.Message, want)
+	}
+	if got := get(t, &http.Client{Timeout: 10 * time.Second}, "http://"+st.Listeners[0].Addr.String()+"/"); got != "tls=false" {
+		t.Fatalf("loopback answered %q", got)
+	}
+	if !strings.Contains(f.log.String(), "listen: not bound; retrying at the next check") {
+		t.Errorf("the unbound address was not logged:\n%s", f.log)
+	}
+	f.binder.mu.Lock()
+	delete(f.binder.fail, public)
+	f.binder.mu.Unlock()
+	f.clock.Advance(CheckInterval)
+	st = s.State()
+	if want := "Tailscale listener disabled by --listen. Plain HTTP, not encrypted: http://203.0.113.7:8080."; st.Message != want {
+		t.Fatalf("message %q after the address appeared, want %q", st.Message, want)
+	}
+	if !slices.ContainsFunc(endpointsOf(st), func(e Endpoint) bool { return e.Addr == public && !e.TLS }) {
+		t.Fatalf("listeners = %v, want the public plain endpoint", endpointsOf(st))
+	}
+}
+
+// TestServiceStateListsServedTailscaleAddrs: State.Tailscale holds the
+// Tailscale addresses that are bound (contract C4).
+func TestServiceStateListsServedTailscaleAddrs(t *testing.T) {
+	f := newServiceFixture(t)
+	f.ifs.set(true, "100.64.0.1")
+	s, err := f.start(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.State().Tailscale; !reflect.DeepEqual(got, addrs("100.64.0.1")) {
+		t.Fatalf("State().Tailscale = %v, want [100.64.0.1]", got)
 	}
 }

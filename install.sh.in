@@ -11,6 +11,7 @@
 #       /dev/tty, so curl ... | sudo sh works too.
 #   sudo sh install.sh --role controller [--version X.Y.Z] [--base-url URL]
 #       [--agent-listen ADDR:PORT]... [--agent-advertise HOST:PORT]
+#       [--web-listen http://<ip>:<port>]...
 #   sudo sh install.sh --role agent [--version X.Y.Z] [--base-url URL]
 #       [--token-file PATH]
 #
@@ -238,7 +239,7 @@ read_token() {
 }
 
 usage() {
-	die "usage: install.sh --role controller|agent [--version X.Y.Z] [--base-url URL] [--token-file PATH] [--agent-listen ADDR:PORT]... [--agent-advertise HOST:PORT]; with --role agent, the token file holds an enrollment token or bootstrap bundle"
+	die "usage: install.sh --role controller|agent [--version X.Y.Z] [--base-url URL] [--token-file PATH] [--agent-listen ADDR:PORT]... [--agent-advertise HOST:PORT] [--web-listen URL]...; with --role agent, the token file holds an enrollment token or bootstrap bundle"
 }
 
 # valid_address succeeds for a plain host:port; check_address refuses
@@ -251,6 +252,16 @@ valid_address() {
 
 check_address() {
 	valid_address "$1" || die "address $1 is not host:port"
+}
+
+# check_web refuses a --web-listen value that is not http:// or https://
+# followed by an IPv4 address or a bracketed IPv6 address and a port;
+# darkpanel system install checks the rest.
+check_web() {
+	case $1 in *'
+'*) die "--web-listen $1 is not http://<ip>:<port> or https://<ip>:<port>" ;; esac
+	printf '%s' "$1" | grep -Eq '^https?://([0-9]{1,3}(\.[0-9]{1,3}){3}|\[[0-9A-Fa-f:.]+\]):[0-9]{1,5}$' ||
+		die "--web-listen $1 is not http://<ip>:<port> or https://<ip>:<port>"
 }
 
 # release_versions prints every well-formed version the release index $1
@@ -527,6 +538,119 @@ choose_addresses() {
 
 # choose_token sets token, or leaves it empty to reinstall with the saved
 # agent credentials.
+# valid_web_address succeeds when $1 is <IPv4>:<port> and, where the ip tool
+# exists, the IPv4 address is one of this server's.
+valid_web_address() {
+	u_ip=${1%:*}
+	u_port=${1##*:}
+	printf '%s' "$u_ip" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' || return 1
+	printf '%s' "$u_port" | grep -Eq '^[0-9]{1,5}$' || return 1
+	[ "$u_port" -ge 1 ] && [ "$u_port" -le 65535 ] || return 1
+	[ "$u_ip" != 0.0.0.0 ] || return 1
+	u_rest=$u_ip
+	while [ -n "$u_rest" ]; do
+		[ "${u_rest%%.*}" -le 255 ] || return 1
+		case $u_rest in
+		*.*) u_rest=${u_rest#*.} ;;
+		*) u_rest= ;;
+		esac
+	done
+	if command -v ip >/dev/null 2>&1; then
+		ip -4 -o addr show 2>/dev/null | grep -qF " inet $u_ip/" || return 1
+	fi
+}
+
+# choose_web sets web_args, web_url and web_summary for the controller. The
+# --listen values of an existing drop-in that the menu cannot express (HTTPS,
+# IPv6 or several values) are kept without asking; otherwise the operator
+# picks a public plain-HTTP listener or none, with the drop-in's choice as the
+# default.
+choose_web() {
+	web_args=
+	web_url=
+	u_values=
+	u_dropin="$ROOT/etc/systemd/system/darkpanel-controller.service.d/10-agent.conf"
+	set -f
+	if [ -f "$u_dropin" ]; then
+		u_next=
+		for u_w in $(grep '^ExecStart=.' "$u_dropin" | tail -n 1); do
+			if [ -n "$u_next" ]; then
+				case $u_w in
+				loopback | tailscale) ;;
+				*) u_values="$u_values $u_w" ;;
+				esac
+			fi
+			u_next=
+			[ "$u_w" != --listen ] || u_next=1
+		done
+	fi
+	u_values=${u_values# }
+	u_count=0
+	u_kept=
+	for u_w in $u_values; do
+		u_count=$((u_count + 1))
+		case $u_w in https://* | *'['*) u_kept=1 ;; esac
+	done
+	[ "$u_count" -le 1 ] || u_kept=1
+	if [ -n "$u_kept" ]; then
+		for u_w in $u_values; do
+			web_args="$web_args --web-listen $u_w"
+			[ -n "$web_url" ] || web_url=$u_w
+		done
+		set +f
+		web_summary="Web UI: $u_values (kept from the current install)"
+		return 0
+	fi
+	set +f
+	u_custom=${route_ip:+$route_ip:8080}
+	if [ -f "$u_dropin" ]; then
+		case $u_values in
+		'') u_default=no ;;
+		"http://$route_ip:8080") u_default=route ;;
+		*)
+			u_default=custom
+			u_custom=${u_values#http://}
+			;;
+		esac
+	elif [ -n "$route_ip" ]; then
+		u_default=route
+	else
+		u_default=no
+	fi
+	set --
+	[ -z "$route_ip" ] || set -- route "This server's address http://$route_ip:8080 (port 8080 must be open)"
+	ui_menu 'Open the web UI on a public address? It serves plain HTTP: passwords, sessions and the tokens and keys the panel shows cross the network unencrypted.' \
+		"$u_default" "$@" \
+		custom 'Another address of this server' \
+		no 'No - reach it through an SSH tunnel or Tailscale'
+	case $answer in
+	route) web_url=http://$route_ip:8080 ;;
+	custom)
+		while :; do
+			ui_input 'Address of this server for the web UI (IPv4, optionally :port)' "$u_custom"
+			[ -n "$answer" ] || continue
+			case $answer in
+			*:*) u_addr=$answer ;;
+			*) u_addr=$answer:8080 ;;
+			esac
+			if valid_web_address "$u_addr"; then
+				[ "${u_addr##*:}" -ge 1024 ] && break
+				ui_error "port ${u_addr##*:} needs root and the panel runs as darkpanel; use port 1024 or higher, such as 8080"
+				continue
+			fi
+			ui_error "address $answer is not an IPv4 address of this server"
+		done
+		web_url=http://$u_addr
+		;;
+	esac
+	if [ -n "$web_url" ]; then
+		web_args=" --web-listen $web_url"
+		web_summary="Web UI: $web_url (plain HTTP, not encrypted)"
+	else
+		web_summary='Web UI: SSH tunnel or Tailscale only'
+	fi
+}
+
 choose_token() {
 	if [ -e "$ROOT/etc/darkpanel/agent/current" ] &&
 		ui_yesno 'Saved agent credentials were found on this server.' 'Reinstall with them? Answer no to enter a new enrollment token.'; then
@@ -560,11 +684,13 @@ wizard() {
 	u_cmd="sudo sh install.sh --role $role --version $version"
 	if [ "$role" = controller ]; then
 		choose_addresses
-		u_cmd="$u_cmd$listen_args"
+		choose_web
+		u_cmd="$u_cmd$listen_args$web_args"
 		u_summary="Role: controller
 Version: $version
 Agents connect to: ${advertise:-the address each enrollment token names}
-Agent listener: loopback and Tailscale addresses${listen:+, $listen}"
+Agent listener: loopback and Tailscale addresses${listen:+, $listen}
+$web_summary"
 	else
 		choose_token
 		if [ -n "$token" ]; then
@@ -589,12 +715,19 @@ The same install without questions:
 # next_steps tells the operator what to do after the wizard installed.
 next_steps() {
 	if [ "$role" = controller ]; then
+		if [ -n "$web_url" ]; then
+			u_open="  2. Open the panel at $web_url
+     (behind NAT, use this server's public address with the same port)
+     or forward the port:"
+		else
+			u_open='  2. Open the panel from your computer:'
+		fi
 		cat <<EOF
 
 Next steps:
   1. Create the first admin:
        sudo darkpanel user create --username admin
-  2. Open the panel from your computer:
+$u_open
        ssh -L 8080:127.0.0.1:8080 <this server>
      then browse to http://127.0.0.1:8080${ts_ip:+
      or, over Tailscale, to https://$ts_ip:8443}
@@ -611,6 +744,8 @@ main() {
 	base_url=''
 	token_file=''
 	listen_args=''
+	web_args=''
+	web_url=''
 	interactive=
 	[ $# -gt 0 ] || interactive=1
 	while [ $# -gt 0 ]; do
@@ -628,6 +763,10 @@ main() {
 			check_address "$2"
 			listen_args="$listen_args --agent-advertise $2"
 			;;
+		--web-listen)
+			check_web "$2"
+			web_args="$web_args --web-listen $2"
+			;;
 		*) usage ;;
 		esac
 		shift 2
@@ -638,7 +777,10 @@ main() {
 	else
 		case "$role" in
 		controller) [ -z "$token_file" ] || die "--token-file is for --role agent" ;;
-		agent) [ -z "$listen_args" ] || die "--agent-listen and --agent-advertise are for --role controller" ;;
+		agent)
+			[ -z "$listen_args" ] || die "--agent-listen and --agent-advertise are for --role controller"
+			[ -z "$web_args" ] || die "--web-listen is for --role controller"
+			;;
 		*) usage ;;
 		esac
 	fi
@@ -693,9 +835,14 @@ main() {
 
 	bin="$ROOT/usr/local/lib/darkpanel/darkpanel"
 	if [ "$role" = controller ]; then
+		if [ -n "$web_args" ] && ! "$bin" system install --help </dev/null 2>/dev/null | grep -q -- --web-listen; then
+			echo "darkpanel $version cannot open a public web listener; installing without it" >&2
+			web_args=''
+			web_url=''
+		fi
 		set -f
-		# shellcheck disable=SC2086 # listen_args holds checked words
-		"$bin" system install --role controller $listen_args </dev/null
+		# shellcheck disable=SC2086 # listen_args and web_args hold checked words
+		"$bin" system install --role controller $listen_args $web_args </dev/null
 		set +f
 	elif [ -n "$token" ]; then
 		printf '%s\n' "$token" | "$bin" system install --role agent

@@ -94,11 +94,19 @@ func pairKey(username, source string) string {
 	return "u:" + username + "@" + strings.TrimPrefix(sourceKey(source), "s:")
 }
 
-// blocked returns how long the pair of username and source, or the source
-// alone, stays locked, the longer of the two, or 0 when the attempt may be
-// evaluated. When the table is full of locked keys and either key is new, the
-// attempt could not be counted, so it is refused until the first lock ends.
+// blocked is blockedFor an attempt from an untrusted listener.
 func (l *limiter) blocked(username, source string) time.Duration {
+	return l.blockedFor(username, source, false)
+}
+
+// blockedFor returns how long the pair of username and source, or the source
+// alone, stays locked, the longer of the two, or 0 when the attempt may be
+// evaluated. When the table is full of locked keys and either key is new, an
+// untrusted attempt could not be counted, so it is refused until the first
+// lock ends. A trusted attempt, one that arrived on a loopback or Tailscale
+// listener, is evaluated anyway: only those listeners can add keys past the
+// cap, so a flood from the public listener cannot lock the operator out.
+func (l *limiter) blockedFor(username, source string, trusted bool) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.clock.Now()
@@ -116,7 +124,7 @@ func (l *limiter) blocked(username, source string) time.Duration {
 			wait = max(wait, c.lockedUntil.Sub(now))
 		}
 	}
-	if unknown && len(l.keys) >= l.max {
+	if unknown && !trusted && len(l.keys) >= l.max {
 		if first, full := l.allLocked(now); full {
 			wait = max(wait, first)
 		}
@@ -140,17 +148,24 @@ func (l *limiter) allLocked(now time.Time) (time.Duration, bool) {
 	return first, true
 }
 
-// fail records one failed login for username and source. Neither key is
-// evicted to make room for the other: with one free slot they would displace
-// each other on every attempt and neither would count past one failure.
+// fail is failFor an attempt from an untrusted listener.
 func (l *limiter) fail(username, source string) {
+	l.failFor(username, source, false)
+}
+
+// failFor records one failed login for username and source. Neither key is
+// evicted to make room for the other: with one free slot they would displace
+// each other on every attempt and neither would count past one failure. A
+// trusted attempt's keys are added past the cap: only loopback and Tailscale
+// listeners can grow the table beyond it.
+func (l *limiter) failFor(username, source string, trusted bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.clock.Now()
 	l.prune(now)
 	u, s := pairKey(username, source), sourceKey(source)
-	l.record(u, UsernameFailureLimit, now, s)
-	l.record(s, SourceFailureLimit, now, u)
+	l.record(u, UsernameFailureLimit, now, s, trusted)
+	l.record(s, SourceFailureLimit, now, u, trusted)
 }
 
 // prune drops every key left with neither failures inside the window nor a
@@ -183,12 +198,12 @@ func recent(failures []time.Time, now time.Time) []time.Time {
 
 // record counts a failure for key. A new key that finds the table full takes
 // the place of the oldest unlocked key other than keep; when there is none it
-// is not recorded (when every key is locked, blocked refuses such attempts
-// before they are evaluated).
-func (l *limiter) record(key string, limit int, now time.Time, keep string) {
+// is not recorded (when every key is locked, blockedFor refuses such attempts
+// before they are evaluated). A trusted key is added without eviction.
+func (l *limiter) record(key string, limit int, now time.Time, keep string, trusted bool) {
 	c, ok := l.keys[key]
 	if !ok {
-		if len(l.keys) >= l.max && !l.dropOldestUnlocked(now, keep) {
+		if !trusted && len(l.keys) >= l.max && !l.dropOldestUnlocked(now, keep) {
 			return
 		}
 		c = &counter{key: key}

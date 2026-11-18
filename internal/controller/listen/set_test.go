@@ -297,3 +297,51 @@ func TestSetReportsAServerThatStopsServing(t *testing.T) {
 	default:
 	}
 }
+
+// TestSetRetriesARetryEndpointQuietly: a Retry endpoint's bind failure is
+// not returned, is logged once per distinct error, and a later Update binds
+// it once the address works (spec A16).
+func TestSetRetriesARetryEndpointQuietly(t *testing.T) {
+	log := &logBuffer{}
+	public := netip.MustParseAddrPort("203.0.113.7:8080")
+	b := &fakeBinder{fail: map[netip.AddrPort]error{public: syscall.EADDRNOTAVAIL}}
+	s := NewSet(SetConfig{Handler: http.NotFoundHandler(), Bind: b.bind, Log: slog.New(slog.NewTextHandler(log, nil))})
+	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
+	want := []Endpoint{{Addr: netip.MustParseAddrPort("127.0.0.1:8080")}, {Addr: public, Retry: true}}
+	for range 3 {
+		if err := s.Update(context.Background(), want); err != nil {
+			t.Fatalf("Update = %v, want the Retry failure kept out of the error", err)
+		}
+	}
+	if n := strings.Count(log.String(), "listen: not bound; retrying at the next check"); n != 1 {
+		t.Errorf("logged the unbound endpoint %d times over three updates, want once:\n%s", n, log)
+	}
+	if bound := s.Bound(); len(bound) != 1 || bound[0].Endpoint.Addr != netip.MustParseAddrPort("127.0.0.1:8080") {
+		t.Fatalf("bound %v, want loopback only", bound)
+	}
+	b.mu.Lock()
+	b.fail[public] = syscall.EADDRINUSE
+	b.mu.Unlock()
+	if err := s.Update(context.Background(), want); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(log.String(), "listen: not bound; retrying at the next check"); n != 2 {
+		t.Errorf("a changed error was logged %d times in all, want 2", n)
+	}
+	b.mu.Lock()
+	delete(b.fail, public)
+	b.mu.Unlock()
+	if err := s.Update(context.Background(), want); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Bound()) != 2 {
+		t.Fatalf("bound %v after the address appeared, want both", s.Bound())
+	}
+	// A plain endpoint without Retry still fails the update.
+	b.mu.Lock()
+	b.fail[netip.MustParseAddrPort("127.0.0.1:9090")] = syscall.EADDRINUSE
+	b.mu.Unlock()
+	if err := s.Update(context.Background(), append(want, Endpoint{Addr: netip.MustParseAddrPort("127.0.0.1:9090")})); err == nil {
+		t.Error("a non-Retry bind failure was not returned")
+	}
+}

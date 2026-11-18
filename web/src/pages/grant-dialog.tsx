@@ -1,6 +1,7 @@
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
-import { Clipboard, ClipboardControl, ClipboardInput, ClipboardLabel, ClipboardTrigger } from "darkraise-ui/components/clipboard"
+import { ClipboardControl, ClipboardInput, ClipboardLabel, ClipboardTrigger } from "darkraise-ui/components/clipboard"
+import { SecretClipboard } from "@/components/secret-clipboard"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import type { EnrollmentGrant } from "@/api/types"
 import { formatTime } from "@/lib/format"
@@ -46,13 +47,13 @@ export function GrantDialog({
         )}
         {grant !== null && (
           <div className="flex flex-col gap-4">
-            <Clipboard value={bundle ?? grant.token}>
+            <SecretClipboard value={bundle ?? grant.token}>
               <ClipboardLabel htmlFor="host-grant-secret">{bundle !== null ? `Bootstrap bundle for ${grant.host.name}` : `Enrollment token for ${grant.host.name}`}</ClipboardLabel>
               <ClipboardControl>
                 <ClipboardInput id="host-grant-secret" className="font-mono" />
                 <ClipboardTrigger>Copy</ClipboardTrigger>
               </ClipboardControl>
-            </Clipboard>
+            </SecretClipboard>
             <p className="text-sm text-muted-foreground">
               {bundle !== null
                 ? `On the new host, run install.sh --role agent --token-file <file> with this bundle before ${formatTime(grant.expiresAt)}.`

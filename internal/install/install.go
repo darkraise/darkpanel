@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	agentruntime "github.com/darkraise/darkpanel/internal/agent/runtime"
+	"github.com/darkraise/darkpanel/internal/controller/listen"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/secret"
@@ -107,6 +108,7 @@ type Config struct {
 	Role           Role
 	AgentListen    []string // controller role: the --agent-listen values
 	AgentAdvertise string   // controller role: the --agent-advertise value
+	WebListen      []string // controller role: the --web-listen values
 	// Token is the agent role's enrollment token or bootstrap bundle from
 	// standard input, trimmed; empty when none was given.
 	Token string
@@ -160,7 +162,7 @@ func (c Config) check() error {
 	}
 	// Rendering the units checks the flags; doing it here refuses them before
 	// anything on the host changes.
-	_, err = Units(c.Layout, c.Role, c.AgentListen, c.AgentAdvertise)
+	_, err = Units(c.Layout, c.Role, c.AgentListen, c.AgentAdvertise, c.WebListen)
 	return err
 }
 
@@ -211,6 +213,7 @@ func Install(ctx context.Context, cfg Config) error {
 		{"keys", in.keys},
 		{"database", in.database},
 		{"units", in.units},
+		{"web listeners", in.webListeners},
 		{"controller", in.startController},
 		{"enrollment", in.enroll},
 		{"agent", in.startAgent},
@@ -435,10 +438,46 @@ func (in *installer) database(ctx context.Context) (string, error) {
 	return fmt.Sprintf("agent.db migrated, %d owned paths recorded", recorded), nil
 }
 
+// WebListenValues checks the --web-listen values the way serve will read them
+// after its defaults, loopback and tailscale, and returns them as serve writes
+// them; nil for none.
+func WebListenValues(values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	for _, v := range values {
+		if v == "loopback" || v == "tailscale" {
+			return nil, fmt.Errorf("--web-listen %q: want http://<ip>:<port> or https://<ip>:<port>", v)
+		}
+	}
+	specs, err := listen.ParseSpecs(append([]string{"loopback", "tailscale"}, values...))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(specs)-2)
+	for _, s := range specs[2:] {
+		out = append(out, s.String())
+	}
+	return out, nil
+}
+
+// webListeners reports the controller's web listeners; the agent role has
+// none.
+func (in *installer) webListeners(context.Context) (string, error) {
+	if in.cfg.Role != RoleController {
+		return "", nil
+	}
+	web, err := WebListenValues(in.cfg.WebListen)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(append([]string{"loopback", "tailscale"}, web...), ", "), nil
+}
+
 // units writes the unit files that differ, reloads systemd and enables the
 // role's units.
 func (in *installer) units(ctx context.Context) (string, error) {
-	files, err := Units(in.cfg.Layout, in.cfg.Role, in.cfg.AgentListen, in.cfg.AgentAdvertise)
+	files, err := Units(in.cfg.Layout, in.cfg.Role, in.cfg.AgentListen, in.cfg.AgentAdvertise, in.cfg.WebListen)
 	if err != nil {
 		return "", err
 	}

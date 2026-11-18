@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
-import { Clipboard, ClipboardControl, ClipboardInput, ClipboardLabel, ClipboardTrigger } from "darkraise-ui/components/clipboard"
+import { ClipboardControl, ClipboardInput, ClipboardLabel, ClipboardTrigger } from "darkraise-ui/components/clipboard"
+import { SecretClipboard } from "@/components/secret-clipboard"
 import {
   Dialog,
   DialogContent,
@@ -144,13 +145,13 @@ export function CreateTokenDialog() {
           </form>
         ) : (
           <div className="flex flex-col gap-4">
-            <Clipboard value={created.token}>
+            <SecretClipboard value={created.token}>
               <ClipboardLabel htmlFor="token-secret">Token {created.name}</ClipboardLabel>
               <ClipboardControl>
                 <ClipboardInput id="token-secret" className="font-mono" />
                 <ClipboardTrigger>Copy</ClipboardTrigger>
               </ClipboardControl>
-            </Clipboard>
+            </SecretClipboard>
             <DialogFooter>
               <Button onClick={() => onOpenChange(false)}>Done</Button>
             </DialogFooter>

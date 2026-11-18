@@ -15,9 +15,9 @@ import (
 )
 
 // unitsByPath renders the units of role for the production layout.
-func unitsByPath(t *testing.T, role Role, listen []string, advertise string) map[string]string {
+func unitsByPath(t *testing.T, role Role, listen []string, advertise string, web ...string) map[string]string {
 	t.Helper()
-	files, err := Units(Production(), role, listen, advertise)
+	files, err := Units(Production(), role, listen, advertise, web)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,12 +102,28 @@ func TestControllerUnits(t *testing.T) {
 	wantLines(t, "drop-in", units["/etc/systemd/system/darkpanel-controller.service.d/10-agent.conf"],
 		"[Service]", "ExecStart=",
 		"ExecStart=/usr/local/lib/darkpanel/darkpanel serve --agent-listen 10.77.0.10:7443 --agent-listen [fd7a::1]:7443 --agent-advertise 10.77.0.10:7443")
+	web := unitsByPath(t, RoleController, []string{"10.77.0.10:7443"}, "10.77.0.10:7443", "http://203.0.113.7:8080")
+	wantLines(t, "drop-in", web["/etc/systemd/system/darkpanel-controller.service.d/10-agent.conf"],
+		"# Written by darkpanel system install from its --agent-listen, --agent-advertise",
+		"# and --web-listen flags; rerun it to change them.",
+		"ExecStart=/usr/local/lib/darkpanel/darkpanel serve --listen loopback --listen tailscale --listen http://203.0.113.7:8080 --agent-listen 10.77.0.10:7443 --agent-advertise 10.77.0.10:7443")
+	for _, bad := range [][]string{{"loopback"}, {"http://0.0.0.0:8080"}, {"https://127.0.0.1:8080"}} {
+		if _, err := Units(Production(), RoleController, nil, "", bad); err == nil {
+			t.Errorf("Units with web %q succeeded, want the serve list refused", bad)
+		}
+	}
+	if _, err := Units(Production(), RoleAgent, nil, "", []string{"http://203.0.113.7:8080"}); err == nil {
+		t.Error("Units rendered web listeners for the agent role")
+	}
 }
 
 func TestControllerDropInWithoutFlags(t *testing.T) {
 	units := unitsByPath(t, RoleController, nil, "")
 	wantLines(t, "drop-in", units["/etc/systemd/system/darkpanel-controller.service.d/10-agent.conf"],
 		"ExecStart=", "ExecStart=/usr/local/lib/darkpanel/darkpanel serve")
+	if strings.Contains(units["/etc/systemd/system/darkpanel-controller.service.d/10-agent.conf"], "--listen") {
+		t.Error("the drop-in without web values names --listen")
+	}
 }
 
 func TestAgentRoleUnits(t *testing.T) {
@@ -125,10 +141,10 @@ func TestAgentRoleUnits(t *testing.T) {
 		t.Errorf("the agent role writes %v, want three units", got)
 	}
 	wantLines(t, "agent", units["/etc/systemd/system/darkpanel-agent.service"], wdUnitLines()...)
-	if _, err := Units(Production(), RoleAgent, []string{"10.0.0.1:7443"}, ""); err == nil {
+	if _, err := Units(Production(), RoleAgent, []string{"10.0.0.1:7443"}, "", nil); err == nil {
 		t.Error("the agent role accepted --agent-listen")
 	}
-	if _, err := Units(Production(), RoleAgent, nil, "10.0.0.1:7443"); err == nil {
+	if _, err := Units(Production(), RoleAgent, nil, "10.0.0.1:7443", nil); err == nil {
 		t.Error("the agent role accepted --agent-advertise")
 	}
 }
@@ -153,7 +169,7 @@ func TestWatchdogExitsStayInsideTheStartLimit(t *testing.T) {
 
 func TestRootedUnitsUseRootedPaths(t *testing.T) {
 	root := t.TempDir()
-	files, err := Units(Rooted(root), RoleController, nil, "")
+	files, err := Units(Rooted(root), RoleController, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +194,7 @@ func TestCheckAgentAddress(t *testing.T) {
 			t.Errorf("CheckAgentAddress(%q) succeeded", bad)
 		}
 	}
-	if _, err := Units(Production(), RoleController, []string{"h:1 --dev"}, ""); err == nil {
+	if _, err := Units(Production(), RoleController, []string{"h:1 --dev"}, "", nil); err == nil {
 		t.Error("Units accepted a listen address carrying a flag")
 	}
 }
@@ -222,7 +238,7 @@ func TestWriteIfChanged(t *testing.T) {
 // starts the controller.
 func TestRuControllerUnitRecoversBeforeStart(t *testing.T) {
 	for name, l := range map[string]Layout{"production": Production(), "rooted": Rooted(t.TempDir())} {
-		files, err := Units(l, RoleController, nil, "")
+		files, err := Units(l, RoleController, nil, "", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
