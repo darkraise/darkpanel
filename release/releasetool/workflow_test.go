@@ -159,3 +159,52 @@ func TestWorkflowsParseAsYAML(t *testing.T) {
 		}
 	}
 }
+
+// The snapshot retention guard runs on every push and on every release tag,
+// against the previous tag, with the reference computed in its own command
+// so a failed git describe fails the step.
+func TestSnapshotsRetainedGuardRuns(t *testing.T) {
+	const assign = `ref=$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_SHA^")`
+	const call = `bash release/snapshots.sh retained "$ref"`
+	type step struct {
+		Uses string         `yaml:"uses"`
+		With map[string]any `yaml:"with"`
+		Run  string         `yaml:"run"`
+	}
+	for _, c := range []struct{ file, job string }{
+		{"../../.github/workflows/ci.yml", "release-scripts"},
+		{"../../.github/workflows/release.yml", "verify"},
+	} {
+		b, err := os.ReadFile(c.file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wf struct {
+			Jobs map[string]struct {
+				Steps []step `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(b, &wf); err != nil {
+			t.Fatalf("%s: %v", c.file, err)
+		}
+		job, ok := wf.Jobs[c.job]
+		if !ok {
+			t.Fatalf("%s has no %s job", c.file, c.job)
+		}
+		var fullHistory, guarded bool
+		for _, s := range job.Steps {
+			if strings.HasPrefix(s.Uses, "actions/checkout@") && fmt.Sprint(s.With["fetch-depth"]) == "0" {
+				fullHistory = true
+			}
+			if a, k := strings.Index(s.Run, assign+"\n"), strings.Index(s.Run, call); a >= 0 && k > a {
+				guarded = true
+			}
+		}
+		if !fullHistory {
+			t.Errorf("%s job %s: checkout does not fetch full history (fetch-depth: 0)", c.file, c.job)
+		}
+		if !guarded {
+			t.Errorf("%s job %s: no step runs %q on the line after %q", c.file, c.job, call, assign)
+		}
+	}
+}

@@ -80,6 +80,8 @@ jobs:
     runs-on: ${{ fromJSON(needs.runner.outputs.labels) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -96,6 +98,10 @@ jobs:
           echo "$RUNNER_TEMP/shellcheck" >> "$GITHUB_PATH"
       # lint-sh checks install.sh only once it exists.
       - run: make lint-sh test-release
+      - name: Released snapshots kept since the previous tag
+        run: |
+          ref=$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_SHA^")
+          bash release/snapshots.sh retained "$ref"
 
   go:
     needs: runner
