@@ -138,7 +138,7 @@ release: release-check verify-build
 	bash release/package.sh $(VERSION) bin $(RELEASE_DIR)
 
 # make release-prep VERSION=x.y.z moves a pre-release's install pins in the
-# docs, freezes only the schema snapshots no earlier release of the same
+# docs, freezes only the schema snapshots no other release of the same
 # major holds, checks them and rewrites CHANGELOG.md; the owner commits them,
 # then pushes a signed tag vx.y.z.
 # Released snapshots are immutable, so git-cliff is checked before they are frozen.

@@ -2,7 +2,7 @@
 # Freezes and checks the released schema snapshots (ADR 0002).
 #
 #   snapshots.sh copy <tag>   copies to schemas/released/<tag>/ only the current
-#                             snapshots no earlier tag of the same major holds
+#                             snapshots no other tag of the same major holds
 #   snapshots.sh check <tag>  fails unless every current snapshot is held
 #                             byte-identical by a tag of the same major, and
 #                             released/<tag>/ holds only current snapshots

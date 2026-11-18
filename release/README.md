@@ -53,7 +53,7 @@ then runs `release.yml`.
 - Adding any deploy key with write access grants `v*` tag creation, because
   the tag ruleset's bypass names deploy keys, not one key.
 - A release adds snapshot files under `schemas/released/` only for the
-  schemas it changed.
+  schemas it changed (the first release of a major holds the full set).
 
 ### Setup
 
