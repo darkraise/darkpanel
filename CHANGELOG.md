@@ -2,6 +2,31 @@
 
 All notable changes to Darkpanel. Versions follow docs/versioning.md.
 
+## 1.0.0-rc.5 - 2026-11-18
+
+### Features
+
+- **listen:** allow plain HTTP on explicit addresses
+- **listen:** retry explicit listeners, name them
+- **auth:** let trusted listeners past a full table
+- **api:** mark logins from trusted listeners
+- **install:** write web listeners into the drop-in
+- **install:** add system install --web-listen
+- **install-sh:** pass --web-listen to the installer
+- **install-sh:** ask about a public web listener
+- **web:** copy without the clipboard API
+
+### Fixes
+
+- **install:** refuse privileged web listener ports
+- **web:** say so when a copy fails
+- **api:** regenerate the session cookie docs
+- **docs:** name no pinned version in rollback notes
+
+### Documentation
+
+- **install:** document the public web listener
+- **listen:** correct the Retry field comment
 ## 1.0.0-rc.4 - 2026-11-18
 
 ### Fixes
