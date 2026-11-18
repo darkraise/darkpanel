@@ -538,6 +538,115 @@ choose_addresses() {
 
 # choose_token sets token, or leaves it empty to reinstall with the saved
 # agent credentials.
+# valid_web_address succeeds when $1 is <IPv4>:<port> and, where the ip tool
+# exists, the IPv4 address is one of this server's.
+valid_web_address() {
+	u_ip=${1%:*}
+	u_port=${1##*:}
+	printf '%s' "$u_ip" | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' || return 1
+	printf '%s' "$u_port" | grep -Eq '^[0-9]{1,5}$' || return 1
+	[ "$u_port" -ge 1 ] && [ "$u_port" -le 65535 ] || return 1
+	[ "$u_ip" != 0.0.0.0 ] || return 1
+	u_rest=$u_ip
+	while [ -n "$u_rest" ]; do
+		[ "${u_rest%%.*}" -le 255 ] || return 1
+		case $u_rest in
+		*.*) u_rest=${u_rest#*.} ;;
+		*) u_rest= ;;
+		esac
+	done
+	if command -v ip >/dev/null 2>&1; then
+		ip -4 -o addr show 2>/dev/null | grep -qF " inet $u_ip/" || return 1
+	fi
+}
+
+# choose_web sets web_args, web_url and web_summary for the controller. The
+# --listen values of an existing drop-in that the menu cannot express (HTTPS,
+# IPv6 or several values) are kept without asking; otherwise the operator
+# picks a public plain-HTTP listener or none, with the drop-in's choice as the
+# default.
+choose_web() {
+	web_args=
+	web_url=
+	u_values=
+	u_dropin="$ROOT/etc/systemd/system/darkpanel-controller.service.d/10-agent.conf"
+	set -f
+	if [ -f "$u_dropin" ]; then
+		u_next=
+		for u_w in $(grep '^ExecStart=.' "$u_dropin" | tail -n 1); do
+			if [ -n "$u_next" ]; then
+				case $u_w in
+				loopback | tailscale) ;;
+				*) u_values="$u_values $u_w" ;;
+				esac
+			fi
+			u_next=
+			[ "$u_w" != --listen ] || u_next=1
+		done
+	fi
+	u_values=${u_values# }
+	u_count=0
+	u_kept=
+	for u_w in $u_values; do
+		u_count=$((u_count + 1))
+		case $u_w in https://* | *'['*) u_kept=1 ;; esac
+	done
+	[ "$u_count" -le 1 ] || u_kept=1
+	if [ -n "$u_kept" ]; then
+		for u_w in $u_values; do
+			web_args="$web_args --web-listen $u_w"
+			[ -n "$web_url" ] || web_url=$u_w
+		done
+		set +f
+		web_summary="Web UI: $u_values (kept from the current install)"
+		return 0
+	fi
+	set +f
+	u_custom=${route_ip:+$route_ip:8080}
+	if [ -f "$u_dropin" ]; then
+		case $u_values in
+		'') u_default=no ;;
+		"http://$route_ip:8080") u_default=route ;;
+		*)
+			u_default=custom
+			u_custom=${u_values#http://}
+			;;
+		esac
+	elif [ -n "$route_ip" ]; then
+		u_default=route
+	else
+		u_default=no
+	fi
+	set --
+	[ -z "$route_ip" ] || set -- route "This server's address http://$route_ip:8080 (port 8080 must be open)"
+	ui_menu 'Open the web UI on a public address? It serves plain HTTP: passwords, sessions and the tokens and keys the panel shows cross the network unencrypted.' \
+		"$u_default" "$@" \
+		custom 'Another address of this server' \
+		no 'No - reach it through an SSH tunnel or Tailscale'
+	case $answer in
+	route) web_url=http://$route_ip:8080 ;;
+	custom)
+		while :; do
+			ui_input 'Address of this server for the web UI (IPv4, optionally :port)' "$u_custom"
+			[ -n "$answer" ] || continue
+			case $answer in
+			*:*) u_addr=$answer ;;
+			*) u_addr=$answer:8080 ;;
+			esac
+			valid_web_address "$u_addr" && break
+			ui_error "address $answer is not an IPv4 address of this server"
+		done
+		web_url=http://$u_addr
+		;;
+	esac
+	if [ -n "$web_url" ]; then
+		web_args=" --web-listen $web_url"
+		web_summary="Web UI: $web_url (plain HTTP, not encrypted)"
+	else
+		web_summary='Web UI: SSH tunnel or Tailscale only'
+	fi
+}
+
 choose_token() {
 	if [ -e "$ROOT/etc/darkpanel/agent/current" ] &&
 		ui_yesno 'Saved agent credentials were found on this server.' 'Reinstall with them? Answer no to enter a new enrollment token.'; then
@@ -571,11 +680,13 @@ wizard() {
 	u_cmd="sudo sh install.sh --role $role --version $version"
 	if [ "$role" = controller ]; then
 		choose_addresses
-		u_cmd="$u_cmd$listen_args"
+		choose_web
+		u_cmd="$u_cmd$listen_args$web_args"
 		u_summary="Role: controller
 Version: $version
 Agents connect to: ${advertise:-the address each enrollment token names}
-Agent listener: loopback and Tailscale addresses${listen:+, $listen}"
+Agent listener: loopback and Tailscale addresses${listen:+, $listen}
+$web_summary"
 	else
 		choose_token
 		if [ -n "$token" ]; then
@@ -600,12 +711,19 @@ The same install without questions:
 # next_steps tells the operator what to do after the wizard installed.
 next_steps() {
 	if [ "$role" = controller ]; then
+		if [ -n "$web_url" ]; then
+			u_open="  2. Open the panel at $web_url
+     (behind NAT, use this server's public address with the same port)
+     or forward the port:"
+		else
+			u_open='  2. Open the panel from your computer:'
+		fi
 		cat <<EOF
 
 Next steps:
   1. Create the first admin:
        sudo darkpanel user create --username admin
-  2. Open the panel from your computer:
+$u_open
        ssh -L 8080:127.0.0.1:8080 <this server>
      then browse to http://127.0.0.1:8080${ts_ip:+
      or, over Tailscale, to https://$ts_ip:8443}
@@ -623,6 +741,7 @@ main() {
 	token_file=''
 	listen_args=''
 	web_args=''
+	web_url=''
 	interactive=
 	[ $# -gt 0 ] || interactive=1
 	while [ $# -gt 0 ]; do
@@ -715,6 +834,7 @@ main() {
 		if [ -n "$web_args" ] && ! "$bin" system install --help </dev/null 2>/dev/null | grep -q -- --web-listen; then
 			echo "darkpanel $version cannot open a public web listener; installing without it" >&2
 			web_args=''
+			web_url=''
 		fi
 		set -f
 		# shellcheck disable=SC2086 # listen_args and web_args hold checked words
