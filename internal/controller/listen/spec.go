@@ -130,8 +130,9 @@ type Endpoint struct {
 	// Optional marks the IPv6 loopback endpoint: a host without that address
 	// skips it with one log line instead of failing.
 	Optional bool
-	// Retry marks an explicitly listed non-loopback endpoint: its bind failure
-	// is retried at later checks without failing the set.
+	// Retry marks an explicitly listed non-loopback endpoint, or one merged
+	// with such a listing: its bind failure is retried at later checks without
+	// failing the set.
 	Retry bool
 }
 
