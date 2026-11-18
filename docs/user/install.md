@@ -247,7 +247,8 @@ Then rerun `system install`, repeating its `--agent-listen` and
 sudo darkpanel system install --role controller --web-listen http://<ip>:8080
 ```
 
-Before you roll back to, or install, 1.0.0-rc.4 or older, rerun
+Before you roll back to, or install, a version whose
+`darkpanel system install --help` does not list `--web-listen`, rerun
 `sudo darkpanel system install --role controller` without `--web-listen`:
 those versions refuse a plain-HTTP listener on an address other than loopback
 and the controller would not start.
