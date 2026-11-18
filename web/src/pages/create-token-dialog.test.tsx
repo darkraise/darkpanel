@@ -168,3 +168,17 @@ test("Copy works on an insecure origin through the fallback", async () => {
   await waitFor(() => expect(copied).toBe("dpt_example_secret"))
   expect((await within(dialog).findAllByText("Copied")).length).toBeGreaterThan(0)
 })
+
+test("a failed copy says so and leaves the token in its field", async () => {
+  stubFetch({ [PLAN]: { body: plan }, [APPLY]: { body: change("completed", created) } })
+  renderWithProviders(<CreateTokenDialog />)
+  const user = userEvent.setup()
+  const dialog = await fillAndCreate(user)
+  const field = await within(dialog).findByDisplayValue("dpt_example_secret")
+  Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true })
+  document.execCommand = vi.fn(() => false)
+  installClipboardFallback()
+  await user.click(within(dialog).getByRole("button", { name: "Copy" }))
+  expect((await within(dialog).findByRole("alert")).textContent).toBe("Copy failed. Select the text and copy it yourself.")
+  expect((field as HTMLInputElement).value).toBe("dpt_example_secret")
+})

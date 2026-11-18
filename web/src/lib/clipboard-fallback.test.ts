@@ -39,3 +39,26 @@ test("leaves a present clipboard API alone", () => {
   installClipboardFallback()
   expect(navigator.clipboard.writeText).toBe(writeText)
 })
+
+test("selects the field that shows the text and gives focus back", async () => {
+  removeClipboard()
+  const field = document.createElement("input")
+  field.value = "dpt_shown"
+  field.readOnly = true
+  const button = document.createElement("button")
+  document.body.append(field, button)
+  button.focus()
+  let selected = ""
+  document.execCommand = vi.fn(() => {
+    const el = document.activeElement as HTMLInputElement
+    selected = el === field ? el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0) : ""
+    return true
+  })
+  installClipboardFallback()
+  await navigator.clipboard.writeText("dpt_shown")
+  expect(selected).toBe("dpt_shown")
+  expect(document.activeElement).toBe(button)
+  expect(document.querySelector("textarea")).toBeNull()
+  field.remove()
+  button.remove()
+})
