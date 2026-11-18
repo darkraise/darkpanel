@@ -536,6 +536,13 @@ func TestTopologyOf(t *testing.T) {
 	if got := topologyOf(odd, nil, oddAgent, peers); !reflect.DeepEqual(got, withDropped) {
 		t.Errorf("topologyOf with unreadable addresses = %+v, want %+v", got, withDropped)
 	}
+	// A public plain-HTTP listener is a panel address the firewall guard
+	// protects (spec A14).
+	public := []listen.Bound{{Endpoint: listen.Endpoint{Addr: netip.MustParseAddrPort("203.0.113.7:8080"), Retry: true},
+		Addr: &net.TCPAddr{IP: net.ParseIP("203.0.113.7"), Port: 8080}}}
+	if got := topologyOf(public, nil, nil, nil); !slices.Contains(got.PanelListen, netip.MustParseAddrPort("203.0.113.7:8080")) {
+		t.Errorf("PanelListen = %v, want the public plain-HTTP listener", got.PanelListen)
+	}
 
 	// The sources count once they are registered, and the topology is
 	// complete once all four are.

@@ -51,6 +51,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Code:      in.Code,
 		Source:    clientAddr(r),
 		UserAgent: r.UserAgent(),
+		Trusted:   s.TrustedListener(r),
 	})
 	if err != nil {
 		writeProblem(w, s.log, err)

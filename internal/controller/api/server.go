@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -94,6 +95,7 @@ type Server struct {
 	socket    http.Handler   // SocketHandler's answer, built once by New
 	streamMux *http.ServeMux // the contributed web stream routes' patterns
 	listeners atomic.Pointer[func() ListenerState]
+	tailscale atomic.Pointer[func() []netip.Addr]
 
 	eventsMu     sync.Mutex
 	eventStreams map[string]int // open GET /api/v1/events streams per Principal.Actor
@@ -120,6 +122,40 @@ func (s *Server) SetListenerState(state func() ListenerState) {
 		return
 	}
 	s.listeners.Store(&state)
+}
+
+// SetTailscaleAddrs sets the source of the served Tailscale addresses that
+// TrustedListener accepts. Like SetListenerState it is set after New, while
+// requests may be served; nil clears it, and then no Tailscale address is
+// trusted.
+func (s *Server) SetTailscaleAddrs(addrs func() []netip.Addr) {
+	if addrs == nil {
+		s.tailscale.Store(nil)
+		return
+	}
+	s.tailscale.Store(&addrs)
+}
+
+// TrustedListener reports whether r arrived on a loopback or served Tailscale
+// listener: its local address is loopback, or one of the addresses the
+// SetTailscaleAddrs source returns. A request a runtime listener proxied is
+// never trusted, and neither is one without a TCP local address.
+func (s *Server) TrustedListener(r *http.Request) bool {
+	if _, proxied := core.ProxiedFrom(r.Context()); proxied {
+		return false
+	}
+	local, ok := r.Context().Value(http.LocalAddrContextKey).(*net.TCPAddr)
+	if !ok {
+		return false
+	}
+	addr := local.AddrPort().Addr().Unmap()
+	if addr.IsLoopback() {
+		return true
+	}
+	if addrs := s.tailscale.Load(); addrs != nil {
+		return slices.Contains((*addrs)(), addr)
+	}
+	return false
 }
 
 // listenerState reads the source SetListenerState set.

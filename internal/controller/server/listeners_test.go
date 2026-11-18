@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"os"
 	"slices"
@@ -494,5 +495,28 @@ func TestW10PlShutdownKeepsTimeForTheNetworkListeners(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Shutdown did not return")
+	}
+}
+
+// TestTailscaleListenerIsTrusted: the server hands the served Tailscale
+// addresses to the API, so a login on the Tailscale listener is trusted.
+func TestTailscaleListenerIsTrusted(t *testing.T) {
+	opts := testOptions(t)
+	specs, err := listen.ParseSpecs([]string{"loopback", "tailscale"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.Listen = specs
+	opts.Interfaces = func(name string) ([]netip.Addr, bool, error) {
+		if name != listen.TailscaleInterface {
+			return nil, false, nil
+		}
+		return []netip.Addr{netip.MustParseAddr("100.64.0.5")}, true, nil
+	}
+	s := start(t, opts)
+	r := httptest.NewRequest("POST", "/api/v1/auth/login", nil)
+	r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey, net.TCPAddrFromAddrPort(netip.MustParseAddrPort("100.64.0.5:8443"))))
+	if !s.apiServer.TrustedListener(r) {
+		t.Error("a request on the served Tailscale address is not trusted; SetTailscaleAddrs is not wired")
 	}
 }
