@@ -65,6 +65,6 @@ with no approval step.
 
 - Every release adds a bot commit to `main`.
 - A shipping push waits one CI and harness cycle before it releases.
-- Every release freezes the action schemas under `schemas/released/`.
+- Every release freezes the action schemas it changed under `schemas/released/`.
 - After v1.0.0 every shipping push is a stable release, so compatibility
   windows counted in minor releases shrink to a few `feat` pushes.

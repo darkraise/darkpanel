@@ -59,7 +59,7 @@ released, an action version changes only in additive ways:
   changing what the action does or its class.
 
 A breaking change ships as a new action version; the old version stays until
-the next major release. Each release freezes its action schemas under
+the next major release. The action schemas new in a release are frozen under
 `schemas/released/v<version>/`, and the build checks the current schemas
 against every released one.
 

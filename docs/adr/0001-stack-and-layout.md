@@ -50,7 +50,7 @@ internal/platform/        providers: exec, files, systemd, OS detection (ADR 000
 internal/update/          updater, transaction, recovery
 internal/modules/<id>/    manifest, controller part, agent part, migrations
 schemas/<action>/v<n>.json committed action schema snapshots
-schemas/released/<tag>/   frozen snapshots per release (ADR 0002)
+schemas/released/<tag>/   snapshots first released in that tag (ADR 0002)
 web/src/modules/<id>/     module UI pages
 docs/adr/                 decision records
 ```

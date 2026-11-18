@@ -37,8 +37,8 @@ shared contracts in the index (`docs/adr/README.md`) and are not restated here.
   `core_module_state`. A disabled module, or one whose migration or preflight
   fails, is marked unavailable with the reason; the rest of the system starts.
 - Compatibility rules, enforced by a test against the schema snapshots of every
-  released tag, which the release job copies to `schemas/released/<tag>/`
-  (immutable once released):
+  released tag, which the release job freezes under `schemas/released/<tag>/`,
+  each snapshot stored once per major (immutable once released):
   - Allowed in a published version: new optional input fields, new output
     fields, new output enum values (clients must accept unknown values).
   - Forbidden: removing or renaming a field, changing a type, a default or a
@@ -46,6 +46,12 @@ shared contracts in the index (`docs/adr/README.md`) and are not restated here.
     changing an action's meaning or class.
   - A breaking change is a new version; the old version stays until the next
     major release.
+  - Stored once (2026-11-18): a tag directory holds only the snapshots first
+    released in that tag within its major. The first release of a major holds
+    the full set, so pruning an old major never strips the new one's
+    baseline. The 2026-11-18 migration removed the duplicate copies without
+    losing content. The exact set a tag shipped is read from git, and CI and
+    `release.yml` fail if any released content is lost.
 - Agents advertise, per action version, the hash of the schema they implement.
   The controller refuses to send an input field the agent's schema does not
   contain, so an older agent can never silently ignore a newer safety field.
@@ -64,8 +70,8 @@ shared contracts in the index (`docs/adr/README.md`) and are not restated here.
 ## Consequences
 
 - Adding a module touches the core in one registration line.
-- Every action needs a committed schema snapshot; the release job freezes them
-  under `schemas/released/<tag>/`.
+- Every action needs a committed schema snapshot; the release job freezes the
+  new ones under `schemas/released/<tag>/`, stored once per major.
 - The compatibility test runs in CI from M1.
 - The controller must keep per-agent schema hashes from `hello` (ADR 0003).
 - Cross-module effects go through the owning module's actions; M3, M5 and M6

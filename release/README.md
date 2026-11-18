@@ -52,8 +52,8 @@ then runs `release.yml`.
   force-push `main`.
 - Adding any deploy key with write access grants `v*` tag creation, because
   the tag ruleset's bypass names deploy keys, not one key.
-- Each release adds the full snapshot set under `schemas/released/` (171
-  files for `v1.0.0-rc.2`); a follow-up will store identical snapshots once.
+- A release adds snapshot files under `schemas/released/` only for the
+  schemas it changed.
 
 ### Setup
 
@@ -82,7 +82,8 @@ In this order:
 - A `release.yml` failure blocks later automatic releases until that tag
   publishes. When re-running it cannot fix it, fix the cause on `main` and
   cut the next version by hand. The unpublished tag stays: deleting it is no
-  recovery, because its snapshots are already on `main`.
+  recovery, because the release commit and its changelog entry are already
+  on `main`, and so are its snapshots when it changed any.
 - A leaked bot key: delete the deploy key and its `allowed_signers` line. If
   any release was signed after the leak, rotate the minisign key as
   [Rotating the signing key](#rotating-the-signing-key) describes, since
@@ -90,8 +91,9 @@ In this order:
 
 ## Cutting a release
 
-1. `make release-prep VERSION=x.y.z` freezes the action schemas under
-   `schemas/released/vx.y.z/` and rewrites `CHANGELOG.md` (needs git-cliff).
+1. `make release-prep VERSION=x.y.z` freezes the action schemas new in this
+   release under `schemas/released/vx.y.z/` and rewrites `CHANGELOG.md`
+   (needs git-cliff).
 2. Commit both on `main`, then push a signed tag:
    `git tag -s vx.y.z -m vx.y.z && git push origin main vx.y.z`.
 3. Hand releases still work alongside automatic ones, and `sign` runs
@@ -101,7 +103,9 @@ The workflow:
 
 - `verify` checks the tag is `v` plus a semantic version, its SSH signature
   against `release/allowed_signers` on `main`, that the tagged commit is on
-  `main`, and that `schemas/released/<tag>/` equals the current schemas.
+  `main`, that every current schema is released in this major
+  (`snapshots.sh check`), and that no released snapshot was lost since the
+  previous tag (`snapshots.sh retained`).
 - `build` checks the committed `install.sh` is current, runs `make release`
   (tarballs, SBOM, `install.sh` and a `checksums.txt` over all of them),
   then builds `tailscale.com/cmd/derper` at the version in

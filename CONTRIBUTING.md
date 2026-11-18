@@ -32,7 +32,7 @@ Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 | `make check` | `lint`, `test`, `build`, `verify-build` and `vuln` |
 | `make install-sh` | regenerates `install.sh` from `install.sh.in` with the trusted release keys |
 | `make release VERSION=x.y.z` | the release tarballs, SBOM, `install.sh` and `checksums.txt` in `bin/release/` |
-| `make release-prep VERSION=x.y.z` | freezes the schema snapshots and rewrites `CHANGELOG.md` before a release tag |
+| `make release-prep VERSION=x.y.z` | freezes the new schema snapshots and rewrites `CHANGELOG.md` before a release tag |
 | `make harness-builds` | the harness's test releases and `install.sh` with the harness key, in `bin/harness/` |
 | `make clean` | removes `bin/` and the built UI |
 
@@ -97,8 +97,9 @@ from nothing.
 Every action and resource has a committed schema snapshot under `schemas/`.
 After changing an action's or resource's input or output type, run
 `make schemas` and commit the result; `go test ./internal/modules/` fails while
-a snapshot is missing or out of date. `schemas/released/<tag>/` will hold the
-snapshots of released versions, which a change may only extend (ADR 0002).
+a snapshot is missing or out of date. `schemas/released/<tag>/` holds the
+snapshots first released in that tag, which a change may only extend
+(ADR 0002).
 
 ## Before you open a pull request
 

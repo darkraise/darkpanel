@@ -13,10 +13,11 @@ import (
 )
 
 // FS holds "<action or resource>/v<n>.json" for the current tree and
-// "released/<tag>/<action or resource>/v<n>.json" for released tags. An
-// embed pattern cannot exclude this file, so the snapshots are matched by
-// their one-directory depth; released/README.md keeps that directory
-// embeddable before any tag exists, because embedding skips hidden files.
+// "released/<tag>/<action or resource>/v<n>.json" for the snapshots first
+// released in that tag. An embed pattern cannot exclude this file, so the
+// snapshots are matched by their one-directory depth; released/README.md
+// keeps that directory embeddable before any tag exists, because embedding
+// skips hidden files.
 //
 //go:embed */*.json released
 var FS embed.FS
