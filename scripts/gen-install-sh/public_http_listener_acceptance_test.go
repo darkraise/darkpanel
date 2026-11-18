@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -510,6 +511,11 @@ func TestA20CancellingTheWebQuestionChangesNothing(t *testing.T) {
 		tm.expect(acceptanceWebQuestion)
 		tm.expect("Choice [1, q to quit]: ")
 		tm.send("q")
+		select {
+		case <-tm.done:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("A20: install.sh still runs 10 seconds after q; output:\n%s", tm.output())
+		}
 		out, err := tm.wait()
 		if err == nil || !strings.Contains(out, acceptanceCancelled) {
 			t.Errorf("A20: err %v, output:\n%s", err, out)
