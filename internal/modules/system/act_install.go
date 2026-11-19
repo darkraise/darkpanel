@@ -60,7 +60,19 @@ func (h installHandler) Task(ctx context.Context, env core.Env, in InstallInput)
 	if err != nil {
 		return Applied{}, core.Definite(err)
 	}
-	installs := planned.Installs()
+	before, err := installedVersions(ctx, env)
+	if err != nil {
+		return Applied{}, core.Definite(err)
+	}
+	// The effect names packages by name, so another architecture's copy of
+	// a package already installed is left out: its undo would remove the
+	// copy that was there before.
+	var installs []string
+	for _, n := range planned.Installs() {
+		if base, _, _ := strings.Cut(n, ":"); before[base] == "" {
+			installs = append(installs, n)
+		}
+	}
 	if len(installs) == 0 {
 		return runSet(ctx, env, "install", in.Names, planned)
 	}

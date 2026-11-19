@@ -171,3 +171,20 @@ func TestInstallEffectNamesAnotherArchitecturesPackageByName(t *testing.T) {
 		t.Fatalf("observe the intended effect: %v", err)
 	}
 }
+
+func TestInstallLeavesAnotherArchitecturesCopyOfAnInstalledPackageOutOfItsUndo(t *testing.T) {
+	h := newSysHost(t)
+	h.installed("bash", "libfoo")
+	h.run("/usr/bin/apt-cache pkgnames", "jq\n", 0)
+	sim := "Inst libfoo:i386 (1 x [i386])\nInst jq (1.7 x [amd64])\n0 upgraded, 2 newly installed, 0 to remove and 0 not upgraded.\n"
+	h.run(planVec("install", []string{"jq"}), sim, 0)
+	h.run(resimVec("install", []string{"jq"}), sim, 0)
+	// A failed run leaves the effect intended with the planned set, which the engine settles and may undo.
+	h.run(runVec("install", []string{"jq"}), "E: Sub-process /usr/bin/dpkg returned an error code (1)", 100)
+	if _, err := h.applyTask("system.packages.install", `{"names":["jq"]}`); err == nil {
+		t.Fatal("a failed run succeeded")
+	}
+	if effects := h.journal.of("c1"); len(effects) != 1 || effects[0].Resource != "system.packages:jq" {
+		t.Fatalf("effects = %+v", effects)
+	}
+}
