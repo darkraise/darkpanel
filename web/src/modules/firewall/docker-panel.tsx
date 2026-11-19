@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/component
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { errorMessage, readResource } from "@/api/client"
+import { StatusPill } from "@/components/visual/status-pill"
 import { DockerSources } from "./docker-sources"
 import { FirewallChange } from "./firewall-change"
 import { FIREWALL_MODULE, dockerQueryKey, type DockerIssue, type DockerNetwork, type DockerStatus } from "./types"
@@ -42,23 +43,20 @@ function protection(n: DockerNetwork): string {
 }
 
 function Detection({ docker }: { docker: DockerStatus }) {
-  const rows: [string, string][] = [
+  const chips: [string, string][] = [
     ["Docker", orNone(docker.version, "unknown")],
     ["Firewall backend", orNone(docker.driver, "unknown")],
     ["Docker chains", orNone(docker.dockerVariant, "none found")],
     ["UFW chains", orNone(docker.ufwVariant, "none found")],
-    ["Raw-table protection", docker.rawProtection ? "Loaded" : "Missing"],
-    ["Supported", docker.supported ? "Yes" : "No"],
   ]
   return (
-    <dl aria-label="Docker detection" className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[max-content_1fr]">
-      {rows.map(([label, value]) => (
-        <div key={label} className="contents">
-          <dt className="text-muted-foreground">{label}</dt>
-          <dd>{value}</dd>
-        </div>
+    <div role="group" aria-label="Docker detection" className="flex flex-wrap items-center gap-1">
+      <StatusPill status={docker.supported ? "ok" : "error"} label={docker.supported ? "Supported" : "Unsupported"} />
+      <StatusPill status={docker.rawProtection ? "ok" : "warn"} label={docker.rawProtection ? "Raw-table protection loaded" : "Raw-table protection missing"} />
+      {chips.map(([label, value]) => (
+        <Badge key={label} variant="outline" aria-label={`${label}: ${value}`}>{`${label}: ${value}`}</Badge>
       ))}
-    </dl>
+    </div>
   )
 }
 

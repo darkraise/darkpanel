@@ -23,33 +23,27 @@ const summary: Summary = {
 
 const SUMMARY_PATH = "GET /api/v1/hosts/h1/resources/hostinfo/summary"
 
-function valueOf(label: string): string | null | undefined {
-  return screen.getByText(label, { selector: "dt" }).nextElementSibling?.textContent
-}
-
 test("shows the summary as labelled, human-readable values", async () => {
   stubFetch({ [SUMMARY_PATH]: { body: summary } })
   renderWithProviders(<SummaryPage hostId="h1" />)
-  await screen.findByText("Hostname", { selector: "dt" })
-  expect(valueOf("Hostname")).toBe("web-1")
-  expect(valueOf("Operating system")).toBe("Ubuntu 24.04.3 LTS")
-  expect(valueOf("Kernel")).toBe("6.8.0-45-generic")
-  expect(valueOf("Architecture")).toBe("amd64")
-  expect(valueOf("Uptime")).toBe("3 d 4 h 5 min")
-  expect(valueOf("Booted")).toBe(formatTime("2026-10-16T03:55:00Z"))
-  expect(valueOf("CPU")).toBe("AMD EPYC 7763 (4 logical CPUs)")
-  expect(valueOf("Load average")).toBe("0.50 / 0.25 / 0.10")
-  expect(valueOf("Memory")).toBe("8.0 GiB available of 16.0 GiB")
-  expect(valueOf("Swap")).toBe("None")
-  expect(valueOf("Root filesystem")).toBe("50.0 GiB available of 100 GiB")
-  expect(valueOf("Darkpanel version")).toBe("0.1.0")
+  await screen.findByLabelText("Hostname: web-1")
+  screen.getByLabelText("Operating system: Ubuntu 24.04.3 LTS")
+  screen.getByLabelText("Kernel: 6.8.0-45-generic")
+  screen.getByLabelText("Architecture: amd64")
+  screen.getByRole("group", { name: "Uptime: 3 d 4 h 5 min" })
+  screen.getByLabelText(`Booted: ${formatTime("2026-10-16T03:55:00Z")}`)
+  screen.getByText("AMD EPYC 7763 (4 logical CPUs)")
+  screen.getByRole("group", { name: "Load average: 0.50 / 0.25 / 0.10" })
+  screen.getByRole("img", { name: "Memory: 8 of 16 GiB (50%)" })
+  screen.getByText("No swap")
+  screen.getByRole("img", { name: "Disk: 50 of 100 GiB (50%)" })
+  screen.getByLabelText("Darkpanel version: 0.1.0")
 })
 
 test("shows swap use when the host has swap", async () => {
   stubFetch({ [SUMMARY_PATH]: { body: { ...summary, swap: { totalBytes: 2147483648, freeBytes: 1073741824 } } } })
   renderWithProviders(<SummaryPage hostId="h1" />)
-  await screen.findByText("Swap", { selector: "dt" })
-  expect(valueOf("Swap")).toBe("1.0 GiB free of 2.0 GiB")
+  await screen.findByRole("img", { name: "Swap: 1 of 2 GiB (50%)" })
 })
 
 test("shows the server's reason when the read fails", async () => {

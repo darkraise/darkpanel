@@ -68,15 +68,10 @@ async function dpPlanned(calls: FetchCall[], title: string): Promise<{ path: str
 test("an off, supported integration shows what was detected and plans docker.enable", async () => {
   const { calls } = dpRender(dpDocker())
   const detection = await screen.findByLabelText("Docker detection")
-  const rows = Array.from(detection.querySelectorAll("dt")).map((dt) => [dt.textContent, dt.nextElementSibling?.textContent])
-  expect(rows).toEqual([
-    ["Docker", "29.9.1"],
-    ["Firewall backend", "iptables"],
-    ["Docker chains", "nft"],
-    ["UFW chains", "nft"],
-    ["Raw-table protection", "Loaded"],
-    ["Supported", "Yes"],
-  ])
+  const chips = Array.from(detection.querySelectorAll("[aria-label]")).map((el) => el.getAttribute("aria-label"))
+  expect(chips).toEqual(["Docker: 29.9.1", "Firewall backend: iptables", "Docker chains: nft", "UFW chains: nft"])
+  expect(detection.textContent).toContain("Raw-table protection loaded")
+  expect(detection.textContent).toContain("Supported")
   expect(screen.getByText("off").textContent).toBe("off")
   expect(screen.queryByRole("button", { name: "Disable integration" })).toBeNull()
   await userEvent.setup().click(screen.getByRole("button", { name: "Enable integration" }))

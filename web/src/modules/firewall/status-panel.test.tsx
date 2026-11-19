@@ -6,26 +6,22 @@ import { renderWithProviders, stubFetch } from "@/test/utils"
 import { fwStatus } from "./fixtures"
 import { StatusBanners, StatusSummary } from "./status-panel"
 
-function spValue(list: HTMLElement, label: string): string | null | undefined {
-  return within(list).getByText(label, { selector: "dt" }).nextElementSibling?.textContent
-}
-
 test("shows the configured and the loaded state side by side", () => {
   renderWithProviders(<StatusSummary status={fwStatus()} />)
-  const configured = screen.getByLabelText("Configured state")
-  expect(spValue(configured, "Enabled at boot")).toBe("Yes")
-  expect(spValue(configured, "Incoming")).toBe("deny")
-  expect(spValue(configured, "Outgoing")).toBe("allow")
-  expect(spValue(configured, "Routed")).toBe("deny")
-  expect(spValue(configured, "Logging")).toBe("low")
-  expect(spValue(configured, "IPv6")).toBe("Yes")
-  const loaded = screen.getByLabelText("Loaded state")
-  expect(spValue(loaded, "iptables variant")).toBe("nft")
-  expect(spValue(loaded, "IPv6 rules")).toBe("Read")
-  expect(spValue(loaded, "Chains loaded")).toBe("2")
-  expect(spValue(loaded, "In sync")).toBe("Yes")
-  expect(spValue(loaded, "net/ipv4/ip_forward")).toBe("0")
-  expect(spValue(loaded, "net/ipv4/conf/all/rp_filter")).toBe("2")
+  const configured = within(screen.getByRole("region", { name: "Configured state" }))
+  configured.getByText("Enabled at boot")
+  configured.getByRole("img", { name: "Inbound: deny" })
+  configured.getByRole("img", { name: "Outbound: allow" })
+  configured.getByRole("img", { name: "Routed: deny" })
+  configured.getByLabelText("Logging: low")
+  configured.getByLabelText("IPv6: Yes")
+  const loaded = within(screen.getByRole("region", { name: "Loaded state" }))
+  loaded.getByLabelText("iptables variant: nft")
+  loaded.getByLabelText("IPv6 rules: Read")
+  loaded.getByLabelText("Chains loaded: 2")
+  loaded.getByText("In sync")
+  loaded.getByLabelText("net/ipv4/ip_forward: 0")
+  loaded.getByLabelText("net/ipv4/conf/all/rp_filter: 2")
   expect(screen.getByText("Active").textContent).toBe("Active")
 })
 

@@ -5,7 +5,32 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { FirewallChange } from "./firewall-change"
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Ban, Check, Gauge as Limit, X } from "lucide-react"
 import type { Rule } from "./types"
+
+const ACTION_ICON = { allow: Check, deny: X, reject: Ban, limit: Limit } as const
+const ACTION_CLASS = { allow: "text-success-text", deny: "text-destructive-text", reject: "text-destructive-text", limit: "text-warning-text" } as const
+
+// The cell text stays the value; the icon is its picture.
+function ActionCell({ action }: { action: Rule["action"] }) {
+  const Icon = ACTION_ICON[action as keyof typeof ACTION_ICON] ?? Check
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Icon aria-hidden className={`size-4 ${ACTION_CLASS[action as keyof typeof ACTION_CLASS] ?? ""}`} />
+      {action}
+    </span>
+  )
+}
+
+function DirectionCell({ direction }: { direction: Rule["direction"] }) {
+  const Icon = direction === "out" ? ArrowUpRight : direction === "route" ? ArrowLeftRight : ArrowDownLeft
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Icon aria-hidden className="text-muted-foreground size-4" />
+      {direction}
+    </span>
+  )
+}
 
 // endpoint is a rule's source or destination with its port, as UFW shows it.
 function endpoint(addr: string, port: string | undefined): string {
@@ -107,8 +132,12 @@ export function RulesTable({ hostId, rules }: { hostId: string; rules: Rule[] })
                   </TableCell>
                 ) : (
                   <>
-                    <TableCell className="font-medium">{r.action}</TableCell>
-                    <TableCell>{r.direction}</TableCell>
+                    <TableCell className="font-medium">
+                      <ActionCell action={r.action} />
+                    </TableCell>
+                    <TableCell>
+                      <DirectionCell direction={r.direction} />
+                    </TableCell>
                     <TableCell>{r.proto}</TableCell>
                     <TableCell className="font-mono">{endpoint(r.from, r.fromPort)}</TableCell>
                     <TableCell className="font-mono">{endpoint(r.to, r.toPort)}</TableCell>

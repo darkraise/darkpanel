@@ -1,4 +1,6 @@
 import { useState, type RefObject } from "react"
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Check, X, type LucideIcon } from "lucide-react"
+import { StatusPill } from "@/components/visual/status-pill"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
@@ -79,74 +81,72 @@ export function StatusBanners({ hostId, status, fallbackFocus }: {
   )
 }
 
-interface Row {
-  label: string
-  value: string
-  mono?: boolean
-}
+const DIRECTIONS = [
+  { key: "incoming", label: "Inbound", icon: ArrowDownLeft },
+  { key: "outgoing", label: "Outbound", icon: ArrowUpRight },
+  { key: "routed", label: "Routed", icon: ArrowLeftRight },
+] as const
 
-function configuredRows(s: FirewallStatus): Row[] {
-  const c = s.configured
-  return [
-    { label: "Enabled at boot", value: yesNo(c.enabled) },
-    { label: "Incoming", value: policyText(c.defaults.incoming) },
-    { label: "Outgoing", value: policyText(c.defaults.outgoing) },
-    { label: "Routed", value: policyText(c.defaults.routed) },
-    { label: "Logging", value: c.logLevel },
-    { label: "IPv6", value: yesNo(c.ipv6) },
-  ]
-}
-
-function loadedRows(s: FirewallStatus): Row[] {
-  const rows: Row[] = [
-    { label: "iptables variant", value: s.loaded.variant, mono: true },
-    { label: "IPv6 rules", value: s.loaded.ipv6 ? "Read" : "No ip6tables" },
-    { label: "Chains loaded", value: String(s.loaded.chains.length) },
-    { label: "In sync", value: yesNo(s.inSync) },
-  ]
-  for (const key of Object.keys(s.loaded.sysctl).sort()) {
-    rows.push({ label: key, value: s.loaded.sysctl[key] ?? "", mono: true })
-  }
-  return rows
-}
-
-function Rows({ label, rows }: { label: string; rows: Row[] }) {
+// PolicyArrow draws one default policy: the direction as an arrow, allow or
+// deny as a mark beside it, and both in its name.
+function PolicyArrow({ label, icon: Arrow, policy }: { label: string; icon: LucideIcon; policy: Policy }) {
+  const allow = policy === "ACCEPT"
+  const Mark = allow ? Check : X
   return (
-    <dl aria-label={label} className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[max-content_1fr]">
-      {rows.map((row) => (
-        <div key={row.label} className="contents">
-          <dt className={row.mono === true ? "font-mono text-sm text-muted-foreground" : "text-muted-foreground"}>{row.label}</dt>
-          <dd className={row.mono === true ? "font-mono" : undefined}>{row.value}</dd>
-        </div>
-      ))}
-    </dl>
+    <div role="img" aria-label={`${label}: ${policyText(policy)}`} className="flex items-center gap-2 text-sm">
+      <Arrow aria-hidden className="text-muted-foreground size-5" />
+      <span>{label}</span>
+      <Mark aria-hidden className={allow ? "text-success-text size-4" : "text-destructive-text size-4"} />
+      <span className="text-muted-foreground">{policyText(policy)}</span>
+    </div>
   )
+}
+
+function Chip({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return <Badge variant="outline" aria-label={`${label}: ${value}`} className={mono ? "font-mono" : undefined}>{`${label}: ${value}`}</Badge>
 }
 
 // StatusSummary shows the configured state from UFW's files beside the
 // loaded state the kernel holds.
 export function StatusSummary({ status }: { status: FirewallStatus }) {
+  const c = status.configured
+  const l = status.loaded
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Card>
+      <Card role="region" aria-label="Configured state">
         <CardHeader>
-          <CardTitle>Configured</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            Configured
+            <StatusPill status={c.enabled ? "ok" : "off"} label={c.enabled ? "Enabled at boot" : "Not enabled at boot"} />
+          </CardTitle>
         </CardHeader>
-        <CardContent>
-          <Rows label="Configured state" rows={configuredRows(status)} />
+        <CardContent className="flex flex-col gap-3">
+          {DIRECTIONS.map((d) => (
+            <PolicyArrow key={d.key} label={d.label} icon={d.icon} policy={c.defaults[d.key]} />
+          ))}
+          <div className="flex flex-wrap gap-1">
+            <Chip label="Logging" value={c.logLevel} />
+            <Chip label="IPv6" value={yesNo(c.ipv6)} />
+          </div>
         </CardContent>
       </Card>
-      <Card>
+      <Card role="region" aria-label="Loaded state">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             Loaded
-            <Badge variant={status.active ? "default" : "secondary"} size="sm">
-              {status.active ? "Active" : "Inactive"}
-            </Badge>
+            <StatusPill status={status.active ? "ok" : "off"} label={status.active ? "Active" : "Inactive"} />
+            <StatusPill status={status.inSync ? "ok" : "warn"} label={status.inSync ? "In sync" : "Out of sync"} />
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <Rows label="Loaded state" rows={loadedRows(status)} />
+        <CardContent className="flex flex-wrap gap-1">
+          <Chip label="iptables variant" value={l.variant} mono />
+          <Chip label="IPv6 rules" value={l.ipv6 ? "Read" : "No ip6tables"} />
+          <Chip label="Chains loaded" value={String(l.chains.length)} />
+          {Object.keys(l.sysctl)
+            .sort()
+            .map((key) => (
+              <Chip key={key} label={key} value={l.sysctl[key] ?? ""} mono />
+            ))}
         </CardContent>
       </Card>
     </div>
