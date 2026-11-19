@@ -174,12 +174,27 @@ func description(prop, resolved map[string]any) string {
 }
 
 // table renders the properties of the named component, nested objects
-// included, or empty when it is an object that can hold no field. Any other
-// schema without properties is an error: the table cannot describe it.
+// included, or empty when it is an object that can hold no field. An array
+// of objects is tabulated by its item. Any other schema without properties
+// is an error: the table cannot describe it.
 func (r *renderer) table(component, empty string) (string, error) {
 	res, name, err := r.resolve(map[string]any{"$ref": componentRef + component})
 	if err != nil {
 		return "", err
+	}
+	if len(asMap(res["properties"])) == 0 && res["type"] == "array" {
+		item, itemName, err := r.resolve(asMap(res["items"]))
+		if err != nil {
+			return "", err
+		}
+		if len(asMap(item["properties"])) > 0 {
+			lines := []string{"A list of:", "", "| Field | Type | Required | Description |", "|---|---|---|---|"}
+			lines, err = r.rows(lines, item, "", []string{name, itemName})
+			if err != nil {
+				return "", err
+			}
+			return strings.Join(lines, "\n"), nil
+		}
 	}
 	if len(asMap(res["properties"])) == 0 {
 		if !closedEmptyObject(res) {

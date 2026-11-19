@@ -129,6 +129,22 @@ func (adMapped) Manifest() core.Manifest {
 	}
 }
 
+// adListed is a module whose resource answers an array of objects.
+type adListed struct{}
+
+type adListItem struct {
+	Name string `json:"name"`
+}
+
+func (adListed) Manifest() core.Manifest {
+	return core.Manifest{
+		ID: "listed", Version: 1,
+		Resources: []core.ResourceDef{
+			core.DefineResource("listed.items", func(context.Context, core.Env) ([]adListItem, error) { return nil, nil }),
+		},
+	}
+}
+
 var adRoutes = []schema.Route{
 	{Method: "GET", Path: "/healthz", Summary: "Health", Public: true},
 	{Method: "POST", Path: "/api/v1/auth/login", Summary: "Log in", Public: true},
@@ -392,6 +408,26 @@ func TestAdGenerateRefusesASchemaItCannotTabulate(t *testing.T) {
 	}
 	if _, err := apidocs.Generate(reg, adRoutes); err == nil || !strings.Contains(err.Error(), "has no properties and is not an empty object") {
 		t.Errorf("Generate with a map output = %v, want the refusal that no table describes it", err)
+	}
+}
+
+// TestAdGenerateTabulatesAnArrayOfObjects describes an array output by the
+// table of its item.
+func TestAdGenerateTabulatesAnArrayOfObjects(t *testing.T) {
+	reg, err := core.NewRegistry(adListed{})
+	if err != nil {
+		t.Fatalf("core.NewRegistry: %v", err)
+	}
+	files, err := apidocs.Generate(reg, adRoutes)
+	if err != nil {
+		t.Fatalf("Generate with an array-of-objects output: %v", err)
+	}
+	var all strings.Builder
+	for _, b := range files {
+		all.Write(b)
+	}
+	if !strings.Contains(all.String(), "A list of:") || !strings.Contains(all.String(), "`name`") {
+		t.Errorf("no item table for listed.items in:\n%s", all.String())
 	}
 }
 
