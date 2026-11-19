@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { stateVariant } from "@/lib/badges"
 import { formatTime } from "@/lib/format"
 import { Providers } from "@/providers"
+import { DesignLanguageBoard, DockerInstallBoard, HostOverviewV2Board, HostsV2Board, SystemBoard } from "./boards-v2"
 import "../styles/globals.css"
 
 // The boards are static mock-ups of the screens' states, drawn before the
@@ -564,6 +565,11 @@ const BOARDS: Record<string, () => ReactNode> = {
   hosts: HostsBoard,
   "host-overview": HostOverviewBoard,
   rollouts: RolloutsBoard,
+  "design-language": DesignLanguageBoard,
+  "hosts-v2": HostsV2Board,
+  "host-overview-v2": HostOverviewV2Board,
+  system: SystemBoard,
+  "docker-install": DockerInstallBoard,
 }
 
 const params = new URLSearchParams(location.search)

@@ -20,3 +20,19 @@ for (const theme of ["light", "dark"] as const) {
     })
   }
 }
+
+// The v2 boards: the design language and the screens of the UI revamp. Full
+// page screenshots go to the untracked boards directory for owner approval.
+const V2 = { "design-language": "Status", "hosts-v2": "Card grid", "host-overview-v2": "Online", system: "Overview", "docker-install": "Absent" }
+
+for (const [board, first] of Object.entries(V2)) {
+  for (const mode of ["light", "dark"] as const) {
+    test(`board ${board} ${mode}`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.goto(`http://127.0.0.1:${process.env.E2E_PORT}/boards.html?board=${board}&theme=${mode}`)
+      await expect(page.getByRole("main")).toBeVisible()
+      await expect(page.getByTestId(`board-${board}`).getByRole("heading", { level: 2, name: first, exact: true })).toBeVisible()
+      await page.screenshot({ path: `../docs/dforge/ui-ux/boards/${board}-${mode}.png`, fullPage: true, animations: "disabled" })
+    })
+  }
+}
