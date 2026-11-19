@@ -1,0 +1,9 @@
+$ apt-cache policy docker.io
+docker.io:
+  Installed: (none)
+  Candidate: 26.1.5+dfsg1-9+deb13u1
+  Version table:
+     26.1.5+dfsg1-9+deb13u1 500
+        500 http://deb.debian.org/debian trixie/main amd64 Packages
+        500 http://deb.debian.org/debian-security trixie-security/main amd64 Packages
+exit=0

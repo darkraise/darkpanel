@@ -1,0 +1,15 @@
+$ apt-get -q update
+Ign:1 http://127.0.0.1:9/debian nowhere InRelease
+Hit:2 http://security.ubuntu.com/ubuntu resolute-security InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu resolute InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu resolute-updates InRelease
+Ign:1 http://127.0.0.1:9/debian nowhere InRelease
+Hit:5 http://archive.ubuntu.com/ubuntu resolute-backports InRelease
+Ign:1 http://127.0.0.1:9/debian nowhere InRelease
+Err:1 http://127.0.0.1:9/debian nowhere InRelease
+  Could not connect to 127.0.0.1:9 (127.0.0.1). - connect (111: Connection refused)
+  Unable to connect to 127.0.0.1:9:
+Reading package lists...
+W: Failed to fetch http://127.0.0.1:9/debian/dists/nowhere/InRelease  Unable to connect to 127.0.0.1:9:
+W: Some index files failed to download. They have been ignored, or old ones used instead.
+exit=0

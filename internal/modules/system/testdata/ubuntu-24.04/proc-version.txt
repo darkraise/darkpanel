@@ -1,0 +1,14 @@
+$ apt-cache policy linux-image-generic
+linux-image-generic:
+  Installed: (none)
+  Candidate: 6.8.0-149.149
+  Version table:
+     6.8.0-149.149 500
+        500 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages
+        500 http://security.ubuntu.com/ubuntu noble-security/main amd64 Packages
+     6.8.0-31.31 500
+        500 http://archive.ubuntu.com/ubuntu noble/main amd64 Packages
+exit=0
+$ dpkg-query -W -f ${Package} ${Version}\n linux-image-*
+dpkg-query: no packages found matching linux-image-*
+exit=1

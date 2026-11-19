@@ -1,0 +1,9 @@
+$ dpkg-query -S /usr/bin/sudo
+dpkg-query: no path found matching pattern /usr/bin/sudo
+exit=1
+$ readlink -f /usr/bin/sudo
+/usr/lib/cargo/bin/sudo
+exit=0
+$ dpkg-query -S /usr/lib/cargo/bin/sudo
+sudo-rs: /usr/lib/cargo/bin/sudo
+exit=0

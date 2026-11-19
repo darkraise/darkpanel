@@ -1,0 +1,14 @@
+$ apt-cache policy linux-image-generic
+linux-image-generic:
+  Installed: (none)
+  Candidate: 7.0.0-43.43
+  Version table:
+     7.0.0-43.43 500
+        500 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 Packages
+        500 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Packages
+     7.0.0-14.14 500
+        500 http://archive.ubuntu.com/ubuntu resolute/main amd64 Packages
+exit=0
+$ dpkg-query -W -f ${Package} ${Version}\n linux-image-*
+dpkg-query: no packages found matching linux-image-*
+exit=1

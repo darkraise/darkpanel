@@ -1,0 +1,19 @@
+$ apt-get -s -q -o DPkg::Lock::Timeout=10 install -- jq
+Reading package lists...
+Building dependency tree...
+Reading state information...
+jq is already the newest version (1.6-2.1ubuntu3.2).
+0 upgraded, 0 newly installed, 0 to remove and 3 not upgraded.
+1 not fully installed or removed.
+Conf dp-holder (1.0  [all])
+exit=0
+$ apt-get -y -q -o Dpkg::Use-Pty=0 -o DPkg::Lock::Timeout=10 install -- less
+E: dpkg was interrupted, you must manually run 'dpkg --configure -a' to correct the problem. 
+exit=100
+$ dpkg --audit
+The following packages are only half configured, probably due to problems
+configuring them the first time.  The configuration should be retried using
+dpkg --configure <package> or the configure menu option in dselect:
+ dp-holder            holds the dpkg lock
+
+exit=0

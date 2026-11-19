@@ -1,0 +1,9 @@
+$ dpkg-query -S /usr/bin/sudo
+sudo: /usr/bin/sudo
+exit=0
+$ readlink -f /usr/bin/sudo
+/usr/bin/sudo
+exit=0
+$ dpkg-query -S /usr/bin/sudo
+sudo: /usr/bin/sudo
+exit=0

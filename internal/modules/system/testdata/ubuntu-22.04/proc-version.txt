@@ -1,0 +1,15 @@
+$ apt-cache policy linux-image-generic
+linux-image-generic:
+  Installed: (none)
+  Candidate: 5.15.0.204.176
+  Version table:
+     5.15.0.204.176 500
+        500 http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages
+     5.15.0.203.175 500
+        500 http://security.ubuntu.com/ubuntu jammy-security/main amd64 Packages
+     5.15.0.25.27 500
+        500 http://archive.ubuntu.com/ubuntu jammy/main amd64 Packages
+exit=0
+$ dpkg-query -W -f ${Package} ${Version}\n linux-image-*
+dpkg-query: no packages found matching linux-image-*
+exit=1

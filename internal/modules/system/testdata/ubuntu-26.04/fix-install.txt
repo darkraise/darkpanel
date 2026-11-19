@@ -1,0 +1,14 @@
+$ apt-get -s -q -o DPkg::Lock::Timeout=10 -f install
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Correcting dependencies... Done
+Solving dependencies...
+The following additional packages will be installed:
+  libonig5
+The following NEW packages will be installed:
+  libonig5
+0 upgraded, 1 newly installed, 0 to remove and 5 not upgraded.
+Inst libonig5 (6.9.10-1build1 Ubuntu:26.04/resolute [amd64])
+Conf libonig5 (6.9.10-1build1 Ubuntu:26.04/resolute [amd64])
+exit=0

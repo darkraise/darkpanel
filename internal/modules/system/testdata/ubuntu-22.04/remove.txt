@@ -1,0 +1,13 @@
+$ apt-get -s -q -o DPkg::Lock::Timeout=10 remove -- libjq1
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following package was automatically installed and is no longer required:
+  libonig5
+Use 'apt autoremove' to remove it.
+The following packages will be REMOVED:
+  jq libjq1
+0 upgraded, 0 newly installed, 2 to remove and 3 not upgraded.
+Remv jq [1.6-2.1ubuntu3.2]
+Remv libjq1 [1.6-2.1ubuntu3.2]
+exit=0

@@ -1,0 +1,13 @@
+$ apt-get -q update
+Ign:1 http://127.0.0.1:9/debian nowhere InRelease
+Hit:2 http://deb.debian.org/debian bookworm InRelease
+Hit:3 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:4 http://deb.debian.org/debian-security bookworm-security InRelease
+Ign:1 http://127.0.0.1:9/debian nowhere InRelease
+Ign:1 http://127.0.0.1:9/debian nowhere InRelease
+Err:1 http://127.0.0.1:9/debian nowhere InRelease
+  Could not connect to 127.0.0.1:9 (127.0.0.1). - connect (111: Connection refused)
+Reading package lists...
+W: Failed to fetch http://127.0.0.1:9/debian/dists/nowhere/InRelease  Could not connect to 127.0.0.1:9 (127.0.0.1). - connect (111: Connection refused)
+W: Some index files failed to download. They have been ignored, or old ones used instead.
+exit=0

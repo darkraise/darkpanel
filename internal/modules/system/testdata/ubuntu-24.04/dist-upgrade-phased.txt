@@ -1,0 +1,17 @@
+$ apt-get -s -q -o Debug::NoLocking=true -o APT::Get::Always-Include-Phased-Updates=true dist-upgrade
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following packages will be upgraded:
+  libc-bin libc6 perl-base tzdata
+4 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Inst perl-base [5.38.2-3.2ubuntu0.6] (5.38.2-3.2ubuntu0.7 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf perl-base (5.38.2-3.2ubuntu0.7 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Inst libc6 [2.39-0ubuntu8.9] (2.39-0ubuntu8.12 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf libc6 (2.39-0ubuntu8.12 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Inst libc-bin [2.39-0ubuntu8.9] (2.39-0ubuntu8.12 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Conf libc-bin (2.39-0ubuntu8.12 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [amd64])
+Inst tzdata [2024a-2ubuntu1] (2026e-0ubuntu0.24.04.1 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [all])
+Conf tzdata (2026e-0ubuntu0.24.04.1 Ubuntu:24.04/noble-updates, Ubuntu:24.04/noble-security [all])
+exit=0

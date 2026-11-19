@@ -1,0 +1,16 @@
+$ apt-get -q update
+Ign:1 http://127.0.0.1:9/debian nowhere InRelease
+Hit:2 http://deb.debian.org/debian trixie InRelease
+Hit:3 http://deb.debian.org/debian trixie-updates InRelease
+Get:4 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+Get:5 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [325 kB]
+Ign:1 http://127.0.0.1:9/debian nowhere InRelease
+Ign:1 http://127.0.0.1:9/debian nowhere InRelease
+Err:1 http://127.0.0.1:9/debian nowhere InRelease
+  Could not connect to 127.0.0.1:9 (127.0.0.1). - connect (111: Connection refused)
+  Unable to connect to 127.0.0.1:9:
+Fetched 369 kB in 7s (52.6 kB/s)
+Reading package lists...
+W: Failed to fetch http://127.0.0.1:9/debian/dists/nowhere/InRelease  Unable to connect to 127.0.0.1:9:
+W: Some index files failed to download. They have been ignored, or old ones used instead.
+exit=0

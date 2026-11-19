@@ -1,0 +1,15 @@
+$ apt-get -s -q -o Debug::NoLocking=true -o APT::Get::Always-Include-Phased-Updates=true dist-upgrade
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following packages will be upgraded:
+  libc-bin libc6 tzdata
+3 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Inst libc6 [2.35-0ubuntu3.15] (2.35-0ubuntu3.18 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf libc6 (2.35-0ubuntu3.18 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Inst libc-bin [2.35-0ubuntu3.15] (2.35-0ubuntu3.18 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Conf libc-bin (2.35-0ubuntu3.18 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [amd64])
+Inst tzdata [2022a-0ubuntu1] (2026e-0ubuntu0.22.04.1 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [all])
+Conf tzdata (2026e-0ubuntu0.22.04.1 Ubuntu:22.04/jammy-updates, Ubuntu:22.04/jammy-security [all])
+exit=0

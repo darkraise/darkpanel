@@ -1,0 +1,19 @@
+$ apt-get -s -q -o Debug::NoLocking=true dist-upgrade
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following packages will be upgraded:
+  libc-bin libc-gconv-modules-extra libc6 perl-base tzdata
+5 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Inst perl-base [5.40.1-7ubuntu0.3] (5.40.1-7ubuntu0.4 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [amd64])
+Conf perl-base (5.40.1-7ubuntu0.4 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [amd64])
+Inst libc-gconv-modules-extra [2.43-2ubuntu2.4] (2.43-2ubuntu2.7 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [amd64]) [libc6:amd64 ]
+Conf libc-gconv-modules-extra (2.43-2ubuntu2.7 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [amd64]) [libc6:amd64 ]
+Inst libc6 [2.43-2ubuntu2.4] (2.43-2ubuntu2.7 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [amd64])
+Conf libc6 (2.43-2ubuntu2.7 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [amd64])
+Inst libc-bin [2.43-2ubuntu2.4] (2.43-2ubuntu2.7 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [amd64])
+Conf libc-bin (2.43-2ubuntu2.7 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [amd64])
+Inst tzdata [2026a-3ubuntu1] (2026e-0ubuntu0.26.04.1 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [all])
+Conf tzdata (2026e-0ubuntu0.26.04.1 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [all])
+exit=0

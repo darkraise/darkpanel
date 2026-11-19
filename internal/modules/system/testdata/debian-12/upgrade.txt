@@ -1,0 +1,10 @@
+$ apt-get -s -q -o DPkg::Lock::Timeout=10 install --only-upgrade -- tzdata
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages will be upgraded:
+  tzdata
+1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Inst tzdata [2025b-0+deb12u1] (2026f-0+deb12u1 Debian-Security:12/oldstable-security [all])
+Conf tzdata (2026f-0+deb12u1 Debian-Security:12/oldstable-security [all])
+exit=0

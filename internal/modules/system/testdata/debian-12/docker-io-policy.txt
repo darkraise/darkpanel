@@ -1,0 +1,8 @@
+$ apt-cache policy docker.io
+docker.io:
+  Installed: (none)
+  Candidate: 20.10.24+dfsg1-1+deb12u1+b6
+  Version table:
+     20.10.24+dfsg1-1+deb12u1+b6 500
+        500 http://deb.debian.org/debian bookworm/main amd64 Packages
+exit=0
