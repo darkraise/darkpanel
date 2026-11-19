@@ -207,7 +207,6 @@ func TestNewRegistryRules(t *testing.T) {
 	}{
 		{"bad module id", []Module{testModule{ID: "Demo", Version: 1}}, "must match"},
 		{"reserved module id", []Module{testModule{ID: "token", Version: 1}}, "reserved"},
-		{"reserved module id system", []Module{testModule{ID: "system", Version: 1}}, "reserved"},
 		{"duplicate module", []Module{testModule{ID: "demo", Version: 1}, testModule{ID: "demo", Version: 1}}, "registered twice"},
 		{"module version", []Module{testModule{ID: "demo"}}, "version 0"},
 		{"bad action name", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{readAction("demo.get")}}}, "must match"},

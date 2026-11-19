@@ -44,7 +44,7 @@ const agentHelloTimeout = 10 * time.Second
 func newSystemCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "system",
-		Short: "Install this host's system services",
+		Short: "Install system services and manage packages, reboots and Docker",
 		RunE:  runGroup,
 	}
 	cmd.AddCommand(newSystemInstallCmd())

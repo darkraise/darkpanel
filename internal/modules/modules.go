@@ -11,6 +11,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/hostinfo"
 	"github.com/darkraise/darkpanel/internal/modules/npm"
 	"github.com/darkraise/darkpanel/internal/modules/panel"
+	"github.com/darkraise/darkpanel/internal/modules/system"
 	"github.com/darkraise/darkpanel/internal/modules/tailnet"
 	"github.com/darkraise/darkpanel/internal/modules/tailscale"
 )
@@ -27,5 +28,6 @@ func All() []core.Module {
 		npm.Module(),
 		cloudflare.Module(),
 		panel.Module(),
+		system.Module(),
 	}
 }

@@ -38,6 +38,11 @@ type Options struct {
 	// names whose generated commands become its subcommands, so a reserved
 	// name such as update can hold both hand-written and generated commands.
 	Adopt map[string][]string
+	// AdoptModules are hand-written top-level commands in Commands, each
+	// holding every generated action, resource and stream command of the
+	// registered module with the same id, so a module may share its id
+	// with a hand-written group such as system.
+	AdoptModules []string
 	// LocalFallbacks run an agent-side action in-process when --local finds
 	// no agent socket, keyed by action name. NewRoot checks the keys.
 	LocalFallbacks map[string]LocalFallback
@@ -98,7 +103,7 @@ func NewRoot(opts Options) (*cobra.Command, error) {
 	if err := checkHooks(opts); err != nil {
 		return nil, fmt.Errorf("cli: %w", err)
 	}
-	es, err := entries(opts.Registry, reserved, adopted(opts.Adopt))
+	es, err := entries(opts.Registry, reserved, adopted(opts.Registry, opts.Adopt, opts.AdoptModules))
 	if err != nil {
 		return nil, fmt.Errorf("cli: %w", err)
 	}

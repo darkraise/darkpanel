@@ -27,7 +27,7 @@ var (
 	resourceRule   = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9]*$`)
 	reservedCLI    = []string{
 		"serve", "agent", "update", "user", "controller", "change", "uninstall", "version",
-		"host", "module", "token", "audit", "help", "completion", "system",
+		"host", "module", "token", "audit", "help", "completion",
 	}
 )
 

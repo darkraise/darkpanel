@@ -108,21 +108,92 @@ func checkEntries(es []entry, reserved []string, adopted map[string]bool) error 
 	return errors.Join(errs...)
 }
 
-// adopted is the set of every action name some hand-written group adopts.
-func adopted(adopt map[string][]string) map[string]bool {
+// checkModuleAdoption refuses an AdoptModules id that is not a hand-written
+// group or a registered module, and a command of the adopted module whose
+// second word is the name or an alias of one of the group's hand-written
+// subcommands.
+func checkModuleAdoption(opts Options, groups map[string]*cobra.Command) []error {
+	registered := map[string]bool{}
+	for _, m := range opts.Registry.Modules() {
+		registered[m.ID] = true
+	}
+	var errs []error
+	for _, id := range opts.AdoptModules {
+		g, ok := groups[id]
+		switch {
+		case !ok:
+			errs = append(errs, fmt.Errorf("adopting group %q is not a hand-written command", id))
+			continue
+		case !registered[id]:
+			errs = append(errs, fmt.Errorf("%s adopts module %s, which is not registered", id, id))
+			continue
+		}
+		taken := map[string]bool{}
+		for _, c := range g.Commands() {
+			taken[c.Name()] = true
+			for _, alias := range c.Aliases {
+				taken[alias] = true
+			}
+		}
+		cmds := adoptedCommands(opts.Registry, id)
+		for _, name := range slices.Sorted(maps.Keys(cmds)) {
+			if path := cmds[name]; len(path) > 1 && taken[path[1]] {
+				errs = append(errs, fmt.Errorf("%s would replace the hand-written command \"darkpanel %s %s\"", name, id, path[1]))
+			}
+		}
+	}
+	return errs
+}
+
+// adopted is the set of every generated command name some hand-written
+// group adopts: the action names in adopt, and every command of each module
+// in modules.
+func adopted(reg *core.Registry, adopt map[string][]string, modules []string) map[string]bool {
 	out := map[string]bool{}
 	for _, names := range adopt {
 		for _, name := range names {
 			out[name] = true
 		}
 	}
+	for _, id := range modules {
+		for name := range adoptedCommands(reg, id) {
+			out[name] = true
+		}
+	}
 	return out
 }
 
-// checkHooks refuses an Adopt or LocalFallbacks entry that names no
-// hand-written group, no registered action, an action outside its group, an
-// adopted command a hand-written one already takes, or a fallback for an
-// action the agent does not run.
+// adoptedCommands maps the name of each generated command of module id (its
+// actions whose highest version is not internal, its resources and its
+// streams) to the command's path.
+func adoptedCommands(reg *core.Registry, id string) map[string][]string {
+	out := map[string][]string{}
+	latest := map[string]core.ActionDef{}
+	for _, a := range reg.Actions() {
+		latest[a.Spec.Name] = a
+	}
+	for name, a := range latest {
+		if !a.Spec.Internal && strings.HasPrefix(name, id+".") {
+			out[name] = CommandPath(name)
+		}
+	}
+	for _, r := range reg.Resources() {
+		if strings.HasPrefix(r.Name, id+".") {
+			out[r.Name] = CommandPath(r.Name)
+		}
+	}
+	for _, st := range reg.Streams() {
+		if st.Module == id {
+			out[id+"."+st.Def.Name] = StreamPath(id, st.Def.Name)
+		}
+	}
+	return out
+}
+
+// checkHooks refuses an Adopt, AdoptModules or LocalFallbacks entry that
+// names no hand-written group, no registered action or module, an action
+// outside its group, an adopted command a hand-written one already takes,
+// or a fallback for an action the agent does not run.
 func checkHooks(opts Options) error {
 	sides := map[string]core.Side{}
 	for _, a := range opts.Registry.Actions() {
@@ -157,6 +228,7 @@ func checkHooks(opts Options) error {
 			}
 		}
 	}
+	errs = append(errs, checkModuleAdoption(opts, groups)...)
 	for _, action := range slices.Sorted(maps.Keys(opts.LocalFallbacks)) {
 		if sides[action] != core.SideAgent {
 			errs = append(errs, fmt.Errorf("local fallback %s is not a registered agent-side action", action))
