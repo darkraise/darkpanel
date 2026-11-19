@@ -117,8 +117,14 @@ func installEffect(set []string) core.Effect {
 	}
 }
 
+// installResource names set by package: apt qualifies another
+// architecture's package ("libfoo:i386"), dpkg-query, which observes it,
+// does not.
 func installResource(set []string) string {
-	s := slices.Clone(set)
+	s := make([]string, len(set))
+	for i, n := range set {
+		s[i], _, _ = strings.Cut(n, ":")
+	}
 	slices.Sort(s)
 	return installNoun + ":" + strings.Join(slices.Compact(s), ",")
 }

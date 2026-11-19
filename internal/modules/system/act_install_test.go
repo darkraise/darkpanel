@@ -148,3 +148,26 @@ func TestRepairRunsTheFixWhenNothingProtectedGoes(t *testing.T) {
 		t.Fatalf("plan:\n%s phrase=%q", p.Text(), p.Phrase)
 	}
 }
+
+func TestInstallEffectNamesAnotherArchitecturesPackageByName(t *testing.T) {
+	h := newSysHost(t)
+	h.run("/usr/bin/apt-cache pkgnames", "jq\n", 0)
+	sim := "Inst libfoo:i386 (1 x [i386])\nInst jq (1.7 x [amd64])\n0 upgraded, 2 newly installed, 0 to remove and 0 not upgraded.\n"
+	h.run(planVec("install", []string{"jq"}), sim, 0)
+	h.run(resimVec("install", []string{"jq"}), sim, 0)
+	h.run(runVec("install", []string{"jq"}), "E: Sub-process /usr/bin/dpkg returned an error code (1)", 100)
+	if _, err := h.applyTask("system.packages.install", `{"names":["jq"]}`); err == nil {
+		t.Fatal("a failed run succeeded")
+	}
+	effects := h.journal.of("c1")
+	if len(effects) != 1 || effects[0].Resource != "system.packages:jq,libfoo" {
+		t.Fatalf("effects = %+v", effects)
+	}
+	a, err := h.action("system.packages.install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Handler.Observe(t.Context(), h.env(), effects[0]); err != nil {
+		t.Fatalf("observe the intended effect: %v", err)
+	}
+}
