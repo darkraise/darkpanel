@@ -1,11 +1,13 @@
 import { screen, within } from "@testing-library/react"
-import { expect, test } from "vitest"
+import userEvent from "@testing-library/user-event"
+import { expect, test, vi } from "vitest"
 import type { Host } from "@/api/types"
 import { formatTime } from "@/lib/format"
-import { makeHost, renderWithProviders, stubFetch } from "@/test/utils"
+import { makeHost, renderWithProviders, stubFetch, type StubHandler } from "@/test/utils"
 import { HostsPage } from "./hosts"
 
 const HOSTS = "POST /api/v1/actions/core.host.list/v1/read"
+const TABLE = { path: "/?view=table" }
 
 const hosts: Host[] = [
   {
@@ -22,7 +24,7 @@ const hosts: Host[] = [
 
 test("lists hosts with the local marker and module states", async () => {
   const calls = stubFetch({ [HOSTS]: { body: { output: { hosts } } } })
-  renderWithProviders(<HostsPage />)
+  renderWithProviders(<HostsPage />, TABLE)
   const link = await screen.findByRole("link", { name: "web-1" })
   expect(link.getAttribute("href")).toBe("/hosts/h1")
   const row = link.closest("tr")
@@ -48,7 +50,7 @@ test("marks only a host whose journal ingestion fails, with the error beside it"
     ingestion: { ok: false, since: "2026-10-21T08:05:00Z", error: "agent unreachable" },
   }
   stubFetch({ [HOSTS]: { body: { output: { hosts: [...hosts, failing] } } } })
-  renderWithProviders(<HostsPage />)
+  renderWithProviders(<HostsPage />, TABLE)
   const row = (await screen.findByRole("link", { name: "cache-1" })).closest("tr")
   if (row === null) throw new Error("no row")
   within(row).getByText("Journal ingestion failing")
@@ -68,7 +70,7 @@ test("UI-1: shows last seen, versions, platform and the enrollment state", async
     makeHost({ id: "b", name: "new-1", state: "pending", online: false, lastSeenAt: null, agentVersion: null, protocolVersion: null, os: null, arch: null }),
     makeHost({ id: "c", name: "old-1", state: "revoked", online: false, supported: false, agentVersion: "0.9.0" }),
   ] } } } })
-  renderWithProviders(<HostsPage />)
+  renderWithProviders(<HostsPage />, TABLE)
   const row = async (name: string) => {
     const tr = (await screen.findByRole("link", { name })).closest("tr")
     if (tr === null) throw new Error("no row")
@@ -94,7 +96,7 @@ test("UX-1: a worst-case name and version wrap inside their cells", async () => 
   const name = `web-${"x".repeat(59)}`
   const version = `1.0.0-beta.1+${"a".repeat(27)}`
   stubFetch({ [HOSTS]: { body: { output: { hosts: [makeHost({ name, agentVersion: version })] } } } })
-  renderWithProviders(<HostsPage />)
+  renderWithProviders(<HostsPage />, TABLE)
   const link = await screen.findByRole("link", { name })
   expect(link.className).toContain("break-all")
   expect(screen.getByText(version).closest(".break-all")).not.toBeNull()
@@ -102,7 +104,84 @@ test("UX-1: a worst-case name and version wrap inside their cells", async () => 
 
 test("UX-12: the table scrolls inside its own container", async () => {
   stubFetch({ [HOSTS]: { body: { output: { hosts: [makeHost()] } } } })
-  renderWithProviders(<HostsPage />)
+  renderWithProviders(<HostsPage />, TABLE)
   const table = await screen.findByRole("table")
   expect(table.closest(".overflow-x-auto")).not.toBeNull()
+})
+
+const GiB = 2 ** 30
+const SUMMARY = (id: string) => `GET /api/v1/hosts/${id}/resources/hostinfo/summary`
+
+test("A11: a card per host with online state, memory and disk bars and module icons; the table toggle lives in the URL", async () => {
+  stubFetch({
+    "POST /api/v1/actions/core.host.list/v1/read": { body: { output: { hosts: [makeHost({ id: "h1", name: "web-1", modules: [{ id: "docker", version: 1, enabled: true, available: false, reason: null, checkedAt: null }] }), makeHost({ id: "h2", name: "db-1", online: false, lastSeenAt: "2026-11-19T10:00:00Z" })] } } },
+    "GET /api/v1/hosts/h1/resources/hostinfo/summary": { body: { cpu: { model: "QEMU", logicalCount: 4 }, memory: { totalBytes: 8 * GiB, availableBytes: 2 * GiB }, rootFs: { totalBytes: 100 * GiB, availableBytes: 59 * GiB }, swap: { totalBytes: 0, freeBytes: 0 }, load: { one: 1.2, five: 1, fifteen: 0.8 }, uptimeSeconds: 90000, bootTime: "2026-11-18T11:00:00Z" } },
+  })
+  renderWithProviders(<HostsPage />, { path: "/" })
+  const card = within(await screen.findByRole("article", { name: "web-1" }))
+  await card.findByRole("img", { name: /^Memory: 6 of 8/ })
+  card.getByRole("img", { name: /^Disk: 41 of 100/ })
+  card.getByText("Docker (unavailable)")
+  within(screen.getByRole("article", { name: "db-1" })).getByText(/Last seen/)
+  await userEvent.click(screen.getByRole("radio", { name: "Table" }))
+  expect(screen.getByTestId("location").textContent).toContain("view=table")
+})
+
+test("UX-9: cards carry the host's state chips, link to the host and read no summary while offline", async () => {
+  const calls = stubFetch({
+    [HOSTS]: { body: { output: { hosts: [
+      makeHost({ id: "h1", name: "web-1", isLocal: true, os: "ubuntu-24.04", arch: "arm64", ingestion: { ok: false, since: "2026-10-21T08:05:00Z", error: "agent unreachable" } }),
+      makeHost({ id: "h2", name: "new-1", state: "pending", online: false, lastSeenAt: null, os: null, arch: null }),
+      makeHost({ id: "h3", name: "old-1", state: "revoked", online: false, supported: false, agentVersion: "0.9.0" }),
+    ] } } },
+    [SUMMARY("h1")]: { body: { memory: { totalBytes: 8 * GiB, availableBytes: 7.5 * GiB }, rootFs: { totalBytes: 100 * GiB, availableBytes: 99 * GiB } } },
+  })
+  renderWithProviders(<HostsPage />)
+  const web = within(await screen.findByRole("article", { name: "web-1" }))
+  web.getByText("Online")
+  web.getByText("This controller")
+  web.getByText("ubuntu-24.04")
+  web.getByText("arm64")
+  web.getByText("Journal ingestion failing")
+  web.getByRole("button", { name: "Why journal ingestion fails" })
+  expect(web.getByRole("link", { name: "Open web-1" }).getAttribute("href")).toBe("/hosts/h1")
+  await web.findByRole("img", { name: /^Memory: 0\.5 of 8 GiB/ })
+  const fresh = within(screen.getByRole("article", { name: "new-1" }))
+  fresh.getByText("Pending")
+  fresh.getByText("Never seen")
+  const old = within(screen.getByRole("article", { name: "old-1" }))
+  old.getByText("Revoked")
+  old.getByText("Unsupported")
+  expect(calls.filter((c) => c.path.endsWith("/hostinfo/summary")).map((c) => c.path)).toEqual(["/api/v1/hosts/h1/resources/hostinfo/summary"])
+})
+
+test("UX-9: a failed summary read shows the error icon with the reason in a tip, and a 64-character name wraps", async () => {
+  const name = `web-${"x".repeat(60)}`
+  stubFetch({
+    [HOSTS]: { body: { output: { hosts: [makeHost({ name })] } } },
+    [SUMMARY("h1")]: { status: 502, body: { type: "about:blank", title: "Bad gateway", status: 502, detail: "the agent did not answer", code: "agent.unreachable" } },
+  })
+  renderWithProviders(<HostsPage />)
+  const card = within(await screen.findByRole("article", { name }))
+  await card.findByRole("img", { name: "Summary unavailable" })
+  await userEvent.click(card.getByRole("button", { name: "Why the summary is unavailable" }))
+  expect((await screen.findAllByText("the agent did not answer")).length).toBeGreaterThan(0)
+  expect(card.getByText(name).className).toContain("break-all")
+  expect(card.queryByRole("img", { name: /^Memory/ })).toBeNull()
+})
+
+test("A51: 50 slow hosts render frames at once, keep 6 reads in flight, and time out to an error icon at 5 s", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  let inFlight = 0, peak = 0
+  const items = Array.from({ length: 50 }, (_, i) => makeHost({ id: `h${i}`, name: `host-${i}` }))
+  const routes: Record<string, StubHandler> = { "POST /api/v1/actions/core.host.list/v1/read": { body: { output: { hosts: items } } } }
+  for (const h of items) routes[`GET /api/v1/hosts/${h.id}/resources/hostinfo/summary`] = async () => { inFlight++; peak = Math.max(peak, inFlight); await new Promise((r) => setTimeout(r, 8000)); inFlight--; return { body: {} } }
+  stubFetch(routes)
+  renderWithProviders(<HostsPage />, { path: "/" })
+  expect(await screen.findAllByRole("article")).toHaveLength(50)
+  await vi.advanceTimersByTimeAsync(4900)
+  expect(peak).toBeLessThanOrEqual(6)
+  await vi.advanceTimersByTimeAsync(200)
+  expect(screen.getAllByRole("img", { name: /Summary unavailable/ }).length).toBeGreaterThanOrEqual(6)
+  vi.useRealTimers()
 })

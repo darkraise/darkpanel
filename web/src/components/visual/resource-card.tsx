@@ -27,7 +27,7 @@ export function ResourceCard({
             <Icon aria-hidden className="size-5" />
           </span>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="truncate font-semibold">{title}</span>
+            <span className="font-semibold break-all">{title}</span>
             <div>
               <StatusPill status={status.status} label={status.label} />
             </div>

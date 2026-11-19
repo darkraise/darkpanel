@@ -80,7 +80,7 @@ export function setCsrfRejectedHandler(handler: (() => void) | null): void {
   csrfRejectedHandler = handler
 }
 
-export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const startedIn = generation
   const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" }
   if (UNSAFE_METHODS.has(method) && csrfToken !== null) headers[CSRF_HEADER] = csrfToken
@@ -91,6 +91,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
       headers,
       credentials: "same-origin",
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
     })
   } catch {
     throw new ApiError(0, "network", "The controller cannot be reached. Check that it is running.")
@@ -154,9 +155,9 @@ export function applyPlan<O>(plan: Plan, confirmation?: string, options: ApplyOp
   return request<Change<O>>("POST", actionPath(plan.action, plan.version, "apply", plan.hostId ?? undefined), body)
 }
 
-export function readResource<O>(hostId: string, module: string, resource: string): Promise<O> {
+export function readResource<O>(hostId: string, module: string, resource: string, signal?: AbortSignal): Promise<O> {
   const path = [hostId, "resources", module, resource].map(encodeURIComponent).join("/")
-  return request<O>("GET", `/api/v1/hosts/${path}`)
+  return request<O>("GET", `/api/v1/hosts/${path}`, undefined, signal)
 }
 
 export function listHosts(): Promise<HostList> {

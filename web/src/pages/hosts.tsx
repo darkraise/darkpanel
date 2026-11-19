@@ -1,16 +1,24 @@
-import { Link } from "react-router"
+import { Link, useSearchParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { PageHeader } from "darkraise-ui/layout"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Badge, type BadgeVariant } from "darkraise-ui/components/badge"
+import { Card, CardContent } from "darkraise-ui/components/card"
 import { EmptyState } from "darkraise-ui/components/empty-state"
-import { Spinner } from "darkraise-ui/components/spinner"
+import { Skeleton } from "darkraise-ui/components/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { ToggleGroup, ToggleGroupItem } from "darkraise-ui/components/toggle-group"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts } from "@/api/client"
 import type { Host, ModuleState } from "@/api/types"
+import { StatusPill } from "@/components/visual/status-pill"
 import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
 import { CreateHostDialog } from "./create-host-dialog"
+import { HostCard } from "./host-card"
+
+type View = "cards" | "table"
+
+const GRID = "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
 
 function moduleStatus(m: ModuleState): { text: string; variant: BadgeVariant } {
   if (!m.enabled) return { text: "off", variant: "outline" }
@@ -39,9 +47,26 @@ function ModuleStates({ host }: { host: Host }) {
   )
 }
 
-function HostsBody() {
+function LoadingCards() {
+  return (
+    <div role="status" aria-busy="true" aria-label="Loading the hosts" className={GRID}>
+      {Array.from({ length: 4 }, (_, i) => (
+        <Card key={i}>
+          <CardContent className="flex flex-col gap-3 p-4">
+            <Skeleton className="h-9 w-2/3" />
+            <Skeleton className="h-5 w-1/2" />
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
+function HostsBody({ view }: { view: View }) {
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
-  if (hosts.isPending) return <Spinner aria-label="Loading the hosts" />
+  if (hosts.isPending) return <LoadingCards />
   if (hosts.isError) {
     return (
       <Alert variant="destructive" role="alert">
@@ -57,6 +82,15 @@ function HostsBody() {
         <h2 className="sr-only">Host list</h2>
         <EmptyState title="No hosts yet" />
       </>
+    )
+  }
+  if (view === "cards") {
+    return (
+      <section aria-label="Host list" className={GRID}>
+        {hosts.data.hosts.map((h) => (
+          <HostCard key={h.id} host={h} />
+        ))}
+      </section>
     )
   }
   return (
@@ -100,7 +134,7 @@ function HostsBody() {
               </TableCell>
               <TableCell>
                 <div className="flex flex-col items-start gap-1">
-                  <span>{h.online ? "Online" : "Offline"}</span>
+                  <StatusPill status={h.online ? "ok" : "error"} label={h.online ? "Online" : "Offline"} />
                   <span className="text-xs text-muted-foreground">
                     {h.lastSeenAt === null ? "Never seen" : `Last seen ${formatTime(h.lastSeenAt)}`}
                   </span>
@@ -143,10 +177,36 @@ function HostsBody() {
 
 export function HostsPage() {
   usePageTitle("Hosts")
+  const [params, setParams] = useSearchParams()
+  const view: View = params.get("view") === "table" ? "table" : "cards"
+  function choose(next: string) {
+    if (next !== "cards" && next !== "table") return
+    setParams(
+      (prev) => {
+        const out = new URLSearchParams(prev)
+        if (next === "table") out.set("view", "table")
+        else out.delete("view")
+        return out
+      },
+      { replace: true },
+    )
+  }
   return (
     <>
-      <PageHeader title="Hosts" description="The servers this controller manages." actions={<CreateHostDialog />} />
-      <HostsBody />
+      <PageHeader
+        title="Hosts"
+        description="The servers this controller manages."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <ToggleGroup type="single" value={view} onValueChange={choose} aria-label="View">
+              <ToggleGroupItem value="cards">Cards</ToggleGroupItem>
+              <ToggleGroupItem value="table">Table</ToggleGroupItem>
+            </ToggleGroup>
+            <CreateHostDialog />
+          </div>
+        }
+      />
+      <HostsBody view={view} />
     </>
   )
 }

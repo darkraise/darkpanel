@@ -1,9 +1,10 @@
-import { act, cleanup, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router"
 import { expect, test, vi } from "vitest"
 import type { Host, ListenerState, Session } from "@/api/types"
 import { applyBrand } from "@/brand"
+import { ModuleIcon } from "@/components/visual/module-icon"
 import { npInstance } from "@/modules/npm/fixtures"
 import { paExposure, paStatus } from "@/modules/panel/fixtures"
 import type { InstancesOutput } from "@/modules/npm/types"
@@ -127,18 +128,39 @@ test("the global pages have their own sidebar group", async () => {
 })
 
 test.each([
-  ["bound", bound, loopbackOnly],
-  ["loopback only", loopbackOnly, bound],
-])("the footer shows the controller's listener message when %s", async (_, shown, other) => {
+  ["bound", bound, "Tailscale", "ok", loopbackOnly],
+  ["loopback only", loopbackOnly, "Loopback only", "warn", bound],
+])("the footer shows the listener state as a status chip with the controller's message in a tip when %s", async (_, shown, chip, status, other) => {
   const calls = renderShell({ body: shown })
+  const pill = await waitFor(() => {
+    const found = screen.getAllByRole("status").find((s) => s.textContent === chip)
+    if (found === undefined) throw new Error(`no ${chip} chip`)
+    return found
+  })
+  expect(pill.querySelector("[data-status]")?.getAttribute("data-status")).toBe(status)
+  expect(screen.queryByText(shown.message)).toBeNull()
+  await userEvent.setup().click(screen.getAllByRole("button", { name: "Listener details" })[0] as HTMLElement)
   expect((await screen.findAllByText(shown.message)).length).toBeGreaterThan(0)
   expect(screen.queryByText(other.message)).toBeNull()
   expect(calls.some((c) => c.method === "GET" && c.path === "/api/v1/controller/listeners")).toBe(true)
 })
 
-test("the footer reports a failed listener request", async () => {
+test("the footer reports a failed listener request as a chip with the reason in a tip", async () => {
   renderShell(problem(403, "auth.forbidden", "this request needs the read scope"))
-  expect((await screen.findAllByText("Listener state unavailable: this request needs the read scope")).length).toBeGreaterThan(0)
+  expect((await screen.findAllByText("Listener state unavailable")).length).toBeGreaterThan(0)
+  await userEvent.setup().click(screen.getAllByRole("button", { name: "Listener details" })[0] as HTMLElement)
+  expect((await screen.findAllByText("this request needs the read scope")).length).toBeGreaterThan(0)
+})
+
+test("each enabled module's sidebar link carries that module's icon", async () => {
+  renderShell({ body: bound }, "/hosts/h1/hostinfo", { status: 204 }, [webHost])
+  await screen.findAllByRole("link", { name: "Host information" })
+  const { container } = render(<>{["hostinfo", "firewall"].map((id) => <ModuleIcon key={id} module={id} />)}</>)
+  for (const [id, label] of [["hostinfo", "Host information"], ["firewall", "Firewall"]] as const) {
+    const icon = container.querySelector(`[data-module-icon="${id}"] svg`)?.getAttribute("class")?.split(" ").find((c) => c.startsWith("lucide-"))
+    expect(icon).toBeDefined()
+    expect(screen.getAllByRole("link", { name: label })[0]?.querySelector(`svg.${icon}`)).not.toBeNull()
+  }
 })
 
 test("the footer reports a failed host list", async () => {

@@ -63,7 +63,7 @@ test("the hosts page adds a host and shows its enrollment token once", async () 
   })
   renderWithProviders(<HostsPage />)
   const user = userEvent.setup()
-  await screen.findByRole("link", { name: "controller" })
+  await screen.findByRole("article", { name: "controller" })
   const form = await chdFill(user, "web-2")
   await user.click(within(form).getByRole("button", { name: "Continue" }))
 

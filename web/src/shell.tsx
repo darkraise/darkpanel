@@ -7,6 +7,9 @@ import { SidebarLayout, type NavGroup, type NavItem } from "darkraise-ui/layout"
 import { HOSTS_QUERY_KEY, errorMessage, getListenerState, listHosts } from "@/api/client"
 import { connectEvents } from "@/api/events"
 import type { Host } from "@/api/types"
+import { InfoTip } from "@/components/visual/info-tip"
+import { StatusPill } from "@/components/visual/status-pill"
+import type { Status } from "@/components/visual/status"
 import { AdminExposureBanner } from "@/modules/npm/banner"
 import { PanelExposureBanner } from "@/modules/panel/banner"
 import { enabledModules, moduleRegistry } from "@/modules/registry"
@@ -42,20 +45,24 @@ function navigation(hosts: Host[]): NavGroup[] {
 
 // ListenerNotice says where the controller listens; without a Tailscale
 // address it serves loopback only, and the footer says so (spec section 13).
+// The chip carries the state; the controller's own message sits in the tip.
 function ListenerNotice() {
   const listeners = useQuery({ queryKey: ["listeners"], queryFn: getListenerState, refetchOnWindowFocus: true })
   if (listeners.isPending) return null
+  let chip: { status: Status; label: string }
+  let detail: string
   if (listeners.isError) {
-    return (
-      <p role="status" className="px-3 py-2 text-xs text-destructive-text">
-        {`Listener state unavailable: ${errorMessage(listeners.error)}`}
-      </p>
-    )
+    chip = { status: "error", label: "Listener state unavailable" }
+    detail = errorMessage(listeners.error)
+  } else {
+    chip = listeners.data.tailscaleBound ? { status: "ok", label: "Tailscale" } : { status: "warn", label: "Loopback only" }
+    detail = listeners.data.message
   }
   return (
-    <p role="status" className={listeners.data.tailscaleBound ? "px-3 py-2 text-xs text-muted-foreground" : "px-3 py-2 text-xs text-warning-text"}>
-      {listeners.data.message}
-    </p>
+    <div className="flex items-center gap-1 px-3 py-2">
+      <StatusPill live status={chip.status} label={chip.label} />
+      <InfoTip label="Listener details">{detail}</InfoTip>
+    </div>
   )
 }
 

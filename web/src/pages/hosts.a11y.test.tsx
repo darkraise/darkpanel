@@ -23,10 +23,13 @@ const hosts: Host[] = [
   makeHost({ id: "h4", name: "old-1", state: "revoked", online: false, supported: false, agentVersion: "0.9.0" }),
 ]
 
-test("the host list passes axe with local, offline and failing-ingestion hosts", async () => {
+test.each([
+  ["cards", "/", (name: string) => screen.findByRole("article", { name })],
+  ["table", "/?view=table", (name: string) => screen.findByRole("link", { name })],
+])("the host list passes axe with local, offline and failing-ingestion hosts as %s", async (_, path, find) => {
   stubFetch({ [HOSTS]: { body: { output: { hosts } } } })
-  const { container } = renderWithProviders(<HostsPage />)
-  await screen.findByRole("link", { name: "web-1" })
+  const { container } = renderWithProviders(<HostsPage />, { path })
+  await find("web-1")
   await expectNoAxeViolations(container)
 })
 
@@ -61,7 +64,7 @@ test("the Add host dialog passes axe", async () => {
 
 test("the host list has one level-one heading, the page title and a table with named columns", async () => {
   stubFetch({ [HOSTS]: { body: { output: { hosts } } } })
-  renderWithProviders(<HostsPage />)
+  renderWithProviders(<HostsPage />, { path: "/?view=table" })
   await screen.findByRole("link", { name: "web-1" })
   expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual(["Hosts"])
   expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Status", "Version", "Platform", "Modules"])
