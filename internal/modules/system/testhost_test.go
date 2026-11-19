@@ -430,10 +430,24 @@ func (h *sysHost) clearChanges() { //nolint:unused // shared helper of the syste
 	h.exec(`DELETE FROM core_plans`)
 }
 
-// recordedInstall is a completed system.packages.install change whose output installed names.
+// recordedInstall is a completed system.packages.install change whose output installed names, with its made
+// effect journaled, so undo("system.packages.install") undoes it.
 func (h *sysHost) recordedInstall(names []string) { //nolint:unused // shared helper of the system module's action tests
 	out, _ := json.Marshal(Applied{Installed: names, Upgraded: []string{}, Removed: []string{}})
-	h.change(fmt.Sprintf("rec-%d", len(h.calls())), "system.packages.install", core.StateCompleted, string(out))
+	id := fmt.Sprintf("rec-%d", len(h.calls()))
+	h.change(id, "system.packages.install", core.StateCompleted, string(out))
+	ctx := context.Background()
+	h.journal.begin(id)
+	seq, err := h.journal.Intend(ctx, installEffect(names), nil)
+	if err == nil {
+		err = h.journal.Made(ctx, seq, installResource(names), core.StateDoc{State: json.RawMessage(`{"present":true}`)})
+	}
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	h.mu.Lock()
+	h.last["system.packages.install"] = id
+	h.mu.Unlock()
 }
 
 // action returns the module's definition of name.

@@ -98,6 +98,92 @@ A list of:
 | `protected` | string or null | yes |  |
 | `version` | string | yes |  |
 
+## system.packages.install v1
+
+Install named packages; undo removes exactly the packages it installed.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/system.packages.install/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/system.packages.install/v1/apply` |
+
+Minimum scope: `operate`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `names` | array of string | yes | The packages to install, as the configured sources name them. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `installed` | array of string | yes |  |
+| `removed` | array of string | yes |  |
+| `upgraded` | array of string | yes |  |
+
+## system.packages.remove v1
+
+Remove named packages, optionally with their configuration files.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/system.packages.remove/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/system.packages.remove/v1/apply` |
+
+Minimum scope: `operate`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `names` | array of string | yes | The installed packages to remove. |
+| `purge` | boolean | no | Also delete their configuration files. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `installed` | array of string | yes |  |
+| `removed` | array of string | yes |  |
+| `upgraded` | array of string | yes |  |
+
+## system.packages.repair v1
+
+Finish an interrupted package run and fix broken dependencies.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/system.packages.repair/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/system.packages.repair/v1/apply` |
+
+Minimum scope: `operate`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `installed` | array of string | yes |  |
+| `removed` | array of string | yes |  |
+| `upgraded` | array of string | yes |  |
+
 ## system.packages.search v1
 
 Search the configured package sources for names containing a term.

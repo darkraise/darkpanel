@@ -12934,6 +12934,56 @@
         ],
         "type": "object"
       },
+      "system.packages.install.v1.input": {
+        "$ref": "#/components/schemas/system.packages.install.v1.input.InstallInput"
+      },
+      "system.packages.install.v1.input.InstallInput": {
+        "additionalProperties": false,
+        "properties": {
+          "names": {
+            "description": "The packages to install, as the configured sources name them.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "names"
+        ],
+        "type": "object"
+      },
+      "system.packages.install.v1.output": {
+        "$ref": "#/components/schemas/system.packages.install.v1.output.Applied"
+      },
+      "system.packages.install.v1.output.Applied": {
+        "properties": {
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upgraded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "installed",
+          "upgraded",
+          "removed"
+        ],
+        "type": "object"
+      },
       "system.packages.output": {
         "items": {
           "$ref": "#/components/schemas/system.packages.output.InstalledPackage"
@@ -12971,6 +13021,99 @@
           "arch",
           "description",
           "protected"
+        ],
+        "type": "object"
+      },
+      "system.packages.remove.v1.input": {
+        "$ref": "#/components/schemas/system.packages.remove.v1.input.RemoveInput"
+      },
+      "system.packages.remove.v1.input.RemoveInput": {
+        "additionalProperties": false,
+        "properties": {
+          "names": {
+            "description": "The installed packages to remove.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "purge": {
+            "description": "Also delete their configuration files.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "names"
+        ],
+        "type": "object"
+      },
+      "system.packages.remove.v1.output": {
+        "$ref": "#/components/schemas/system.packages.remove.v1.output.Applied"
+      },
+      "system.packages.remove.v1.output.Applied": {
+        "properties": {
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upgraded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "installed",
+          "upgraded",
+          "removed"
+        ],
+        "type": "object"
+      },
+      "system.packages.repair.v1.input": {
+        "$ref": "#/components/schemas/system.packages.repair.v1.input.RepairInput"
+      },
+      "system.packages.repair.v1.input.RepairInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "system.packages.repair.v1.output": {
+        "$ref": "#/components/schemas/system.packages.repair.v1.output.Applied"
+      },
+      "system.packages.repair.v1.output.Applied": {
+        "properties": {
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upgraded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "installed",
+          "upgraded",
+          "removed"
         ],
         "type": "object"
       },
@@ -28000,6 +28143,327 @@
           }
         ],
         "summary": "Refresh the package index of every configured source."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.packages.install/v1/apply": {
+      "post": {
+        "operationId": "system.packages.install.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install named packages; undo removes exactly the packages it installed."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.packages.install/v1/plan": {
+      "post": {
+        "operationId": "system.packages.install.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.packages.install.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install named packages; undo removes exactly the packages it installed."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.packages.remove/v1/apply": {
+      "post": {
+        "operationId": "system.packages.remove.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove named packages, optionally with their configuration files."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.packages.remove/v1/plan": {
+      "post": {
+        "operationId": "system.packages.remove.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.packages.remove.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove named packages, optionally with their configuration files."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.packages.repair/v1/apply": {
+      "post": {
+        "operationId": "system.packages.repair.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Finish an interrupted package run and fix broken dependencies."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.packages.repair/v1/plan": {
+      "post": {
+        "operationId": "system.packages.repair.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.packages.repair.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Finish an interrupted package run and fix broken dependencies."
       }
     },
     "/api/v1/hosts/{host}/actions/system.packages.search/v1/read": {
