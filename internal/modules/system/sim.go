@@ -19,9 +19,12 @@ var (
 )
 
 // SimOp is one action line of an apt simulation. Kind is Inst, Conf, Remv
-// or Purg; From is the installed version, To the version apt would install.
+// or Purg; From is the installed version, To the version apt would install,
+// and Origins the archives apt names for it, such as
+// "Ubuntu:22.04/jammy-security".
 type SimOp struct {
 	Kind, Name, From, To string
+	Origins              []string
 }
 
 // Sim is a parsed apt simulation: its action lines and its summary counts.
@@ -94,8 +97,25 @@ func parseSimOp(line string) (SimOp, bool) {
 	if to, ok := strings.CutPrefix(rest, "("); ok {
 		op.To, _, _ = strings.Cut(to, " ")
 		op.To = strings.TrimSuffix(op.To, ")")
+		op.Origins = simOrigins(to)
 	}
 	return op, true
+}
+
+// simOrigins reads the archives of "(<to> <origin>, <origin> [<arch>])".
+func simOrigins(paren string) []string {
+	inner, _, _ := strings.Cut(paren, ")")
+	_, rest, _ := strings.Cut(inner, " ")
+	if i := strings.LastIndex(rest, "["); i >= 0 {
+		rest = rest[:i]
+	}
+	var origins []string
+	for o := range strings.SplitSeq(rest, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			origins = append(origins, o)
+		}
+	}
+	return origins
 }
 
 // Installs is the sorted names of the packages apt would newly install.

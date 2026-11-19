@@ -89,6 +89,8 @@ func (m module) Manifest() core.Manifest {
 		Version:        1,
 		DefaultEnabled: true,
 		Preflight:      []core.PreflightCheck{{ID: "os", Run: m.checkOS}},
+		Resources:      []core.ResourceDef{m.updatesResource(), m.packagesResource()},
+		Actions:        []core.ActionDef{m.searchAction()},
 	}
 }
 

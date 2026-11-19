@@ -442,7 +442,7 @@ func (h *sysHost) action(name string) (core.ActionDef, error) { //nolint:unused 
 func (h *sysHost) readResource(t *testing.T, name string) string { //nolint:unused // shared helper of the system module's action tests
 	t.Helper()
 	for _, r := range h.mod().Manifest().Resources {
-		if r.Name == name {
+		if r.Name == ID+"."+name {
 			out, err := r.Read(context.Background(), h.env())
 			if err != nil {
 				t.Fatalf("read %s: %v", name, err)
