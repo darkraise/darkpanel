@@ -18,7 +18,7 @@ func TestFixturesCoverEveryRelease(t *testing.T) {
 	summary := regexp.MustCompile(`(?m)^\d+ upgraded, \d+ newly installed, \d+ to remove and \d+ not upgraded\.$`)
 	for _, rel := range fixtureReleases {
 		for _, name := range fixtureNames {
-			b, err := os.ReadFile(filepath.Join("testdata", rel, name+".txt"))
+			b, err := os.ReadFile(filepath.Join("testdata", rel, name+".txt")) //nolint:gosec // G304: a committed fixture under testdata
 			if err != nil {
 				t.Fatalf("%s/%s: %v", rel, name, err)
 			}

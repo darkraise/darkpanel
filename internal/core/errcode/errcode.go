@@ -134,6 +134,33 @@ const (
 	DERPVerifyFailed           Code = "derp.verify_failed"
 )
 
+// Action-level codes of the system module (package management, reboot and
+// Docker Engine).
+const (
+	SystemAptBusy               Code = "system.apt_busy"
+	SystemRepoSignature         Code = "system.repo_signature"
+	SystemDiskFull              Code = "system.disk_full"
+	SystemBrokenPackages        Code = "system.broken_packages"
+	SystemDpkgInterrupted       Code = "system.dpkg_interrupted"
+	SystemPlanStale             Code = "system.plan_stale"
+	SystemSimUnparsed           Code = "system.sim_unparsed"
+	SystemNameInvalid           Code = "system.name_invalid"
+	SystemProtectedPackage      Code = "system.protected_package"
+	SystemRemovalRefused        Code = "system.removal_refused"
+	SystemUnattendedAbsent      Code = "system.unattended_absent"
+	SystemChangePending         Code = "system.change_pending"
+	SystemDockerPresent         Code = "system.docker_present"
+	SystemDockerRepoConflict    Code = "system.docker_repo_conflict"
+	SystemDockerKeyring         Code = "system.docker_keyring"
+	SystemDockerLabelled        Code = "system.docker_labelled"
+	SystemFirewallPending       Code = "system.firewall_pending"
+	SystemFirewallIntegrationOn Code = "system.firewall_integration_on"
+	SystemFirewallFlagMismatch  Code = "system.firewall_flag_mismatch"
+	SystemPurgeRefused          Code = "system.purge_refused"
+	SystemLogindRefused         Code = "system.logind_refused"
+	SystemAptFailed             Code = "system.apt_failed"
+)
+
 type info struct {
 	status int
 	title  string
@@ -237,6 +264,28 @@ var registry = map[Code]info{
 	PanelWrongHost:                   {http.StatusUnprocessableEntity, "Not the controller's host"},
 	PanelNotExposed:                  {http.StatusNotFound, "Panel not exposed"},
 	Quarantined:                      {http.StatusConflict, "Controller in restore quarantine"},
+	SystemAptBusy:                    {http.StatusConflict, "Another package manager is running"},
+	SystemRepoSignature:              {http.StatusConflict, "Repository signature does not verify"},
+	SystemDiskFull:                   {http.StatusInsufficientStorage, "Not enough disk space"},
+	SystemBrokenPackages:             {http.StatusConflict, "Held or unmet package dependencies"},
+	SystemDpkgInterrupted:            {http.StatusConflict, "Package manager was interrupted"},
+	SystemPlanStale:                  {http.StatusConflict, "Packages changed since the plan"},
+	SystemSimUnparsed:                {http.StatusInternalServerError, "Unrecognised apt output"},
+	SystemNameInvalid:                {http.StatusUnprocessableEntity, "Invalid package name"},
+	SystemProtectedPackage:           {http.StatusConflict, "Protected package"},
+	SystemRemovalRefused:             {http.StatusConflict, "Removal refused"},
+	SystemUnattendedAbsent:           {http.StatusConflict, "unattended-upgrades is not installed"},
+	SystemChangePending:              {http.StatusConflict, "Another system change is pending"},
+	SystemDockerPresent:              {http.StatusConflict, "Docker already installed"},
+	SystemDockerRepoConflict:         {http.StatusConflict, "Conflicting Docker repository"},
+	SystemDockerKeyring:              {http.StatusConflict, "Conflicting Docker keyring"},
+	SystemDockerLabelled:             {http.StatusConflict, "Docker runs Darkpanel-managed resources"},
+	SystemFirewallPending:            {http.StatusConflict, "Firewall change pending"},
+	SystemFirewallIntegrationOn:      {http.StatusConflict, "Firewall Docker integration is on"},
+	SystemFirewallFlagMismatch:       {http.StatusConflict, "Firewall integration differs from the host"},
+	SystemPurgeRefused:               {http.StatusConflict, "Purge refused"},
+	SystemLogindRefused:              {http.StatusConflict, "Reboot refused by logind"},
+	SystemAptFailed:                  {http.StatusInternalServerError, "Package operation failed"},
 }
 
 // Known reports whether c is in the registry.
