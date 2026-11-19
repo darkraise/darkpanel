@@ -8,6 +8,8 @@ import { HOSTS_QUERY_KEY, errorMessage, listHosts, readResource } from "@/api/cl
 import type { Host } from "@/api/types"
 import { SectionHeader } from "@/components/visual/section-header"
 import { OverviewTab } from "./overview-tab"
+import { PackagesTab } from "./packages-tab"
+import { UpdatesTab } from "./updates-tab"
 import { SYSTEM_MODULE, type RebootState } from "./types"
 
 // SystemHeader names the page and, once the reboot read has answered,
@@ -48,8 +50,12 @@ export function SystemPage({ hostId }: { hostId: string }) {
         <TabsContent value="overview">
           <OverviewTab host={host} />
         </TabsContent>
-        <TabsContent value="updates" />
-        <TabsContent value="packages" />
+        <TabsContent value="updates">
+          <UpdatesTab host={host} />
+        </TabsContent>
+        <TabsContent value="packages">
+          <PackagesTab host={host} />
+        </TabsContent>
       </Tabs>
     </div>
   )
