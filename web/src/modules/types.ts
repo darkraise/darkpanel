@@ -1,4 +1,5 @@
 import type { ComponentType, LazyExoticComponent } from "react"
+import type { Host } from "@/api/types"
 import type { LucideIcon } from "lucide-react"
 
 // What a module's route bundle receives: the host whose pages it renders.
@@ -45,6 +46,9 @@ export interface ModuleEntry {
   label: string
   icon: LucideIcon
   routes?: LazyExoticComponent<ComponentType<ModuleRouteProps>> // host pages
+  // Shown instead of the plain "unavailable" alert when the module is
+  // enabled but unavailable on the host.
+  unavailable?: LazyExoticComponent<ComponentType<{ host: Host; reason: string }>>
   containerActions?: ContainerAction[]
   hostCreate?: HostCreateExtension
   global?: GlobalPage

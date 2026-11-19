@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/ale
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts } from "@/api/client"
+import type { Host } from "@/api/types"
 import { usePageTitle } from "@/lib/page-title"
 import { enabledModules, moduleRegistry, moduleView, type ModuleView } from "@/modules/registry"
 import { HostOverview } from "./host-overview"
@@ -20,7 +21,7 @@ function hostTitle(loaded: boolean, name: string | undefined, moduleId: string |
 
 // darkraise-ui's EmptyState title is an h3, so a hidden h2 under the page's h1
 // keeps the heading levels from skipping one.
-function ModuleBody({ view, hostId }: { view: ModuleView; hostId: string }) {
+function ModuleBody({ view, host }: { view: ModuleView; host: Host }) {
   switch (view.kind) {
     case "not-enabled":
       return (
@@ -30,6 +31,14 @@ function ModuleBody({ view, hostId }: { view: ModuleView; hostId: string }) {
         </>
       )
     case "unavailable": {
+      const Unavailable = view.entry.unavailable
+      if (Unavailable !== undefined) {
+        return (
+          <Suspense fallback={<Spinner aria-label="Loading the module" />}>
+            <Unavailable host={host} reason={view.reason} />
+          </Suspense>
+        )
+      }
       const Icon = view.entry.icon
       return (
         <Alert variant="warning" role="status">
@@ -43,7 +52,7 @@ function ModuleBody({ view, hostId }: { view: ModuleView; hostId: string }) {
       const ModulePages = view.entry.routes
       return (
         <Suspense fallback={<Spinner aria-label="Loading the module" />}>
-          <ModulePages hostId={hostId} />
+          <ModulePages hostId={host.id} />
         </Suspense>
       )
     }
@@ -84,7 +93,7 @@ export function HostPage() {
   return (
     <>
       {header}
-      <ModuleBody view={moduleView(moduleRegistry, host, moduleId)} hostId={host.id} />
+      <ModuleBody view={moduleView(moduleRegistry, host, moduleId)} host={host} />
     </>
   )
 }

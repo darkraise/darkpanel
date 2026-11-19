@@ -30,6 +30,7 @@ export interface ChangeTarget {
   hostId?: string
   module?: string // checked against getAvailability when hostId is set
   revertible?: boolean // asks for the revert timeout, sent as confirmTimeoutSeconds
+  revertSeconds?: number // the revert timeout offered first; CONFIRM_TIMEOUT_DEFAULT otherwise
 }
 
 // The revert timeout an apply request accepts, in seconds.
@@ -276,7 +277,7 @@ interface BodyProps extends Omit<ChangeDialogProps, "open" | "onOpenChange" | "t
 function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy, close }: BodyProps) {
   const [overrides, setOverrides] = useState<string[]>([])
   const [typed, setTyped] = useState("")
-  const [timeoutText, setTimeoutText] = useState(String(CONFIRM_TIMEOUT_DEFAULT))
+  const [timeoutText, setTimeoutText] = useState(String(target.revertSeconds ?? CONFIRM_TIMEOUT_DEFAULT))
   const [error, setError] = useState<string | null>(null)
   const [applied, setApplied] = useState<Change | null>(null)
   const [progress, setProgress] = useState("")

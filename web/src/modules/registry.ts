@@ -18,7 +18,13 @@ export const moduleRegistry: ModuleEntry[] = [
       { id: "firewall.deny", label: "Deny", render: lazy(() => import("./firewall/container-actions").then((m) => ({ default: m.DenyAction }))) },
     ],
   },
-  { id: "docker", label: "Docker", icon: Container, routes: lazy(() => import("./docker/routes")) },
+  {
+    id: "docker",
+    label: "Docker",
+    icon: Container,
+    routes: lazy(() => import("./docker/routes")),
+    unavailable: lazy(() => import("./system/docker-install-panel").then((m) => ({ default: m.DockerInstallPanel }))),
+  },
   { id: "tailscale", label: "Tailscale", icon: Network, routes: lazy(() => import("./tailscale/routes")) },
   {
     id: "tailnet",
