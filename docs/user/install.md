@@ -231,8 +231,10 @@ secrets over Tailscale or an SSH tunnel instead whenever you can.
 
 Open the port in the host's firewall and in any cloud security group in front
 of it. The address must be one of this host's own addresses: behind NAT, give
-the server's private address and forward the port. The `darkpanel` CLI
-refuses to send a token over plain HTTP to a host other than loopback.
+the server's private address and forward the port. The port must be 1024 or
+higher: the controller runs as the `darkpanel` user, which cannot bind a lower
+port, so `system install` refuses one. The `darkpanel` CLI refuses to send a
+token over plain HTTP to a host other than loopback.
 
 To add the listener to an existing controller, read its current flags first:
 
