@@ -12848,6 +12848,84 @@
         ],
         "type": "object"
       },
+      "system.docker.engine-install.v1.input": {
+        "$ref": "#/components/schemas/system.docker.engine-install.v1.input.EngineInstallInput"
+      },
+      "system.docker.engine-install.v1.input.EngineInstallInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "system.docker.engine-install.v1.output": {
+        "$ref": "#/components/schemas/system.docker.engine-install.v1.output.Applied"
+      },
+      "system.docker.engine-install.v1.output.Applied": {
+        "properties": {
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upgraded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "installed",
+          "upgraded",
+          "removed"
+        ],
+        "type": "object"
+      },
+      "system.docker.engine-update.v1.input": {
+        "$ref": "#/components/schemas/system.docker.engine-update.v1.input.EngineUpdateInput"
+      },
+      "system.docker.engine-update.v1.input.EngineUpdateInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "system.docker.engine-update.v1.output": {
+        "$ref": "#/components/schemas/system.docker.engine-update.v1.output.Applied"
+      },
+      "system.docker.engine-update.v1.output.Applied": {
+        "properties": {
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upgraded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "installed",
+          "upgraded",
+          "removed"
+        ],
+        "type": "object"
+      },
       "system.docker.output": {
         "$ref": "#/components/schemas/system.docker.output.DockerState"
       },
@@ -28205,6 +28283,220 @@
           }
         ],
         "summary": "Turn unattended-upgrades' automatic updates on or off."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.docker.engine-install/v1/apply": {
+      "post": {
+        "operationId": "system.docker.engine-install.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install Docker Engine from Docker's repository; undo removes the packages and repository files it added."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.docker.engine-install/v1/plan": {
+      "post": {
+        "operationId": "system.docker.engine-install.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.docker.engine-install.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install Docker Engine from Docker's repository; undo removes the packages and repository files it added."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.docker.engine-update/v1/apply": {
+      "post": {
+        "operationId": "system.docker.engine-update.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Upgrade the Docker Engine packages to the versions Docker's repository offers."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.docker.engine-update/v1/plan": {
+      "post": {
+        "operationId": "system.docker.engine-update.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.docker.engine-update.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Upgrade the Docker Engine packages to the versions Docker's repository offers."
       }
     },
     "/api/v1/hosts/{host}/actions/system.host.reboot/v1/apply": {

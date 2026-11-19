@@ -55,10 +55,7 @@ func (m module) simulateSet(ctx context.Context, env core.Env, verb string, name
 	if err != nil {
 		return Sim{}, err
 	}
-	protected = slices.DeleteFunc(protected, func(p Protected) bool {
-		base, _, _ := strings.Cut(p.Name, ":")
-		return slices.Contains(exempt, base)
-	})
+	protected = withoutExempt(protected, exempt)
 	if len(protected) > 0 {
 		list := make([]string, len(protected))
 		for i, p := range protected {
@@ -67,6 +64,14 @@ func (m module) simulateSet(ctx context.Context, env core.Env, verb string, name
 		return Sim{}, errcode.New(errcode.SystemProtectedPackage, "apt would remove protected packages: "+strings.Join(list, ", "))
 	}
 	return sim, nil
+}
+
+// withoutExempt drops from protected the packages exempt names.
+func withoutExempt(protected []Protected, exempt []string) []Protected {
+	return slices.DeleteFunc(protected, func(p Protected) bool {
+		base, _, _ := strings.Cut(p.Name, ":")
+		return slices.Contains(exempt, base)
+	})
 }
 
 // runSet runs verb once the task's own re-simulation, which waits for a busy

@@ -128,6 +128,7 @@ func newSysHost(t *testing.T) *sysHost {
 func (h *sysHost) mod() module {
 	return module{d: deps{
 		readFile: h.readFile,
+		listDir:  h.listDir,
 		modTime:  h.modTime,
 		stat: func(name string) (fs.FileMode, int, int, error) {
 			if _, err := h.readFile(name); err != nil {
@@ -341,6 +342,20 @@ func (h *sysHost) readFile(name string) ([]byte, error) {
 		return bytes.Clone(b), nil
 	}
 	return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+}
+
+// listDir lists the files of the file map directly under dir.
+func (h *sysHost) listDir(dir string) ([]string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var names []string
+	for p := range h.files {
+		if name, ok := strings.CutPrefix(p, dir+"/"); ok && !strings.Contains(name, "/") {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names, nil
 }
 
 func (h *sysHost) modTime(name string) (time.Time, error) {

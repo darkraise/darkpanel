@@ -77,6 +77,60 @@ Returned in the `output` field of the response.
 | `version` | string | no |  |
 | `volumes` | integer or null | no |  |
 
+## system.docker.engine-install v1
+
+Install Docker Engine from Docker's repository; undo removes the packages and repository files it added.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/system.docker.engine-install/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/system.docker.engine-install/v1/apply` |
+
+Minimum scope: `operate`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `installed` | array of string | yes |  |
+| `removed` | array of string | yes |  |
+| `upgraded` | array of string | yes |  |
+
+## system.docker.engine-update v1
+
+Upgrade the Docker Engine packages to the versions Docker's repository offers.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/system.docker.engine-update/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/system.docker.engine-update/v1/apply` |
+
+Minimum scope: `operate`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `installed` | array of string | yes |  |
+| `removed` | array of string | yes |  |
+| `upgraded` | array of string | yes |  |
+
 ## system.host.reboot v1
 
 Reboot the host 15 seconds after apply.

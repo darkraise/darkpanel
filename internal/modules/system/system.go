@@ -37,6 +37,7 @@ type dockerAPI interface {
 // deps is what the module reaches outside core.Env; tests replace each.
 type deps struct {
 	readFile      func(name string) ([]byte, error)
+	listDir       func(name string) ([]string, error)
 	modTime       func(name string) (time.Time, error)
 	stat          func(name string) (mode fs.FileMode, uid, gid int, err error)
 	kernelRelease func() (string, error)
@@ -45,8 +46,7 @@ type deps struct {
 	docker        dockerAPI
 	reboot        platform.Reboot
 	purge         platform.Purge
-	// keyring is Docker's repository signing key the install writes; nil
-	// until the Docker install embeds it.
+	// keyring replaces the embedded Docker repository keyring when not nil.
 	keyring []byte
 	// firewallIntegration reports whether the firewall's Docker integration
 	// is on; nil until the Docker install reads it.
@@ -61,6 +61,7 @@ func Module() core.Module { return module{d: productionDeps()} }
 func productionDeps() deps {
 	return deps{
 		readFile: os.ReadFile,
+		listDir:  listFiles,
 		modTime: func(name string) (time.Time, error) {
 			st, err := os.Stat(name)
 			if err != nil {
@@ -76,6 +77,21 @@ func productionDeps() deps {
 		reboot:        platform.NewReboot(),
 		purge:         platform.NewPurge(),
 	}
+}
+
+// listFiles lists the names of the entries of dir that are not directories.
+func listFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names, nil
 }
 
 // statOwner reads name's permission bits and owner, not following a link.
@@ -104,10 +120,12 @@ func (m module) Manifest() core.Manifest {
 		DefaultEnabled: true,
 		Preflight:      []core.PreflightCheck{{ID: "os", Run: m.checkOS}},
 		Resources:      []core.ResourceDef{m.updatesResource(), m.packagesResource(), m.rebootResource(), m.autoupdatesResource(), m.dockerResource()},
-		Actions:        []core.ActionDef{m.searchAction(), m.refreshAction(), m.upgradeAction(), m.installAction(), m.removeAction(), m.repairAction(), m.autoupdatesSetAction(), m.rebootAction()},
+		Actions:        []core.ActionDef{m.searchAction(), m.refreshAction(), m.upgradeAction(), m.installAction(), m.removeAction(), m.repairAction(), m.autoupdatesSetAction(), m.rebootAction(), m.engineInstallAction(), m.engineUpdateAction()},
 		OwnedPaths: []core.OwnedPath{
 			{Path: failedSourcesDir, Kind: core.OwnedManagedDir, Pattern: `^failed-sources$`},
 			{Path: autoUpgradesFile, Kind: core.OwnedRestore},
+			{Path: dockerKeyringPath, Kind: core.OwnedFile},
+			{Path: dockerListPath, Kind: core.OwnedFile},
 		},
 	}
 }

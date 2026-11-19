@@ -15,6 +15,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/platform"
 )
 
 // piTS is a ts on a host that runs the given OS and architecture.
@@ -117,7 +118,7 @@ func TestPiKeyringFingerprints(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := keyringFingerprints(tc.in)
+			got, err := platform.KeyringFingerprints(tc.in)
 			if (err != nil) != tc.err {
 				t.Fatalf("error %v, want error %v", err, tc.err)
 			}
@@ -132,7 +133,7 @@ func TestPiEmbeddedKeyringCarriesThePinnedFingerprint(t *testing.T) {
 	if len(keyringFingerprint) != 40 || keyringFingerprint != strings.ToUpper(keyringFingerprint) {
 		t.Fatalf("pinned fingerprint %q, want 40 upper-case hex digits", keyringFingerprint)
 	}
-	fps, err := keyringFingerprints(piKeyring(t))
+	fps, err := platform.KeyringFingerprints(piKeyring(t))
 	if err != nil {
 		t.Fatal(err)
 	}

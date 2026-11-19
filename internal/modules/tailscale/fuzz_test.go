@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/platform"
 )
 
 // fz8Head returns at most the first 64 bytes of b, for a failure message.
@@ -102,7 +103,7 @@ func FuzzDpkgStatus(f *testing.F) {
 	})
 }
 
-// FuzzKeyringFingerprints feeds arbitrary bytes to keyringFingerprints, seeded
+// FuzzKeyringFingerprints feeds arbitrary bytes to platform.KeyringFingerprints, seeded
 // with the embedded keyring: it never panics, an error returns no
 // fingerprints, and every fingerprint is 40 upper-case hexadecimal
 // characters (R74).
@@ -115,7 +116,7 @@ func FuzzKeyringFingerprints(f *testing.F) {
 	f.Add([]byte{0x00})
 	f.Add([]byte{})
 	f.Fuzz(func(t *testing.T, b []byte) {
-		fps, err := keyringFingerprints(b)
+		fps, err := platform.KeyringFingerprints(b)
 		if err != nil {
 			if fps != nil {
 				t.Fatalf("fingerprints returned with error %v for %q", err, fz8Head(b))

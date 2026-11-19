@@ -223,6 +223,18 @@ func (h installHandler) Inverse(ctx context.Context, env core.Env, e core.Effect
 	if err != nil {
 		return core.InverseResult{}, core.Definite(err)
 	}
+	if err := h.m.undoRemovalRefusal(ctx, env, names, sim, nil); err != nil {
+		return core.InverseResult{}, core.Definite(err)
+	}
+	if _, err := runSet(ctx, env, "remove", names, sim); err != nil {
+		return core.InverseResult{}, err
+	}
+	return core.InverseResult{}, nil
+}
+
+// undoRemovalRefusal refuses an undo's removal of names when sim, apt's simulation of it, also removes another
+// package, or a protected one not in exempt: something installed since depends on them.
+func (m module) undoRemovalRefusal(ctx context.Context, env core.Env, names []string, sim Sim, exempt []string) error {
 	var extra []string
 	for _, r := range sim.Removals() {
 		base, _, _ := strings.Cut(r, ":")
@@ -230,21 +242,19 @@ func (h installHandler) Inverse(ctx context.Context, env core.Env, e core.Effect
 			extra = append(extra, r)
 		}
 	}
-	protected, err := h.m.protectedRemovals(ctx, env, sim.Removals())
+	protected, err := m.protectedRemovals(ctx, env, sim.Removals())
 	if err != nil {
-		return core.InverseResult{}, core.Definite(err)
+		return err
 	}
-	if len(extra) > 0 || len(protected) > 0 {
-		why := make([]string, 0, len(extra)+len(protected))
-		why = append(why, extra...)
-		for _, p := range protected {
-			why = append(why, p.Name+" ("+p.Reason+")")
-		}
-		return core.InverseResult{}, core.Definite(errcode.New(errcode.SystemRemovalRefused,
-			"removing the installed packages would also remove "+strings.Join(why, ", ")+"; remove them by hand if that is intended"))
+	protected = withoutExempt(protected, exempt)
+	if len(extra) == 0 && len(protected) == 0 {
+		return nil
 	}
-	if _, err := runSet(ctx, env, "remove", names, sim); err != nil {
-		return core.InverseResult{}, err
+	why := make([]string, 0, len(extra)+len(protected))
+	why = append(why, extra...)
+	for _, p := range protected {
+		why = append(why, p.Name+" ("+p.Reason+")")
 	}
-	return core.InverseResult{}, nil
+	return errcode.New(errcode.SystemRemovalRefused,
+		"removing the installed packages would also remove "+strings.Join(why, ", ")+"; remove them by hand if that is intended")
 }
