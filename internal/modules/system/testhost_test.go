@@ -645,6 +645,14 @@ func (f shFiles) Restore(ctx context.Context, module string, e core.RestoreEntry
 	return f.Remove(ctx, module, e.Path)
 }
 
+// Owns reports the paths the module wrote, as the ownership store records every write.
+func (f shFiles) Owns(_ context.Context, module, path string) (bool, error) {
+	f.h.mu.Lock()
+	defer f.h.mu.Unlock()
+	_, ok := f.h.wrote[path]
+	return ok && module == ID, nil
+}
+
 func (f shFiles) Remove(_ context.Context, module, path string) error {
 	if module != ID {
 		return fmt.Errorf("sysHost: module %s removed %s", module, path)

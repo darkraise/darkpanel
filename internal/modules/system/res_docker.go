@@ -11,7 +11,7 @@ import (
 
 // sortedDockerPackages are dockerPackages sorted, the order undo and
 // uninstall pass them in.
-var sortedDockerPackages = func() []string { s := slices.Clone(dockerPackages); slices.Sort(s); return s }() //nolint:unused // for the Docker install undo and uninstall
+var sortedDockerPackages = func() []string { s := slices.Clone(dockerPackages); slices.Sort(s); return s }()
 
 // dockerConflicts are the distribution's Docker packages, which conflict
 // with Docker's own repository.
@@ -81,16 +81,27 @@ func (m module) dockerState(ctx context.Context, env core.Env) (DockerState, err
 		n := len(vols)
 		out.Volumes = &n
 	}
-	list, err := m.d.docker.ListContainers(ctx, dockerapi.ListContainersOptions{All: true, Filters: dockerapi.Filters{"label": {core.LabelModule}}})
-	if err == nil {
-		for _, c := range list {
-			mod := c.Labels[core.LabelModule]
-			if mod == "" || len(c.Names) == 0 {
-				continue
-			}
-			out.Labelled = append(out.Labelled, Labelled{Name: strings.TrimPrefix(c.Names[0], "/"), Module: mod})
-		}
-		slices.SortFunc(out.Labelled, func(a, b Labelled) int { return strings.Compare(a.Name, b.Name) })
+	if labelled, err := m.labelledContainers(ctx); err == nil {
+		out.Labelled = labelled
 	}
+	return out, nil
+}
+
+// labelledContainers lists the containers, running or not, that carry a
+// Darkpanel module label, sorted by name.
+func (m module) labelledContainers(ctx context.Context) ([]Labelled, error) {
+	list, err := m.d.docker.ListContainers(ctx, dockerapi.ListContainersOptions{All: true, Filters: dockerapi.Filters{"label": {core.LabelModule}}})
+	if err != nil {
+		return nil, err
+	}
+	var out []Labelled
+	for _, c := range list {
+		mod := c.Labels[core.LabelModule]
+		if mod == "" || len(c.Names) == 0 {
+			continue
+		}
+		out = append(out, Labelled{Name: strings.TrimPrefix(c.Names[0], "/"), Module: mod})
+	}
+	slices.SortFunc(out, func(a, b Labelled) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
 }

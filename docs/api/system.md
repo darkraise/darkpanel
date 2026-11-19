@@ -161,6 +161,35 @@ Returned in the `output` field of the change that apply returns.
 | `removed` | array of string | yes |  |
 | `upgraded` | array of string | yes |  |
 
+## system.docker.uninstall v1
+
+Remove Docker Engine and the repository files Darkpanel wrote; optionally delete all containers, images and volumes.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/system.docker.uninstall/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/system.docker.uninstall/v1/apply` |
+
+Minimum scope: `operate`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `purge` | boolean | no | Also delete every container, image and volume: /var/lib/docker and /var/lib/containerd. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `files` | array of string | yes | The repository files Darkpanel wrote and removed. |
+| `purged` | array of string | yes | The data directories deleted. |
+| `removed` | array of string | yes | The packages removed. |
+
 ## system.host.reboot v1
 
 Reboot the host 15 seconds after apply.

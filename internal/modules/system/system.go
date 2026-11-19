@@ -49,7 +49,7 @@ type deps struct {
 	// keyring replaces the embedded Docker repository keyring when not nil.
 	keyring []byte
 	// firewallIntegration reports whether the firewall's Docker integration
-	// is on; nil until the Docker install reads it.
+	// is on.
 	firewallIntegration func(ctx context.Context, env core.Env) (bool, error)
 }
 
@@ -76,6 +76,8 @@ func productionDeps() deps {
 		docker:        dockerapi.New(dockerapi.DefaultSocket),
 		reboot:        platform.NewReboot(),
 		purge:         platform.NewPurge(),
+
+		firewallIntegration: firewallDockerFlag,
 	}
 }
 
@@ -120,7 +122,7 @@ func (m module) Manifest() core.Manifest {
 		DefaultEnabled: true,
 		Preflight:      []core.PreflightCheck{{ID: "os", Run: m.checkOS}},
 		Resources:      []core.ResourceDef{m.updatesResource(), m.packagesResource(), m.rebootResource(), m.autoupdatesResource(), m.dockerResource()},
-		Actions:        []core.ActionDef{m.searchAction(), m.refreshAction(), m.upgradeAction(), m.installAction(), m.removeAction(), m.repairAction(), m.autoupdatesSetAction(), m.rebootAction(), m.engineInstallAction(), m.engineUpdateAction(), m.dockerCheckAction(), m.dockerInstallAction()},
+		Actions:        []core.ActionDef{m.searchAction(), m.refreshAction(), m.upgradeAction(), m.installAction(), m.removeAction(), m.repairAction(), m.autoupdatesSetAction(), m.rebootAction(), m.engineInstallAction(), m.engineUpdateAction(), m.dockerCheckAction(), m.dockerInstallAction(), m.dockerUninstallAction()},
 		OwnedPaths: []core.OwnedPath{
 			{Path: failedSourcesDir, Kind: core.OwnedManagedDir, Pattern: `^failed-sources$`},
 			{Path: autoUpgradesFile, Kind: core.OwnedRestore},

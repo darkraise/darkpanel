@@ -1,0 +1,60 @@
+{
+  "name": "system.docker.uninstall",
+  "version": 1,
+  "class": "irreversible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DockerUninstallInput",
+    "$defs": {
+      "DockerUninstallInput": {
+        "properties": {
+          "purge": {
+            "type": "boolean",
+            "description": "Also delete every container, image and volume: /var/lib/docker and /var/lib/containerd."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DockerUninstalled",
+    "$defs": {
+      "DockerUninstalled": {
+        "properties": {
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The packages removed."
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The repository files Darkpanel wrote and removed."
+          },
+          "purged": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The data directories deleted."
+          }
+        },
+        "type": "object",
+        "required": [
+          "removed",
+          "files",
+          "purged"
+        ]
+      }
+    }
+  }
+}
