@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"runtime"
 	"slices"
@@ -37,6 +38,7 @@ type dockerAPI interface {
 type deps struct {
 	readFile      func(name string) ([]byte, error)
 	modTime       func(name string) (time.Time, error)
+	stat          func(name string) (mode fs.FileMode, uid, gid int, err error)
 	kernelRelease func() (string, error)
 	hostname      func() (string, error)
 	arch          string
@@ -66,6 +68,7 @@ func productionDeps() deps {
 			}
 			return st.ModTime(), nil
 		},
+		stat:          statOwner,
 		kernelRelease: unameRelease,
 		hostname:      os.Hostname,
 		arch:          runtime.GOARCH,
@@ -73,6 +76,15 @@ func productionDeps() deps {
 		reboot:        platform.NewReboot(),
 		purge:         platform.NewPurge(),
 	}
+}
+
+// statOwner reads name's permission bits and owner, not following a link.
+func statOwner(name string) (fs.FileMode, int, int, error) {
+	var st unix.Stat_t
+	if err := unix.Lstat(name, &st); err != nil {
+		return 0, 0, 0, err
+	}
+	return fs.FileMode(st.Mode & 0o777), int(st.Uid), int(st.Gid), nil
 }
 
 func unameRelease() (string, error) {
@@ -95,7 +107,7 @@ func (m module) Manifest() core.Manifest {
 		Actions:        []core.ActionDef{m.searchAction(), m.refreshAction(), m.upgradeAction(), m.installAction(), m.removeAction(), m.repairAction(), m.autoupdatesSetAction(), m.rebootAction()},
 		OwnedPaths: []core.OwnedPath{
 			{Path: failedSourcesDir, Kind: core.OwnedManagedDir, Pattern: `^failed-sources$`},
-			{Path: autoUpgradesFile, Kind: core.OwnedFile},
+			{Path: autoUpgradesFile, Kind: core.OwnedRestore},
 		},
 	}
 }

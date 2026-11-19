@@ -104,6 +104,17 @@ func (h autoupdatesHandler) Task(ctx context.Context, env core.Env, in Autoupdat
 	if err != nil {
 		return AutoUpdates{}, core.Definite(err)
 	}
+	// Version keeps the prior file's mode and owner for the undo; no undo
+	// compares Version.
+	if string(before.State) != "null" {
+		owner, err := h.m.fileOwner(autoUpgradesFile)
+		if err != nil {
+			return AutoUpdates{}, core.Definite(err)
+		}
+		if before.Version, err = json.Marshal(owner); err != nil {
+			return AutoUpdates{}, core.Definite(err)
+		}
+	}
 	data := autoUpgradesContent(in.Enabled)
 	after := contentState(data)
 	seq, err := env.Effects.Intend(ctx, core.Effect{
@@ -113,7 +124,7 @@ func (h autoupdatesHandler) Task(ctx context.Context, env core.Env, in Autoupdat
 	if err != nil {
 		return AutoUpdates{}, err
 	}
-	if err := env.Files.WriteFile(ctx, ID, autoUpgradesFile, data, 0o644); err != nil {
+	if err := env.Files.Restore(ctx, ID, core.RestoreEntry{Path: autoUpgradesFile, Present: true, Mode: 0o644, Data: data}); err != nil {
 		return AutoUpdates{}, err
 	}
 	if err := env.Effects.Made(ctx, seq, ID+".autoupdates:"+autoUpgradesFile, after); err != nil {
@@ -142,14 +153,37 @@ func (h autoupdatesHandler) Observe(_ context.Context, _ core.Env, e core.Effect
 	return core.Observation{Current: cur, Resource: e.Resource, Matches: 1, Exclusive: true}, nil
 }
 
-// Inverse puts back the file the change found: its bytes, or no file.
+// Inverse puts back the file the change found, with its mode and owner, or
+// removes it, through the platform's managed-file restore.
 func (h autoupdatesHandler) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	var prior *string
 	if err := json.Unmarshal(e.Before.State, &prior); err != nil {
 		return core.InverseResult{}, core.Definite(fmt.Errorf("system: read the effect's prior state: %w", err))
 	}
-	if prior == nil {
-		return core.InverseResult{}, env.Files.Remove(ctx, ID, autoUpgradesFile)
+	entry := core.RestoreEntry{Path: autoUpgradesFile}
+	if prior != nil {
+		owner := fileOwner{Mode: 0o644}
+		if len(e.Before.Version) > 0 {
+			if err := json.Unmarshal(e.Before.Version, &owner); err != nil {
+				return core.InverseResult{}, core.Definite(fmt.Errorf("system: read the effect's prior mode: %w", err))
+			}
+		}
+		entry.Present, entry.Data, entry.Mode, entry.UID, entry.GID = true, []byte(*prior), owner.Mode, owner.UID, owner.GID
 	}
-	return core.InverseResult{}, env.Files.WriteFile(ctx, ID, autoUpgradesFile, []byte(*prior), 0o644)
+	return core.InverseResult{}, env.Files.Restore(ctx, ID, entry)
+}
+
+// fileOwner is a file's permission bits and owner.
+type fileOwner struct {
+	Mode fs.FileMode `json:"mode"`
+	UID  int         `json:"uid"`
+	GID  int         `json:"gid"`
+}
+
+func (m module) fileOwner(name string) (fileOwner, error) {
+	mode, uid, gid, err := m.d.stat(name)
+	if err != nil {
+		return fileOwner{}, fmt.Errorf("system: stat %s: %w", name, err)
+	}
+	return fileOwner{Mode: mode.Perm(), UID: uid, GID: gid}, nil
 }

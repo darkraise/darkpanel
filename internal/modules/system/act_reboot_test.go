@@ -84,6 +84,9 @@ func TestAutoupdatesUndoRestoresThePriorFile(t *testing.T) {
 	if got := string(h.written("/etc/apt/apt.conf.d/52darkpanel-auto-upgrades")); got != prior {
 		t.Fatalf("undo left %q, want the prior bytes", got)
 	}
+	if last := h.restores[len(h.restores)-1]; !last.Present || last.Mode != 0o640 || last.UID != 0 || last.GID != 4 {
+		t.Fatalf("undo restored %+v, want the prior mode and owner", last)
+	}
 	if p := h.plan(t, "system.autoupdates.set", `{"enabled":false}`); !strings.Contains(p.Text(), "Turn automatic updates off") {
 		t.Fatalf("plan:\n%s", p.Text())
 	}

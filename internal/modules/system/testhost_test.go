@@ -64,16 +64,17 @@ type sysHost struct {
 	clock *coretest.FakeClock
 	mu    sync.Mutex
 
-	answers map[string]shAnswer
-	ran     []string
-	pkgs    map[string]*shPkg
-	files   map[string][]byte // what reads see: file(path) and what WriteFile wrote
-	mtimes  map[string]time.Time
-	wrote   map[string][]byte // what the module wrote through core.Env.Files
-	removed []string
-	arch    string
-	uname   string
-	journal *shJournal
+	answers  map[string]shAnswer
+	ran      []string
+	pkgs     map[string]*shPkg
+	files    map[string][]byte // what reads see: file(path) and what WriteFile wrote
+	mtimes   map[string]time.Time
+	wrote    map[string][]byte // what the module wrote through core.Env.Files
+	removed  []string
+	restores []core.RestoreEntry // every Restore call, in order
+	arch     string
+	uname    string
+	journal  *shJournal
 
 	docker  *shDocker
 	reboot  *shReboot
@@ -126,8 +127,14 @@ func newSysHost(t *testing.T) *sysHost {
 // mod is the module over the host's fakes.
 func (h *sysHost) mod() module {
 	return module{d: deps{
-		readFile:      h.readFile,
-		modTime:       h.modTime,
+		readFile: h.readFile,
+		modTime:  h.modTime,
+		stat: func(name string) (fs.FileMode, int, int, error) {
+			if _, err := h.readFile(name); err != nil {
+				return 0, 0, 0, err
+			}
+			return 0o640, 0, 4, nil // a prior file: root:adm, mode 0640
+		},
 		kernelRelease: func() (string, error) { return h.uname, nil },
 		hostname:      func() (string, error) { return h.hostName(), nil },
 		arch:          h.arch,
@@ -610,6 +617,17 @@ func (f shFiles) WriteFile(_ context.Context, module, path string, data []byte, 
 // WriteManaged records the file at dir/name, as WriteFile does.
 func (f shFiles) WriteManaged(ctx context.Context, module, dir, name string, data []byte, mode fs.FileMode, _, _ int) error {
 	return f.WriteFile(ctx, module, dir+"/"+name, data, mode)
+}
+
+// Restore writes or removes e.Path as the platform's managed-file restore does and records e.
+func (f shFiles) Restore(ctx context.Context, module string, e core.RestoreEntry) error {
+	f.h.mu.Lock()
+	f.h.restores = append(f.h.restores, e)
+	f.h.mu.Unlock()
+	if e.Present {
+		return f.WriteFile(ctx, module, e.Path, e.Data, e.Mode)
+	}
+	return f.Remove(ctx, module, e.Path)
 }
 
 func (f shFiles) Remove(_ context.Context, module, path string) error {
