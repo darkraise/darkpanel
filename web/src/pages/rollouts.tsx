@@ -125,7 +125,7 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
                 {rollout.hosts.map((h) => (
                   <TableRow key={h.hostId}>
                     <TableCell className="whitespace-nowrap">{h.position + 1}</TableCell>
-                    <TableCell className="break-all">{names.get(h.hostId) ?? h.hostId}</TableCell>
+                    <TableCell className="whitespace-normal break-all">{names.get(h.hostId) ?? h.hostId}</TableCell>
                     <TableCell>
                       <Badge variant={stateVariant(h.state)} size="sm">
                         {h.state}

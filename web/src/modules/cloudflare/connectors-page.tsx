@@ -58,13 +58,13 @@ function ConnectorsTable({ connectors, tunnels, onPlan }: { connectors: Connecto
           const status = tunnels.find((t) => t.id === c.tunnel)?.status ?? "unknown"
           return (
             <TableRow key={c.tunnel}>
-              <TableCell className="wrap-anywhere">{label}</TableCell>
+              <TableCell className="whitespace-normal wrap-anywhere">{label}</TableCell>
               <TableCell className="whitespace-nowrap">
                 <Badge size="sm" variant={status === "healthy" ? "default" : "secondary"}>
                   {status}
                 </Badge>
               </TableCell>
-              <TableCell className="font-mono wrap-anywhere">{c.container}</TableCell>
+              <TableCell className="whitespace-normal font-mono wrap-anywhere">{c.container}</TableCell>
               <TableCell className="whitespace-nowrap">
                 <Badge size="sm" variant={c.state === "running" ? "default" : "secondary"}>
                   {c.state}

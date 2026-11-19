@@ -94,7 +94,7 @@ function UpdateHistory({ hostId }: { hostId: string }) {
               <TableRow key={t.id}>
                 <TableCell>{formatTime(t.startedAt)}</TableCell>
                 <TableCell className="whitespace-nowrap">{t.kind}</TableCell>
-                <TableCell className="break-all">{`${t.fromVersion} → ${t.toVersion}`}</TableCell>
+                <TableCell className="whitespace-normal break-all">{`${t.fromVersion} → ${t.toVersion}`}</TableCell>
                 <TableCell className="whitespace-nowrap">
                   <Badge variant={stateVariant(t.state)} size="sm">
                     {t.state}

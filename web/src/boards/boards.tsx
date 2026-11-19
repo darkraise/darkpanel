@@ -275,7 +275,7 @@ function HistoryTable({ rows }: { rows: BoardTransaction[] }) {
             <TableRow key={t.startedAt}>
               <TableCell>{formatTime(t.startedAt)}</TableCell>
               <TableCell>{t.kind}</TableCell>
-              <TableCell className="break-all">{`${t.fromVersion} → ${t.toVersion}`}</TableCell>
+              <TableCell className="whitespace-normal break-all">{`${t.fromVersion} → ${t.toVersion}`}</TableCell>
               <TableCell>
                 <Badge variant={stateVariant(t.state)} size="sm">
                   {t.state}
@@ -445,7 +445,7 @@ function RolloutCard({ r }: { r: BoardRollout }) {
               {r.hosts.map((h, i) => (
                 <TableRow key={h.hostId}>
                   <TableCell>{i + 1}</TableCell>
-                  <TableCell className="break-all">{h.name ?? h.hostId}</TableCell>
+                  <TableCell className="whitespace-normal break-all">{h.name ?? h.hostId}</TableCell>
                   <TableCell>
                     <Badge variant={stateVariant(h.state)} size="sm">
                       {h.state}
