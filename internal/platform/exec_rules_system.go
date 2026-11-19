@@ -16,8 +16,12 @@ const (
 	aptDockerSourceList = "/etc/apt/sources.list.d/docker.list"
 )
 
-// systemPackageNamePattern admits no leading "-", ":", "=", "/" or glob
-// character, so apt reads a name as nothing but an exact package name.
+// systemPackageNamePattern keeps a name from reading as an option (no
+// leading "-") or carrying an architecture, version or release (no ":",
+// "=", "/"). It does not make the name exact: apt still reads a trailing
+// "+" or "-" as an action and a name with "." that matches no package as a
+// regular expression, so the module admits only names it finds in
+// apt-cache pkgnames or among the installed packages.
 var systemPackageNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]{1,63}$`)
 
 // systemAptEnv is the environment of every system apt and dpkg run.
