@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react"
 import { Link } from "react-router"
 import { useQuery } from "@tanstack/react-query"
-import { CalendarClock, CircleCheck, Container, Download, RefreshCw, RotateCcw, Server, ShieldAlert, Wrench } from "lucide-react"
+import { CalendarClock, CircleCheck, Download, RefreshCw, RotateCcw, Server, ShieldAlert, Wrench } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
 import { EmptyState } from "darkraise-ui/components/empty-state"
@@ -10,14 +10,14 @@ import { readResource, request } from "@/api/client"
 import type { Change, Host } from "@/api/types"
 import { InfoTip } from "@/components/visual/info-tip"
 import { StatTile } from "@/components/visual/stat-tile"
-import { StatusPill } from "@/components/visual/status-pill"
 import { formatTime } from "@/lib/format"
 import type { Summary } from "@/modules/hostinfo/summary-page"
 import { UpdateNowButton } from "@/pages/update-now-dialog"
+import { DockerTile } from "./docker-tile"
 import { RebootTile } from "./reboot-tile"
 import { SystemChange, type PendingChange } from "./system-change"
 import { Tile, TileError, TileSkeleton } from "./tile"
-import { SYSTEM_MODULE, systemChangesKey, type AutoUpdates, type DockerState, type RebootState, type Updates } from "./types"
+import { SYSTEM_MODULE, systemChangesKey, type AutoUpdates, type RebootState, type Updates } from "./types"
 
 // How many of the host's latest changes the overview reads to find its last
 // reboot and its last package change.
@@ -213,43 +213,6 @@ function AutoUpdatesTile({ host, onChange }: { host: Host; onChange: (p: Pending
             Install unattended-upgrades
           </Button>
         </div>
-      )}
-    </Tile>
-  )
-}
-
-function dockerStatus(d: DockerState): { status: "ok" | "warn" | "error" | "off"; label: string } {
-  if (d.state === "absent") return { status: "off", label: "Not installed" }
-  if (d.state === "distro") return { status: "warn", label: "Distribution package" }
-  return d.running ? { status: "ok", label: "Running" } : { status: "error", label: "Stopped" }
-}
-
-function DockerTile({ host }: { host: Host }) {
-  const docker = useSystemResource<DockerState>(host, "docker")
-  const offline = !host.online
-  const data = docker.data
-  return (
-    <Tile icon={Container} title="Docker Engine" greyed={offline} loading={docker.isPending && !offline} status={data === undefined ? undefined : dockerStatus(data)}>
-      {docker.isError && <TileError error={docker.error} onRetry={() => void docker.refetch()} disabled={offline} />}
-      {docker.isPending && !offline && <TileSkeleton />}
-      {data?.state === "docker-ce" && (
-        <>
-          <span className="text-sm">
-            docker-ce <span className="font-mono tabular-nums">{data.version ?? "—"}</span>
-          </span>
-          {data.updateAvailable && (
-            <div>
-              <StatusPill status="info" label="Update available" />
-            </div>
-          )}
-        </>
-      )}
-      {data?.state === "distro" && (
-        <ul className="font-mono text-xs break-all">
-          {(data.conflicts ?? []).map((name) => (
-            <li key={name}>{name}</li>
-          ))}
-        </ul>
       )}
     </Tile>
   )
