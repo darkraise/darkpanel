@@ -12908,6 +12908,32 @@
         ],
         "type": "object"
       },
+      "system.index.refresh.v1.input": {
+        "$ref": "#/components/schemas/system.index.refresh.v1.input.RefreshInput"
+      },
+      "system.index.refresh.v1.input.RefreshInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "system.index.refresh.v1.output": {
+        "$ref": "#/components/schemas/system.index.refresh.v1.output.Refreshed"
+      },
+      "system.index.refresh.v1.output.Refreshed": {
+        "properties": {
+          "failedSources": {
+            "description": "The sources apt could not fetch or verify, as \"\u003curi\u003e \u003csuite\u003e\".",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "failedSources"
+        ],
+        "type": "object"
+      },
       "system.packages.output": {
         "items": {
           "$ref": "#/components/schemas/system.packages.output.InstalledPackage"
@@ -12985,6 +13011,57 @@
           "name",
           "candidate",
           "installed"
+        ],
+        "type": "object"
+      },
+      "system.packages.upgrade.v1.input": {
+        "$ref": "#/components/schemas/system.packages.upgrade.v1.input.UpgradeInput"
+      },
+      "system.packages.upgrade.v1.input.UpgradeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "all": {
+            "description": "Upgrade every package, as apt-get dist-upgrade does; it may install new dependencies and remove packages.",
+            "type": "boolean"
+          },
+          "names": {
+            "description": "Upgrade only these installed packages; empty when all is set.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "system.packages.upgrade.v1.output": {
+        "$ref": "#/components/schemas/system.packages.upgrade.v1.output.Applied"
+      },
+      "system.packages.upgrade.v1.output.Applied": {
+        "properties": {
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upgraded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "installed",
+          "upgraded",
+          "removed"
         ],
         "type": "object"
       },
@@ -27818,6 +27895,113 @@
         "summary": "Remove the panel network between the proxy and the panel's listener."
       }
     },
+    "/api/v1/hosts/{host}/actions/system.index.refresh/v1/apply": {
+      "post": {
+        "operationId": "system.index.refresh.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Refresh the package index of every configured source."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.index.refresh/v1/plan": {
+      "post": {
+        "operationId": "system.index.refresh.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.index.refresh.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Refresh the package index of every configured source."
+      }
+    },
     "/api/v1/hosts/{host}/actions/system.packages.search/v1/read": {
       "post": {
         "operationId": "system.packages.search.v1.read",
@@ -27882,6 +28066,113 @@
           }
         ],
         "summary": "Search the configured package sources for names containing a term."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.packages.upgrade/v1/apply": {
+      "post": {
+        "operationId": "system.packages.upgrade.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Upgrade every package, or the named installed packages."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.packages.upgrade/v1/plan": {
+      "post": {
+        "operationId": "system.packages.upgrade.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.packages.upgrade.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Upgrade every package, or the named installed packages."
       }
     },
     "/api/v1/hosts/{host}/actions/tailscale.node.login/v1/apply": {

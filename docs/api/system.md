@@ -49,6 +49,31 @@ Returned in the `output` field of the response.
 | `version` | string | no |  |
 | `volumes` | integer or null | no |  |
 
+## system.index.refresh v1
+
+Refresh the package index of every configured source.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/system.index.refresh/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/system.index.refresh/v1/apply` |
+
+Minimum scope: `operate`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `failedSources` | array of string | yes | The sources apt could not fetch or verify, as "\<uri\> \<suite\>". |
+
 ## system.packages
 
 Read system.packages
@@ -102,6 +127,36 @@ A list of:
 | `candidate` | string | yes |  |
 | `installed` | boolean | yes |  |
 | `name` | string | yes |  |
+
+## system.packages.upgrade v1
+
+Upgrade every package, or the named installed packages.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/system.packages.upgrade/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/system.packages.upgrade/v1/apply` |
+
+Minimum scope: `operate`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `all` | boolean | no | Upgrade every package, as apt-get dist-upgrade does; it may install new dependencies and remove packages. |
+| `names` | array of string | no | Upgrade only these installed packages; empty when all is set. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `installed` | array of string | yes |  |
+| `removed` | array of string | yes |  |
+| `upgraded` | array of string | yes |  |
 
 ## system.reboot
 

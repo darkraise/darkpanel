@@ -1,0 +1,39 @@
+{
+  "name": "system.index.refresh",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RefreshInput",
+    "$defs": {
+      "RefreshInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Refreshed",
+    "$defs": {
+      "Refreshed": {
+        "properties": {
+          "failedSources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The sources apt could not fetch or verify, as \"\u003curi\u003e \u003csuite\u003e\"."
+          }
+        },
+        "type": "object",
+        "required": [
+          "failedSources"
+        ]
+      }
+    }
+  }
+}

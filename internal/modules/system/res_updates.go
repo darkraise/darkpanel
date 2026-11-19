@@ -23,8 +23,10 @@ const (
 	refreshStamp = "/var/lib/apt/periodic/update-success-stamp"
 	aptLists     = "/var/lib/apt/lists"
 	// failedSourcesFile lists the sources the last refresh could not fetch,
-	// one per line; the refresh action writes it.
-	failedSourcesFile = "/var/lib/darkpanel/system/failed-sources"
+	// one per line; the refresh action writes it in the module's managed
+	// directory.
+	failedSourcesDir  = "/var/lib/darkpanel/system"
+	failedSourcesFile = failedSourcesDir + "/failed-sources"
 )
 
 // phasedOpts makes a simulation include phased updates, so the names it adds

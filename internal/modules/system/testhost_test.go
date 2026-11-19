@@ -129,6 +129,7 @@ func (h *sysHost) mod() module {
 		readFile:      h.readFile,
 		modTime:       h.modTime,
 		kernelRelease: func() (string, error) { return h.uname, nil },
+		hostname:      func() (string, error) { return h.hostName(), nil },
 		arch:          h.arch,
 		docker:        h.docker,
 		reboot:        h.reboot,
@@ -592,6 +593,11 @@ func (f shFiles) WriteFile(_ context.Context, module, path string, data []byte, 
 	return nil
 }
 
+// WriteManaged records the file at dir/name, as WriteFile does.
+func (f shFiles) WriteManaged(ctx context.Context, module, dir, name string, data []byte, mode fs.FileMode, _, _ int) error {
+	return f.WriteFile(ctx, module, dir+"/"+name, data, mode)
+}
+
 func (f shFiles) Remove(_ context.Context, module, path string) error {
 	if module != ID {
 		return fmt.Errorf("sysHost: module %s removed %s", module, path)
@@ -673,7 +679,7 @@ func (d *shDocker) Info(context.Context) (dockerapi.SystemInfo, error) {
 	if !d.running {
 		return dockerapi.SystemInfo{}, errSHDockerDown
 	}
-	return dockerapi.SystemInfo{Containers: d.containers, Images: d.images}, nil
+	return dockerapi.SystemInfo{Containers: d.containers, ContainersRunning: d.containers, Images: d.images}, nil
 }
 
 func (d *shDocker) ListContainers(context.Context, dockerapi.ListContainersOptions) ([]dockerapi.ContainerSummary, error) {

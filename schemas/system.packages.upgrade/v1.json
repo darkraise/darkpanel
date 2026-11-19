@@ -1,0 +1,64 @@
+{
+  "name": "system.packages.upgrade",
+  "version": 1,
+  "class": "irreversible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UpgradeInput",
+    "$defs": {
+      "UpgradeInput": {
+        "properties": {
+          "all": {
+            "type": "boolean",
+            "description": "Upgrade every package, as apt-get dist-upgrade does; it may install new dependencies and remove packages."
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Upgrade only these installed packages; empty when all is set."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Applied",
+    "$defs": {
+      "Applied": {
+        "properties": {
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upgraded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "installed",
+          "upgraded",
+          "removed"
+        ]
+      }
+    }
+  }
+}

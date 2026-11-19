@@ -38,6 +38,7 @@ type deps struct {
 	readFile      func(name string) ([]byte, error)
 	modTime       func(name string) (time.Time, error)
 	kernelRelease func() (string, error)
+	hostname      func() (string, error)
 	arch          string
 	docker        dockerAPI
 	reboot        platform.Reboot
@@ -66,6 +67,7 @@ func productionDeps() deps {
 			return st.ModTime(), nil
 		},
 		kernelRelease: unameRelease,
+		hostname:      os.Hostname,
 		arch:          runtime.GOARCH,
 		docker:        dockerapi.New(dockerapi.DefaultSocket),
 		reboot:        platform.NewReboot(),
@@ -90,8 +92,18 @@ func (m module) Manifest() core.Manifest {
 		DefaultEnabled: true,
 		Preflight:      []core.PreflightCheck{{ID: "os", Run: m.checkOS}},
 		Resources:      []core.ResourceDef{m.updatesResource(), m.packagesResource(), m.rebootResource(), m.autoupdatesResource(), m.dockerResource()},
-		Actions:        []core.ActionDef{m.searchAction()},
+		Actions:        []core.ActionDef{m.searchAction(), m.refreshAction(), m.upgradeAction()},
+		OwnedPaths:     []core.OwnedPath{{Path: failedSourcesDir, Kind: core.OwnedManagedDir, Pattern: `^failed-sources$`}},
 	}
+}
+
+// hostname is the host's name, the phrase an irreversible action asks for.
+func (m module) hostname() (string, error) {
+	h, err := m.d.hostname()
+	if err != nil {
+		return "", fmt.Errorf("system: read the host name: %w", err)
+	}
+	return h, nil
 }
 
 func (m module) checkOS(context.Context, core.Env) error {
