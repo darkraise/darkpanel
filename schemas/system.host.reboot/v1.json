@@ -1,0 +1,41 @@
+{
+  "name": "system.host.reboot",
+  "version": 1,
+  "class": "irreversible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RebootInput",
+    "$defs": {
+      "RebootInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RebootScheduled",
+    "$defs": {
+      "RebootScheduled": {
+        "properties": {
+          "scheduledAt": {
+            "type": "string",
+            "description": "When the host reboots, RFC 3339."
+          },
+          "bootTimeBefore": {
+            "type": "string",
+            "description": "The host's boot time before the reboot, RFC 3339."
+          }
+        },
+        "type": "object",
+        "required": [
+          "scheduledAt",
+          "bootTimeBefore"
+        ]
+      }
+    }
+  }
+}

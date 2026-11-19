@@ -21,6 +21,34 @@ Returned in the `output` field of the response.
 | `enabled` | boolean | yes |  |
 | `installed` | boolean | yes |  |
 
+## system.autoupdates.set v1
+
+Turn unattended-upgrades' automatic updates on or off.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/system.autoupdates.set/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/system.autoupdates.set/v1/apply` |
+
+Minimum scope: `operate`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | yes | Turn automatic security updates on or off. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | yes |  |
+| `installed` | boolean | yes |  |
+
 ## system.docker
 
 Read system.docker
@@ -48,6 +76,32 @@ Returned in the `output` field of the response.
 | `updateAvailable` | boolean or null | no |  |
 | `version` | string | no |  |
 | `volumes` | integer or null | no |  |
+
+## system.host.reboot v1
+
+Reboot the host 15 seconds after apply.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/system.host.reboot/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/system.host.reboot/v1/apply` |
+
+Minimum scope: `operate`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `bootTimeBefore` | string | yes | The host's boot time before the reboot, RFC 3339. |
+| `scheduledAt` | string | yes | When the host reboots, RFC 3339. |
 
 ## system.index.refresh v1
 

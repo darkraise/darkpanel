@@ -12814,6 +12814,40 @@
         ],
         "type": "object"
       },
+      "system.autoupdates.set.v1.input": {
+        "$ref": "#/components/schemas/system.autoupdates.set.v1.input.AutoupdatesInput"
+      },
+      "system.autoupdates.set.v1.input.AutoupdatesInput": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "description": "Turn automatic security updates on or off.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "system.autoupdates.set.v1.output": {
+        "$ref": "#/components/schemas/system.autoupdates.set.v1.output.AutoUpdates"
+      },
+      "system.autoupdates.set.v1.output.AutoUpdates": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "installed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "installed",
+          "enabled"
+        ],
+        "type": "object"
+      },
       "system.docker.output": {
         "$ref": "#/components/schemas/system.docker.output.DockerState"
       },
@@ -12905,6 +12939,34 @@
         "required": [
           "name",
           "module"
+        ],
+        "type": "object"
+      },
+      "system.host.reboot.v1.input": {
+        "$ref": "#/components/schemas/system.host.reboot.v1.input.RebootInput"
+      },
+      "system.host.reboot.v1.input.RebootInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "system.host.reboot.v1.output": {
+        "$ref": "#/components/schemas/system.host.reboot.v1.output.RebootScheduled"
+      },
+      "system.host.reboot.v1.output.RebootScheduled": {
+        "properties": {
+          "bootTimeBefore": {
+            "description": "The host's boot time before the reboot, RFC 3339.",
+            "type": "string"
+          },
+          "scheduledAt": {
+            "description": "When the host reboots, RFC 3339.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scheduledAt",
+          "bootTimeBefore"
         ],
         "type": "object"
       },
@@ -28036,6 +28098,220 @@
           }
         ],
         "summary": "Remove the panel network between the proxy and the panel's listener."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.autoupdates.set/v1/apply": {
+      "post": {
+        "operationId": "system.autoupdates.set.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn unattended-upgrades' automatic updates on or off."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.autoupdates.set/v1/plan": {
+      "post": {
+        "operationId": "system.autoupdates.set.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.autoupdates.set.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn unattended-upgrades' automatic updates on or off."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.host.reboot/v1/apply": {
+      "post": {
+        "operationId": "system.host.reboot.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Reboot the host 15 seconds after apply."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/system.host.reboot/v1/plan": {
+      "post": {
+        "operationId": "system.host.reboot.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.host.reboot.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Reboot the host 15 seconds after apply."
       }
     },
     "/api/v1/hosts/{host}/actions/system.index.refresh/v1/apply": {

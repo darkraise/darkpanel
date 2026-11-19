@@ -1,0 +1,47 @@
+{
+  "name": "system.autoupdates.set",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AutoupdatesInput",
+    "$defs": {
+      "AutoupdatesInput": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Turn automatic security updates on or off."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AutoUpdates",
+    "$defs": {
+      "AutoUpdates": {
+        "properties": {
+          "installed": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "installed",
+          "enabled"
+        ]
+      }
+    }
+  }
+}
