@@ -51,7 +51,7 @@ export default function TailnetHostCreate({ value, onChange }: { value: Record<s
               }}
             />
             {invalid && (
-              <p id="host-tailnet-tags-help" className="text-sm text-destructive">
+              <p id="host-tailnet-tags-help" className="text-sm text-destructive-text">
                 Each tag looks like tag:server.
               </p>
             )}

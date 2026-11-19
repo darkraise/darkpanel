@@ -1,3 +1,4 @@
+import { globSync, readFileSync } from "node:fs"
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, test } from "vitest"
@@ -98,4 +99,14 @@ describe("app routes", () => {
     expect((await screen.findByText("Page not found")).textContent).toBe("Page not found")
     expect(screen.getAllByRole("link", { name: "Hosts" }).length).toBeGreaterThan(0)
   })
+})
+
+test("A1: no 7.0 removed key or token remains", () => {
+  const files = globSync("src/**/*.{ts,tsx,css}", { cwd: process.cwd() }).filter((f) => !f.endsWith("app.test.tsx")).concat(globSync("public/**/*.js", { cwd: process.cwd() }))
+  const removed = [/--(destructive|success|warning)(?![-\w])/, /buttonElevation/, /elevation:\s*"medium"/, /size="md"/, /align="right"/, /\bshellStyle=/, /@fontsource-variable/]
+  const hits = files.flatMap((f) => removed.filter((r) => r.test(readFileSync(f, "utf8"))).map((r) => `${f}: ${r}`))
+  expect(hits).toEqual([])
+  const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { dependencies: Record<string, string> }
+  expect(pkg.dependencies["darkraise-ui"]).toBe("7.2.2")
+  expect(pkg.dependencies["recharts"]).toMatch(/^3\./)
 })

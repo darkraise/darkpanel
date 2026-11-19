@@ -119,7 +119,7 @@ export function UpdatePolicyButton({ host }: { host: Host }) {
                     ))}
                   </div>
                   {errors.days !== undefined && (
-                    <p id="policy-days-error" className="text-sm text-destructive">
+                    <p id="policy-days-error" className="text-sm text-destructive-text">
                       {errors.days}
                     </p>
                   )}
@@ -139,7 +139,7 @@ export function UpdatePolicyButton({ host }: { host: Host }) {
                     aria-describedby={errors.time !== undefined ? "policy-time-error" : undefined}
                   />
                   {errors.time !== undefined && (
-                    <p id="policy-time-error" className="text-sm text-destructive">
+                    <p id="policy-time-error" className="text-sm text-destructive-text">
                       {errors.time}
                     </p>
                   )}

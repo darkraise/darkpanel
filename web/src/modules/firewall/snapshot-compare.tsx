@@ -35,7 +35,7 @@ function Comparison({ hostId, pair }: { hostId: string; pair: ComparePair }) {
       {diff.length > 0 && (
         <pre aria-label="Differences" className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">
           {diff.map((d, i) => (
-            <div key={i} className={d.op === "+" ? "text-success" : d.op === "-" ? "text-destructive" : undefined}>
+            <div key={i} className={d.op === "+" ? "text-success-text" : d.op === "-" ? "text-destructive-text" : undefined}>
               {`${d.op} ${d.text}`}
             </div>
           ))}

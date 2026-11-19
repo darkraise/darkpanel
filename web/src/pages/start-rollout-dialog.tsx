@@ -24,7 +24,7 @@ export function StartRolloutTrigger({ onOpen, ref }: { onOpen: (button: HTMLButt
         Start rollout
       </Button>
       {hosts.isError && (
-        <p id={id} className="self-center text-sm text-destructive">
+        <p id={id} className="self-center text-sm text-destructive-text">
           {`The host list could not be read: ${errorMessage(hosts.error)}`}
         </p>
       )}
@@ -114,7 +114,7 @@ export function StartRolloutFlow({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
               {errors.hosts !== undefined && (
-                <p id={`${id}-hosts-error`} tabIndex={-1} className="text-sm text-destructive">
+                <p id={`${id}-hosts-error`} tabIndex={-1} className="text-sm text-destructive-text">
                   {enrolled.length === 0 ? "No host is enrolled yet, so no rollout can start." : errors.hosts}
                 </p>
               )}

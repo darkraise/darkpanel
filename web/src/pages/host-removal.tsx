@@ -134,7 +134,7 @@ export function HostRemoval({ host }: { host: Host }) {
                 aria-describedby={addressError !== null ? "token-controller-address-error" : undefined}
               />
               {addressError !== null && (
-                <p id="token-controller-address-error" className="text-sm text-destructive">
+                <p id="token-controller-address-error" className="text-sm text-destructive-text">
                   {addressError}
                 </p>
               )}

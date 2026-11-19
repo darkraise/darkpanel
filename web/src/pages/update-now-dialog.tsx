@@ -49,7 +49,7 @@ export function ReleaseFields({
           aria-describedby={errors.version !== undefined ? "release-version-error" : undefined}
         />
         {errors.version !== undefined && (
-          <p id="release-version-error" className="text-sm text-destructive">
+          <p id="release-version-error" className="text-sm text-destructive-text">
             {errors.version}
           </p>
         )}

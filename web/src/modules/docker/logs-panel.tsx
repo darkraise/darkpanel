@@ -40,7 +40,7 @@ function LogFeed({
         className="max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-xs"
       >
         {events.map((event, i) => (
-          <div key={i} data-stream={event.stream} className={event.stream === "stderr" ? "whitespace-pre-wrap text-destructive" : "whitespace-pre-wrap"}>
+          <div key={i} data-stream={event.stream} className={event.stream === "stderr" ? "whitespace-pre-wrap text-destructive-text" : "whitespace-pre-wrap"}>
             {lineText(event.text)}
           </div>
         ))}

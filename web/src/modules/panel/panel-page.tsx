@@ -122,7 +122,7 @@ function ExposeForm({ hostId, onPlan }: { hostId: string; onPlan: (pending: NonN
           The port the controller serves the exposure on. Leave empty for 9443.
         </span>
         {portInvalid && (
-          <span id={`${base}-port-error`} className="text-xs text-destructive">
+          <span id={`${base}-port-error`} className="text-xs text-destructive-text">
             {`Enter a whole number from ${PORT_MIN} to ${PORT_MAX}.`}
           </span>
         )}

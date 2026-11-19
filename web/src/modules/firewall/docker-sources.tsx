@@ -216,7 +216,7 @@ export function DockerSources({ hostId, docker, fallbackFocus }: {
                 ))}
               </RadioGroup>
             </fieldset>
-            {problem !== "" && <p role="alert" className="text-sm text-destructive">{problem}</p>}
+            {problem !== "" && <p role="alert" className="text-sm text-destructive-text">{problem}</p>}
             <div>
               <Button type="submit">Add exemption</Button>
             </div>

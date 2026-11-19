@@ -57,9 +57,8 @@ function renderShell(
   return calls
 }
 
-// The user menu's trigger shows the user's initials, so "admin" is "A".
 async function openUserMenu(user: ReturnType<typeof userEvent.setup>) {
-  const trigger = screen.getAllByRole("button", { name: "A" })[0]
+  const trigger = screen.getAllByRole("button", { name: "Account menu" })[0]
   if (trigger === undefined) throw new Error("no user menu")
   await user.click(trigger)
 }

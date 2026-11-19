@@ -118,7 +118,7 @@ function ConnectForm({ onPlan }: { onPlan: (pending: Pending) => void }) {
               describedBy="tailnet-tags-help"
               onChange={(v) => set("tags", v)}
             />
-            <p id="tailnet-tags-help" className={malformed ? "text-sm text-destructive" : "text-sm text-muted-foreground"}>
+            <p id="tailnet-tags-help" className={malformed ? "text-sm text-destructive-text" : "text-sm text-muted-foreground"}>
               {malformed
                 ? "Each tag must look like tag:name."
                 : "The tags this client may give to devices and auth keys, separated by commas or spaces."}

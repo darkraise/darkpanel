@@ -47,13 +47,13 @@ function ListenerNotice() {
   if (listeners.isPending) return null
   if (listeners.isError) {
     return (
-      <p role="status" className="px-3 py-2 text-xs text-destructive">
+      <p role="status" className="px-3 py-2 text-xs text-destructive-text">
         {`Listener state unavailable: ${errorMessage(listeners.error)}`}
       </p>
     )
   }
   return (
-    <p role="status" className={listeners.data.tailscaleBound ? "px-3 py-2 text-xs text-muted-foreground" : "px-3 py-2 text-xs text-warning"}>
+    <p role="status" className={listeners.data.tailscaleBound ? "px-3 py-2 text-xs text-muted-foreground" : "px-3 py-2 text-xs text-warning-text"}>
       {listeners.data.message}
     </p>
   )
@@ -86,7 +86,7 @@ export function Shell() {
       navFooter={
         <>
           {hosts.isError && (
-            <p role="status" className="px-3 py-2 text-xs text-destructive">
+            <p role="status" className="px-3 py-2 text-xs text-destructive-text">
               {`Host list unavailable: ${errorMessage(hosts.error)}`}
             </p>
           )}

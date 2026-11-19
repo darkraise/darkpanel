@@ -141,7 +141,7 @@ function Steps({ changeId }: { changeId: string }) {
                 <Badge variant={stateVariant(s.state)} size="sm">
                   {s.state}
                 </Badge>
-                {s.error !== null && <p className="text-xs text-destructive">{s.error.message}</p>}
+                {s.error !== null && <p className="text-xs text-destructive-text">{s.error.message}</p>}
               </TableCell>
               <TableCell>{s.childChangeId === "" ? "—" : <ChangeLink id={s.childChangeId} />}</TableCell>
             </TableRow>

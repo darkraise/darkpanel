@@ -165,7 +165,7 @@ function Steps({ changeId }: { changeId: string }) {
         <li key={s.id} className="flex flex-wrap items-center gap-2">
           <span className="font-mono">{`${s.id} (${s.action})`}</span>
           <Badge variant="outline" size="sm">{s.state}</Badge>
-          {s.error !== null && <span className="text-destructive">{s.error.message}</span>}
+          {s.error !== null && <span className="text-destructive-text">{s.error.message}</span>}
         </li>
       ))}
     </ol>
@@ -372,7 +372,7 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
         <div className="flex min-w-0 flex-col gap-4">
           <pre aria-label="Planned changes" tabIndex={0} className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">
             {plan.diff.map((d, i) => (
-              <div key={i} className={d.op === "+" ? "text-success" : d.op === "-" ? "text-destructive" : undefined}>
+              <div key={i} className={d.op === "+" ? "text-success-text" : d.op === "-" ? "text-destructive-text" : undefined}>
                 {`${d.op} ${d.text}`}
               </div>
             ))}
@@ -399,7 +399,7 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
                 aria-invalid={timeoutSeconds === null}
                 onChange={(e) => setTimeoutText(e.target.value)}
               />
-              <span id="change-confirm-timeout-help" className={timeoutSeconds === null ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+              <span id="change-confirm-timeout-help" className={timeoutSeconds === null ? "text-xs text-destructive-text" : "text-xs text-muted-foreground"}>
                 {timeoutSeconds === null
                   ? `Enter a whole number of seconds from ${CONFIRM_TIMEOUT_MIN} to ${CONFIRM_TIMEOUT_MAX}.`
                   : "Unless you confirm the change within this time, it is reverted on the host."}

@@ -127,7 +127,7 @@ export function PrefsForm({ hostId, status, prefs }: { hostId: string; status: T
               onChange={(e) => edit("routes", e.target.value)}
             />
             {defaultRoute && (
-              <p id="tailscale-pref-routes-error" className="text-sm text-destructive">
+              <p id="tailscale-pref-routes-error" className="text-sm text-destructive-text">
                 Use the exit node option to advertise a default route.
               </p>
             )}

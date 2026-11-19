@@ -89,7 +89,7 @@ export function RegionDialog({ server, probe, onClose }: { server: DerpServerVie
               aria-invalid={!idOk}
               aria-describedby="derp-region-id-help"
             />
-            <span id="derp-region-id-help" className={idOk ? "text-xs text-muted-foreground" : "text-xs text-destructive"}>
+            <span id="derp-region-id-help" className={idOk ? "text-xs text-muted-foreground" : "text-xs text-destructive-text"}>
               Use a number from 900 to 999.
             </span>
           </div>
@@ -103,7 +103,7 @@ export function RegionDialog({ server, probe, onClose }: { server: DerpServerVie
               aria-describedby="derp-region-code-help"
               autoComplete="off"
             />
-            <span id="derp-region-code-help" className={codeInvalid ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+            <span id="derp-region-code-help" className={codeInvalid ? "text-xs text-destructive-text" : "text-xs text-muted-foreground"}>
               {CODE_RULE}
             </span>
           </div>
@@ -117,7 +117,7 @@ export function RegionDialog({ server, probe, onClose }: { server: DerpServerVie
               aria-describedby="derp-region-name-help"
               autoComplete="off"
             />
-            <span id="derp-region-name-help" className={nameInvalid ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+            <span id="derp-region-name-help" className={nameInvalid ? "text-xs text-destructive-text" : "text-xs text-muted-foreground"}>
               Use 1 to 64 characters.
             </span>
           </div>

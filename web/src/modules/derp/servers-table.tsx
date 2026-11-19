@@ -78,7 +78,7 @@ export function ServersTable({ servers, onAction }: { servers: DerpServers; onAc
                       ))}
                     </ul>
                   )}
-                  {s.error !== "" && <p className="text-sm text-destructive">{`Last check failed: ${s.error}`}</p>}
+                  {s.error !== "" && <p className="text-sm text-destructive-text">{`Last check failed: ${s.error}`}</p>}
                 </div>
               </TableCell>
               <TableCell>

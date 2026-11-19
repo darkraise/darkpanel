@@ -16,7 +16,7 @@ export function SecretClipboard({ value, children }: { value: string; children: 
     >
       {children}
       {failed && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-destructive-text">
           Copy failed. Select the text and copy it yourself.
         </p>
       )}
