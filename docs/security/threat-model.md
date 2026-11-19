@@ -4,7 +4,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 ## Scope
 
-- Covered: the controller, the agents it manages, the modules shipped in v1 (firewall, Docker, Tailscale, tailnet, DERP, Nginx Proxy Manager, Cloudflare and panel exposure), the CLI, the web UI, backup and restore, and the update path.
+- Covered: the controller, the agents it manages, the modules shipped in v1 (firewall, Docker, Tailscale, tailnet, DERP, Nginx Proxy Manager, Cloudflare, panel exposure and system), the CLI, the web UI, backup and restore, and the update path.
 - Not covered: a compromised root account on a host (the agent runs as root, so a root attacker already holds the host), physical access, and the security of Tailscale, Cloudflare, Let's Encrypt and Docker themselves.
 - Not covered: a malicious administrator. An admin can do everything an admin may do; the model limits what a lower scope, a stolen credential or a mistake can do.
 
@@ -21,6 +21,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The reachability of every host, that is, what the firewall allows. A wrong change cuts the operator off or opens a port to the internet.
 - The trusted release keys in the binary and the signed release and derper artifacts. Tampering would run attacker code as root on every host that updates.
 - The DERP node key. Theft lets an attacker impersonate the relay.
+- The packages of every managed host and Docker's data on it. A wrong package change removes what keeps the host reachable or bootable; a purge deletes every container, image and volume.
 
 ## Actors
 
@@ -337,6 +338,36 @@ This page is the written threat model of Darkpanel. It states what the product p
 - A failed probe reports only a fixed error value, so finding the cause of a failure needs the agent's debug log.
 - Documentation ranges stay allowed as probe targets and there is no allowlist. Only a caller with the `operate` scope can choose the target.
 - Derper itself answers unauthenticated STUN and HTTPS probes from the internet.
+
+### Package management
+
+The `system` module runs apt and dpkg as root on agent hosts, schedules reboots and installs, updates and uninstalls Docker Engine from Docker's repository.
+
+#### Threats
+
+- Name injection: a package name read by apt as an option, a version or release, an install or remove suffix (`foo-`, `foo+`) or a regular expression.
+- Removal of a protected package by a change whose dependencies pull it out: the SSH server, the network stack, the bootloader, the running kernel, the firewall or Docker itself.
+- A change applied against a host that moved since its plan, removing packages the plan did not show.
+- A hostile or failed package source, including Docker's repository, or a second Docker source that overrides it.
+- Docker data loss: a purge that follows a symlink, crosses onto another mount, deletes a custom `data-root`, or runs while Darkpanel-managed containers still exist.
+- A Docker uninstall that leaves the firewall's Docker integration on, or that a pending firewall revert turns back on, for a host without Docker.
+- A reboot while another change is applying or awaiting confirmation, which cuts the change off or reverts it.
+
+#### Mitigations
+
+- Names reach apt only as vector elements after `--`, only after a pattern that refuses a leading `-` and any `:`, `=` or `/`, and only when exact: an entry of `apt-cache pkgnames` to install, an installed package to remove, purge or upgrade. The exec rules accept only the vectors the module builds, with a fixed environment that suppresses prompts and needrestart's service restarts (`internal/platform/exec_rules_system.go`, `internal/modules/system/names.go`).
+- Every package change simulates first and refuses a simulation that removes a protected package, naming it and why; only the Docker uninstall and the undo of the Docker Engine install may remove the five Docker packages. The task simulates again and refuses with `system.plan_stale` when the set differs from the confirmed plan (`internal/modules/system/protected.go`, `internal/modules/system/planset.go`).
+- Every change is a planned, audited action; irreversible ones need the typed host name, a purging uninstall `purge docker on <host>` (`internal/modules/system`).
+- Docker's keyring is embedded and pinned by fingerprint, another `download.docker.com` entry refuses the install, Docker's list is refreshed alone and any fetch or signature failure refuses it, and the uninstall removes only the files the ownership store records as Darkpanel's (`internal/modules/system/docker_repo.go`, `internal/modules/system/act_docker_uninstall.go`).
+- The purge deletes only `/var/lib/docker` and `/var/lib/containerd`, through directory descriptors, never following a symlink or crossing a mount, and the plan runs the same checks; a custom `data-root` is named and left alone; the purge is refused when the daemon cannot list containers and volumes (`internal/platform/purge.go`).
+- The Docker uninstall refuses while the firewall's Docker integration is on, while a firewall change is applying or awaiting confirmation, and while a container carries Darkpanel's module label (`internal/modules/system/act_docker_uninstall.go`).
+- A reboot goes through logind's `ScheduleShutdown` 15 seconds ahead, honours inhibitor locks and is refused while another change on the host is applying or awaiting confirmation (`internal/platform/reboot.go`, `internal/modules/system/act_reboot.go`).
+
+#### Residual risk
+
+- Installing or upgrading a package runs its maintainer scripts as root; this is the operator's confirmed choice and equivalent in power to the Docker and Compose actions.
+- A package source the host already trusts is trusted as apt trusts it.
+- An uninstall without purge proceeds when the Docker daemon does not answer, and its plan says the labelled-container check could not run.
 
 ## Known residual risks
 

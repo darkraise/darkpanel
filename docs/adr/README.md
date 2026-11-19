@@ -24,6 +24,8 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
 - [ADR 0013: Go toolchain patch version](0013-go-toolchain-patch-version.md)
 - [ADR 0014: v1 core extensions](0014-v1-core-extensions.md)
 - [ADR 0015: Automatic release](0015-automatic-release.md)
+- [ADR 0016: System module](0016-system-module.md); narrows ADR 0011's
+  reserved names and ADR 0012's reservation of `system`
 - [ADR 0017: Design language](0017-design-language.md)
 
 ## Format
