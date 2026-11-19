@@ -62,3 +62,28 @@ test("selects the field that shows the text and gives focus back", async () => {
   field.remove()
   button.remove()
 })
+
+test("selects the field in the open dialog, not an earlier one on the page", async () => {
+  removeClipboard()
+  const behind = document.createElement("input")
+  behind.value = "dpt_shown"
+  const dialog = document.createElement("div")
+  dialog.setAttribute("role", "dialog")
+  const field = document.createElement("input")
+  field.value = "dpt_shown"
+  field.readOnly = true
+  const button = document.createElement("button")
+  dialog.append(field, button)
+  document.body.append(behind, dialog)
+  button.focus()
+  let from: Element | null = null
+  document.execCommand = vi.fn(() => {
+    from = document.activeElement
+    return true
+  })
+  installClipboardFallback()
+  await navigator.clipboard.writeText("dpt_shown")
+  expect(from).toBe(field)
+  behind.remove()
+  dialog.remove()
+})

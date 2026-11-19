@@ -9,7 +9,10 @@ export function installClipboardFallback(): void {
     value: {
       async writeText(text: string): Promise<void> {
         const before = document.activeElement
-        const shown = Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")).find(
+        // A field behind an open dialog may hold the same text; the Copy
+        // button that called this sits in the dialog to copy from.
+        const scope: ParentNode = before?.closest('[role="dialog"], [role="alertdialog"]') ?? document
+        const shown = Array.from(scope.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")).find(
           (el) => el.value === text,
         )
         let area: HTMLTextAreaElement | undefined
