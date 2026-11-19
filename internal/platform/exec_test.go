@@ -20,6 +20,7 @@ import (
 const (
 	helperArg     = "darkpanel-exec-helper"
 	helperForkArg = "darkpanel-exec-helper-fork"
+	helperTailArg = "darkpanel-exec-helper-tail"
 )
 
 // TestExecHelperProcess is not a test: Run starts the test binary with
@@ -35,6 +36,11 @@ func TestExecHelperProcess(*testing.T) {
 		}
 		_, _ = os.Stdout.WriteString(strconv.Itoa(child.Process.Pid) + "\n")
 		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	}
+	if os.Args[len(os.Args)-1] == helperTailArg {
+		_, _ = os.Stdout.Write(bytes.Repeat([]byte("x"), 6<<20))
+		_, _ = os.Stdout.WriteString("END")
 		os.Exit(0)
 	}
 	if os.Args[len(os.Args)-1] != helperArg {
@@ -264,5 +270,42 @@ func TestRunCapsOutput(t *testing.T) {
 		if !errors.As(err, &coded) || coded.Code != errcode.ExecOutputTooLarge {
 			t.Errorf("%s: err = %v, want %s", name, err, errcode.ExecOutputTooLarge)
 		}
+	}
+}
+
+func TestRunKeepTail(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := core.Cmd{Path: self, Args: []string{"-test.run=^TestExecHelperProcess$", "--", helperTailArg}}
+	always := func([]string) error { return nil }
+
+	tail := NewRunner([]ExecRule{{Path: self, Match: always, KeepTail: true}})
+	res, err := tail.Run(context.Background(), cmd)
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("KeepTail: %v, exit %d; want the run to finish", err, res.ExitCode)
+	}
+	if !bytes.HasSuffix(res.Stdout, []byte("END")) || len(res.Stdout) != maxOutput {
+		t.Errorf("KeepTail: %d bytes ending %q; want the last %d bytes", len(res.Stdout), res.Stdout[max(0, len(res.Stdout)-8):], maxOutput)
+	}
+
+	capped := NewRunner([]ExecRule{{Path: self, Match: always}})
+	_, err = capped.Run(context.Background(), cmd)
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.ExecOutputTooLarge {
+		t.Errorf("without KeepTail: err = %v, want %s", err, errcode.ExecOutputTooLarge)
+	}
+}
+
+func TestCappedBufferKeepTail(t *testing.T) {
+	c := &cappedBuffer{limit: 8, keepTail: true}
+	for _, w := range []string{"abc", "defgh", "ij", "klmnopqrstuvwxyz", "1"} {
+		if n, err := c.Write([]byte(w)); n != len(w) || err != nil {
+			t.Fatalf("Write(%q) = %d, %v", w, n, err)
+		}
+	}
+	if got := c.buf.String(); got != "tuvwxyz1" || c.over {
+		t.Errorf("kept %q (over %v), want the last 8 bytes", got, c.over)
 	}
 }

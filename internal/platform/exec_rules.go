@@ -96,6 +96,7 @@ func ProductionRules() []ExecRule {
 			"COMPOSE_EXPERIMENTAL_GIT_REMOTE=false", "COMPOSE_EXPERIMENTAL_OCI_REMOTE=false",
 		}},
 	}
+	rules = append(rules, systemRules()...)
 	for _, family := range []string{"iptables", "ip6tables"} {
 		for _, variant := range []string{"", "-legacy", "-nft"} {
 			rules = append(rules,

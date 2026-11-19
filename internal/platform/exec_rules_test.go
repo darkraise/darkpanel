@@ -147,17 +147,32 @@ func TestAptVectors(t *testing.T) {
 }
 
 func TestProductionRulesEnv(t *testing.T) {
-	want := map[string][]string{
-		"/usr/bin/apt-get": {"DEBIAN_FRONTEND=noninteractive"},
-		"/usr/bin/dpkg":    {"DEBIAN_FRONTEND=noninteractive"},
-		"/usr/bin/docker": {
+	noninteractive := []string{"DEBIAN_FRONTEND=noninteractive"}
+	system := []string{"DEBIAN_FRONTEND=noninteractive", "NEEDRESTART_SUSPEND=1", "NEEDRESTART_MODE=l"}
+	tests := []struct {
+		path string
+		args []string
+		want []string
+	}{
+		{"/usr/bin/apt-get", AptInstallTailscale(), noninteractive},
+		{"/usr/bin/apt-get", SystemAptRun("install", []string{"jq"}), system},
+		{"/usr/bin/apt-get", SystemAptRead("dist-upgrade", nil, nil), system},
+		{"/usr/bin/dpkg", []string{"--configure", "-a"}, noninteractive},
+		{"/usr/bin/dpkg", SystemDpkgConfigure(), system},
+		{"/usr/bin/dpkg", SystemDpkgAudit(), system},
+		{"/usr/bin/dpkg-query", SystemDpkgQuery(), nil},
+		{"/usr/sbin/needrestart", SystemNeedrestart(), nil},
+		{"/usr/sbin/ufw", []string{"reload"}, nil},
+		{"/usr/bin/docker", []string{"compose", "--project-directory", "/srv/a", "-p", "a", "-f", "/srv/a/c.yml", "down"}, []string{
 			"DOCKER_CONFIG=/var/lib/darkpanel/agent/docker-config", "HOME=/var/lib/darkpanel/agent/docker-config",
 			"COMPOSE_EXPERIMENTAL_GIT_REMOTE=false", "COMPOSE_EXPERIMENTAL_OCI_REMOTE=false",
-		},
+		}},
 	}
-	for _, rule := range ProductionRules() {
-		if !slices.Equal(rule.Env, want[rule.Path]) {
-			t.Errorf("%s Env = %q, want %q", rule.Path, rule.Env, want[rule.Path])
+	r := NewRunner(ProductionRules())
+	for _, tt := range tests {
+		rule, err := r.matchRule(tt.path, tt.args)
+		if err != nil || !slices.Equal(rule.Env, tt.want) {
+			t.Errorf("%s %q Env = %q, %v; want %q", tt.path, tt.args, rule.Env, err, tt.want)
 		}
 	}
 }
