@@ -1,0 +1,65 @@
+{
+  "name": "system.docker.install",
+  "version": 1,
+  "class": "composite",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/dockerInstallIn",
+    "$defs": {
+      "dockerInstallIn": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "firewallIntegration": {
+            "type": "boolean",
+            "description": "Turn on the firewall's Docker integration after the install."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId",
+          "firewallIntegration"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Applied",
+    "$defs": {
+      "Applied": {
+        "properties": {
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upgraded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "installed",
+          "upgraded",
+          "removed"
+        ]
+      }
+    }
+  }
+}

@@ -867,6 +867,16 @@ func (f *cfxFixture) applyC(ref core.ActionRef, input string, opts core.ApplyOpt
 	return v
 }
 
+// revertC reverts change id as cfxRoot, as applyC applies.
+func (f *cfxFixture) revertC(id string) core.ChangeView {
+	f.t.Helper()
+	v, err := f.ctrl.Revert(context.Background(), cfxRoot, id)
+	if err != nil {
+		f.t.Fatalf("Revert %s: %v", id, err)
+	}
+	return v
+}
+
 // await advances the controller clock by ChildPoll until change id is in
 // one of states, and fails the test after ten seconds.
 func (f *cfxFixture) await(id string, states ...string) core.ChangeView {

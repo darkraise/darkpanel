@@ -131,6 +131,36 @@ Returned in the `output` field of the change that apply returns.
 | `removed` | array of string | yes |  |
 | `upgraded` | array of string | yes |  |
 
+## system.docker.install v1
+
+Install Docker Engine on a host and, with the flag, turn on the firewall's Docker integration; a failed or reverted step undoes the install.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/system.docker.install/v1/plan` |
+| apply | `POST /api/v1/actions/system.docker.install/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `firewallIntegration` | boolean | yes | Turn on the firewall's Docker integration after the install. |
+| `hostId` | string | yes |  |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `installed` | array of string | yes |  |
+| `removed` | array of string | yes |  |
+| `upgraded` | array of string | yes |  |
+
 ## system.host.reboot v1
 
 Reboot the host 15 seconds after apply.

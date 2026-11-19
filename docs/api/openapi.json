@@ -12926,6 +12926,58 @@
         ],
         "type": "object"
       },
+      "system.docker.install.v1.input": {
+        "$ref": "#/components/schemas/system.docker.install.v1.input.dockerInstallIn"
+      },
+      "system.docker.install.v1.input.dockerInstallIn": {
+        "additionalProperties": false,
+        "properties": {
+          "firewallIntegration": {
+            "description": "Turn on the firewall's Docker integration after the install.",
+            "type": "boolean"
+          },
+          "hostId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "hostId",
+          "firewallIntegration"
+        ],
+        "type": "object"
+      },
+      "system.docker.install.v1.output": {
+        "$ref": "#/components/schemas/system.docker.install.v1.output.Applied"
+      },
+      "system.docker.install.v1.output.Applied": {
+        "properties": {
+          "installed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upgraded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "installed",
+          "upgraded",
+          "removed"
+        ],
+        "type": "object"
+      },
       "system.docker.output": {
         "$ref": "#/components/schemas/system.docker.output.DockerState"
       },
@@ -19359,6 +19411,93 @@
           }
         ],
         "summary": "Open the runtime listener that serves the exposed panel."
+      }
+    },
+    "/api/v1/actions/system.docker.install/v1/apply": {
+      "post": {
+        "operationId": "system.docker.install.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install Docker Engine on a host and, with the flag, turn on the firewall's Docker integration; a failed or reverted step undoes the install."
+      }
+    },
+    "/api/v1/actions/system.docker.install/v1/plan": {
+      "post": {
+        "operationId": "system.docker.install.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.docker.install.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install Docker Engine on a host and, with the flag, turn on the firewall's Docker integration; a failed or reverted step undoes the install."
       }
     },
     "/api/v1/actions/tailnet.account.connect/v1/apply": {

@@ -120,7 +120,7 @@ func (m module) Manifest() core.Manifest {
 		DefaultEnabled: true,
 		Preflight:      []core.PreflightCheck{{ID: "os", Run: m.checkOS}},
 		Resources:      []core.ResourceDef{m.updatesResource(), m.packagesResource(), m.rebootResource(), m.autoupdatesResource(), m.dockerResource()},
-		Actions:        []core.ActionDef{m.searchAction(), m.refreshAction(), m.upgradeAction(), m.installAction(), m.removeAction(), m.repairAction(), m.autoupdatesSetAction(), m.rebootAction(), m.engineInstallAction(), m.engineUpdateAction()},
+		Actions:        []core.ActionDef{m.searchAction(), m.refreshAction(), m.upgradeAction(), m.installAction(), m.removeAction(), m.repairAction(), m.autoupdatesSetAction(), m.rebootAction(), m.engineInstallAction(), m.engineUpdateAction(), m.dockerCheckAction(), m.dockerInstallAction()},
 		OwnedPaths: []core.OwnedPath{
 			{Path: failedSourcesDir, Kind: core.OwnedManagedDir, Pattern: `^failed-sources$`},
 			{Path: autoUpgradesFile, Kind: core.OwnedRestore},
