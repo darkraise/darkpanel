@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/agent/runtime"
@@ -54,7 +55,8 @@ type services struct {
 	engine      *lifecycle.Engine
 	ingester    *audit.Ingester
 	dispatcher  *dispatch.Dispatcher
-	topo        topology // the dispatcher's guard topology
+	rechecker   dispatcherRechecker // the event watchers' rechecker, live once the dispatcher exists
+	topo        topology            // the dispatcher's guard topology
 	events      *events.Bus
 	// runtimeListeners are the controller's runtime listeners (spec 1.10),
 	// created before the engine so controller-side actions and contributions
@@ -137,11 +139,12 @@ func (s *Server) startServices(ctx context.Context) error {
 	if err := s.startPurges(ctx); err != nil {
 		return err
 	}
-	stopWatchers := events.StartWatchers(s.controllerDB, s.clock, s.events, s.networkVisible, s.log)
+	rechecks := []events.Option{events.WithRegistry(reg), events.WithRechecker(&s.rechecker)}
+	stopWatchers := events.StartWatchers(s.controllerDB, s.clock, s.events, s.networkVisible, s.log, rechecks...)
 	s.onShutdown("event watchers", func(context.Context) error { stopWatchers(); return nil })
 
 	s.ingester = audit.NewIngester(audit.IngesterConfig{
-		Store: s.auditLog, Agents: s.hosts, Clock: s.clock, Log: s.log, OnEntries: s.ingestedEntries(eng.Wake, s.agentChange),
+		Store: s.auditLog, Agents: s.hosts, Clock: s.clock, Log: s.log, OnEntries: s.ingestedEntries(eng.Wake, s.agentChange, rechecks...),
 	})
 	if err := s.ingester.IngestAll(ctx); err != nil {
 		s.log.Warn("server: audit ingestion", "error", err)
@@ -162,6 +165,7 @@ func (s *Server) startServices(ctx context.Context) error {
 		return fmt.Errorf("server: %w", err)
 	}
 	eng.SetChildren(s.dispatcher.Children())
+	s.rechecker.d.Store(s.dispatcher)
 	if !s.opts.EmbeddedAgent {
 		if err := s.startAgentListener(ctx); err != nil {
 			return err
@@ -242,6 +246,21 @@ func (s *Server) quarantined(ctx context.Context) (bool, error) {
 	return quarantine.Active(ctx, s.controllerDB)
 }
 
+// dispatcherRechecker is the event watchers' Rechecker. The watchers start
+// before the dispatcher is built, so it holds the dispatcher once there is
+// one; a change that ends before then is not rechecked.
+type dispatcherRechecker struct {
+	d atomic.Pointer[dispatch.Dispatcher]
+}
+
+func (r *dispatcherRechecker) RecheckModules(ctx context.Context, hostID string, modules []string) error {
+	d := r.d.Load()
+	if d == nil {
+		return nil
+	}
+	return d.RecheckModules(ctx, hostID, modules)
+}
+
 // refuseQuarantined is the dispatcher's gate: core.quarantined while the
 // controller is in restore quarantine.
 func (s *Server) refuseQuarantined(ctx context.Context) error {
@@ -252,8 +271,8 @@ func (s *Server) refuseQuarantined(ctx context.Context) error {
 // composites following the stored entries' changes and publishes those
 // changes, read through change, as change events.
 func (s *Server) ingestedEntries(wake func(changeIDs ...string),
-	change func(ctx context.Context, hostID, changeID string) (core.ChangeView, error)) func(hostID string, entries []core.JournalEntry) {
-	wakeFn, publish := wakeComposites(wake), events.AgentChanges(s.events, change, s.networkVisible, s.log)
+	change func(ctx context.Context, hostID, changeID string) (core.ChangeView, error), opts ...events.Option) func(hostID string, entries []core.JournalEntry) {
+	wakeFn, publish := wakeComposites(wake), events.AgentChanges(s.events, change, s.networkVisible, s.log, opts...)
 	return func(hostID string, entries []core.JournalEntry) {
 		wakeFn(hostID, entries)
 		publish(hostID, entries)

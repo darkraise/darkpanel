@@ -32,6 +32,62 @@ type moduleKey struct{ host, module string }
 
 type moduleSeen struct{ enabled, available bool }
 
+// Rechecker rechecks the availability of modules on a host; it is
+// satisfied by *dispatch.Dispatcher.
+type Rechecker interface {
+	RecheckModules(ctx context.Context, hostID string, modules []string) error
+}
+
+// Option configures StartWatchers and AgentChanges.
+type Option func(*options)
+
+type options struct {
+	reg       *core.Registry
+	rechecker Rechecker
+}
+
+// WithRegistry gives the watchers the actions' specs, whose Rechecks name
+// the modules to recheck when a change ends.
+func WithRegistry(reg *core.Registry) Option { return func(o *options) { o.reg = reg } }
+
+// WithRechecker rechecks a change's Rechecks modules when it ends.
+func WithRechecker(r Rechecker) Option { return func(o *options) { o.rechecker = r } }
+
+func newOptions(opts []Option) options {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
+// recheckStates are the change states after which the modules an action
+// rechecks may have changed availability; awaiting_confirmation is not one,
+// since the change can still revert.
+var recheckStates = map[string]bool{
+	core.StateCompleted: true, core.StateConfirmed: true, core.StateReverted: true,
+	core.StateFailed: true, core.StateNeedsRepair: true,
+}
+
+// rechecks returns the modules to recheck after a change of action/version
+// reached state, or nil.
+func (o options) rechecks(action string, version int, state string) []string {
+	if o.reg == nil || o.rechecker == nil || !recheckStates[state] {
+		return nil
+	}
+	def, ok := o.reg.Action(core.ActionRef{Name: action, Version: version})
+	if !ok {
+		return nil
+	}
+	return def.Spec.Rechecks
+}
+
+// recheck is one change that ended with modules to recheck on host.
+type recheck struct {
+	changeID, host string
+	modules        []string
+}
+
 // watcher polls the controller database for change and module events.
 type watcher struct {
 	db      *store.DB
@@ -39,6 +95,7 @@ type watcher struct {
 	bus     *Bus
 	visible func(core.ChangeView) bool
 	log     *slog.Logger
+	opts    options
 
 	mu      sync.Mutex
 	stopped bool
@@ -54,11 +111,11 @@ type watcher struct {
 // core_module_state row whose enabled or available differs from the last
 // poll (the first poll only records), every PollInterval on clock; stop
 // waits for a running poll.
-func StartWatchers(db *store.DB, clock core.Clock, bus *Bus, visible func(core.ChangeView) bool, log *slog.Logger) (stop func()) {
+func StartWatchers(db *store.DB, clock core.Clock, bus *Bus, visible func(core.ChangeView) bool, log *slog.Logger, opts ...Option) (stop func()) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	w := &watcher{db: db, clock: clock, bus: bus, visible: visible, log: log, last: clock.Now(),
+	w := &watcher{db: db, clock: clock, bus: bus, visible: visible, log: log, opts: newOptions(opts), last: clock.Now(),
 		changes: map[string]changeSeen{}, modules: map[moduleKey]moduleSeen{}}
 	w.mu.Lock()
 	w.poll(false)
@@ -110,6 +167,7 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 	}
 	defer func() { _ = rows.Close() }()
 	var out []ChangeEvent
+	var rechecks []recheck
 	lost := false
 	read := map[string]changeSeen{}
 	for rows.Next() {
@@ -124,6 +182,11 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 			continue
 		}
 		read[ev.ChangeID] = seen
+		// The recheck does not depend on the visible filter: a hidden change
+		// still changes what the host has installed.
+		if mods := w.opts.rechecks(ev.Action, version, ev.State); publish && len(mods) > 0 {
+			rechecks = append(rechecks, recheck{changeID: ev.ChangeID, host: ev.HostID, modules: mods})
+		}
 		if !w.visible(core.ChangeView{ID: ev.ChangeID, HostID: ev.HostID, Action: ev.Action, Version: version, State: ev.State}) {
 			continue
 		}
@@ -145,6 +208,9 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 			delete(w.changes, id)
 		}
 	}
+	if len(rechecks) > 0 {
+		w.startRechecks(rechecks)
+	}
 	if publish {
 		for _, ev := range out {
 			w.bus.Publish(TypeChange, ev)
@@ -154,6 +220,49 @@ func (w *watcher) pollChanges(from time.Time, publish bool) error {
 		}
 	}
 	return nil
+}
+
+// startRechecks rechecks each ended change's modules in the background, so
+// an agent slow to answer never holds up the events. A controller-side
+// composite has no host of its own; its steps' hosts are rechecked.
+func (w *watcher) startRechecks(rechecks []recheck) {
+	go func() {
+		for _, r := range rechecks {
+			hosts := []string{r.host}
+			if r.host == "" {
+				var err error
+				if hosts, err = w.stepHosts(r.changeID); err != nil {
+					w.log.Warn("events: read a composite's step hosts; its modules are not rechecked", "change", r.changeID, "err", err)
+					continue
+				}
+			}
+			for _, host := range hosts {
+				ctx, cancel := context.WithTimeout(context.Background(), agentReadTimeout)
+				if err := w.opts.rechecker.RecheckModules(ctx, host, r.modules); err != nil {
+					w.log.Warn("events: recheck modules", "change", r.changeID, "host", host, "err", err)
+				}
+				cancel()
+			}
+		}
+	}()
+}
+
+func (w *watcher) stepHosts(changeID string) ([]string, error) {
+	rows, err := w.db.Read().QueryContext(context.Background(),
+		"SELECT DISTINCT host_id FROM core_composite_steps WHERE change_id = ? AND host_id != '' ORDER BY host_id", changeID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var hosts []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		hosts = append(hosts, h)
+	}
+	return hosts, rows.Err()
 }
 
 func (w *watcher) pollModules(publish bool) error {
@@ -195,10 +304,11 @@ func (w *watcher) pollModules(publish bool) error {
 // runs under the ingestion lock and a read is a request to the agent, so the
 // reads run on their own goroutine.
 func AgentChanges(bus *Bus, change func(ctx context.Context, hostID, changeID string) (core.ChangeView, error),
-	visible func(core.ChangeView) bool, log *slog.Logger) func(hostID string, entries []core.JournalEntry) {
+	visible func(core.ChangeView) bool, log *slog.Logger, opts ...Option) func(hostID string, entries []core.JournalEntry) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
+	o := newOptions(opts)
 	return func(hostID string, entries []core.JournalEntry) {
 		var ids []string
 		seen := map[string]bool{}
@@ -221,6 +331,11 @@ func AgentChanges(bus *Bus, change func(ctx context.Context, hostID, changeID st
 					log.Warn("events: read an ingested change; its event is skipped", "host", hostID, "change", id, "err", err)
 					lost = true
 					continue
+				}
+				if mods := o.rechecks(v.Action, v.Version, v.State); len(mods) > 0 {
+					if err := o.rechecker.RecheckModules(ctx, hostID, mods); err != nil {
+						log.Warn("events: recheck modules", "host", hostID, "change", id, "err", err)
+					}
 				}
 				if !visible(v) {
 					continue
