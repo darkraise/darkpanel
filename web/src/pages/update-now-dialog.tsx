@@ -75,7 +75,7 @@ type Phase = "closed" | "form" | "plan"
 
 const EMPTY: Release = { version: "", channel: "stable" }
 
-export function UpdateNowButton({ host }: { host: Host }) {
+export function UpdateNowButton({ host, label = "Update now" }: { host: Host; label?: string }) {
   const client = useQueryClient()
   const [phase, setPhase] = useState<Phase>("closed")
   const [release, setRelease] = useState<Release>(EMPTY)
@@ -105,7 +105,7 @@ export function UpdateNowButton({ host }: { host: Host }) {
   return (
     <>
       <Button ref={opener} onClick={() => setPhase("form")}>
-        Update now
+        {label}
       </Button>
       {started && (
         <Link to="/rollouts" className="self-center text-sm font-medium underline underline-offset-4">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { Link } from "react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
@@ -49,6 +49,7 @@ export interface ChangeDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
+  note?: ReactNode // shown above the plan, such as what the change takes away
   target: ChangeTarget
   input?: Record<string, unknown> // planned on open; the dialog adds "overrides"
   plan?: Plan // a plan already made (a repair's answer): shown and applied as is
@@ -436,7 +437,7 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
 // ChangeDialog plans one action, shows what it will do and the guards it
 // ran, and applies it. A failed guard the action marks overridable can be
 // overridden, which plans again with the guard listed in "overrides".
-export function ChangeDialog({ open, onOpenChange, title, ...body }: ChangeDialogProps) {
+export function ChangeDialog({ open, onOpenChange, title, note, ...body }: ChangeDialogProps) {
   const [busy, setBusy] = useState(false)
 
   // While an apply is in flight the dialog stays open, so its outcome
@@ -454,6 +455,11 @@ export function ChangeDialog({ open, onOpenChange, title, ...body }: ChangeDialo
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{`${body.target.name}/v${body.target.version} ${where}`}</DialogDescription>
         </DialogHeader>
+        {note !== undefined && (
+          <Alert variant="warning">
+            <AlertDescription>{note}</AlertDescription>
+          </Alert>
+        )}
         {open && <ChangeDialogBody {...body} busy={busy} setBusy={setBusy} close={() => changeOpen(false)} />}
       </DialogContent>
     </Dialog>

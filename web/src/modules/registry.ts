@@ -1,5 +1,5 @@
 import { lazy } from "react"
-import { BrickWall, Cloud, Container, ExternalLink, Globe, Info, Network, RadioTower, Waypoints } from "lucide-react"
+import { BrickWall, Cloud, Container, ExternalLink, Globe, Info, Network, RadioTower, Server, Waypoints } from "lucide-react"
 import type { Host } from "@/api/types"
 import type { GlobalPage, HostCreateExtension, ModuleEntry } from "./types"
 
@@ -7,6 +7,7 @@ import type { GlobalPage, HostCreateExtension, ModuleEntry } from "./types"
 // folder modules/<id>/; no other module's files change.
 export const moduleRegistry: ModuleEntry[] = [
   { id: "hostinfo", label: "Host information", icon: Info, routes: lazy(() => import("./hostinfo/routes")) },
+  { id: "system", label: "System", icon: Server, routes: lazy(() => import("./system/routes")) },
   {
     id: "firewall",
     label: "Firewall",
