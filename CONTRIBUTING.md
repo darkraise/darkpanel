@@ -129,6 +129,13 @@ A commit that adds a migration, an action or an action version is a `feat`.
 Architecture decisions are recorded as ADRs in [docs/adr/](docs/adr/). An
 accepted ADR changes only through a new ADR that supersedes it.
 
+## Web UI
+
+New and changed screens follow the
+[design language](docs/dev/design-language.md): the fixed Glass look, the
+shared visual components, the 90-character copy budget and the guards that
+enforce it.
+
 ## Language
 
 Code, comments, documentation, commit messages and error messages are written
