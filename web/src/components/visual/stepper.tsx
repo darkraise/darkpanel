@@ -4,8 +4,9 @@ import { statusText, type Status } from "./status"
 
 const stateLabel: Record<Status, string> = { ok: "Done", info: "In progress", error: "Failed", off: "Not started", warn: "Warning" }
 
-export function Stepper({ steps, current, failed }: { steps: { id: string; label: string }[]; current: string; failed?: boolean }) {
-  const at = steps.findIndex((s) => s.id === current)
+// done marks every step finished, past the last one.
+export function Stepper({ steps, current, failed, done }: { steps: { id: string; label: string }[]; current: string; failed?: boolean; done?: boolean }) {
+  const at = done ? steps.length : steps.findIndex((s) => s.id === current)
   return (
     <ol aria-label="Progress" className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
       {steps.map((s, i) => {

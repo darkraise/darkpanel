@@ -470,3 +470,41 @@ test("the header reserves room for the close button at its end", async () => {
   const header = within(dialog).getByRole("heading", { name: "Allow HTTPS" }).parentElement
   expect(header?.classList.contains("pe-7")).toBe(true)
 })
+
+test("A13: plan, confirm and apply as a stepper; diff lines carry add, change or remove icons", async () => {
+  cdxRender({ [PLAN]: { body: cdxPlan({ diff: [{ op: "+", text: "jq 1.7" }, { op: "~", text: "curl 1 → 2" }, { op: "-", text: "mawk" }, { op: " ", text: "context" }] }) } })
+  const steps = within(await screen.findByRole("list", { name: "Progress" }))
+  expect(steps.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Plan", "Confirm", "Apply"])
+  const diff = within(await screen.findByLabelText("Planned changes"))
+  diff.getByRole("img", { name: "Add" })
+  diff.getByRole("img", { name: "Change" })
+  diff.getByRole("img", { name: "Remove" })
+  expect(diff.getAllByRole("img")).toHaveLength(3)
+  expect(screen.getByLabelText("Planned changes").textContent).toBe("+ jq 1.7~ curl 1 → 2- mawk  context")
+})
+
+const stepStates = () => within(screen.getByRole("list", { name: "Progress" })).getAllByRole("listitem").map((li) => li.getAttribute("data-status"))
+
+test("UI-8: the stepper moves from plan to confirm to done, and marks a refused plan or a failed change as failed", async () => {
+  const problem = { type: "about:blank", title: "Locked", status: 423, detail: "lock firewall is held by change c0", code: "lock.held" }
+  const refused = cdxRender({ [PLAN]: { status: 423, body: problem } })
+  await screen.findByText("lock firewall is held by change c0")
+  expect(stepStates()).toEqual(["error", "off", "off"])
+  refused.unmount()
+
+  cdxRender({ [PLAN]: { body: cdxPlan() }, [APPLY]: { body: cdxChange() } })
+  await screen.findByLabelText("Planned changes")
+  expect(stepStates()).toEqual(["ok", "info", "off"])
+  await userEvent.setup().click(screen.getByRole("button", { name: "Apply" }))
+  await screen.findByText("completed")
+  expect(stepStates()).toEqual(["ok", "ok", "ok"])
+})
+
+test("UI-8: a change that fails after its apply marks the Apply step failed", async () => {
+  const failed = cdxChange({ state: "failed", error: { code: "apply.failed", message: "the host refused" } })
+  cdxRender({ [PLAN]: { body: cdxPlan() }, [APPLY]: { body: failed }, "GET /api/v1/changes/c1": { body: failed } })
+  await screen.findByLabelText("Planned changes")
+  await userEvent.setup().click(screen.getByRole("button", { name: "Apply" }))
+  await screen.findByText("the host refused")
+  expect(stepStates()).toEqual(["ok", "ok", "error"])
+})

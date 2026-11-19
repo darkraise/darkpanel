@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { Link } from "react-router"
+import { Minus, Pencil, Plus, type LucideIcon } from "lucide-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Badge, type BadgeVariant } from "darkraise-ui/components/badge"
@@ -22,7 +23,8 @@ import {
   revertChange,
   stepsQueryKey,
 } from "@/api/client"
-import type { Change, Guard, Plan, Step } from "@/api/types"
+import type { Change, DiffLine, Guard, Plan, Step } from "@/api/types"
+import { Stepper } from "@/components/visual/stepper"
 
 export interface ChangeTarget {
   name: string
@@ -177,10 +179,16 @@ function Steps({ changeId }: { changeId: string }) {
 // Applied shows a change after its apply and follows it: the event stream
 // invalidates its query, so a confirmation, a revert by the timer or a
 // composite's progress shows without a reload.
-function Applied({ applied, onError, onProgress }: {
+type Outcome = "running" | "done" | "failed"
+
+const DONE_STATES = new Set(["completed", "confirmed", "kept", "repaired"])
+const FAILED_STATES = new Set(["failed", "reverted", "needs_repair", "interrupted", "abandoned"])
+
+function Applied({ applied, onError, onProgress, onOutcome }: {
   applied: Change
   onError: (message: string | null) => void
   onProgress: (text: string) => void
+  onOutcome: (outcome: Outcome) => void
 }) {
   const client = useQueryClient()
   // The apply answer may carry a secret output, such as an enrollment token,
@@ -228,6 +236,15 @@ function Applied({ applied, onError, onProgress }: {
   }
 
   const failure = changeError(current)
+  const outcome: Outcome =
+    FAILED_STATES.has(current.state) || (failure !== null && current.state !== "applying" && current.state !== "awaiting_confirmation")
+      ? "failed"
+      : DONE_STATES.has(current.state)
+        ? "done"
+        : "running"
+  useEffect(() => {
+    onOutcome(outcome)
+  }, [outcome, onOutcome])
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
@@ -260,6 +277,36 @@ function Applied({ applied, onError, onProgress }: {
   )
 }
 
+const DIFF_ICON: Partial<Record<string, { icon: LucideIcon; label: string; className: string }>> = {
+  "+": { icon: Plus, label: "Add", className: "text-success-text" },
+  "-": { icon: Minus, label: "Remove", className: "text-destructive-text" },
+  "~": { icon: Pencil, label: "Change", className: "text-warning-text" },
+}
+
+// DiffLineView names its op by an icon; the op character stays in the text
+// for copying but is hidden from screen readers, which hear the icon's name.
+function DiffLineView({ line }: { line: DiffLine }) {
+  const kind = DIFF_ICON[line.op]
+  const Icon = kind?.icon
+  return (
+    <div className={`flex items-start gap-1.5 ${kind?.className ?? ""}`}>
+      <span role={kind ? "img" : undefined} aria-label={kind?.label} className="inline-flex size-3.5 shrink-0 translate-y-px">
+        {Icon && <Icon aria-hidden className="size-3.5" />}
+      </span>
+      <span className="whitespace-pre-wrap break-all">
+        <span aria-hidden>{line.op}</span>
+        {` ${line.text}`}
+      </span>
+    </div>
+  )
+}
+
+const STEPS = [
+  { id: "plan", label: "Plan" },
+  { id: "confirm", label: "Confirm" },
+  { id: "apply", label: "Apply" },
+]
+
 // planQueryKey identifies one plan request. connectEvents never refetches a
 // query under "plan", because refetching it would post a new plan.
 function planQueryKey(target: ChangeTarget, input: string, overrides: string[]) {
@@ -281,6 +328,7 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
   const [error, setError] = useState<string | null>(null)
   const [applied, setApplied] = useState<Change | null>(null)
   const [progress, setProgress] = useState("")
+  const [outcome, setOutcome] = useState<Outcome>("running")
   // The overrides are part of the plan's query key, so a toggle starts a
   // query with no data. Showing the last answered plan meanwhile keeps the
   // override checkbox mounted and focused, and lets it be unticked when the
@@ -352,8 +400,22 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
   }
 
   const shownError = error ?? planError
+  let step = "plan"
+  let stepFailed = false
+  if (applied !== null) {
+    step = "apply"
+    stepFailed = outcome === "failed"
+  } else if (busy || (plan !== null && error !== null)) {
+    step = "apply"
+    stepFailed = error !== null
+  } else if (plan !== null) {
+    step = "confirm"
+  } else {
+    stepFailed = planError !== null
+  }
   return (
     <>
+      <Stepper steps={STEPS} current={step} failed={stepFailed} done={applied !== null && outcome === "done"} />
       {unavailable !== null && (
         <Alert variant="warning" role="status">
           <AlertTitle as="h3">Unavailable</AlertTitle>
@@ -367,16 +429,14 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
         </Alert>
       )}
       {applied !== null ? (
-        <Applied applied={applied} onError={setError} onProgress={setProgress} />
+        <Applied applied={applied} onError={setError} onProgress={setProgress} onOutcome={setOutcome} />
       ) : plan === null ? (
         shownError === null && <Spinner aria-label="Planning the change" />
       ) : (
         <div className="flex min-w-0 flex-col gap-4">
           <pre aria-label="Planned changes" tabIndex={0} className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs">
             {plan.diff.map((d, i) => (
-              <div key={i} className={d.op === "+" ? "text-success-text" : d.op === "-" ? "text-destructive-text" : undefined}>
-                {`${d.op} ${d.text}`}
-              </div>
+              <DiffLineView key={i} line={d} />
             ))}
           </pre>
           <GuardList guards={plan.guards} overrides={overrides} canOverride={given === undefined} onToggle={toggleOverride} />
