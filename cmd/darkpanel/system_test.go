@@ -101,6 +101,8 @@ func TestSystemInstallConfig(t *testing.T) {
 		{"agent on a terminal", []string{"--role", "agent"}, "typed\n", true, install.RoleAgent, "", false},
 		{"controller with a web listener", []string{"--role", "controller", "--web-listen", "http://203.0.113.7:8080"},
 			"", false, install.RoleController, "", true},
+		{"controller with a loopback web listener the interface list lacks", []string{"--role", "controller", "--web-listen", "http://127.0.0.2:9090"},
+			"", false, install.RoleController, "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -120,7 +122,7 @@ func TestSystemInstallConfig(t *testing.T) {
 			if got := cfg.Controller != nil; got != tt.controller {
 				t.Errorf("Controller set %v, want %v", got, tt.controller)
 			}
-			if tt.name == "controller with a web listener" && !slices.Equal(cfg.WebListen, []string{"http://203.0.113.7:8080"}) {
+			if strings.Contains(tt.name, "web listener") && !slices.Equal(cfg.WebListen, tt.args[len(tt.args)-1:]) {
 				t.Errorf("WebListen = %q, want the flag's value", cfg.WebListen)
 			}
 			if a, ok := cfg.Agent.(installAgent); !ok || a.socket != s.layout.Paths.AgentSocket || a.tlsDir != s.layout.Paths.AgentTLSDir {
