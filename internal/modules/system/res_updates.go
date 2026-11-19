@@ -36,7 +36,7 @@ type Updates struct {
 	Upgradable      []Upgradable `json:"upgradable"`
 	Removals        []string     `json:"removals"`
 	HeldBack        []Held       `json:"heldBack"`
-	RefreshedAt     *string      `json:"refreshedAt"`
+	RefreshedAt     *string      `json:"refreshedAt" jsonschema:"nullable"`
 	FailedSources   []string     `json:"failedSources"`
 	DpkgInterrupted bool         `json:"dpkgInterrupted"`
 }

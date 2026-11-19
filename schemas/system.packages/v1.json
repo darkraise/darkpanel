@@ -1,0 +1,46 @@
+{
+  "name": "system.packages",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "InstalledPackage": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "protected": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "arch",
+          "description",
+          "protected"
+        ]
+      }
+    },
+    "items": {
+      "$ref": "#/$defs/InstalledPackage"
+    },
+    "type": "array"
+  }
+}

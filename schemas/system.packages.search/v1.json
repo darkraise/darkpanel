@@ -1,0 +1,53 @@
+{
+  "name": "system.packages.search",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SearchInput",
+    "$defs": {
+      "SearchInput": {
+        "properties": {
+          "term": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "term"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$defs": {
+      "SearchHit": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "candidate": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "candidate",
+          "installed"
+        ]
+      }
+    },
+    "items": {
+      "$ref": "#/$defs/SearchHit"
+    },
+    "type": "array"
+  }
+}

@@ -18,7 +18,7 @@ type InstalledPackage struct {
 	Version     string  `json:"version"`
 	Arch        string  `json:"arch"`
 	Description string  `json:"description"`
-	Protected   *string `json:"protected"` // why no package change may remove it; null when it may
+	Protected   *string `json:"protected" jsonschema:"nullable"` // why no package change may remove it; null when it may
 }
 
 // SearchInput is the input of system.packages.search.

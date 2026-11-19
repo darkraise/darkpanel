@@ -12796,6 +12796,185 @@
         ],
         "type": "object"
       },
+      "system.packages.output": {
+        "items": {
+          "$ref": "#/components/schemas/system.packages.output.InstalledPackage"
+        },
+        "type": "array"
+      },
+      "system.packages.output.InstalledPackage": {
+        "properties": {
+          "arch": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protected": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "arch",
+          "description",
+          "protected"
+        ],
+        "type": "object"
+      },
+      "system.packages.search.v1.input": {
+        "$ref": "#/components/schemas/system.packages.search.v1.input.SearchInput"
+      },
+      "system.packages.search.v1.input.SearchInput": {
+        "additionalProperties": false,
+        "properties": {
+          "term": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "term"
+        ],
+        "type": "object"
+      },
+      "system.packages.search.v1.output": {
+        "items": {
+          "$ref": "#/components/schemas/system.packages.search.v1.output.SearchHit"
+        },
+        "type": "array"
+      },
+      "system.packages.search.v1.output.SearchHit": {
+        "properties": {
+          "candidate": {
+            "type": "string"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "candidate",
+          "installed"
+        ],
+        "type": "object"
+      },
+      "system.updates.output": {
+        "$ref": "#/components/schemas/system.updates.output.Updates"
+      },
+      "system.updates.output.Held": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "system.updates.output.Updates": {
+        "properties": {
+          "dpkgInterrupted": {
+            "type": "boolean"
+          },
+          "failedSources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "heldBack": {
+            "items": {
+              "$ref": "#/components/schemas/system.updates.output.Held"
+            },
+            "type": "array"
+          },
+          "refreshedAt": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "removals": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "upgradable": {
+            "items": {
+              "$ref": "#/components/schemas/system.updates.output.Upgradable"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "upgradable",
+          "removals",
+          "heldBack",
+          "refreshedAt",
+          "failedSources",
+          "dpkgInterrupted"
+        ],
+        "type": "object"
+      },
+      "system.updates.output.Upgradable": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "security": {
+            "type": "boolean"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "from",
+          "to",
+          "origin",
+          "security"
+        ],
+        "type": "object"
+      },
       "tailnet.account.connect.v1.input": {
         "$ref": "#/components/schemas/tailnet.account.connect.v1.input.ConnectInput"
       },
@@ -27473,6 +27652,72 @@
         "summary": "Remove the panel network between the proxy and the panel's listener."
       }
     },
+    "/api/v1/hosts/{host}/actions/system.packages.search/v1/read": {
+      "post": {
+        "operationId": "system.packages.search.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/system.packages.search.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/system.packages.search.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Search the configured package sources for names containing a term."
+      }
+    },
     "/api/v1/hosts/{host}/actions/tailscale.node.login/v1/apply": {
       "post": {
         "operationId": "tailscale.node.login.v1.apply",
@@ -28795,6 +29040,84 @@
           }
         ],
         "summary": "Read hostinfo.summary"
+      }
+    },
+    "/api/v1/hosts/{host}/resources/system/packages": {
+      "get": {
+        "operationId": "system.packages.get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/system.packages.output"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read system.packages"
+      }
+    },
+    "/api/v1/hosts/{host}/resources/system/updates": {
+      "get": {
+        "operationId": "system.updates.get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/system.updates.output"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read system.updates"
       }
     },
     "/api/v1/hosts/{host}/resources/tailscale/latency": {

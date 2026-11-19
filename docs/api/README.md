@@ -114,3 +114,4 @@ This reference is generated from the action schemas. `openapi.json` is the OpenA
 - [npm](npm.md)
 - [cloudflare](cloudflare.md)
 - [panel](panel.md)
+- [system](system.md)

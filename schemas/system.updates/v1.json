@@ -1,0 +1,105 @@
+{
+  "name": "system.updates",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Updates",
+    "$defs": {
+      "Held": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "reason"
+        ]
+      },
+      "Updates": {
+        "properties": {
+          "upgradable": {
+            "items": {
+              "$ref": "#/$defs/Upgradable"
+            },
+            "type": "array"
+          },
+          "removals": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "heldBack": {
+            "items": {
+              "$ref": "#/$defs/Held"
+            },
+            "type": "array"
+          },
+          "refreshedAt": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failedSources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "dpkgInterrupted": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "upgradable",
+          "removals",
+          "heldBack",
+          "refreshedAt",
+          "failedSources",
+          "dpkgInterrupted"
+        ]
+      },
+      "Upgradable": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "security": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "from",
+          "to",
+          "origin",
+          "security"
+        ]
+      }
+    }
+  }
+}
