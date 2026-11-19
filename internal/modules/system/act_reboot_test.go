@@ -104,3 +104,28 @@ func TestRebootTaskRefusesAPendingChangeOtherThanItsOwn(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestAutoupdatesObserveOfAnUnchangedPriorFileEqualsBefore(t *testing.T) {
+	h := newSysHost(t)
+	h.installed("unattended-upgrades")
+	h.file("/etc/apt/apt.conf.d/52darkpanel-auto-upgrades", []byte("APT::Periodic::Unattended-Upgrade \"1\";\n"))
+	if _, err := h.applyTask("system.autoupdates.set", `{"enabled":false}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.undo("system.autoupdates.set"); err != nil {
+		t.Fatal(err)
+	}
+	e := h.journal.of(h.last["system.autoupdates.set"])[0]
+	a, err := h.action("system.autoupdates.set")
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs, err := a.Handler.Observe(t.Context(), h.env(), e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Settlement skips an effect only when the observation equals Before, Version included.
+	if string(obs.Current.State) != string(e.Before.State) || string(obs.Current.Version) != string(e.Before.Version) || len(e.Before.Version) == 0 {
+		t.Fatalf("observed %s %s, before %s %s", obs.Current.State, obs.Current.Version, e.Before.State, e.Before.Version)
+	}
+}

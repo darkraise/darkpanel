@@ -57,8 +57,8 @@ func requireUnattended(ctx context.Context, env core.Env) error {
 	return nil
 }
 
-// fileState is the content of autoUpgradesFile as a JSON string, or null when
-// the file does not exist.
+// fileState is the content of autoUpgradesFile as a JSON string, with its
+// mode and owner as Version, or null when the file does not exist.
 func (m module) fileState() (core.StateDoc, error) {
 	b, err := m.d.readFile(autoUpgradesFile)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -67,7 +67,18 @@ func (m module) fileState() (core.StateDoc, error) {
 	if err != nil {
 		return core.StateDoc{}, fmt.Errorf("system: read %s: %w", autoUpgradesFile, err)
 	}
-	return contentState(b), nil
+	// Version carries the mode and owner the undo restores. Observe reports
+	// it too, so a settlement that finds the file unchanged sees exactly
+	// Before; undo compares State only.
+	owner, err := m.fileOwner(autoUpgradesFile)
+	if err != nil {
+		return core.StateDoc{}, err
+	}
+	doc := contentState(b)
+	if doc.Version, err = json.Marshal(owner); err != nil {
+		return core.StateDoc{}, err
+	}
+	return doc, nil
 }
 
 func contentState(b []byte) core.StateDoc {
@@ -103,17 +114,6 @@ func (h autoupdatesHandler) Task(ctx context.Context, env core.Env, in Autoupdat
 	before, err := h.m.fileState()
 	if err != nil {
 		return AutoUpdates{}, core.Definite(err)
-	}
-	// Version keeps the prior file's mode and owner for the undo; no undo
-	// compares Version.
-	if string(before.State) != "null" {
-		owner, err := h.m.fileOwner(autoUpgradesFile)
-		if err != nil {
-			return AutoUpdates{}, core.Definite(err)
-		}
-		if before.Version, err = json.Marshal(owner); err != nil {
-			return AutoUpdates{}, core.Definite(err)
-		}
 	}
 	data := autoUpgradesContent(in.Enabled)
 	after := contentState(data)
