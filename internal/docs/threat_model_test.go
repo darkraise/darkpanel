@@ -33,6 +33,7 @@ var w10tmOutline = []string{
 	"### Cloud credentials",
 	"### Exposure",
 	"### DERP host",
+	"### Package management",
 	"## Known residual risks",
 }
 
