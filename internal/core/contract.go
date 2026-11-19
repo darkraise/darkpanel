@@ -233,6 +233,9 @@ type ActionSpec struct {
 	MinScope  Scope // raises the scope the class and side require; "" keeps it
 	Internal  bool  // dispatched only by the controller itself; read actions only
 	Reveal    bool  // returns one stored secret once; read actions only, with MinScope admin
+	// Rechecks lists the modules whose availability a change of this action
+	// can change; the controller rechecks them when the change ends.
+	Rechecks []string
 }
 
 // Reader is the handler of a read action.
@@ -297,6 +300,10 @@ type Step struct {
 	Input   json.RawMessage `json:"input"`             // the child's input, with ${input...} and ${steps...} references
 	After   []string        `json:"after,omitempty"`   // steps this one follows
 	Retires string          `json:"retires,omitempty"` // exposure id this step retires once it has committed (1.5); forward composites only
+	// DeferPlan plans the step only at its cursor during apply, like a step
+	// with ${steps...} references: the composite's plan neither dry-runs it
+	// nor hashes it, for a step whose plan depends on what earlier steps do.
+	DeferPlan bool `json:"deferPlan,omitempty"`
 }
 
 // Composer is the handler of a composite action. The engine, not the

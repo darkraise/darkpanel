@@ -125,6 +125,11 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 		if a.Spec.Class == ClassRevertible {
 			errs = append(errs, r.checkRepairedBy(a)...)
 		}
+		for _, id := range a.Spec.Rechecks {
+			if !ids[id] {
+				fail("action %s: rechecks module %q, which is not registered", a.Ref(), id)
+			}
+		}
 	}
 	errs = append(errs, r.checkCLINames(ids)...)
 	errs = append(errs, checkOwnership(r.modules)...)

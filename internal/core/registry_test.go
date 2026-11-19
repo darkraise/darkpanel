@@ -198,6 +198,8 @@ func TestNewRegistryRules(t *testing.T) {
 	noVerify.Handler.Verify = nil
 	keyless := revertible("demo.rule.set", SideAgent)
 	keyless.Spec.LockKeys = nil
+	rechecksUnknown := mutating("demo.item.add", ClassIrreversible, SideAgent, "")
+	rechecksUnknown.Spec.Rechecks = []string{"nosuchmodule"}
 	tests := []struct {
 		name string
 		mods []Module
@@ -219,6 +221,7 @@ func TestNewRegistryRules(t *testing.T) {
 		{"compensation on irreversible", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{mutating("demo.item.add", ClassIrreversible, SideAgent, "demo.item.add")}}}, "only compensable"},
 		{"read with locks", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{locked}}}, "take no locks"},
 		{"missing handler", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{noVerify}}}, "Plan, Apply and Verify"},
+		{"rechecks an unknown module", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{rechecksUnknown}}}, `rechecks module "nosuchmodule"`},
 		{"unknown class", []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{mutating("demo.item.add", Class("magic"), SideAgent, "")}}}, "unknown class"},
 		{"resource noun with a dash", []Module{testModule{ID: "demo", Version: 1, Resources: []ResourceDef{resource("demo.sum-mary")}}}, "must match"},
 		{"bad resource name", []Module{testModule{ID: "demo", Version: 1, Resources: []ResourceDef{{Name: "other.summary", Read: func(context.Context, Env) (json.RawMessage, error) { return nil, nil }}}}}, "start with"},
@@ -274,6 +277,14 @@ func TestLifecycleRegistryAccepts(t *testing.T) {
 // TestRegistryAcceptsRevertibleRepairActions registers a revertible action
 // that repairs itself and one repaired by another revertible action, which
 // in turn repairs itself (owner ruling R1).
+func TestRegistryAcceptsRechecksOfARegisteredModule(t *testing.T) {
+	a := mutating("demo.item.add", ClassIrreversible, SideAgent, "")
+	a.Spec.Rechecks = []string{"docker"}
+	if _, err := NewRegistry(testModule{ID: "demo", Version: 1, Actions: []ActionDef{a}}, testModule{ID: "docker", Version: 1}); err != nil {
+		t.Fatalf("NewRegistry refused Rechecks of a registered module: %v", err)
+	}
+}
+
 func TestRegistryAcceptsRevertibleRepairActions(t *testing.T) {
 	self := revertible("demo.state.repair", SideAgent)
 	self.Spec.RepairedBy = self.Spec.Name

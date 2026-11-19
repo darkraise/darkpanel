@@ -106,6 +106,9 @@ func (e *Engine) compositePlan(ctx context.Context, p core.Principal, def core.A
 			}
 			out.Diff = append(out.Diff, core.DiffLine{Op: " ",
 				Text: fmt.Sprintf("planned after step %s: %s %s", after, name, s.Template)})
+		case s.Step.DeferPlan:
+			out.Diff = append(out.Diff, core.DiffLine{Op: " ",
+				Text: fmt.Sprintf("planned at its turn: %s %s", name, s.Template)})
 		default:
 			final, err := resolveStepRefs(s.Template, nil)
 			if err != nil {
