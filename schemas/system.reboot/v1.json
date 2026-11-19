@@ -1,0 +1,60 @@
+{
+  "name": "system.reboot",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RebootState",
+    "$defs": {
+      "KernelState": {
+        "properties": {
+          "running": {
+            "type": "string"
+          },
+          "newest": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "running",
+          "newest"
+        ]
+      },
+      "RebootState": {
+        "properties": {
+          "required": {
+            "type": "boolean"
+          },
+          "packages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kernel": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/KernelState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "services": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "required",
+          "packages",
+          "kernel",
+          "services"
+        ]
+      }
+    }
+  }
+}

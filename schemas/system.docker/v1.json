@@ -1,0 +1,100 @@
+{
+  "name": "system.docker",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/DockerState",
+    "$defs": {
+      "DockerState": {
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "updateAvailable": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "running": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "conflicts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "containers": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "images": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "volumes": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labelled": {
+            "items": {
+              "$ref": "#/$defs/Labelled"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state"
+        ]
+      },
+      "Labelled": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "module"
+        ]
+      }
+    }
+  }
+}

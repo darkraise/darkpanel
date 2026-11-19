@@ -49,6 +49,7 @@ type shAnswer struct {
 	out   string
 	exit  int
 	after []string // runChanges: the installed set once the vector ran; nil leaves it
+	err   error    // the runner's error, such as a missing program
 }
 
 // shPkg is one package of the dpkg-query default.
@@ -117,6 +118,8 @@ func newSysHost(t *testing.T) *sysHost {
 	h.run(shJoin("/usr/bin/dpkg", platform.SystemDpkgAudit()), "", 0)
 	h.run(shJoin("/usr/bin/apt-cache", platform.SystemAptCachePkgnames()), "", 0)
 	h.run(shJoin("/usr/bin/apt-config", platform.SystemAptConfigDump()), "", 0)
+	// needrestart is not installed: the runner cannot find the program.
+	h.answers[shJoin(needrestartBin, platform.SystemNeedrestart())] = shAnswer{err: fmt.Errorf("exec %s: %w", needrestartBin, fs.ErrNotExist)}
 	return h
 }
 
@@ -197,6 +200,9 @@ func (h *sysHost) Run(_ context.Context, cmd core.Cmd) (core.CmdResult, error) {
 	if !ok {
 		h.t.Errorf("sysHost: no answer registered for %q", key)
 		return core.CmdResult{}, fmt.Errorf("sysHost: no answer for %q", key)
+	}
+	if a.err != nil {
+		return core.CmdResult{}, a.err
 	}
 	if a.after != nil {
 		h.setInstalledLocked(a.after)

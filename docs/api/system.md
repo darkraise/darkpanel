@@ -2,6 +2,53 @@
 
 Back to the [API reference](README.md).
 
+## system.autoupdates
+
+Read system.autoupdates
+
+| Operation | Request |
+|---|---|
+| read | `GET /api/v1/hosts/{host}/resources/system/autoupdates` |
+
+Minimum scope: `read`.
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | yes |  |
+| `installed` | boolean | yes |  |
+
+## system.docker
+
+Read system.docker
+
+| Operation | Request |
+|---|---|
+| read | `GET /api/v1/hosts/{host}/resources/system/docker` |
+
+Minimum scope: `read`.
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `conflicts` | array of string | no |  |
+| `containers` | integer or null | no |  |
+| `images` | integer or null | no |  |
+| `labelled` | array of object | no |  |
+| `labelled[].module` | string | yes |  |
+| `labelled[].name` | string | yes |  |
+| `running` | boolean or null | no |  |
+| `state` | string | yes |  |
+| `updateAvailable` | boolean or null | no |  |
+| `version` | string | no |  |
+| `volumes` | integer or null | no |  |
+
 ## system.packages
 
 Read system.packages
@@ -55,6 +102,27 @@ A list of:
 | `candidate` | string | yes |  |
 | `installed` | boolean | yes |  |
 | `name` | string | yes |  |
+
+## system.reboot
+
+Read system.reboot
+
+| Operation | Request |
+|---|---|
+| read | `GET /api/v1/hosts/{host}/resources/system/reboot` |
+
+Minimum scope: `read`.
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `kernel` | object or null | yes |  |
+| `packages` | array of string | yes |  |
+| `required` | boolean | yes |  |
+| `services` | array of string | yes |  |
 
 ## system.updates
 

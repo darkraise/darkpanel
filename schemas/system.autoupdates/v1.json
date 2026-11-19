@@ -1,0 +1,24 @@
+{
+  "name": "system.autoupdates",
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AutoUpdates",
+    "$defs": {
+      "AutoUpdates": {
+        "properties": {
+          "installed": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "installed",
+          "enabled"
+        ]
+      }
+    }
+  }
+}

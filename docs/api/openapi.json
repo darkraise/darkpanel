@@ -12796,6 +12796,118 @@
         ],
         "type": "object"
       },
+      "system.autoupdates.output": {
+        "$ref": "#/components/schemas/system.autoupdates.output.AutoUpdates"
+      },
+      "system.autoupdates.output.AutoUpdates": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "installed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "installed",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "system.docker.output": {
+        "$ref": "#/components/schemas/system.docker.output.DockerState"
+      },
+      "system.docker.output.DockerState": {
+        "properties": {
+          "conflicts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "containers": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "images": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labelled": {
+            "items": {
+              "$ref": "#/components/schemas/system.docker.output.Labelled"
+            },
+            "type": "array"
+          },
+          "running": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "updateAvailable": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "volumes": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "system.docker.output.Labelled": {
+        "properties": {
+          "module": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "module"
+        ],
+        "type": "object"
+      },
       "system.packages.output": {
         "items": {
           "$ref": "#/components/schemas/system.packages.output.InstalledPackage"
@@ -12873,6 +12985,60 @@
           "name",
           "candidate",
           "installed"
+        ],
+        "type": "object"
+      },
+      "system.reboot.output": {
+        "$ref": "#/components/schemas/system.reboot.output.RebootState"
+      },
+      "system.reboot.output.KernelState": {
+        "properties": {
+          "newest": {
+            "type": "string"
+          },
+          "running": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "running",
+          "newest"
+        ],
+        "type": "object"
+      },
+      "system.reboot.output.RebootState": {
+        "properties": {
+          "kernel": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/system.reboot.output.KernelState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "packages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "services": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "required",
+          "packages",
+          "kernel",
+          "services"
         ],
         "type": "object"
       },
@@ -29042,6 +29208,84 @@
         "summary": "Read hostinfo.summary"
       }
     },
+    "/api/v1/hosts/{host}/resources/system/autoupdates": {
+      "get": {
+        "operationId": "system.autoupdates.get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/system.autoupdates.output"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read system.autoupdates"
+      }
+    },
+    "/api/v1/hosts/{host}/resources/system/docker": {
+      "get": {
+        "operationId": "system.docker.get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/system.docker.output"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read system.docker"
+      }
+    },
     "/api/v1/hosts/{host}/resources/system/packages": {
       "get": {
         "operationId": "system.packages.get",
@@ -29079,6 +29323,45 @@
           }
         ],
         "summary": "Read system.packages"
+      }
+    },
+    "/api/v1/hosts/{host}/resources/system/reboot": {
+      "get": {
+        "operationId": "system.reboot.get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/system.reboot.output"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read system.reboot"
       }
     },
     "/api/v1/hosts/{host}/resources/system/updates": {
