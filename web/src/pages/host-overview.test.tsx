@@ -1,5 +1,7 @@
 import { screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
+import type { ModuleState } from "@/api/types"
 import { formatTime } from "@/lib/format"
 import { makeHost, renderWithProviders, stubFetch } from "@/test/utils"
 import { HostOverview } from "./host-overview"
@@ -11,24 +13,28 @@ const tx = {
   startedAt: "2026-11-11T07:00:00Z", updatedAt: "2026-11-11T07:05:00Z",
 }
 
-test("UI-2: shows the Host, Updates and Enrollment and removal cards with the host's facts", async () => {
+test("UI-4: the header carries the host's state and the Agent tile its version, protocol, platform and update actions", async () => {
   stubFetch({ [STATUS]: { body: { output: { transactions: [] } } } })
   renderWithProviders(<HostOverview host={makeHost({ id: "h1", agentVersion: "1.2.0", protocolVersion: 3, os: "ubuntu-24.04", arch: "amd64" })} />)
-  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Host", "Updates", "Enrollment and removal"])
-  const facts = within(screen.getByRole("region", { name: "Host" }))
-  facts.getByText("Enrolled")
-  facts.getByText("1.2.0")
-  facts.getByText("3")
-  facts.getByText("ubuntu-24.04")
-  facts.getByText("amd64")
-  facts.getByText(`Online, last seen ${formatTime("2026-11-11T08:00:00Z")}`)
+  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Host", "Agent update history", "Enrollment and removal"])
+  expect(screen.getByRole("heading", { level: 2, name: "Host" }).parentElement?.textContent).toContain("Online")
+  const agent = within(screen.getByRole("region", { name: "Agent" }))
+  agent.getByText("1.2.0")
+  agent.getByText("protocol 3")
+  agent.getByText("ubuntu-24.04")
+  agent.getByText("amd64")
+  agent.getByRole("button", { name: "Update now" })
+  agent.getByRole("button", { name: "Change update policy" })
+  expect(screen.queryByText(/Last seen/)).toBeNull()
 })
 
-test("UI-2: a pending host shows — for every fact its agent has not reported", () => {
-  stubFetch({})
+test("UI-4: a pending host says its agent has not reported and reads nothing", () => {
+  const calls = stubFetch({})
   renderWithProviders(<HostOverview host={makeHost({ state: "pending", online: false, lastSeenAt: null, agentVersion: null, protocolVersion: null, os: null, arch: null })} />)
-  const facts = within(screen.getByRole("region", { name: "Host" }))
-  ;["Agent version", "Protocol version", "OS", "Architecture", "Supported"].forEach((label) => expect(facts.getByText(label).nextElementSibling?.textContent).toBe("—"))
+  expect(screen.getByRole("heading", { level: 2, name: "Host" }).parentElement?.textContent).toContain("Pending")
+  within(screen.getByRole("region", { name: "Agent" })).getByText("Not reported")
+  screen.getByText("Never seen")
+  expect(calls).toHaveLength(0)
 })
 
 test("UI-2: the controller's own host says why it has no removal controls", () => {
@@ -97,4 +103,73 @@ test("UX-2: a failed history read shows its message in the card", async () => {
   stubFetch({ [STATUS]: { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "no updater on this host", code: "unavailable" } } })
   renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)
   expect((await screen.findByRole("alert")).textContent).toContain("no updater on this host")
+})
+
+const GiB = 2 ** 30
+
+test("A12: gauges, load per core, uptime and the four service tiles", async () => {
+  stubFetch({
+    "GET /api/v1/hosts/h1/resources/hostinfo/summary": { body: { cpu: { model: "QEMU", logicalCount: 4 }, memory: { totalBytes: 8 * GiB, availableBytes: 2 * GiB }, swap: { totalBytes: 2 * GiB, freeBytes: 2 * GiB }, rootFs: { totalBytes: 100 * GiB, availableBytes: 59 * GiB }, load: { one: 1.2, five: 1, fifteen: 0.8 }, uptimeSeconds: 90000, bootTime: "2026-11-18T11:00:00Z" } },
+    "GET /api/v1/hosts/h1/resources/system/updates": { body: { upgradable: [{ name: "a", from: "1", to: "2", origin: "x-security", security: true }], removals: [], heldBack: [], refreshedAt: null, failedSources: [], dpkgInterrupted: false } },
+    "GET /api/v1/hosts/h1/resources/system/reboot": { body: { required: true, packages: [], kernel: null, services: [] } },
+  })
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1", modules: [{ id: "system", version: 1, enabled: true, available: true, reason: null, checkedAt: null }] })} />)
+  await screen.findByRole("img", { name: /^Memory: 6 of 8/ })
+  screen.getByRole("img", { name: /^Disk: 41 of 100/ })
+  screen.getByRole("img", { name: /^Swap: 0 of 2/ })
+  screen.getByRole("group", { name: "Load per core: 0.30" })
+  screen.getByRole("group", { name: "Uptime: 1 d 1 h" })
+  for (const name of ["Updates", "Docker", "Firewall", "Tailscale"]) screen.getByRole("region", { name })
+  within(screen.getByRole("region", { name: "Updates" })).getByText("Reboot needed")
+})
+
+test("UX-9: an offline host shows last seen instead of gauges", () => {
+  stubFetch({})
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1", online: false, lastSeenAt: "2026-11-19T10:00:00Z" })} />)
+  expect(screen.queryByRole("img", { name: /^Memory/ })).toBeNull()
+  screen.getByText(/Last seen/)
+})
+
+test("UX-9: a failed host information read puts the error icon and its reason in each figure tile", async () => {
+  stubFetch({ "GET /api/v1/hosts/h1/resources/hostinfo/summary": { status: 502, body: { type: "about:blank", title: "Bad gateway", status: 502, detail: "the agent did not answer", code: "agent.unreachable" } } })
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)
+  const memory = within(screen.getByRole("region", { name: "Memory" }))
+  await memory.findByRole("img", { name: "Unavailable" })
+  for (const name of ["Disk", "Swap"]) within(screen.getByRole("region", { name })).getByRole("img", { name: "Unavailable" })
+  screen.getByRole("group", { name: "Load per core: —" })
+  screen.getByRole("group", { name: "Uptime: —" })
+  await userEvent.click(memory.getByRole("button", { name: "Why Memory is unavailable" }))
+  expect((await screen.findAllByText("the agent did not answer")).length).toBeGreaterThan(0)
+})
+
+const on = (id: string, over: Partial<ModuleState> = {}): ModuleState => ({ id, version: 1, enabled: true, available: true, reason: null, checkedAt: null, ...over })
+
+test("UI-4: the Docker, Firewall and Tailscale tiles show containers by state, rule count and connection", async () => {
+  stubFetch({
+    "GET /api/v1/hosts/h1/resources/docker/containers": { body: { containers: ["running", "running", "exited", "created"].map((state, i) => ({ id: `c${i}`, name: `c${i}`, image: "x", imageId: "x", state, status: state, created: "2026-11-19T10:00:00Z", ports: [] })) } },
+    "GET /api/v1/hosts/h1/resources/firewall/status": { body: { supported: true, unsupported: [], active: true, inSync: true, outOfSync: [], configured: {}, loaded: {}, rules: [{}, {}] } },
+    "GET /api/v1/hosts/h1/resources/tailscale/status": { body: { version: "1.80.0", backendState: "Running", self: { id: "n1", hostName: "web-1", dnsName: "web-1.ts.net.", os: "linux", addresses: ["100.64.0.2", "fd7a::2"], tags: [] }, tailnet: "t", magicDNSSuffix: "ts.net", preferredDerp: "fra", runSSH: false, peers: [], health: [] } },
+  })
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1", modules: [on("docker"), on("firewall"), on("tailscale")] })} />)
+  const docker = within(screen.getByRole("region", { name: "Docker" }))
+  await docker.findByRole("img", { name: "Containers: Running 2, Exited 1, Other 1" })
+  const firewall = within(screen.getByRole("region", { name: "Firewall" }))
+  await firewall.findByText("Active")
+  firewall.getByText("2 rules")
+  const tailscale = within(screen.getByRole("region", { name: "Tailscale" }))
+  await tailscale.findByText("Connected")
+  tailscale.getByText("100.64.0.2")
+})
+
+test("UI-4: each service tile says when its module is off, unavailable or predates the agent", async () => {
+  const calls = stubFetch({})
+  renderWithProviders(<HostOverview host={makeHost({ id: "h1", online: true, modules: [on("docker", { enabled: false }), on("tailscale", { available: false, reason: "tailscaled is not installed" })] })} />)
+  within(screen.getByRole("region", { name: "Updates" })).getByText("Agent update needed")
+  within(screen.getByRole("region", { name: "Docker" })).getByText("Not enabled")
+  within(screen.getByRole("region", { name: "Firewall" })).getByText("Not enabled")
+  const tailscale = within(screen.getByRole("region", { name: "Tailscale" }))
+  tailscale.getByText("Unavailable")
+  await userEvent.click(tailscale.getByRole("button", { name: "Why Tailscale is unavailable" }))
+  expect((await screen.findAllByText("tailscaled is not installed")).length).toBeGreaterThan(0)
+  expect(calls.filter((c) => /\/(docker|firewall|tailscale|system)\//.test(c.path))).toHaveLength(0)
 })

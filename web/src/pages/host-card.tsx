@@ -9,13 +9,13 @@ import type { Host } from "@/api/types"
 import { InfoTip } from "@/components/visual/info-tip"
 import { ModuleIcon } from "@/components/visual/module-icon"
 import { ResourceCard } from "@/components/visual/resource-card"
-import type { Status } from "@/components/visual/status"
 import { StatusDot } from "@/components/visual/status-dot"
 import { StatusPill } from "@/components/visual/status-pill"
 import { UsageBar } from "@/components/visual/usage-bar"
 import { formatTime } from "@/lib/format"
 import type { Summary } from "@/modules/hostinfo/summary-page"
 import { moduleRegistry } from "@/modules/registry"
+import { hostStatus } from "./host-status"
 
 type Usage = Pick<Summary, "memory" | "rootFs">
 
@@ -109,12 +109,6 @@ function UsageFigures({ hostId }: { hostId: string }) {
       <UsageBar used={gib(rootFs.totalBytes - rootFs.availableBytes)} total={gib(rootFs.totalBytes)} label="Disk" unit="GiB" />
     </>
   )
-}
-
-function hostStatus(host: Host): { status: Status; label: string } {
-  if (host.state === "pending") return { status: "info", label: "Pending" }
-  if (host.state === "revoked") return { status: "error", label: "Revoked" }
-  return host.online ? { status: "ok", label: "Online" } : { status: "error", label: "Offline" }
 }
 
 function moduleLabel(id: string): string {
