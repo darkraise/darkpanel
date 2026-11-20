@@ -16,7 +16,7 @@ import type { Status } from "@/components/visual/status"
 import { StatusDonut } from "@/components/visual/status-donut"
 import { StatusDot } from "@/components/visual/status-dot"
 import { stateVariant } from "@/lib/badges"
-import { formatDuration, formatTime } from "@/lib/format"
+import { formatTime, formatUptime } from "@/lib/format"
 import { focusableScroller } from "@/lib/table"
 import { DOCKER_MODULE, dockerKey, type DockerContainer } from "@/modules/docker/types"
 import { FIREWALL_MODULE, statusQueryKey, type FirewallStatus } from "@/modules/firewall/types"
@@ -48,12 +48,6 @@ function OverviewCard({ title, children }: { title: string; children: ReactNode 
 }
 
 const gib = (bytes: number) => Math.round((bytes / 2 ** 30) * 10) / 10
-
-// A tile's figure fits one line: past a day, minutes are dropped.
-function uptime(seconds: number): string {
-  const days = Math.floor(seconds / 86400)
-  return days > 0 ? `${days} d ${Math.floor((seconds % 86400) / 3600)} h` : formatDuration(seconds)
-}
 
 // Unavailable is a read or module that gives a tile nothing to show: the
 // error icon, and the reason behind a tip.
@@ -103,7 +97,7 @@ function FigureRow({ host }: { host: Host }) {
       )}
       <div className="flex flex-col gap-4">
         <StatTile icon={Cpu} figure={load} caption="Load per core" />
-        <StatTile icon={Clock} figure={!host.online || s === undefined ? DASH : uptime(s.uptimeSeconds)} caption="Uptime" />
+        <StatTile icon={Clock} figure={!host.online || s === undefined ? DASH : formatUptime(s.uptimeSeconds)} caption="Uptime" />
       </div>
     </div>
   )

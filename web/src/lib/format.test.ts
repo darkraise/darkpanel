@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { formatBytes, formatDuration, formatTime } from "./format"
+import { formatBytes, formatDuration, formatTime, formatUptime } from "./format"
 
 describe("formatBytes", () => {
   test.each([
@@ -37,5 +37,16 @@ describe("formatTime", () => {
     const iso = "2026-10-19T08:30:00Z"
     const want = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso))
     expect(formatTime(iso)).toBe(want)
+  })
+})
+
+describe("formatUptime", () => {
+  test.each([
+    [59, "59 s"],
+    [3_660, "1 h 1 min"],
+    [3_553_200, "41 d 3 h"],
+    [90_061, "1 d 1 h"],
+  ])("%d seconds read %s", (seconds, want) => {
+    expect(formatUptime(seconds)).toBe(want)
   })
 })

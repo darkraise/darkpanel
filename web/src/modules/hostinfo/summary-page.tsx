@@ -8,7 +8,7 @@ import { Gauge } from "@/components/visual/gauge"
 import { StatTile } from "@/components/visual/stat-tile"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { errorMessage, readResource } from "@/api/client"
-import { formatDuration, formatTime } from "@/lib/format"
+import { formatTime, formatUptime } from "@/lib/format"
 
 import type { Summary } from "./types"
 
@@ -77,7 +77,7 @@ export function SummaryPage({ hostId }: { hostId: string }) {
           )}
         </GaugeCard>
         <div className="flex flex-col gap-4">
-          <StatTile icon={Clock} figure={formatDuration(s.uptimeSeconds)} caption="Uptime" />
+          <StatTile icon={Clock} figure={formatUptime(s.uptimeSeconds)} caption="Uptime" />
           <StatTile icon={Cpu} figure={[s.load.one, s.load.five, s.load.fifteen].map((n) => n.toFixed(2)).join(" / ")} caption="Load average">
             <span className="text-muted-foreground text-xs">{`${s.cpu.model} (${s.cpu.logicalCount} logical ${s.cpu.logicalCount === 1 ? "CPU" : "CPUs"})`}</span>
           </StatTile>

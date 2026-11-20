@@ -30,7 +30,7 @@ test("shows the summary as labelled, human-readable values", async () => {
   screen.getByLabelText("Operating system: Ubuntu 24.04.3 LTS")
   screen.getByLabelText("Kernel: 6.8.0-45-generic")
   screen.getByLabelText("Architecture: amd64")
-  screen.getByRole("group", { name: "Uptime: 3 d 4 h 5 min" })
+  screen.getByRole("group", { name: "Uptime: 3 d 4 h" })
   screen.getByLabelText(`Booted: ${formatTime("2026-10-16T03:55:00Z")}`)
   screen.getByText("AMD EPYC 7763 (4 logical CPUs)")
   screen.getByRole("group", { name: "Load average: 0.50 / 0.25 / 0.10" })

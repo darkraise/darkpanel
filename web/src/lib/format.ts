@@ -26,6 +26,13 @@ export function formatDuration(totalSeconds: number): string {
   return `${seconds} s`
 }
 
+// formatUptime fits a tile's figure on one line: past a day, minutes are dropped.
+export function formatUptime(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 86400) return formatDuration(totalSeconds)
+  const seconds = Math.floor(totalSeconds)
+  return `${Math.floor(seconds / 86400)} d ${Math.floor((seconds % 86400) / 3600)} h`
+}
+
 export function formatTime(iso: string | null): string {
   if (iso === null) return "—"
   const date = new Date(iso)
