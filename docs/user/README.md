@@ -21,6 +21,8 @@ Each module has a page of its own:
 
 - [hostinfo](modules/hostinfo.md) shows a host's operating system, CPU,
   memory, load and uptime.
+- [system](modules/system.md) updates, installs and removes packages, tracks
+  reboots, switches automatic updates and installs Docker Engine.
 - [firewall](modules/firewall.md) manages UFW rules, with a revert timer for
   every change and a Docker-aware container firewall.
 - [docker](modules/docker.md) lists and controls containers, images, networks,

@@ -25,6 +25,94 @@ one host. The agent-side commands also take `--local`, which sends them to the
 agent's socket on the host you are on, as root. `docker.container.reveal-env`
 is the exception: it runs only through the controller.
 
+## Install, update and uninstall Docker Engine
+
+The [system](system.md) module installs, updates and uninstalls Docker Engine
+from Docker's own repository. When Docker is not installed, the Docker page
+shows "Docker is not installed" with an Install button, and the System page's
+Docker Engine tile offers the same.
+
+### Install
+
+Install runs `system.docker.install`, which needs the `admin` scope. It writes
+Docker's repository files, `/usr/share/keyrings/docker-archive-keyring.gpg`
+(holding Docker's signing key, fingerprint
+`9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88`) and
+`/etc/apt/sources.list.d/docker.list`, then installs `docker-ce`,
+`docker-ce-cli`, `containerd.io`, `docker-buildx-plugin` and
+`docker-compose-plugin`. The Docker module becomes available without an agent
+restart.
+
+When the firewall module is enabled and UFW is active, the install also turns
+on the firewall's Docker integration, so a port a container publishes stays
+closed until a firewall rule opens it. That change has a 15-minute
+confirmation window: choose Keep to keep the install, or Revert to undo it. If
+you do neither, the whole install is undone, packages and repository files
+included; the packages' configuration files stay. Without the integration the
+install completes at once, and Uninstall removes Docker again.
+
+The install is refused with:
+
+- `system.docker_present` when Docker Engine or the distribution's Docker
+  packages are installed; see "Replace distro Docker" below;
+- `system.docker_repo_conflict` when one of the two repository files exists
+  with other content, or another source already offers Docker's packages;
+- `system.docker_keyring` when the keyring Darkpanel carries does not hold
+  Docker's key;
+- `system.firewall_flag_mismatch` when the firewall changed between the plan
+  and the apply; reload the page and install again.
+
+### Update
+
+When Docker's repository offers newer packages, the Docker Engine tile shows
+Update available. Update runs `system.docker.engine-update`, which upgrades
+the installed Docker packages and asks you to type the host's name.
+
+### Uninstall
+
+Uninstall runs `system.docker.uninstall` and asks you to type the host's
+name. It removes the Docker packages, keeping their configuration in
+`/etc/docker`, and the repository files Darkpanel wrote. Containers, images
+and volumes stay in `/var/lib/docker` and `/var/lib/containerd`, unless you
+choose to delete the data: then you type `purge docker on <host>`, and both
+directories are deleted. A `data-root` set in `/etc/docker/daemon.json` is
+left alone.
+
+The uninstall is refused with:
+
+- `system.firewall_integration_on` while the firewall's Docker integration is
+  on: turn it off first with `firewall.docker.disable`;
+- `system.firewall_pending` while a firewall change still awaits its
+  confirmation: keep or revert it first;
+- `system.docker_labelled` while a container belongs to another Darkpanel
+  module, such as Nginx Proxy Manager: remove it on that module's page first;
+- `system.purge_refused` for a purge when the Docker daemon does not answer,
+  so nothing can be counted, or when a data directory is a symbolic link or a
+  mount point.
+
+### Replace distro Docker
+
+Darkpanel installs only Docker's own packages. When the distribution's Docker
+packages are installed (`docker.io`, `docker-doc`, `docker-compose`,
+`docker-compose-v2`, `podman-docker`, `containerd` or `runc`), the Docker page
+names them and links to this section, and the install is refused while they
+are installed. Debian 12's `docker.io` 20.10 is also older
+than the Engine 25 the Docker module needs. Replace them by hand:
+
+1. Note the containers you run and how you start them, for example their
+   Compose files, and back up the volumes you need. Removing the
+   distribution's packages keeps `/var/lib/docker`, but Docker Engine may not
+   read data an old version wrote.
+2. Stop and remove the containers.
+3. Remove the distribution's packages. Name only the ones the Docker page
+   lists:
+
+   ```sh
+   sudo apt-get remove docker.io docker-compose containerd runc
+   ```
+
+4. Install Docker from the Docker page, then start your containers again.
+
 ## Actions and resources
 
 Changing actions are of two kinds. A compensable action can be undone with

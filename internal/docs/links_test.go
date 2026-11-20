@@ -28,6 +28,7 @@ var wcRequiredPages = []string{
 	"docs/user/modules/hostinfo.md",
 	"docs/user/modules/npm.md",
 	"docs/user/modules/panel.md",
+	"docs/user/modules/system.md",
 	"docs/user/modules/tailnet.md",
 	"docs/user/modules/tailscale.md",
 }

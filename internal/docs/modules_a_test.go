@@ -25,6 +25,7 @@ var dmPages = map[string]string{
 	"docker":    "docs/user/modules/docker.md",
 	"tailscale": "docs/user/modules/tailscale.md",
 	"tailnet":   "docs/user/modules/tailnet.md",
+	"system":    "docs/user/modules/system.md",
 }
 
 var (

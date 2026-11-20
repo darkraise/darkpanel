@@ -26,7 +26,7 @@ var duPages = []string{
 var duIndexed = []string{
 	"install.md", "first-admin.md", "lockout-recovery.md", "uninstall.md", "administration.md",
 	"modules/hostinfo.md", "modules/firewall.md", "modules/docker.md", "modules/tailscale.md", "modules/tailnet.md",
-	"modules/derp.md", "modules/npm.md", "modules/cloudflare.md", "modules/panel.md",
+	"modules/derp.md", "modules/npm.md", "modules/cloudflare.md", "modules/panel.md", "modules/system.md",
 	"../dev/module-guide.md", "../api/README.md", "../versioning.md",
 }
 

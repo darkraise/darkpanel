@@ -18,8 +18,10 @@ itself from signed releases with automatic rollback.
   audit log, and where it can, comes with an undo. A firewall change reverts by
   itself unless you confirm it, and is refused when it would cut your own
   access.
-- **Modules.** [hostinfo](docs/user/modules/hostinfo.md), a Docker-aware UFW
-  [firewall](docs/user/modules/firewall.md), [Docker](docs/user/modules/docker.md),
+- **Modules.** [hostinfo](docs/user/modules/hostinfo.md), operating system
+  packages, updates and reboots in [System](docs/user/modules/system.md), a
+  Docker-aware UFW [firewall](docs/user/modules/firewall.md),
+  [Docker](docs/user/modules/docker.md), which it can also install,
   [Tailscale](docs/user/modules/tailscale.md) and its
   [tailnet](docs/user/modules/tailnet.md), [DERP](docs/user/modules/derp.md)
   relays, and exposure through [Nginx Proxy Manager](docs/user/modules/npm.md)
@@ -31,6 +33,10 @@ itself from signed releases with automatic rollback.
 - **Private by default.** There is no default account. The web interface
   listens on loopback and on Tailscale addresses only, and sign-in needs a
   password and a TOTP code.
+- **One look.** The web interface follows one
+  [design language](docs/dev/design-language.md), Glass on
+  darkraise-ui: status shows as dots, pills, gauges and charts that always
+  carry their value as text, on screens from desktop down to phone width.
 - **Open interfaces.** Every action is a CLI command and a REST route, with an
   [API reference](docs/api/README.md) and an OpenAPI description.
 
