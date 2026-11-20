@@ -942,6 +942,10 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
         const system = systemApply(name, input, sys, steps)
         if (system !== null) {
           changes.set(system.id, system)
+          // The install's package step is a change on the host, naming the composite.
+          if (system.action === "system.docker.install") {
+            changes.set("child-1", change({ id: "child-1", hostId: HOST_ID, action: "system.docker.engine-install", class: "compensable", state: "completed", parentChangeId: system.id }))
+          }
           return { json: system }
         }
         const reply = applies(name, changes, input, fleet)

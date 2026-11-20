@@ -1,7 +1,7 @@
 import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
-import { makeChange, makeHost, makePlan, renderWithProviders, stubFetch } from "@/test/utils"
+import { type FetchCall, makeChange, makeHost, makePlan, renderWithProviders, stubFetch } from "@/test/utils"
 import { fwStatus } from "@/modules/firewall/fixtures"
 import { DockerInstallPanel } from "./docker-install-panel"
 import { PendingDockerInstall } from "./install-confirmation"
@@ -66,12 +66,17 @@ test.each([
 const installStep = (ordinal: number, action: string, state: string, host = "h1") => ({
   id: `s${ordinal}`, ordinal, host, action: `${action}/v1`, state, attempt: 1, childChangeId: `k${ordinal}`, earlierChildChangeIds: null, childDeadline: null, error: null,
 })
+// After a reload the panel reads the host's own changes: the install's
+// package step names the composite as its parent.
 const afterReload = (state: string, host: string) => {
   const install = makeChange("system.docker.install", null, { id: "x9", state, updatedAt: new Date().toISOString() })
+  const engineStep = makeChange("system.docker.engine-install", null, { id: "k1", hostId: host, parentChangeId: "x9" })
   return {
     [R]: { body: { state: "absent" } },
     "GET /api/v1/hosts/h1/resources/firewall/status": { body: fwStatus() },
-    "GET /api/v1/changes": { body: { changes: [makeChange("core.token.create", null, { id: "c0" }), install] } },
+    "GET /api/v1/changes": (call: FetchCall) => ({
+      body: { changes: new URL(call.path, "http://localhost").searchParams.get("hostId") === host ? [makeChange("system.packages.install", null, { id: "k2", hostId: host }), engineStep] : [] },
+    }),
     "GET /api/v1/changes/x9": { body: install },
     "GET /api/v1/changes/x9/steps": {
       body: { steps: [installStep(0, "system.docker.check", "read", ""), installStep(1, "system.docker.engine-install", "confirmed", host), installStep(2, "firewall.docker.enable", "applied", host)] },
@@ -81,9 +86,10 @@ const afterReload = (state: string, host: string) => {
 const withFirewall = makeHost({ id: "h1", modules: [sys, { id: "firewall", version: 1, enabled: true, available: true, reason: null, checkedAt: null }] })
 
 test("UX-8: after a reload the panel finds the host's install awaiting confirmation and offers Keep and Revert", async () => {
-  stubFetch(afterReload("awaiting_confirmation", "h1"))
+  const calls = stubFetch(afterReload("awaiting_confirmation", "h1"))
   renderWithProviders(<DockerInstallPanel host={withFirewall} reason="docker absent" />)
   await screen.findByTestId("state-awaitingConfirm")
+  expect(calls.filter((c) => c.path.startsWith("/api/v1/changes?")).every((c) => c.path.includes("hostId=h1"))).toBe(true)
   screen.getByRole("button", { name: "Keep" })
   screen.getByRole("button", { name: "Revert" })
 })

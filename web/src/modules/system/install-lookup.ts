@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
-import { changeError, changeInProgress, listSteps, request } from "@/api/client"
+import { changeError, changeInProgress, getChange, request } from "@/api/client"
 import type { Change } from "@/api/types"
 
 export const INSTALL_ACTION = "system.docker.install"
+// The install composite's step on the host itself.
+const ENGINE_STEP = "system.docker.engine-install"
 
-// How many recent controller-side changes the lookup reads, and how many
-// installs among them it reads the steps of.
+// How many of the host's recent changes the lookup reads, and how many
+// installs among them it reads.
 const LOOKUP = 20
 const CANDIDATES = 3
 // A failed or rolled-back install is shown for a day; after that the panel
@@ -16,19 +18,20 @@ const RECENT_MS = 24 * 60 * 60 * 1000
 export const latestInstallKey = (hostId: string) => ["changes", "docker-install", hostId] as const
 
 // latestInstall is the host's most recent Docker install. The install is a
-// controller-side composite with no host of its own, so the recent
-// controller changes are read and each install's steps name its host.
+// controller-side composite with no host of its own; its package step runs
+// on the host, so the host's own changes are read and that step names the
+// composite as its parent. An install refused before its package step is
+// not found here.
 export async function latestInstall(hostId: string): Promise<Change | null> {
-  const { changes } = await request<{ changes: Change[] }>("GET", `/api/v1/changes?limit=${LOOKUP}`)
-  for (const c of changes.filter((c) => c.action === INSTALL_ACTION).slice(0, CANDIDATES)) {
-    const steps = await listSteps(c.id)
-    if (steps.some((s) => s.host === hostId)) return c
+  const { changes } = await request<{ changes: Change[] }>("GET", `/api/v1/changes?hostId=${encodeURIComponent(hostId)}&limit=${LOOKUP}`)
+  const parents = [...new Set(changes.filter((c) => c.action === ENGINE_STEP && c.parentChangeId !== null).map((c) => c.parentChangeId as string))]
+  for (const id of parents.slice(0, CANDIDATES)) {
+    const parent = await getChange(id)
+    if (parent.action === INSTALL_ACTION) return parent
   }
   return null
 }
 
-// useLatestInstall reads the host's latest install that relevantInstall
-// keeps, or null.
 export function useLatestInstall(hostId: string, enabled: boolean) {
   return useQuery({
     queryKey: latestInstallKey(hostId),
