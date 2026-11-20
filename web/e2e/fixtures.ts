@@ -3,7 +3,7 @@ import type { AuditEntry, Change, Host, Plan, Rollout, RolloutHost, Session, Ste
 import type { ContainerDetail, DockerContainer, DockerNetwork } from "../src/modules/docker/types"
 import type { DockerStatus, ExposureView, FirewallStatus } from "../src/modules/firewall/types"
 import type { InstanceStatus } from "../src/modules/npm/types"
-import type { Summary } from "../src/modules/hostinfo/summary-page"
+import type { Summary } from "../src/modules/hostinfo/types"
 import { installedFixture, rebootFixture, updatesFixture } from "../src/modules/system/fixtures"
 import type { DockerState, InstalledPackage, Updates } from "../src/modules/system/types"
 
