@@ -22,8 +22,6 @@ import (
 
 var qaDockerFive = []string{"docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"}
 
-const qaSummaryInstall1 = "0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.\n"
-
 // qaSim builds an apt simulation: install lines, removal lines and the
 // summary line that agrees with them.
 func qaSim(installs []string, removes []string, upgraded int) string {

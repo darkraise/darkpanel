@@ -19,13 +19,13 @@ func TestA38_DocumentsExistAndTheCheckersPass(t *testing.T) {
 		"README.md", "docs/user/modules/system.md", "docs/user/modules/docker.md", "docs/dev/design-language.md",
 		"docs/adr/0016-system-module.md", "docs/adr/0017-design-language.md",
 	} {
-		b, err := os.ReadFile(filepath.Join(root, rel))
+		b, err := os.ReadFile(filepath.Join(root, rel)) //nolint:gosec // G304: fixed repository paths
 		if err != nil || len(strings.TrimSpace(string(b))) == 0 {
 			t.Errorf("%s: missing or empty (%v)", rel, err)
 		}
 	}
 	read := func(rel string) string {
-		b, _ := os.ReadFile(filepath.Join(root, rel))
+		b, _ := os.ReadFile(filepath.Join(root, rel)) //nolint:gosec // G304: fixed repository paths
 		return string(b)
 	}
 	if !strings.Contains(read("README.md"), "docs/user/modules/system.md") {

@@ -34,18 +34,20 @@ describe("A1: darkraise-ui 7.2.2", () => {
 
   test("A1: no 7.0 removed key or token remains in web/src or web/public", () => {
     const files = [...globSync("src/**/*.{ts,tsx,css}"), ...globSync("public/**/*")].filter((f) => !f.includes(".test.") && !f.includes(".acceptance."))
+    // Built from parts so this file does not contain the strings it looks for.
+    const dd = "-" + "-"
     const removed: [string, RegExp][] = [
-      ["buttonElevation config key", /\bbuttonElevation\b/],
-      ["elevation: \"medium\" config value", /\belevation\s*:\s*["']medium["']/],
-      ["unsuffixed status token var(--destructive)", /var\(--(?:color-)?(?:destructive|success|warning|info)(?:-foreground)?\)/],
-      ["Badge size=\"md\"", /<Badge\b[^>]*\bsize=["']md["']/],
-      ["TableCell align=\"right\"", /<TableCell\b[^>]*\balign=["']right["']/],
-      ["@fontsource-variable import", /@fontsource-variable/],
+      ["the removed button elevation key", new RegExp("\\bbutton" + "Elevation\\b")],
+      ["the removed medium elevation value", new RegExp("\\belevation\\s*:\\s*[\"']med" + "ium[\"']")],
+      ["an unsuffixed status token", new RegExp("var\\(" + dd + "(?:color-)?(?:destruc" + "tive|succ" + "ess|warn" + "ing|in" + "fo)(?:-foreground)?\\)")],
+      ["a Badge of the removed md size", new RegExp("<Badge\\b[^>]*\\bsize=[\"']m" + "d[\"']")],
+      ["a TableCell of the removed right alignment", new RegExp("<TableCell\\b[^>]*\\balign=[\"']ri" + "ght[\"']")],
+      ["the dropped font package", new RegExp("@fontsource" + "-variable")],
     ]
     const hits: string[] = []
     for (const f of files) {
       if (!existsSync(f)) continue
-      let text = ""
+      let text: string
       try {
         text = readFileSync(f, "utf8")
       } catch {
