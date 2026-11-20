@@ -47,16 +47,37 @@ test("UX-7: apt busy marks the updates tile Busy, and Retry on an upgrade goes b
   expect(screen.queryByRole("region", { name: "Last change" })).toBeNull()
 })
 
-test("UX-7: a failed change gets its own Last change tile with the message, the package, apt's lines in a tip and a retry", async () => {
+test("UX-7: a failed change gets its own Last change tile with the message, the package, apt's lines in a tip and Repair packages for broken dependencies", async () => {
   stubFetch({ ...reads, "GET /api/v1/changes": { body: { changes: [failedChange("system.packages.repair", "system.broken_packages", "apt failed on nginx-common:\ndpkg: error processing package nginx-common (--configure)")] } } })
   renderWithProviders(<OverviewTab host={ON} />)
   const tile = within(await screen.findByRole("region", { name: "Last change" }))
   tile.getByText("Failed")
   tile.getByText("Packages have broken dependencies")
   tile.getByText("nginx-common")
-  tile.getByRole("button", { name: "Retry" })
+  tile.getByRole("button", { name: "Repair packages" })
+  expect(tile.queryByRole("button", { name: "Retry" })).toBeNull()
   await userEvent.click(tile.getByRole("button", { name: "apt output" }))
   expect((await screen.findAllByText(/dpkg: error processing package/)).length).toBeGreaterThan(0)
+})
+
+test("UX-7: while the reads load, Refresh and Reboot wait for them", async () => {
+  stubFetch({ [R("updates")]: () => new Promise(() => undefined), [R("reboot")]: () => new Promise(() => undefined), [R("autoupdates")]: { body: { installed: true, enabled: true } }, [R("docker")]: { body: { state: "absent" } } })
+  renderWithProviders(<OverviewTab host={ON} />)
+  expect((await screen.findByRole("button", { name: "Refresh" })).hasAttribute("disabled")).toBe(true)
+  expect(screen.getByRole("button", { name: "Reboot" }).hasAttribute("disabled")).toBe(true)
+})
+
+test("UX-7: one failed read shows its error with a retry while the other tiles stay usable", async () => {
+  stubFetch({
+    ...reads,
+    [R("updates")]: { status: 502, body: { type: "about:blank", title: "Bad gateway", status: 502, detail: "The agent did not answer within 10 seconds.", code: "agent.unreachable" } },
+  })
+  renderWithProviders(<OverviewTab host={ON} />)
+  const updates = within(await screen.findByRole("region", { name: "Updates" }))
+  await updates.findByText("The agent did not answer within 10 seconds.")
+  updates.getByRole("button", { name: "Retry" })
+  expect(within(screen.getByRole("region", { name: "Automatic updates" })).getByRole("switch").hasAttribute("disabled")).toBe(false)
+  expect(within(screen.getByRole("region", { name: "Reboot" })).getByRole("button", { name: "Reboot" }).hasAttribute("disabled")).toBe(false)
 })
 
 test("A50: an agent without the system module shows Agent update needed", () => {

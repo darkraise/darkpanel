@@ -154,7 +154,7 @@ export function RebootTile({ host, bootTime, lastReboot, now: fixedNow, state, r
         <Button
           size="sm"
           variant="outline"
-          disabled={offline || busy}
+          disabled={offline || busy || (state === undefined && read?.pending === true)}
           onClick={() =>
             setPending({
               action: REBOOT_ACTION,

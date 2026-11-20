@@ -37,6 +37,8 @@ const APT_MESSAGES: Record<string, string> = {
 const REFRESH: PendingChange = { action: "system.index.refresh", title: "Refresh package lists", input: {} }
 const REPAIR: PendingChange = { action: "system.packages.repair", title: "Repair packages", input: {} }
 const RETRYABLE: Partial<Record<string, PendingChange>> = { [REFRESH.action]: REFRESH, [REPAIR.action]: REPAIR }
+// Failures that leave the package database needing a repair (spec §4).
+const REPAIRABLE = new Set(["system.dpkg_interrupted", "system.broken_packages"])
 
 function isPackageChange(action: string): boolean {
   return action.startsWith("system.index.") || action.startsWith("system.packages.")
@@ -138,7 +140,13 @@ function LastChangeTile({ host, change, onRetry }: { host: Host; change: Change;
           </span>
         )}
         <span className="flex flex-wrap items-center gap-2">
-          <RetryButton host={host} change={change} disabled={offline} onRetry={onRetry} />
+          {REPAIRABLE.has(error.code) ? (
+            <Button size="sm" variant="outline" disabled={offline} onClick={() => onRetry(REPAIR)}>
+              Repair packages
+            </Button>
+          ) : (
+            <RetryButton host={host} change={change} disabled={offline} onRetry={onRetry} />
+          )}
           <ChangeLink change={change} />
         </span>
       </div>
@@ -190,7 +198,7 @@ function UpdatesTile({
     upgradeAll
   ) : (
     <>
-      <Button size="sm" variant="outline" onClick={() => onChange(REFRESH)}>
+      <Button size="sm" variant="outline" disabled={updates.isPending} onClick={() => onChange(REFRESH)}>
         <RefreshCw aria-hidden />
         Refresh
       </Button>
