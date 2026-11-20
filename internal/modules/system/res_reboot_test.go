@@ -41,6 +41,39 @@ func TestRebootResource(t *testing.T) {
 	}
 }
 
+func TestRebootKernelIgnoresMetaPackagesAndReadsTheKernelsOwnDebianVersion(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(h *sysHost)
+		want  string
+	}{
+		{"ubuntu meta-package dotted version", func(h *sysHost) {
+			h.unameR("6.8.0-45-generic")
+			h.dpkgVersions(map[string]string{"linux-image-6.8.0-45-generic": "6.8.0-45.45", "linux-image-generic": "6.8.0.45.45", "linux-image-virtual": "6.8.0.45.45"})
+		}, `"required":false`},
+		{"ubuntu unsigned kernel", func(h *sysHost) {
+			h.unameR("6.8.0-45-generic")
+			h.dpkgVersions(map[string]string{"linux-image-unsigned-6.8.0-45-generic": "6.8.0-45.45", "linux-image-unsigned-6.8.0-48-generic": "6.8.0-48.48"})
+		}, `"kernel":{"running":"6.8.0-45.45","newest":"6.8.0-48.48"}`},
+		{"debian compiler string first", func(h *sysHost) {
+			h.osRelease("debian", "bookworm", "amd64")
+			h.unameR("6.1.0-18-amd64")
+			h.file("/proc/version", []byte("Linux version 6.1.0-18-amd64 (debian-kernel@lists.debian.org) (gcc-12 (Debian 12.2.0-14) 12.2.0, GNU ld (GNU Binutils for Debian) 2.40) #1 SMP PREEMPT_DYNAMIC Debian 6.1.76-1 (2024-02-01)\n"))
+			h.dpkgVersions(map[string]string{"linux-image-6.1.0-18-amd64": "6.1.76-1", "linux-image-6.1.0-21-amd64": "6.1.90-1", "linux-image-amd64": "6.1.90-1", "linux-image-6.1.0-21-amd64-dbg": "6.1.99-1"})
+		}, `"kernel":{"running":"6.1.76-1","newest":"6.1.90-1"}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newSysHost(t)
+			c.setup(h)
+			h.run("/usr/sbin/needrestart -b -r l", "", 0)
+			if out := h.readResource(t, "reboot"); !strings.Contains(out, c.want) {
+				t.Fatalf("reboot = %s", out)
+			}
+		})
+	}
+}
+
 func TestRebootKernelOnUbuntu(t *testing.T) {
 	h := newSysHost(t)
 	h.unameR("6.8.0-45-generic")
@@ -59,30 +92,38 @@ const (
 
 func TestDockerResource(t *testing.T) {
 	cases := []struct {
-		name   string
-		setup  func(h *sysHost)
-		substr string
+		name    string
+		setup   func(h *sysHost)
+		substrs []string
 	}{
-		{"absent, config-files leftover counts as absent", func(h *sysHost) { h.dpkgStatus("docker.io", "deinstall ok config-files") }, `"state":"absent"`},
-		{"distro", func(h *sysHost) { h.installed("docker.io", "runc") }, `"state":"distro","conflicts":["docker.io","runc"]`},
-		{"docker-ce with daemon down", func(h *sysHost) {
+		{"absent, config-files leftover counts as absent", func(h *sysHost) { h.dpkgStatus("docker.io", "deinstall ok config-files") }, []string{`"state":"absent"`}},
+		{"distro", func(h *sysHost) { h.installed("docker.io", "runc") }, []string{`"state":"distro","conflicts":["docker.io","runc"]`}},
+		{"docker-ce with daemon down and a newer candidate", func(h *sysHost) {
 			h.installed("docker-ce")
 			h.dockerDaemon(false)
 			h.run(dockerPolicy, dockerPolicyOut, 0)
-		}, `"state":"docker-ce","version":`},
+		}, []string{`"state":"docker-ce","version":`, `"running":false`, `"updateAvailable":true`}},
 		{"docker-ce with counts and labelled", func(h *sysHost) {
 			h.installed("docker-ce")
 			h.run(dockerPolicy, dockerPolicyOut, 0)
 			h.dockerDaemon(true)
 			h.dockerCounts(3, 7, 2, map[string]string{"npm-1": "npm"})
-		}, `"containers":3,"images":7,"volumes":2,"labelled":[{"name":"npm-1","module":"npm"}]`},
+		}, []string{`"running":true`, `"containers":3,"images":7,"volumes":2,"labelled":[{"name":"npm-1","module":"npm"}]`}},
+		{"docker-ce at its candidate", func(h *sysHost) {
+			h.installed("docker-ce")
+			h.run(dockerPolicy, "docker-ce:\n  Installed: 1.0-1\n  Candidate: 1.0-1\n", 0)
+			h.dockerDaemon(true)
+		}, []string{`"updateAvailable":false`}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			h := newSysHost(t)
 			c.setup(h)
-			if out := h.readResource(t, "docker"); !strings.Contains(out, c.substr) {
-				t.Fatalf("docker = %s", out)
+			out := h.readResource(t, "docker")
+			for _, want := range c.substrs {
+				if !strings.Contains(out, want) {
+					t.Fatalf("docker = %s, want %s", out, want)
+				}
 			}
 		})
 	}

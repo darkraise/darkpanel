@@ -222,7 +222,7 @@ func (h engineInstallHandler) Inverse(ctx context.Context, env core.Env, e core.
 		names = append(names, n)
 	}
 	slices.Sort(names)
-	sim, err := aptPlan(ctx, env, "remove", names)
+	sim, err := aptPlan(ctx, env, "remove", names, true)
 	if err != nil {
 		return core.InverseResult{}, core.Definite(err)
 	}
@@ -241,7 +241,11 @@ func (h engineInstallHandler) Inverse(ctx context.Context, env core.Env, e core.
 type engineUpdateHandler struct{ m module }
 
 func (h engineUpdateHandler) Plan(ctx context.Context, env core.Env, _ EngineUpdateInput) (core.PlanOutcome, error) {
-	out, _, err := h.m.planSet(ctx, env, "install-only-upgrade", dockerPackages, nil)
+	names, err := installedDockerPackages(ctx, env, dockerPackages)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	out, _, err := h.m.planSet(ctx, env, "install-only-upgrade", names, nil)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -253,11 +257,15 @@ func (h engineUpdateHandler) Plan(ctx context.Context, env core.Env, _ EngineUpd
 
 // Task re-runs the plan's simulation to learn the confirmed set, then runs it.
 func (h engineUpdateHandler) Task(ctx context.Context, env core.Env, _ EngineUpdateInput) (Applied, error) {
-	planned, err := h.m.simulateSet(ctx, env, "install-only-upgrade", dockerPackages, nil)
+	names, err := installedDockerPackages(ctx, env, dockerPackages)
 	if err != nil {
 		return Applied{}, core.Definite(err)
 	}
-	return runSet(ctx, env, "install-only-upgrade", dockerPackages, planned)
+	planned, err := h.m.simulateSet(ctx, env, "install-only-upgrade", names, nil)
+	if err != nil {
+		return Applied{}, core.Definite(err)
+	}
+	return runSet(ctx, env, "install-only-upgrade", names, planned)
 }
 
 func (h engineUpdateHandler) Verify(ctx context.Context, env core.Env, _ EngineUpdateInput, out Applied) error {

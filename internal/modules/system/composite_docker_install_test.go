@@ -64,6 +64,21 @@ func TestDockerCheckRefusesAMismatchedFlag(t *testing.T) {
 	}
 }
 
+func TestDockerCheckTreatsAnEnabledButUnavailableFirewallAsOff(t *testing.T) {
+	for _, c := range []struct {
+		flag, ok bool
+	}{{true, false}, {false, true}} {
+		env := fakeAgentsEnv(t, "h1", true, true)
+		if _, err := env.DB.Writer().ExecContext(context.Background(), `UPDATE core_module_state SET available = 0, reason = 'ufw is not installed' WHERE host_id = 'h1'`); err != nil {
+			t.Fatal(err)
+		}
+		_, err := dockerCheck{}.Read(context.Background(), env, dockerCheckIn{HostID: "h1", FirewallIntegration: c.flag})
+		if (err == nil) != c.ok || (err != nil && errcode.From(err).Code != "system.firewall_flag_mismatch") {
+			t.Errorf("flag %v with the firewall enabled but unavailable: err = %v", c.flag, err)
+		}
+	}
+}
+
 // Additions to the plan's cases.
 
 func TestDockerCheckTreatsAMissingRowAsOffAndReturnsAFailedStatusRead(t *testing.T) {

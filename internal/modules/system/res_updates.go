@@ -17,15 +17,15 @@ import (
 )
 
 const (
-	aptMark      = "/usr/bin/apt-mark"
-	dpkgBin      = "/usr/bin/dpkg"
-	updatesTTL   = 60 * time.Second
-	refreshStamp = "/var/lib/apt/periodic/update-success-stamp"
-	aptLists     = "/var/lib/apt/lists"
+	aptMark          = "/usr/bin/apt-mark"
+	dpkgBin          = "/usr/bin/dpkg"
+	updatesTTL       = 60 * time.Second
+	refreshStamp     = "/var/lib/apt/periodic/update-success-stamp"
+	aptLists         = "/var/lib/apt/lists"
+	failedSourcesDir = "/var/lib/darkpanel/system"
 	// failedSourcesFile lists the sources the last refresh could not fetch,
 	// one per line; the refresh action writes it in the module's managed
 	// directory.
-	failedSourcesDir  = "/var/lib/darkpanel/system"
 	failedSourcesFile = failedSourcesDir + "/failed-sources"
 )
 

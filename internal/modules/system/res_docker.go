@@ -6,12 +6,34 @@ import (
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/platform/dockerapi"
 )
 
 // sortedDockerPackages are dockerPackages sorted, the order undo and
 // uninstall pass them in.
 var sortedDockerPackages = func() []string { s := slices.Clone(dockerPackages); slices.Sort(s); return s }()
+
+// installedDockerPackages is the part of order (dockerPackages or
+// sortedDockerPackages) the host has installed. Uninstall and engine-update
+// act on it, so a host without one of the plugins is not refused; it is
+// refused only without docker-ce itself.
+func installedDockerPackages(ctx context.Context, env core.Env, order []string) ([]string, error) {
+	versions, err := installedVersions(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := versions["docker-ce"]; !ok {
+		return nil, errcode.New(errcode.SystemNameInvalid, "Docker Engine (docker-ce) is not installed")
+	}
+	var out []string
+	for _, name := range order {
+		if _, ok := versions[name]; ok {
+			out = append(out, name)
+		}
+	}
+	return out, nil
+}
 
 // dockerConflicts are the distribution's Docker packages, which conflict
 // with Docker's own repository.

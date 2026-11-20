@@ -17,7 +17,7 @@ func TestUpgradeAllPlansAFullUpgrade(t *testing.T) {
 	h.dockerDaemon(true)
 	h.dockerCounts(4, 0, 0, nil)
 	plan := h.plan(t, "system.packages.upgrade", `{"all":true}`)
-	for _, want := range []string{"curl", "docker-ce", "Remove: oldlib", "4 running containers will restart"} {
+	for _, want := range []string{"~ Upgrade: curl 1 → 2", "~ Upgrade: docker-ce 5:27.0 → 5:27.3", "- Remove: oldlib 1.0", "4 running containers will restart"} {
 		if !strings.Contains(plan.Text(), want) {
 			t.Errorf("plan lacks %q:\n%s", want, plan.Text())
 		}
@@ -68,6 +68,26 @@ func TestPlanRefusesWithinTenSecondsWhenAptIsBusy(t *testing.T) {
 		if slices.Contains(h.calls(), planVec("dist-upgrade", nil)) {
 			t.Fatalf("%s: simulated after a failed lock probe", c.code)
 		}
+	}
+}
+
+func TestATaskWaitsForTheLockItFindsHeldAtStart(t *testing.T) {
+	wait := "/usr/bin/apt-get " + strings.Join(platform.SystemAptCheckWait(), " ")
+	if wait != "/usr/bin/apt-get -q -o DPkg::Lock::Timeout=120 check" {
+		t.Fatalf("task lock probe = %q", wait)
+	}
+	h := newSysHost(t)
+	h.run(planVec("dist-upgrade", nil), "Inst curl [1] (2 x [amd64])\n1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\n", 0)
+	h.run(wait, "E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 7 (unattended-upgr)", 100)
+	_, err := h.applyTask("system.packages.upgrade", `{"all":true}`)
+	if errcode.From(err).Code != "system.apt_busy" {
+		t.Fatalf("err = %v", err)
+	}
+	if !slices.Contains(h.calls(), wait) {
+		t.Fatalf("the task did not probe with the 120-second lock wait: %v", h.calls())
+	}
+	if slices.Contains(h.calls(), runVec("dist-upgrade", nil)) {
+		t.Fatal("the run started although the lock stayed held")
 	}
 }
 
@@ -171,5 +191,16 @@ func TestPlanSetExemptsTheNamedProtectedPackages(t *testing.T) {
 	out, _, err := h.mod().planSet(t.Context(), h.env(), "remove", []string{"docker-ce"}, dockerPackages)
 	if err != nil || out.Confirmation != "" || !strings.Contains(PlanView{PlanOutcome: out}.Text(), "- Remove: docker-ce 5:27.0") {
 		t.Fatalf("with the exemption: %+v, %v", out, err)
+	}
+}
+
+func TestAFailedRefreshStillRecordsItsFailedSources(t *testing.T) {
+	h := newSysHost(t)
+	h.run("/usr/bin/apt-get "+strings.Join(platform.SystemAptUpdate(""), " "), "Err:2 https://bad.example stable InRelease\n  The following signatures were invalid: EXPKEYSIG 1234\nE: The repository 'https://bad.example stable InRelease' is not signed.\n", 100)
+	if _, err := h.applyTask("system.index.refresh", `{}`); err == nil {
+		t.Fatal("a refresh that exited 100 succeeded")
+	}
+	if got := string(h.written("/var/lib/darkpanel/system/failed-sources")); got != "https://bad.example stable\n" {
+		t.Fatalf("failed-sources = %q", got)
 	}
 }

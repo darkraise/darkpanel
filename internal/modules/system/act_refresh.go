@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"path"
 	"slices"
 	"strings"
@@ -47,13 +48,12 @@ func (refreshHandler) Plan(context.Context, core.Env, RefreshInput) (core.PlanOu
 }
 
 // Task runs apt-get update and records the sources that failed, which apt
-// reports as warnings with exit 0, for the updates read.
+// reports as warnings with exit 0, for the updates read. A failed update (a
+// signature error exits 100) still records its failed sources before it
+// returns, so the updates tile names this refresh's sources, not the last.
 func (refreshHandler) Task(ctx context.Context, env core.Env, _ RefreshInput) (Refreshed, error) {
 	defer invalidateUpdates(env.HostID)
-	out, err := aptExec(ctx, env, platform.SystemAptUpdate(""))
-	if err != nil {
-		return Refreshed{}, err
-	}
+	out, runErr := aptExec(ctx, env, platform.SystemAptUpdate(""))
 	failed := failedSourcesOf(out)
 	var data []byte
 	for _, s := range failed {
@@ -61,7 +61,10 @@ func (refreshHandler) Task(ctx context.Context, env core.Env, _ RefreshInput) (R
 	}
 	dir, name := path.Split(failedSourcesFile)
 	if err := env.Files.WriteManaged(ctx, ID, path.Clean(dir), name, data, 0o600, 0, 0); err != nil {
-		return Refreshed{}, err
+		return Refreshed{}, errors.Join(runErr, err)
+	}
+	if runErr != nil {
+		return Refreshed{}, runErr
 	}
 	return Refreshed{FailedSources: failed}, nil
 }

@@ -46,8 +46,14 @@ func aptRun(ctx context.Context, env core.Env, verb string, names []string) (App
 // aptPlan runs the lock probe, then the plan simulation of verb. A root
 // simulation takes no lock and ignores an interrupted dpkg, so the probe is
 // what refuses a busy or interrupted apt; when it fails no simulation runs.
-func aptPlan(ctx context.Context, env core.Env, verb string, names []string) (Sim, error) {
-	if _, err := aptExec(ctx, env, platform.SystemAptCheck()); err != nil {
+// A plan's probe gives up after 10 seconds; a task's (wait) after the
+// mutating run's 120.
+func aptPlan(ctx context.Context, env core.Env, verb string, names []string, wait bool) (Sim, error) {
+	probe := platform.SystemAptCheck()
+	if wait {
+		probe = platform.SystemAptCheckWait()
+	}
+	if _, err := aptExec(ctx, env, probe); err != nil {
 		return Sim{}, err
 	}
 	return aptSimulate(ctx, env, platform.SystemAptPlan(verb, names))

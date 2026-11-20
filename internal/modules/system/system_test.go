@@ -75,7 +75,7 @@ func TestAptPlanProbesTheLockFirst(t *testing.T) {
 	sim := "Inst jq (1.7.1-3 Ubuntu:24.04/noble [amd64])\n0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.\n"
 	h := newSysHost(t)
 	h.run(planVec("install", []string{"jq"}), sim, 0)
-	got, err := aptPlan(context.Background(), h.env(), "install", []string{"jq"})
+	got, err := aptPlan(context.Background(), h.env(), "install", []string{"jq"}, false)
 	if err != nil || !slices.Equal(got.Installs(), []string{"jq"}) {
 		t.Fatalf("aptPlan = %+v, %v", got, err)
 	}
@@ -86,7 +86,7 @@ func TestAptPlanProbesTheLockFirst(t *testing.T) {
 
 	h = newSysHost(t)
 	h.run(probe, "E: dpkg was interrupted, you must manually run 'dpkg --configure -a' to correct the problem.\n", 100)
-	_, err = aptPlan(context.Background(), h.env(), "install", []string{"jq"})
+	_, err = aptPlan(context.Background(), h.env(), "install", []string{"jq"}, false)
 	var ce *errcode.Error
 	if !errors.As(err, &ce) || ce.Code != errcode.SystemDpkgInterrupted || len(h.calls()) != 1 {
 		t.Fatalf("interrupted dpkg: err = %v, calls %q; want system.dpkg_interrupted and no simulation", err, h.calls())

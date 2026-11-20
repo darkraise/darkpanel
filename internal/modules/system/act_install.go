@@ -219,7 +219,7 @@ func (h installHandler) Inverse(ctx context.Context, env core.Env, e core.Effect
 			}
 		}
 	})
-	sim, err := aptPlan(ctx, env, "remove", names)
+	sim, err := aptPlan(ctx, env, "remove", names, true)
 	if err != nil {
 		return core.InverseResult{}, core.Definite(err)
 	}

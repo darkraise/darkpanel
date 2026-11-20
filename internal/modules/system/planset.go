@@ -22,7 +22,7 @@ var restartingPackages = []string{"docker-ce", "containerd.io"}
 // diff lists installs, upgrades and, in their own group, removals; the
 // state hash covers the simulated set. The caller sets the confirmation.
 func (m module) planSet(ctx context.Context, env core.Env, verb string, names []string, exempt []string) (core.PlanOutcome, Sim, error) {
-	sim, err := m.simulateSet(ctx, env, verb, names, exempt)
+	sim, err := m.checkSet(ctx, env, verb, names, exempt, false)
 	if err != nil {
 		return core.PlanOutcome{}, Sim{}, err
 	}
@@ -36,8 +36,14 @@ func (m module) planSet(ctx context.Context, env core.Env, verb string, names []
 
 // simulateSet is planSet without the diff: the checks and the simulation. A
 // task calls it to learn the set its confirmed plan showed, which the
-// engine's state-hash recheck has just found unchanged.
+// engine's state-hash recheck has just found unchanged. Its lock probe waits
+// as long as the run does, so a busy apt at task start delays the task
+// rather than failing it after 10 seconds.
 func (m module) simulateSet(ctx context.Context, env core.Env, verb string, names []string, exempt []string) (Sim, error) {
+	return m.checkSet(ctx, env, verb, names, exempt, true)
+}
+
+func (m module) checkSet(ctx context.Context, env core.Env, verb string, names []string, exempt []string, wait bool) (Sim, error) {
 	if len(names) > 0 {
 		kind := nameInstalled
 		if verb == "install" {
@@ -47,7 +53,7 @@ func (m module) simulateSet(ctx context.Context, env core.Env, verb string, name
 			return Sim{}, err
 		}
 	}
-	sim, err := aptPlan(ctx, env, verb, names)
+	sim, err := aptPlan(ctx, env, verb, names, wait)
 	if err != nil {
 		return Sim{}, err
 	}
@@ -74,8 +80,9 @@ func withoutExempt(protected []Protected, exempt []string) []Protected {
 	})
 }
 
-// runSet runs verb once the task's own re-simulation, which waits for a busy
-// apt as the run does, still shows the planned set; a different set refuses
+// runSet runs verb once the task's own re-simulation still shows the planned
+// set (the task's lock probe in simulateSet has already waited out a busy
+// apt; a root simulation takes no lock itself); a different set refuses
 // with system.plan_stale before anything changes. It drops the updates cache
 // on every exit.
 func runSet(ctx context.Context, env core.Env, verb string, names []string, planned Sim) (Applied, error) {
@@ -140,8 +147,8 @@ func listOrNone(l []string) string {
 	return strings.Join(l, ", ")
 }
 
-// setDiff lists the simulation's installs and upgrades, then its removals as
-// their own group.
+// setDiff lists the simulation's installs (+) and upgrades (~), then its
+// removals (-) as their own group.
 func setDiff(sim Sim) []core.DiffLine {
 	ops := slices.Clone(sim.Ops)
 	slices.SortStableFunc(ops, func(a, b SimOp) int { return cmp.Compare(a.Name, b.Name) })
@@ -151,7 +158,7 @@ func setDiff(sim Sim) []core.DiffLine {
 		case op.Kind == "Inst" && op.From == "":
 			adds = append(adds, core.DiffLine{Op: "+", Text: "Install: " + op.Name + " " + op.To})
 		case op.Kind == "Inst":
-			adds = append(adds, core.DiffLine{Op: "+", Text: "Upgrade: " + op.Name + " " + op.From + " → " + op.To})
+			adds = append(adds, core.DiffLine{Op: "~", Text: "Upgrade: " + op.Name + " " + op.From + " → " + op.To})
 		case op.Kind == "Remv":
 			removes = append(removes, core.DiffLine{Op: "-", Text: "Remove: " + op.Name + " " + op.From})
 		case op.Kind == "Purg":

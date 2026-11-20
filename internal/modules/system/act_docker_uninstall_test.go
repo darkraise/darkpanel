@@ -72,7 +72,7 @@ func TestDockerUninstallKeepsOrPurgesData(t *testing.T) {
 	}
 	h2.run(runVec("remove", sortedDockerPackages), "", 0)
 	plan = h2.plan(t, "system.docker.uninstall", `{"purge":true}`)
-	if plan.Phrase != "purge docker on "+h2.hostName() || !strings.Contains(plan.Text(), "3 containers, 5 images, 2 volumes") || !strings.Contains(plan.Text(), "/srv/docker is left alone") {
+	if plan.Phrase != "purge docker on "+h2.hostName() || !strings.Contains(plan.Text(), "3 containers, 5 images, 2 volumes") || !strings.Contains(plan.Text(), "data-root /srv/docker: its 3 containers, 5 images, 2 volumes are left alone") || strings.Contains(plan.Text(), "volumes: /var/lib/docker") {
 		t.Fatalf("plan:\n%s phrase=%q", plan.Text(), plan.Phrase)
 	}
 	if _, err := h2.applyTask("system.docker.uninstall", `{"purge":true}`); err != nil {
@@ -176,5 +176,42 @@ func TestFirewallDockerFlag(t *testing.T) {
 	h.exec(`INSERT INTO firewall_settings (id, docker, settings) VALUES (1, 1, '{}')`)
 	if on, err := firewallDockerFlag(ctx, h.env()); err != nil || !on {
 		t.Fatalf("row: on=%v err=%v", on, err)
+	}
+}
+
+func TestUninstallAndEngineUpdateActOnTheInstalledDockerPackages(t *testing.T) {
+	partial := []string{"containerd.io", "docker-ce", "docker-ce-cli"}
+	h := newSysHost(t)
+	h.installed(partial...)
+	h.dockerDaemon(false)
+	sim := "Remv docker-ce [5:27.3]\nRemv docker-ce-cli [5:27.3]\nRemv containerd.io [1.7]\n0 upgraded, 0 newly installed, 3 to remove and 0 not upgraded.\n"
+	h.run(planVec("remove", partial), sim, 0)
+	if _, err := h.planErr("system.docker.uninstall", `{"purge":false}`); err != nil {
+		t.Fatalf("uninstall of a docker-ce without its plugins: %v", err)
+	}
+	h.run(planVec("install-only-upgrade", []string{"docker-ce", "docker-ce-cli", "containerd.io"}), "Inst docker-ce [5:27.0] (5:27.3 Docker:noble [amd64])\n1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\n", 0)
+	if _, err := h.planErr("system.docker.engine-update", `{}`); err != nil {
+		t.Fatalf("engine-update of a docker-ce without its plugins: %v", err)
+	}
+	none := newSysHost(t)
+	if _, err := none.planErr("system.docker.engine-update", `{}`); errcode.From(err).Code != errcode.SystemNameInvalid {
+		t.Fatalf("engine-update without docker-ce: err = %v", err)
+	}
+}
+
+func TestDockerUninstallPurgeRefusalsTheFakeCanReach(t *testing.T) {
+	h := dockerUninstallHost(t)
+	h.file("/etc/docker/daemon.json", []byte(`{not json`))
+	if _, err := h.planErr("system.docker.uninstall", `{"purge":true}`); errcode.From(err).Code != errcode.SystemPurgeRefused || !strings.Contains(err.Error(), "not valid JSON") {
+		t.Fatalf("invalid daemon.json: err = %v", err)
+	}
+	h2 := dockerUninstallHost(t)
+	h2.purge.purgeErr = platform.ErrPurgeMount
+	_, err := h2.applyTask("system.docker.uninstall", `{"purge":true}`)
+	if errcode.From(err).Code != errcode.SystemPurgeRefused || !strings.Contains(err.Error(), "Docker was removed, but /var/lib/docker was not deleted") {
+		t.Fatalf("purge failing after the removal: err = %v", err)
+	}
+	if !slices.Contains(h2.calls(), runVec("remove", sortedDockerPackages)) {
+		t.Fatal("the packages were not removed before the purge")
 	}
 }

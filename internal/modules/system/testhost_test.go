@@ -116,6 +116,7 @@ func newSysHost(t *testing.T) *sysHost {
 	h.osRelease("ubuntu", "noble", "amd64")
 	h.installed("bash")
 	h.run(aptGet+" "+strings.Join(platform.SystemAptCheck(), " "), "", 0)
+	h.run(aptGet+" "+strings.Join(platform.SystemAptCheckWait(), " "), "", 0)
 	h.run(shJoin("/usr/bin/dpkg", platform.SystemDpkgAudit()), "", 0)
 	h.run(shJoin("/usr/bin/apt-cache", platform.SystemAptCachePkgnames()), "", 0)
 	h.run(shJoin("/usr/bin/apt-config", platform.SystemAptConfigDump()), "", 0)
@@ -386,7 +387,7 @@ func (h *sysHost) exists(path string) bool { //nolint:unused // shared helper of
 	return ok
 }
 
-func (h *sysHost) hostName() string         { return "h1" }                //nolint:unused // shared helper of the system module's action tests
+func (h *sysHost) hostName() string         { return "web-1" }             //nolint:unused // shared helper of the system module's action tests
 func (h *sysHost) now() time.Time           { return h.clock.Now() }       //nolint:unused // shared helper of the system module's action tests
 func (h *sysHost) keyringOverride(b []byte) { h.keyring = bytes.Clone(b) } //nolint:unused // shared helper of the system module's action tests
 
@@ -780,6 +781,7 @@ func (r *shReboot) ScheduleReboot(_ context.Context, at time.Time) error {
 // shPurge answers checkErr from both methods and records each purged path.
 type shPurge struct {
 	checkErr error
+	purgeErr error // a PurgeDir failure the plan-time check did not foresee
 	purged   []string
 }
 
@@ -788,6 +790,9 @@ func (p *shPurge) CheckPurgeable(string) error { return p.checkErr }
 func (p *shPurge) PurgeDir(path string) error {
 	if p.checkErr != nil {
 		return p.checkErr
+	}
+	if p.purgeErr != nil {
+		return p.purgeErr
 	}
 	p.purged = append(p.purged, path)
 	return nil

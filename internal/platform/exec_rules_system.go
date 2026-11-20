@@ -97,6 +97,13 @@ func SystemAptCheck() []string {
 	return []string{"-q", "-o", aptPlanLockTimeout, "check"}
 }
 
+// SystemAptCheckWait is a task's lock probe: it waits for the dpkg lock as
+// long as the mutating run does, so a busy apt delays the task instead of
+// failing it.
+func SystemAptCheckWait() []string {
+	return []string{"-q", "-o", aptLockTimeout, "check"}
+}
+
 // SystemAptUpdate refreshes every source, or only sourceList when it is
 // not "", as APT-1 does for Tailscale's.
 func SystemAptUpdate(sourceList string) []string {
@@ -175,7 +182,7 @@ func execMatchSystemAptRun(args []string) error {
 // execMatchSystemAptSim allows the plan, re-simulation and read simulations
 // of the offered verbs, and the lock probe.
 func execMatchSystemAptSim(args []string) error {
-	if execOneOf(args, SystemAptCheck()) == nil {
+	if execOneOf(args, SystemAptCheck(), SystemAptCheckWait()) == nil {
 		return nil
 	}
 	return execMatchAptVerb(args, func(verb string, names []string) [][]string {

@@ -141,7 +141,11 @@ func (h dockerUninstallHandler) Plan(ctx context.Context, env core.Env, in Docke
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	out, _, err := h.m.planSet(ctx, env, "remove", sortedDockerPackages, dockerPackages)
+	names, err := installedDockerPackages(ctx, env, sortedDockerPackages)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	out, _, err := h.m.planSet(ctx, env, "remove", names, dockerPackages)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -159,10 +163,15 @@ func (h dockerUninstallHandler) Plan(ctx context.Context, env core.Env, in Docke
 	switch {
 	case in.Purge:
 		counts := plural(inv.containers, "container") + ", " + plural(inv.images, "image") + ", " + plural(inv.volume, "volume")
-		out.Diff = append(out.Diff, core.DiffLine{Op: "-", Text: "Delete " + counts + ": " + strings.Join(dockerPurgePaths, " and ") + " are deleted"})
 		state = append(state, "counts="+counts)
-		if inv.dataRoot != "" {
-			out.Diff = append(out.Diff, core.DiffLine{Op: " ", Text: dockerDaemonConfig + " sets data-root " + inv.dataRoot + ": " + inv.dataRoot + " is left alone"})
+		if inv.dataRoot == "" {
+			out.Diff = append(out.Diff, core.DiffLine{Op: "-", Text: "Delete " + counts + ": " + strings.Join(dockerPurgePaths, " and ") + " are deleted"})
+		} else {
+			// The daemon's counts are of the data under data-root, which the
+			// purge leaves; only the two default directories go.
+			out.Diff = append(out.Diff,
+				core.DiffLine{Op: "-", Text: "Delete " + strings.Join(dockerPurgePaths, " and ")},
+				core.DiffLine{Op: " ", Text: dockerDaemonConfig + " sets data-root " + inv.dataRoot + ": its " + counts + " are left alone"})
 			state = append(state, "data-root="+inv.dataRoot)
 		}
 		out.Confirmation = "purge docker on " + host
@@ -185,11 +194,15 @@ func (h dockerUninstallHandler) Task(ctx context.Context, env core.Env, in Docke
 	if err != nil {
 		return out, core.Definite(err)
 	}
-	planned, err := h.m.simulateSet(ctx, env, "remove", sortedDockerPackages, dockerPackages)
+	names, err := installedDockerPackages(ctx, env, sortedDockerPackages)
 	if err != nil {
 		return out, core.Definite(err)
 	}
-	applied, err := runSet(ctx, env, "remove", sortedDockerPackages, planned)
+	planned, err := h.m.simulateSet(ctx, env, "remove", names, dockerPackages)
+	if err != nil {
+		return out, core.Definite(err)
+	}
+	applied, err := runSet(ctx, env, "remove", names, planned)
 	if len(applied.Removed) > 0 {
 		out.Removed = applied.Removed
 	}

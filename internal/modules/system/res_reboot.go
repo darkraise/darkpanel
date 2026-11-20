@@ -23,7 +23,13 @@ const (
 
 // debianKernelVersion is the package version a Debian kernel prints in
 // /proc/version: "... Debian 6.1.76-1 (2024-02-01)".
-var debianKernelVersion = regexp.MustCompile(`\bDebian (\S+)`)
+var debianKernelVersion = regexp.MustCompile(`\bDebian ([0-9]\S*)`)
+
+// kernelImage is a versioned kernel image package (linux-image-6.8.0-48-generic,
+// linux-image-unsigned-6.8.0-48-generic, linux-image-6.1.0-18-amd64), not a
+// meta-package such as linux-image-generic, whose dotted version always
+// compares newer than a kernel's.
+var kernelImage = regexp.MustCompile(`^linux-image-(unsigned-)?[0-9]`)
 
 // RebootState is the reboot resource.
 type RebootState struct {
@@ -107,8 +113,10 @@ func (m module) kernelCheck(ctx context.Context, env core.Env) (*KernelState, er
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("system: read %s: %w", procVersion, err)
 		}
-		if mt := debianKernelVersion.FindSubmatch(b); mt != nil {
-			running = string(mt[1])
+		// The compiler's "(Debian 12.2.0-14)" comes first; the kernel's
+		// package version is the last "Debian <version>".
+		if mt := debianKernelVersion.FindAllSubmatch(b, -1); len(mt) > 0 {
+			running = string(mt[len(mt)-1][1])
 		}
 	} else {
 		release, err := m.d.kernelRelease()
@@ -116,13 +124,16 @@ func (m module) kernelCheck(ctx context.Context, env core.Env) (*KernelState, er
 			return nil, err
 		}
 		running = versions["linux-image-"+release]
+		if running == "" {
+			running = versions["linux-image-unsigned-"+release]
+		}
 	}
 	if running == "" {
 		return nil, nil
 	}
 	newest := running
 	for name, v := range versions {
-		if strings.HasPrefix(name, "linux-image-") && debVersionCompare(v, newest) > 0 {
+		if kernelImage.MatchString(name) && !strings.HasSuffix(name, "-dbg") && debVersionCompare(v, newest) > 0 {
 			newest = v
 		}
 	}
