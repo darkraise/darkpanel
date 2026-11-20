@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react"
 import { Link } from "react-router"
 import { useQuery } from "@tanstack/react-query"
-import { CalendarClock, CircleCheck, Download, RefreshCw, RotateCcw, Server, ShieldAlert, Wrench } from "lucide-react"
+import { CircleCheck, RefreshCw, RotateCcw, Server } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
 import { EmptyState } from "darkraise-ui/components/empty-state"
@@ -9,15 +9,15 @@ import { Switch } from "darkraise-ui/components/switch"
 import { readResource, request } from "@/api/client"
 import type { Change, Host } from "@/api/types"
 import { InfoTip } from "@/components/visual/info-tip"
-import { StatTile } from "@/components/visual/stat-tile"
+import type { Status } from "@/components/visual/status"
 import { formatTime } from "@/lib/format"
 import type { Summary } from "@/modules/hostinfo/summary-page"
 import { UpdateNowButton } from "@/pages/update-now-dialog"
 import { DockerTile } from "./docker-tile"
 import { RebootTile } from "./reboot-tile"
 import { SystemChange, type PendingChange } from "./system-change"
-import { Tile, TileError, TileSkeleton } from "./tile"
-import { SYSTEM_MODULE, systemChangesKey, type AutoUpdates, type RebootState, type Updates } from "./types"
+import { LastSeen, Tile, TileError, TileSkeleton } from "./tile"
+import { SYSTEM_MODULE, systemChangesKey, HOST_OFFLINE, type AutoUpdates, type RebootState, type Updates } from "./types"
 
 // How many of the host's latest changes the overview reads to find its last
 // reboot and its last package change.
@@ -50,55 +50,118 @@ function useSystemResource<T>(host: Host, name: string) {
   })
 }
 
-// FailedChange is the last package change when it failed: the code's short
+function retryTarget(host: Host, action: string): { change: PendingChange } | { to: string } | undefined {
+  const fixed = RETRYABLE[action]
+  if (fixed !== undefined) return { change: fixed }
+  // A change record keeps no input, so a package set is chosen again where
+  // it was chosen the first time.
+  const base = `/hosts/${encodeURIComponent(host.id)}/system`
+  if (action === "system.packages.upgrade") return { to: `${base}/updates` }
+  if (action === "system.packages.install" || action === "system.packages.remove") return { to: `${base}/packages` }
+  return undefined
+}
+
+function RetryButton({ host, change, disabled, onRetry }: { host: Host; change: Change; disabled: boolean; onRetry: (p: PendingChange) => void }) {
+  const target = retryTarget(host, change.action)
+  if (target === undefined) return null
+  const label = (
+    <>
+      <RotateCcw aria-hidden />
+      Retry
+    </>
+  )
+  if ("change" in target) {
+    return (
+      <Button size="sm" variant="outline" disabled={disabled} onClick={() => onRetry(target.change)}>
+        {label}
+      </Button>
+    )
+  }
+  if (disabled) {
+    return (
+      <Button size="sm" variant="outline" disabled>
+        {label}
+      </Button>
+    )
+  }
+  return (
+    <Button size="sm" variant="outline" asChild>
+      <Link to={target.to}>{label}</Link>
+    </Button>
+  )
+}
+
+function ChangeLink({ change }: { change: Change }) {
+  return (
+    <Link to={`/changes/${encodeURIComponent(change.id)}`} className="text-sm font-medium underline underline-offset-4">
+      Open the change
+    </Link>
+  )
+}
+
+// BusyAlert is a package change that found another package manager running:
+// the updates tile keeps reading, and the change can be tried again.
+function BusyAlert({ host, change, disabled, onRetry }: { host: Host; change: Change; disabled: boolean; onRetry: (p: PendingChange) => void }) {
+  return (
+    <Alert variant="warning" role="alert" data-testid="state-aptBusy">
+      <AlertTitle as="h4">{APT_MESSAGES["system.apt_busy"]}</AlertTitle>
+      <AlertDescription className="flex flex-wrap items-center gap-2">
+        <RetryButton host={host} change={change} disabled={disabled} onRetry={onRetry} />
+        <ChangeLink change={change} />
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+// LastChangeTile is the last package change when it failed: the code's short
 // message, the failing package, and apt's last lines behind a tip.
-function FailedChange({ change, disabled, onRetry }: { change: Change; disabled: boolean; onRetry: (p: PendingChange) => void }) {
+function LastChangeTile({ host, change, onRetry }: { host: Host; change: Change; onRetry: (p: PendingChange) => void }) {
   const error = change.error
   if (error === null) return null
+  const offline = !host.online
   const [head, ...tail] = error.message.split("\n")
   const pkg = /^apt failed on (\S+):$/.exec(head ?? "")?.[1]
-  const retry = RETRYABLE[change.action]
   return (
-    <Alert
-      variant={error.code === "system.apt_busy" ? "warning" : "destructive"}
-      role="alert"
-      data-testid={error.code === "system.apt_busy" ? "state-aptBusy" : "state-failedChange"}
-    >
-      <AlertTitle as="h4">{APT_MESSAGES[error.code] ?? "Last change failed"}</AlertTitle>
-      <AlertDescription className="flex flex-col items-start gap-2">
+    <Tile title="Last change" status={{ status: "error", label: "Failed" }} greyed={offline}>
+      <div className="flex flex-col items-start gap-2" data-testid="state-failedChange">
+        <span className="flex flex-wrap items-center gap-1 text-sm">
+          {APT_MESSAGES[error.code] ?? "Last change failed"}
+          {tail.length > 0 && !offline && (
+            <InfoTip label="apt output">
+              <pre className="font-mono text-xs whitespace-pre-wrap">{tail.join("\n")}</pre>
+            </InfoTip>
+          )}
+        </span>
         {pkg !== undefined && (
           <span className="text-sm">
             Package <span className="font-mono break-all">{pkg}</span>
           </span>
         )}
         <span className="flex flex-wrap items-center gap-2">
-          <Link to={`/changes/${encodeURIComponent(change.id)}`} className="text-sm font-medium underline underline-offset-4">
-            Open the change
-          </Link>
-          {tail.length > 0 && !disabled && (
-            <InfoTip label="Package manager output">
-              <pre className="font-mono text-xs whitespace-pre-wrap">{tail.join("\n")}</pre>
-            </InfoTip>
-          )}
-          {retry !== undefined && (
-            <Button size="sm" variant="outline" disabled={disabled} onClick={() => onRetry(retry)}>
-              <RotateCcw aria-hidden />
-              Retry
-            </Button>
-          )}
+          <RetryButton host={host} change={change} disabled={offline} onRetry={onRetry} />
+          <ChangeLink change={change} />
         </span>
-      </AlertDescription>
-    </Alert>
+      </div>
+    </Tile>
+  )
+}
+
+function Figure({ value, caption }: { value: number; caption: string }) {
+  return (
+    <span className="flex items-baseline gap-1">
+      <span className="font-mono text-2xl font-semibold tabular-nums">{value}</span>
+      <span className="text-muted-foreground text-sm">{caption}</span>
+    </span>
   )
 }
 
 function UpdatesTile({
   host,
-  lastPackageChange,
+  busy,
   onChange,
 }: {
   host: Host
-  lastPackageChange: Change | undefined
+  busy: Change | undefined
   onChange: (p: PendingChange) => void
 }) {
   const updates = useSystemResource<Updates>(host, "updates")
@@ -106,48 +169,48 @@ function UpdatesTile({
   const data = updates.data
   const upToDate = data !== undefined && data.upgradable.length === 0 && data.removals.length === 0
   const security = data?.upgradable.filter((u) => u.security).length ?? 0
-  const failed = lastPackageChange !== undefined && lastPackageChange.state === "failed" ? lastPackageChange : undefined
 
-  let status: { status: "ok" | "warn" | "error"; label: string } | undefined
-  if (data?.dpkgInterrupted) status = { status: "error", label: "Interrupted" }
+  let status: { status: Status; label: string } | undefined
+  if (offline) status = HOST_OFFLINE
+  else if (data?.dpkgInterrupted) status = { status: "error", label: "Interrupted" }
+  else if (busy !== undefined) status = { status: "warn", label: "Busy" }
   else if (upToDate) status = { status: "ok", label: "Up to date" }
   else if (data !== undefined) status = { status: "warn", label: `${data.upgradable.length} upgradable` }
 
-  return (
-    <Tile
-      icon={Download}
-      title="Updates"
-      greyed={offline}
-      loading={updates.isPending && !offline}
-      status={status}
-      actions={
-        <>
-          <Button size="sm" variant="outline" disabled={offline} onClick={() => onChange(REFRESH)}>
-            <RefreshCw aria-hidden />
-            Refresh
-          </Button>
-          <Button
-            size="sm"
-            disabled={offline || data === undefined || upToDate}
-            onClick={() => onChange({ action: "system.packages.upgrade", title: `Upgrade ${host.name}`, input: { all: true, names: [] } })}
-          >
-            Upgrade all
-          </Button>
-        </>
-      }
+  const upgradeAll = (
+    <Button
+      size="sm"
+      disabled={offline || data === undefined}
+      onClick={() => onChange({ action: "system.packages.upgrade", title: `Upgrade ${host.name}`, input: { all: true, names: [] } })}
     >
-      {updates.isError && <TileError error={updates.error} onRetry={() => void updates.refetch()} disabled={offline} />}
-      {updates.isPending && !offline && <TileSkeleton />}
-      {data !== undefined && (
+      Upgrade all
+    </Button>
+  )
+  const actions = offline ? (
+    upgradeAll
+  ) : (
+    <>
+      <Button size="sm" variant="outline" onClick={() => onChange(REFRESH)}>
+        <RefreshCw aria-hidden />
+        Refresh
+      </Button>
+      {!upToDate && upgradeAll}
+    </>
+  )
+
+  return (
+    <Tile title="Updates" greyed={offline} loading={updates.isPending && !offline} status={status} actions={actions}>
+      {offline && <LastSeen host={host} testId="state-offline" />}
+      {!offline && updates.isError && <TileError error={updates.error} onRetry={() => void updates.refetch()} />}
+      {!offline && updates.isPending && <TileSkeleton />}
+      {!offline && data !== undefined && (
         <>
           {upToDate ? (
-            <CircleCheck aria-hidden className="text-success-text size-8" data-testid="state-upToDate" />
+            <CircleCheck role="img" aria-label="Up to date" className="text-success-text size-8" data-testid="state-upToDate" />
           ) : (
-            <div className="@container">
-              <div className="grid grid-cols-1 gap-2 @min-[22rem]:grid-cols-2">
-                <StatTile icon={Download} figure={data.upgradable.length} caption="Upgradable" />
-                <StatTile icon={ShieldAlert} figure={security} caption="Security" />
-              </div>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <Figure value={data.upgradable.length} caption="pending" />
+              <Figure value={security} caption="security" />
             </div>
           )}
           <span className="text-muted-foreground text-xs">{data.refreshedAt === null ? "Never refreshed" : `Refreshed ${formatTime(data.refreshedAt)}`}</span>
@@ -155,8 +218,7 @@ function UpdatesTile({
             <Alert variant="destructive" role="alert" data-testid="state-dpkgInterrupted">
               <AlertTitle as="h4">Package installation was interrupted</AlertTitle>
               <AlertDescription>
-                <Button size="sm" variant="outline" disabled={offline} onClick={() => onChange(REPAIR)}>
-                  <Wrench aria-hidden />
+                <Button size="sm" variant="outline" onClick={() => onChange(REPAIR)}>
                   Repair packages
                 </Button>
               </AlertDescription>
@@ -165,18 +227,12 @@ function UpdatesTile({
           {data.failedSources.length > 0 && (
             <Alert variant="warning" data-testid="state-failedSources">
               <AlertTitle as="h4">{`${data.failedSources.length} ${data.failedSources.length === 1 ? "source" : "sources"} failed at the last refresh`}</AlertTitle>
-              <AlertDescription>
-                <ul className="font-mono text-xs break-all">
-                  {data.failedSources.map((source) => (
-                    <li key={source}>{source}</li>
-                  ))}
-                </ul>
-              </AlertDescription>
+              <AlertDescription className="font-mono text-xs break-all">{data.failedSources.join(", ")}</AlertDescription>
             </Alert>
           )}
         </>
       )}
-      {failed !== undefined && <FailedChange change={failed} disabled={offline} onRetry={onChange} />}
+      {!offline && busy !== undefined && <BusyAlert host={host} change={busy} disabled={offline} onRetry={onChange} />}
     </Tile>
   )
 }
@@ -186,14 +242,16 @@ function AutoUpdatesTile({ host, onChange }: { host: Host; onChange: (p: Pending
   const offline = !host.online
   const data = auto.data
   const switchId = useId()
-  let status: { status: "ok" | "off"; label: string } | undefined
-  if (data !== undefined) status = !data.installed ? { status: "off", label: "Not installed" } : data.enabled ? { status: "ok", label: "On" } : { status: "off", label: "Off" }
+  let status: { status: Status; label: string } | undefined
+  if (offline) status = HOST_OFFLINE
+  else if (data !== undefined) status = !data.installed ? { status: "off", label: "Not installed" } : data.enabled ? { status: "ok", label: "On" } : { status: "off", label: "Off" }
 
   return (
-    <Tile icon={CalendarClock} title="Automatic updates" greyed={offline} loading={auto.isPending && !offline} status={status}>
-      {auto.isError && <TileError error={auto.error} onRetry={() => void auto.refetch()} disabled={offline} />}
-      {auto.isPending && !offline && <TileSkeleton />}
-      {data?.installed === true && (
+    <Tile title="Automatic updates" greyed={offline} loading={auto.isPending && !offline} status={status}>
+      {offline && <LastSeen host={host} />}
+      {!offline && auto.isError && <TileError error={auto.error} onRetry={() => void auto.refetch()} />}
+      {!offline && auto.isPending && <TileSkeleton />}
+      {!offline && data?.installed === true && (
         <span className="flex items-center gap-2 text-sm">
           <Switch
             id={switchId}
@@ -206,7 +264,7 @@ function AutoUpdatesTile({ host, onChange }: { host: Host; onChange: (p: Pending
           <label htmlFor={switchId}>Security updates</label>
         </span>
       )}
-      {data?.installed === false && (
+      {!offline && data?.installed === false && (
         <div>
           <Button
             size="sm"
@@ -245,17 +303,13 @@ function OverviewTiles({ host }: { host: Host }) {
   const list = changes.data?.changes ?? []
   const lastReboot = list.find((c) => c.action === "system.host.reboot")
   const lastPackageChange = list.find((c) => isPackageChange(c.action))
+  const failed = lastPackageChange?.state === "failed" ? lastPackageChange : undefined
+  const busy = failed?.error?.code === "system.apt_busy" ? failed : undefined
 
   return (
     <div className="flex flex-col gap-4">
-      {!host.online && (
-        <Alert variant="warning" role="status" data-testid="state-offline">
-          <AlertTitle as="h3">Host offline</AlertTitle>
-          <AlertDescription>{`Last seen ${formatTime(host.lastSeenAt)}`}</AlertDescription>
-        </Alert>
-      )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <UpdatesTile host={host} lastPackageChange={lastPackageChange} onChange={setPending} />
+        <UpdatesTile host={host} busy={busy} onChange={setPending} />
         <RebootTile
           host={host}
           bootTime={summary.data?.bootTime}
@@ -265,6 +319,7 @@ function OverviewTiles({ host }: { host: Host }) {
         />
         <AutoUpdatesTile host={host} onChange={setPending} />
         <DockerTile host={host} />
+        {failed !== undefined && busy === undefined && <LastChangeTile host={host} change={failed} onRetry={setPending} />}
       </div>
       <SystemChange hostId={host.id} pending={pending} onClose={() => setPending(null)} />
     </div>

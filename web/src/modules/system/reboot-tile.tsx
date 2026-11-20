@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react"
-import { ArrowRight, Power } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 import { Button } from "darkraise-ui/components/button"
 import type { Host } from "@/api/types"
 import { InfoTip } from "@/components/visual/info-tip"
 import type { Status } from "@/components/visual/status"
 import { formatDuration, formatTime } from "@/lib/format"
 import { SystemChange, type PendingChange } from "./system-change"
-import { Tile, TileError, TileSkeleton } from "./tile"
-import type { RebootOutput, RebootState } from "./types"
+import { LastSeen, Tile, TileError, TileSkeleton } from "./tile"
+import { HOST_OFFLINE, type RebootOutput, type RebootState } from "./types"
 
 const REBOOT_ACTION = "system.host.reboot"
 const NOT_STARTED_AFTER_MS = 2 * 60_000
@@ -139,17 +139,17 @@ export function RebootTile({ host, bootTime, lastReboot, now: fixedNow, state, r
   if (phase.kind === "rebooting") body = <span className="text-sm tabular-nums">{`For ${formatDuration(Math.max(0, now - phase.at) / 1000)}`}</span>
   else if (phase.kind === "scheduled") body = <span className="text-sm tabular-nums">{`At ${formatTime(new Date(phase.at).toISOString())}`}</span>
   else if (phase.kind === "back") body = <span className="text-sm tabular-nums">{`Up ${formatDuration(Math.max(0, now - phase.bootTime) / 1000)}`}</span>
+  else if (offline && phase.kind === "idle") body = <LastSeen host={host} />
   else if (state !== undefined) body = <RebootDetails state={state} tips={!offline} />
   else if (read?.error) body = <TileError error={read.error} onRetry={read.retry} disabled={offline} />
   else if (read?.pending && !offline) body = <TileSkeleton />
 
   return (
     <Tile
-      icon={Power}
       title="Reboot"
       greyed={offline}
       loading={state === undefined && read?.pending === true && !offline}
-      status={phaseStatus(phase, state)}
+      status={offline && phase.kind === "idle" ? HOST_OFFLINE : phaseStatus(phase, state)}
       actions={
         <Button
           size="sm"

@@ -2,7 +2,6 @@ import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test, vi } from "vitest"
 import type { Host } from "@/api/types"
-import { formatTime } from "@/lib/format"
 import { makeHost, renderWithProviders, stubFetch, type StubHandler } from "@/test/utils"
 import { HostsPage } from "./hosts"
 
@@ -22,7 +21,7 @@ const hosts: Host[] = [
   { id: "h2", name: "db-1", isLocal: false, state: "enrolled", online: false, lastSeenAt: null, agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [], ingestion: null },
 ]
 
-test("lists hosts with the local marker and module states", async () => {
+test("lists hosts with the local marker and module icons", async () => {
   const calls = stubFetch({ [HOSTS]: { body: { output: { hosts } } } })
   renderWithProviders(<HostsPage />, TABLE)
   const link = await screen.findByRole("link", { name: "web-1" })
@@ -32,10 +31,10 @@ test("lists hosts with the local marker and module states", async () => {
   const cells = within(row)
   expect(cells.getByText("This controller").textContent).toBe("This controller")
   expect(cells.getByText("Online").textContent).toBe("Online")
-  expect(cells.getByText("hostinfo: on").textContent).toBe("hostinfo: on")
-  expect(cells.getByText("docker: unavailable").textContent).toBe("docker: unavailable")
-  expect(cells.getByText("ufw: off").textContent).toBe("ufw: off")
-  expect(cells.getByText("docker: docker is not installed").textContent).toBe("docker: docker is not installed")
+  const modules = within(cells.getByRole("list", { name: "Modules" }))
+  modules.getByText("Host information")
+  expect(modules.getByText("Docker (unavailable)").closest("li")?.getAttribute("title")).toBe("Docker (unavailable): docker is not installed")
+  expect(modules.queryByText(/ufw/i)).toBeNull()
 
   const other = screen.getByRole("link", { name: "db-1" }).closest("tr")
   if (other === null) throw new Error("no row")
@@ -54,8 +53,19 @@ test("marks only a host whose journal ingestion fails, with the error beside it"
   const row = (await screen.findByRole("link", { name: "cache-1" })).closest("tr")
   if (row === null) throw new Error("no row")
   within(row).getByText("Journal ingestion failing")
-  within(row).getByText("agent unreachable")
+  await userEvent.click(within(row).getByRole("button", { name: "Why journal ingestion fails" }))
+  expect((await screen.findAllByText("agent unreachable")).length).toBeGreaterThan(0)
   expect(screen.getAllByText("Journal ingestion failing")).toHaveLength(1)
+})
+
+test("a failed host list read offers Retry, which reads the list again", async () => {
+  let calls = 0
+  stubFetch({ [HOSTS]: () => (++calls === 1 ? { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "the database is busy", code: "store.busy" } } : { body: { output: { hosts } } }) })
+  renderWithProviders(<HostsPage />)
+  await screen.findByText("the database is busy")
+  await userEvent.click(screen.getByRole("button", { name: "Retry" }))
+  await screen.findByRole("article", { name: "web-1" })
+  expect(calls).toBe(2)
 })
 
 test("says so when there are no hosts", async () => {
@@ -64,7 +74,7 @@ test("says so when there are no hosts", async () => {
   expect((await screen.findByText("No hosts yet")).textContent).toBe("No hosts yet")
 })
 
-test("UI-1: shows last seen, versions, platform and the enrollment state", async () => {
+test("UI-3: the table shows the platform, the enrollment state and memory as on the board", async () => {
   stubFetch({ [HOSTS]: { body: { output: { hosts: [
     makeHost({ id: "a", name: "web-1", lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.2.0", protocolVersion: 3, os: "debian-12", arch: "arm64" }),
     makeHost({ id: "b", name: "new-1", state: "pending", online: false, lastSeenAt: null, agentVersion: null, protocolVersion: null, os: null, arch: null }),
@@ -77,29 +87,24 @@ test("UI-1: shows last seen, versions, platform and the enrollment state", async
     return within(tr)
   }
   const web = await row("web-1")
-  web.getByText(`Last seen ${formatTime("2026-11-11T08:00:00Z")}`)
-  web.getByText("1.2.0")
-  web.getByText("protocol 3")
-  web.getByText("debian-12 / arm64")
+  web.getByText("debian-12 · arm64")
   expect(web.queryByText("Pending")).toBeNull()
   const fresh = await row("new-1")
   fresh.getByText("Pending")
-  fresh.getByText("Never seen")
-  expect(fresh.getAllByText("—")).toHaveLength(3)
+  expect(fresh.getAllByText("—")).toHaveLength(2)
   const old = await row("old-1")
   old.getByText("Revoked")
   old.getByText("Unsupported")
-  expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Status", "Version", "Platform", "Modules"])
+  expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Host", "Status", "System", "Memory", "Modules"])
 })
 
-test("UX-1: a worst-case name and version wrap inside their cells", async () => {
+test("UX-9: a worst-case name is truncated in its cell with the full name in its title", async () => {
   const name = `web-${"x".repeat(59)}`
-  const version = `1.0.0-beta.1+${"a".repeat(27)}`
-  stubFetch({ [HOSTS]: { body: { output: { hosts: [makeHost({ name, agentVersion: version })] } } } })
+  stubFetch({ [HOSTS]: { body: { output: { hosts: [makeHost({ name })] } } } })
   renderWithProviders(<HostsPage />, TABLE)
   const link = await screen.findByRole("link", { name })
-  expect(link.className).toContain("break-all")
-  expect(screen.getByText(version).closest(".break-all")).not.toBeNull()
+  expect(link.className).toContain("truncate")
+  expect(link.getAttribute("title")).toBe(name)
 })
 
 test("UX-12: the table scrolls inside its own container", async () => {
@@ -163,8 +168,9 @@ test("UX-9: a failed summary read shows the error icon with the reason in a tip,
   })
   renderWithProviders(<HostsPage />)
   const card = within(await screen.findByRole("article", { name }))
-  await card.findByRole("img", { name: "Summary unavailable" })
-  await userEvent.click(card.getByRole("button", { name: "Why the summary is unavailable" }))
+  await card.findByRole("img", { name: "Host information unavailable" })
+  card.getByText("Usage unavailable")
+  await userEvent.click(card.getByRole("button", { name: "Why unavailable" }))
   expect((await screen.findAllByText("the agent did not answer")).length).toBeGreaterThan(0)
   expect(card.getByText(name).className).toContain("break-all")
   expect(card.queryByRole("img", { name: /^Memory/ })).toBeNull()
@@ -182,6 +188,6 @@ test("A51: 50 slow hosts render frames at once, keep 6 reads in flight, and time
   await vi.advanceTimersByTimeAsync(4900)
   expect(peak).toBeLessThanOrEqual(6)
   await vi.advanceTimersByTimeAsync(200)
-  expect(screen.getAllByRole("img", { name: /Summary unavailable/ }).length).toBeGreaterThanOrEqual(6)
+  expect(screen.getAllByRole("img", { name: /Host information unavailable/ }).length).toBeGreaterThanOrEqual(6)
   vi.useRealTimers()
 })

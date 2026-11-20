@@ -67,6 +67,6 @@ test("the host list has one level-one heading, the page title and a table with n
   renderWithProviders(<HostsPage />, { path: "/?view=table" })
   await screen.findByRole("link", { name: "web-1" })
   expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual(["Hosts"])
-  expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Name", "Status", "Version", "Platform", "Modules"])
+  expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Host", "Status", "System", "Memory", "Modules"])
   expect(document.title).toBe("Hosts · Darkpanel")
 })

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Container, Download } from "lucide-react"
+import { Download } from "lucide-react"
+import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { readResource } from "@/api/client"
 import type { Host } from "@/api/types"
@@ -8,8 +9,8 @@ import { ChangeDialog } from "@/components/change-dialog"
 import { StatusPill } from "@/components/visual/status-pill"
 import { FIREWALL_MODULE, dockerQueryKey, statusQueryKey, type DockerStatus, type FirewallStatus } from "@/modules/firewall/types"
 import { DockerUninstall } from "./docker-uninstall"
-import { Tile, TileError, TileSkeleton } from "./tile"
-import { SYSTEM_ACTION_VERSION, SYSTEM_MODULE, type DockerState } from "./types"
+import { LastSeen, Tile, TileError, TileSkeleton } from "./tile"
+import { SYSTEM_ACTION_VERSION, SYSTEM_MODULE, HOST_OFFLINE, type DockerState } from "./types"
 
 type Open = null | "install" | "update"
 
@@ -67,10 +68,17 @@ export function DockerTile({ host }: { host: Host }) {
   }
 
   return (
-    <Tile icon={Container} title="Docker Engine" greyed={offline} loading={docker.isPending && !offline} status={d === undefined ? undefined : dockerStatus(d)} actions={actions}>
-      {docker.isError && <TileError error={docker.error} onRetry={() => void docker.refetch()} disabled={offline} />}
-      {docker.isPending && !offline && <TileSkeleton />}
-      {d?.state === "docker-ce" && (
+    <Tile
+      title="Docker Engine"
+      greyed={offline}
+      loading={docker.isPending && !offline}
+      status={offline ? HOST_OFFLINE : d === undefined ? undefined : dockerStatus(d)}
+      actions={actions}
+    >
+      {offline && <LastSeen host={host} />}
+      {!offline && docker.isError && <TileError error={docker.error} onRetry={() => void docker.refetch()} />}
+      {!offline && docker.isPending && <TileSkeleton />}
+      {!offline && d?.state === "docker-ce" && (
         <>
           <span className="text-sm">
             docker-ce <span className="font-mono tabular-nums">{d.version ?? "—"}</span>
@@ -83,12 +91,14 @@ export function DockerTile({ host }: { host: Host }) {
           {uninstalling && !offline && <DockerUninstall host={host} docker={d} integrationOn={integration.data?.enabled === true} />}
         </>
       )}
-      {d?.state === "distro" && (
-        <ul className="font-mono text-xs break-all">
+      {!offline && d?.state === "distro" && (
+        <span className="flex flex-wrap gap-2">
           {(d.conflicts ?? []).map((name) => (
-            <li key={name}>{name}</li>
+            <Badge key={name} variant="warning-subtle">
+              {name}
+            </Badge>
           ))}
-        </ul>
+        </span>
       )}
       <ChangeDialog
         open={open === "install"}

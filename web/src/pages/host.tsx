@@ -1,15 +1,20 @@
 import { Suspense } from "react"
 import { useParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
-import { PageHeader } from "darkraise-ui/layout"
+import { Server } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "darkraise-ui/components/breadcrumb"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts } from "@/api/client"
 import type { Host } from "@/api/types"
+import { SectionHeader } from "@/components/visual/section-header"
+import { SkeletonTiles } from "@/components/visual/skeleton-tiles"
 import { usePageTitle } from "@/lib/page-title"
 import { enabledModules, moduleRegistry, moduleView, type ModuleView } from "@/modules/registry"
+import { AdapterLink } from "@/router/adapter-link"
 import { HostOverview } from "./host-overview"
+import { hostStatus } from "./host-status"
 
 function hostTitle(loaded: boolean, name: string | undefined, moduleId: string | undefined): string {
   if (!loaded) return "Host"
@@ -70,13 +75,55 @@ function ModuleBody({ view, host }: { view: ModuleView; host: Host }) {
   }
 }
 
+type Tab = { label: string; value: string; href: string }
+
+// The kit's PageHeader takes its title as a string, so the host page draws the
+// same header parts itself to carry the icon and status pill beside the name.
+function HostHeader({ host, tabs }: { host: Host; tabs: Tab[] }) {
+  return (
+    <div className="dr-page-header">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <AdapterLink to="/">Hosts</AdapterLink>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage className="wrap-anywhere">{host.name}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+      <SectionHeader level={1} icon={Server} title={host.name} status={hostStatus(host)} />
+      <nav aria-label="Page sections" className="dr-page-header-tabs overflow-x-auto">
+        {tabs.map((tab) => (
+          <AdapterLink key={tab.value} to={tab.href} className="dr-page-header-tab shrink-0 whitespace-nowrap" activeClassName="active">
+            {tab.label}
+          </AdapterLink>
+        ))}
+      </nav>
+    </div>
+  )
+}
+
+function HostLoading() {
+  return (
+    <div className="flex flex-col gap-4">
+      <SectionHeader level={1} icon={Server} title="Host" status={{ status: "off", label: "Loading" }} />
+      <SkeletonTiles count={4} label="Loading the host" />
+      <SkeletonTiles count={4} />
+    </div>
+  )
+}
+
 export function HostPage() {
   const { hostId = "", moduleId } = useParams()
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
   const host = hosts.data?.hosts.find((h) => h.id === hostId)
   usePageTitle(hostTitle(hosts.isSuccess, host?.name, moduleId))
 
-  if (hosts.isPending) return <Spinner aria-label="Loading the host" />
+  if (hosts.isPending) return <HostLoading />
   if (hosts.isError) {
     return (
       <Alert variant="destructive" role="alert">
@@ -87,11 +134,11 @@ export function HostPage() {
   if (host === undefined) return <EmptyState title="Host not found" description={`No host has the id ${hostId}.`} />
 
   const base = `/hosts/${encodeURIComponent(host.id)}`
-  const tabs = [
+  const tabs: Tab[] = [
     { label: "Overview", value: "overview", href: base },
     ...enabledModules(moduleRegistry, host).map((m) => ({ label: m.label, value: m.id, href: `${base}/${m.id}` })),
   ]
-  const header = <PageHeader breadcrumbs={[{ label: "Hosts", href: "/" }, { label: host.name }]} title={host.name} tabs={tabs} />
+  const header = <HostHeader host={host} tabs={tabs} />
 
   if (moduleId === undefined) {
     return (

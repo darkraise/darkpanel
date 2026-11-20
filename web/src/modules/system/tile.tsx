@@ -6,8 +6,18 @@ import { Button } from "darkraise-ui/components/button"
 import { Card, CardContent, CardHeader } from "darkraise-ui/components/card"
 import { Skeleton } from "darkraise-ui/components/skeleton"
 import { errorMessage } from "@/api/client"
+import type { Host } from "@/api/types"
 import { StatusPill } from "@/components/visual/status-pill"
 import type { Status } from "@/components/visual/status"
+import { formatTime } from "@/lib/format"
+
+export function LastSeen({ host, testId }: { host: Host; testId?: string }) {
+  return (
+    <span className="text-muted-foreground text-sm" data-testid={testId}>
+      {host.lastSeenAt === null ? "Never seen" : `Last seen ${formatTime(host.lastSeenAt)}`}
+    </span>
+  )
+}
 
 // Tile is one System overview tile: a region named by its title, a status
 // pill, a body and a row of actions. A greyed tile belongs to an offline host.
@@ -20,7 +30,7 @@ export function Tile({
   actions,
   children,
 }: {
-  icon: LucideIcon
+  icon?: LucideIcon
   title: string
   status?: { status: Status; label: string; live?: boolean }
   greyed?: boolean
@@ -38,7 +48,7 @@ export function Tile({
     >
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 p-4 pb-2">
         <h3 id={id} className="flex items-center gap-2 text-sm font-medium">
-          <Icon aria-hidden className="text-muted-foreground size-4" />
+          {Icon && <Icon aria-hidden className="text-muted-foreground size-4" />}
           {title}
         </h3>
         {status && <StatusPill status={status.status} label={status.label} live={status.live} />}

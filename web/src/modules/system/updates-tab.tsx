@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowRight, CircleCheck, Pause, ShieldAlert, Trash2, type LucideIcon } from "lucide-react"
+import { ArrowRight, CircleCheck } from "lucide-react"
 import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Checkbox } from "darkraise-ui/components/checkbox"
@@ -9,30 +9,29 @@ import { Skeleton } from "darkraise-ui/components/skeleton"
 import { readResource } from "@/api/client"
 import type { Host } from "@/api/types"
 import { InfoTip } from "@/components/visual/info-tip"
+import { StatusPill } from "@/components/visual/status-pill"
 import { SystemChange, type PendingChange } from "./system-change"
 import { TileError } from "./tile"
 import { SYSTEM_MODULE, type Updates, type Upgradable } from "./types"
 
-function Group({ icon: Icon, label, count, tip, children }: { icon: LucideIcon; label: string; count: number; tip?: string; children: ReactNode }) {
+function Group({ label, tip, children }: { label: string; tip?: string; children: ReactNode }) {
   return (
-    <section role="group" aria-label={label} className="flex flex-col gap-2">
-      <h3 className="flex items-center gap-2 text-sm font-medium">
-        <Icon aria-hidden className="text-muted-foreground size-4" />
+    <section role="group" aria-label={label} className="flex flex-col gap-1">
+      <h3 className="flex items-center gap-1 text-sm font-semibold">
         {label}
-        <span className="text-muted-foreground font-mono tabular-nums">{count}</span>
         {tip !== undefined && <InfoTip label={`About ${label.toLowerCase()}`}>{tip}</InfoTip>}
       </h3>
-      <ul className="divide-border flex flex-col divide-y rounded-md border">{children}</ul>
+      {children}
     </section>
   )
 }
 
 function Versions({ from, to }: { from: string; to: string }) {
   return (
-    <span className="text-muted-foreground flex min-w-0 flex-wrap items-center gap-1 font-mono text-xs tabular-nums">
+    <span className="flex min-w-0 flex-wrap items-center gap-1 font-mono text-sm tabular-nums">
       <span className="break-all">{from}</span>
       <ArrowRight aria-label="to" className="size-3.5 shrink-0" />
-      <span className="text-foreground break-all">{to}</span>
+      <span className="break-all">{to}</span>
     </span>
   )
 }
@@ -42,22 +41,27 @@ function UpgradableRow({ pkg, checked, onToggle }: { pkg: Upgradable; checked: b
   return (
     <li className="flex items-start gap-3 p-2">
       <Checkbox id={id} aria-label={pkg.name} checked={checked} onCheckedChange={(v) => onToggle(v === true)} className="mt-0.5" />
-      <div className="grid min-w-0 flex-1 gap-1 @min-[40rem]:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)] @min-[40rem]:items-center">
+      <div className="grid min-w-0 flex-1 gap-1 @min-[40rem]:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_auto] @min-[40rem]:items-center">
         <label htmlFor={id} className="font-mono text-sm break-all">
           {pkg.name}
         </label>
         <Versions from={pkg.from} to={pkg.to} />
-        <span className="text-muted-foreground truncate text-xs">{pkg.origin}</span>
+        <span>{pkg.security && <StatusPill status="warn" label="Security" />}</span>
       </div>
     </li>
   )
+}
+
+function Rows({ children }: { children: ReactNode }) {
+  return <ul className="divide-border flex flex-col divide-y rounded-md border">{children}</ul>
 }
 
 // UpdatesTab lists the upgradable packages, security first, with the
 // packages a full upgrade removes and the held-back ones in their own
 // groups (UI-5, UX-1). The selection upgrades through the change dialog.
 export function UpdatesTab({ host }: { host: Host }) {
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  // Until the operator changes it, the selection is the security updates.
+  const [chosen, setChosen] = useState<ReadonlySet<string> | null>(null)
   const [pending, setPending] = useState<PendingChange | null>(null)
   const updates = useQuery({
     queryKey: ["resource", host.id, "system.updates"],
@@ -81,12 +85,13 @@ export function UpdatesTab({ host }: { host: Host }) {
   }
   const security = data.upgradable.filter((u) => u.security)
   const other = data.upgradable.filter((u) => !u.security)
+  const selected = chosen ?? new Set(security.map((u) => u.name))
   // A selection only ever names packages the latest read still lists.
   const names = data.upgradable.map((u) => u.name).filter((n) => selected.has(n))
 
   function toggle(name: string, on: boolean) {
-    setSelected((cur) => {
-      const next = new Set(cur)
+    setChosen((cur) => {
+      const next = new Set(cur ?? selected)
       if (on) next.add(name)
       else next.delete(name)
       return next
@@ -97,7 +102,8 @@ export function UpdatesTab({ host }: { host: Host }) {
 
   return (
     <div className="@container flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-muted-foreground text-sm tabular-nums">{`${names.length} of ${data.upgradable.length} selected`}</span>
         <Button
           size="sm"
           disabled={names.length === 0}
@@ -105,49 +111,35 @@ export function UpdatesTab({ host }: { host: Host }) {
         >
           Upgrade selected
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={data.upgradable.length === 0}
-          onClick={() => setPending({ action: "system.packages.upgrade", title: `Upgrade ${host.name}`, input: { all: true, names: [] } })}
-        >
-          Upgrade all
-        </Button>
-        <span className="text-muted-foreground text-sm tabular-nums">{`${names.length} selected`}</span>
       </div>
       {security.length > 0 && (
-        <Group icon={ShieldAlert} label="Security" count={security.length}>
-          {security.map(row)}
+        <Group label="Security">
+          <Rows>{security.map(row)}</Rows>
         </Group>
       )}
       {other.length > 0 && (
-        <Group icon={ArrowRight} label="Other updates" count={other.length}>
-          {other.map(row)}
+        <Group label="Other updates">
+          <Rows>{other.map(row)}</Rows>
         </Group>
       )}
       {data.removals.length > 0 && (
-        <Group icon={Trash2} label="Will be removed" count={data.removals.length} tip="A full upgrade removes these packages. Upgrading selected packages never does.">
-          {data.removals.map((name) => (
-            <li key={name} className="p-2 font-mono text-sm break-all">
-              {name}
-            </li>
-          ))}
+        <Group label="Will be removed">
+          <span className="flex flex-wrap gap-2">
+            {data.removals.map((name) => (
+              <Badge key={name} variant="destructive-subtle" className="font-mono break-all">
+                {name}
+              </Badge>
+            ))}
+          </span>
         </Group>
       )}
       {data.heldBack.length > 0 && (
-        <Group
-          icon={Pause}
-          label="Held back"
-          count={data.heldBack.length}
-          tip="Held packages are pinned with apt-mark hold. Phased ones reach this host later in a staged rollout."
-        >
-          {data.heldBack.map((h) => (
-            <li key={h.name} className="flex flex-wrap items-center gap-2 p-2">
-              <span className="min-w-0 font-mono text-sm break-all">{h.name}</span>
-              <span className="text-muted-foreground font-mono text-xs">{h.version}</span>
-              <Badge variant="outline">{h.reason}</Badge>
-            </li>
-          ))}
+        <Group label="Held back" tip="Held packages stay until unheld. Phased updates reach this host later.">
+          <span className="flex flex-wrap gap-2">
+            {data.heldBack.map((h) => (
+              <StatusPill key={h.name} status="off" label={`${h.name} · ${h.reason}`} />
+            ))}
+          </span>
         </Group>
       )}
       <SystemChange hostId={host.id} pending={pending} onClose={() => setPending(null)} />

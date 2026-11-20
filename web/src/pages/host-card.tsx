@@ -24,7 +24,7 @@ const READ_TIMEOUT_MS = 5000
 
 class SummaryTimeout extends Error {
   constructor() {
-    super("The host did not answer within 5 seconds.")
+    super("The host information read timed out after 5 seconds.")
   }
 }
 
@@ -76,14 +76,32 @@ function readUsage(hostId: string, outer: AbortSignal): Promise<Usage> {
 
 const gib = (bytes: number) => Math.round((bytes / 2 ** 30) * 10) / 10
 
-function UsageFigures({ hostId }: { hostId: string }) {
-  const usage = useQuery({
+function useUsage(hostId: string) {
+  return useQuery({
     queryKey: ["resource", hostId, "hostinfo.summary"],
     queryFn: ({ signal }) => readUsage(hostId, signal),
     staleTime: 30_000,
     refetchInterval: 60_000,
     retry: false,
   })
+}
+
+function UsageError({ error }: { error: unknown }) {
+  return (
+    <div className="flex items-center gap-1 text-sm">
+      <StatusDot status="error" label="Host information unavailable" />
+      <span aria-hidden>Usage unavailable</span>
+      <InfoTip label="Why unavailable">{errorMessage(error)}</InfoTip>
+    </div>
+  )
+}
+
+const memoryBar = (memory: Usage["memory"]) => (
+  <UsageBar used={gib(memory.totalBytes - memory.availableBytes)} total={gib(memory.totalBytes)} label="Memory" unit="GiB" />
+)
+
+function UsageFigures({ hostId }: { hostId: string }) {
+  const usage = useUsage(hostId)
   if (usage.isPending) {
     return (
       <div aria-busy="true" className="flex flex-col gap-3">
@@ -93,29 +111,40 @@ function UsageFigures({ hostId }: { hostId: string }) {
       </div>
     )
   }
-  if (usage.isError) {
-    return (
-      <div className="flex items-center gap-1 text-sm">
-        <StatusDot status="error" label="Summary unavailable" />
-        <span aria-hidden>Summary unavailable</span>
-        <InfoTip label="Why the summary is unavailable">{errorMessage(usage.error)}</InfoTip>
-      </div>
-    )
-  }
+  if (usage.isError) return <UsageError error={usage.error} />
   const { memory, rootFs } = usage.data
   return (
     <>
-      <UsageBar used={gib(memory.totalBytes - memory.availableBytes)} total={gib(memory.totalBytes)} label="Memory" unit="GiB" />
+      {memoryBar(memory)}
       <UsageBar used={gib(rootFs.totalBytes - rootFs.availableBytes)} total={gib(rootFs.totalBytes)} label="Disk" unit="GiB" />
     </>
   )
+}
+
+function LiveMemory({ hostId }: { hostId: string }) {
+  const usage = useUsage(hostId)
+  if (usage.isPending) {
+    return (
+      <div aria-busy="true">
+        <span className="sr-only">Loading the usage</span>
+        <Skeleton className="h-6 w-full" />
+      </div>
+    )
+  }
+  if (usage.isError) return <UsageError error={usage.error} />
+  return memoryBar(usage.data.memory)
+}
+
+export function MemoryCell({ host }: { host: Host }) {
+  if (host.state !== "enrolled" || !host.online) return <span className="text-muted-foreground">—</span>
+  return <LiveMemory hostId={host.id} />
 }
 
 function moduleLabel(id: string): string {
   return moduleRegistry.find((m) => m.id === id)?.label ?? id
 }
 
-function ModuleIcons({ host }: { host: Host }) {
+export function ModuleIcons({ host }: { host: Host }) {
   const enabled = host.modules.filter((m) => m.enabled)
   if (enabled.length === 0) return null
   return (

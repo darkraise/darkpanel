@@ -144,7 +144,7 @@ describe("host page", () => {
 
   test("UI-2: the host index opens the Overview tab, listed before the module tabs", async () => {
     renderHost("/hosts/h1", [state("hostinfo", true, true)])
-    await screen.findByRole("heading", { level: 2, name: "Host" })
+    await screen.findByRole("heading", { level: 1, name: "web-1" })
     const nav = within(screen.getByRole("navigation", { name: "Page sections" }))
     expect(nav.getAllByRole("link").map((l) => l.textContent)).toEqual(["Overview", "Host information"])
     expect(nav.getByRole("link", { name: "Overview" }).getAttribute("aria-current")).toBe("page")
@@ -154,7 +154,7 @@ describe("host page", () => {
 
   test("UI-2: a host with no module enabled still opens the Overview tab", async () => {
     renderHost("/hosts/h1", [state("hostinfo", false, true)])
-    await screen.findByRole("heading", { level: 2, name: "Host" })
+    await screen.findByRole("heading", { level: 1, name: "web-1" })
     const nav = within(screen.getByRole("navigation", { name: "Page sections" }))
     expect(nav.getAllByRole("link").map((l) => l.textContent)).toEqual(["Overview"])
   })

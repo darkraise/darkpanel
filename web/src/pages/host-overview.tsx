@@ -1,6 +1,6 @@
 import { useId, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Activity, BrickWall, Clock, Container, Cpu, HardDrive, MemoryStick, Network, Package, Server, ShieldCheck, ShieldOff, type LucideIcon } from "lucide-react"
+import { Clock, Cpu, ShieldCheck, ShieldOff } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Badge } from "darkraise-ui/components/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
@@ -11,7 +11,6 @@ import { errorMessage, readAction, readResource } from "@/api/client"
 import type { Host, UpdateStatus } from "@/api/types"
 import { Gauge } from "@/components/visual/gauge"
 import { InfoTip } from "@/components/visual/info-tip"
-import { SectionHeader } from "@/components/visual/section-header"
 import { StatTile } from "@/components/visual/stat-tile"
 import type { Status } from "@/components/visual/status"
 import { StatusDonut } from "@/components/visual/status-donut"
@@ -25,7 +24,6 @@ import type { Summary } from "@/modules/hostinfo/summary-page"
 import { Tile, TileSkeleton } from "@/modules/system/tile"
 import type { RebootState, Updates } from "@/modules/system/types"
 import { TAILSCALE_MODULE, type TailscaleStatus } from "@/modules/tailscale/types"
-import { hostStatus } from "./host-status"
 import { HostRemoval } from "./host-removal"
 import { UpdateNowButton } from "./update-now-dialog"
 import { UpdatePolicyButton } from "./update-policy-dialog"
@@ -62,15 +60,19 @@ function uptime(seconds: number): string {
 function Unavailable({ what, reason }: { what: string; reason: string | null }) {
   return (
     <div className="flex items-center gap-1 text-sm">
-      <StatusDot status="error" label="Unavailable" />
+      <StatusDot status="error" label={`${what} unavailable`} />
       <span aria-hidden>Unavailable</span>
-      {reason !== null && <InfoTip label={`Why ${what} is unavailable`}>{reason}</InfoTip>}
+      {reason !== null && <InfoTip label={`Why ${what.toLowerCase()} is unavailable`}>{reason}</InfoTip>}
     </div>
   )
 }
 
 function Muted({ children }: { children: ReactNode }) {
   return <p className="text-muted-foreground text-sm">{children}</p>
+}
+
+function lastSeen(host: Host): string {
+  return host.lastSeenAt === null ? "Never seen" : `Last seen ${formatTime(host.lastSeenAt)}`
 }
 
 // The first row: memory, disk and swap gauges, then load per core and uptime,
@@ -81,35 +83,27 @@ function FigureRow({ host }: { host: Host }) {
     queryFn: () => readResource<Summary>(host.id, "hostinfo", "summary"),
     enabled: host.online,
   })
-  if (!host.online) {
-    return (
-      <Card>
-        <CardContent className="flex items-center gap-2 p-4 text-sm">
-          <StatusDot status="off" label="Offline" />
-          <span>{host.lastSeenAt === null ? "Never seen" : `Last seen ${formatTime(host.lastSeenAt)}`}</span>
-        </CardContent>
-      </Card>
-    )
-  }
+  const seen = <Muted>{lastSeen(host)}</Muted>
   const s = summary.data
-  const gauge = (title: string, icon: LucideIcon, figure: (s: Summary) => ReactNode) => (
-    <Tile icon={icon} title={title}>
-      {summary.isPending && <TileSkeleton />}
-      {summary.isError && <Unavailable what={title} reason={errorMessage(summary.error)} />}
-      {s !== undefined && <div className="flex justify-center">{figure(s)}</div>}
+  const gauge = (title: string, figure: (s: Summary) => ReactNode) => (
+    <Tile title={title} greyed={!host.online}>
+      {!host.online && seen}
+      {host.online && summary.isPending && <TileSkeleton />}
+      {host.online && summary.isError && <Unavailable what={title} reason={errorMessage(summary.error)} />}
+      {host.online && s !== undefined && <div className="flex justify-center">{figure(s)}</div>}
     </Tile>
   )
-  const load = s === undefined || s.cpu.logicalCount <= 0 ? DASH : (s.load.one / s.cpu.logicalCount).toFixed(2)
+  const load = !host.online || s === undefined || s.cpu.logicalCount <= 0 ? DASH : (s.load.one / s.cpu.logicalCount).toFixed(2)
   return (
     <div className={ROW}>
-      {gauge("Memory", MemoryStick, ({ memory: m }) => <Gauge value={gib(m.totalBytes - m.availableBytes)} max={gib(m.totalBytes)} label="Memory" unit="GiB" />)}
-      {gauge("Disk", HardDrive, ({ rootFs: d }) => <Gauge value={gib(d.totalBytes - d.availableBytes)} max={gib(d.totalBytes)} label="Disk" unit="GiB" />)}
-      {gauge("Swap", Activity, ({ swap: w }) =>
+      {gauge("Memory", ({ memory: m }) => <Gauge value={gib(m.totalBytes - m.availableBytes)} max={gib(m.totalBytes)} label="Memory" unit="GiB" />)}
+      {gauge("Disk", ({ rootFs: d }) => <Gauge value={gib(d.totalBytes - d.availableBytes)} max={gib(d.totalBytes)} label="Disk" unit="GiB" />)}
+      {gauge("Swap", ({ swap: w }) =>
         w.totalBytes === 0 ? <Muted>No swap</Muted> : <Gauge value={gib(w.totalBytes - w.freeBytes)} max={gib(w.totalBytes)} label="Swap" unit="GiB" />,
       )}
       <div className="flex flex-col gap-4">
         <StatTile icon={Cpu} figure={load} caption="Load per core" />
-        <StatTile icon={Clock} figure={s === undefined ? DASH : uptime(s.uptimeSeconds)} caption="Uptime" />
+        <StatTile icon={Clock} figure={!host.online || s === undefined ? DASH : uptime(s.uptimeSeconds)} caption="Uptime" />
       </div>
     </div>
   )
@@ -126,39 +120,44 @@ function gate(host: Host, id: string): ModuleGate {
 }
 
 // GatedTile is one service tile. It is a region in every state, so the row
-// keeps its shape: not enabled, unavailable, offline, loading, failed or read.
+// keeps its shape: offline, not enabled, unavailable, loading, failed or read.
+// Offline, a value read earlier in the session stays with the offline pill.
 function GatedTile({
   host,
   module,
   title,
-  icon,
   absent,
   status,
+  offlineStatus,
   read,
   children,
 }: {
   host: Host
   module: string
   title: string
-  icon: LucideIcon
   absent?: ReactNode
   status?: { status: Status; label: string }
-  read: { pending: boolean; error: unknown }
+  offlineStatus?: { status: Status; label: string }
+  read: { pending: boolean; error: unknown; known: boolean }
   children?: ReactNode
 }) {
   const g = gate(host, module)
   let body: ReactNode
-  let pill = status
-  if (g.kind === "absent") body = absent ?? <Muted>Not enabled</Muted>
+  let pill: { status: Status; label: string } | undefined
+  if (!host.online) {
+    body = read.known ? children : <Muted>{lastSeen(host)}</Muted>
+    pill = read.known ? (offlineStatus ?? status) : undefined
+  } else if (g.kind === "absent") body = absent ?? <Muted>Not enabled</Muted>
   else if (g.kind === "off") body = <Muted>Not enabled</Muted>
   else if (g.kind === "unavailable") body = <Unavailable what={title} reason={g.reason} />
-  else if (!host.online) body = <Muted>Not read while the host is offline.</Muted>
   else if (read.pending) body = <TileSkeleton />
   else if (read.error !== null) body = <Unavailable what={title} reason={errorMessage(read.error)} />
-  else body = children
-  if (g.kind !== "on" || !host.online || read.pending || read.error !== null) pill = undefined
+  else {
+    body = children
+    pill = status
+  }
   return (
-    <Tile icon={icon} title={title} status={pill} greyed={!host.online}>
+    <Tile title={title} status={pill} greyed={!host.online}>
       {body}
     </Tile>
   )
@@ -178,7 +177,6 @@ function UpdatesTile({ host }: { host: Host }) {
       host={host}
       module="system"
       title="Updates"
-      icon={Package}
       absent={
         <div className="flex flex-col items-start gap-1 text-sm">
           <span>Agent update needed</span>
@@ -186,7 +184,7 @@ function UpdatesTile({ host }: { host: Host }) {
         </div>
       }
       status={reboot.data?.required ? { status: "warn", label: "Reboot needed" } : undefined}
-      read={{ pending: updates.isPending, error: updates.error }}
+      read={{ pending: updates.isPending, error: updates.error, known: u !== undefined }}
     >
       {u !== undefined && (
         <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -210,7 +208,7 @@ function containerSegments(containers: DockerContainer[]) {
   return [
     { status: "ok" as const, label: "Running", value: running },
     { status: "error" as const, label: "Exited", value: exited },
-    { status: "off" as const, label: "Other", value: containers.length - running - exited },
+    { status: "off" as const, label: "Stopped", value: containers.length - running - exited },
   ]
 }
 
@@ -221,7 +219,7 @@ function DockerTile({ host }: { host: Host }) {
     enabled: readable(host, DOCKER_MODULE),
   })
   return (
-    <GatedTile host={host} module={DOCKER_MODULE} title="Docker" icon={Container} read={{ pending: containers.isPending, error: containers.error }}>
+    <GatedTile host={host} module={DOCKER_MODULE} title="Docker" read={{ pending: containers.isPending, error: containers.error, known: containers.data !== undefined }}>
       {containers.data !== undefined && <StatusDonut label="Containers" segments={containerSegments(containers.data.containers)} />}
     </GatedTile>
   )
@@ -238,11 +236,18 @@ function FirewallTile({ host }: { host: Host }) {
     f === undefined ? undefined : !f.supported ? { status: "error", label: "Unsupported" } : f.active ? { status: "ok", label: "Active" } : { status: "warn", label: "Inactive" }
   const Shield = f?.active ? ShieldCheck : ShieldOff
   return (
-    <GatedTile host={host} module={FIREWALL_MODULE} title="Firewall" icon={BrickWall} status={pill} read={{ pending: status.isPending, error: status.error }}>
+    <GatedTile
+      host={host}
+      module={FIREWALL_MODULE}
+      title="Firewall"
+      status={pill}
+      offlineStatus={{ status: "off", label: "Last known" }}
+      read={{ pending: status.isPending, error: status.error, known: f !== undefined }}
+    >
       {f !== undefined && (
         <span className="flex items-center gap-2 text-sm">
-          <Shield aria-hidden className={f.active ? "text-success-text size-4" : "text-muted-foreground size-4"} />
-          {f.rules.length === 1 ? "1 rule" : `${f.rules.length} rules`}
+          <Shield aria-hidden className={f.active ? "text-success-text size-5" : "text-muted-foreground size-5"} />
+          <span className="font-mono tabular-nums">{f.rules.length}</span> {f.rules.length === 1 ? "rule" : "rules"}
         </span>
       )}
     </GatedTile>
@@ -275,11 +280,11 @@ function TailscaleTile({ host }: { host: Host }) {
       host={host}
       module={TAILSCALE_MODULE}
       title="Tailscale"
-      icon={Network}
       status={t === undefined ? undefined : tailscalePill(t.backendState)}
-      read={{ pending: status.isPending, error: status.error }}
+      offlineStatus={{ status: "off", label: "Unknown" }}
+      read={{ pending: status.isPending, error: status.error, known: t !== undefined }}
     >
-      {t !== undefined && <span className="font-mono text-sm break-all">{t.self?.addresses[0] ?? DASH}</span>}
+      {t !== undefined && <span className="font-mono text-sm tabular-nums break-all">{t.self?.addresses[0] ?? DASH}</span>}
     </GatedTile>
   )
 }
@@ -288,22 +293,17 @@ function TailscaleTile({ host }: { host: Host }) {
 function AgentTile({ host }: { host: Host }) {
   return (
     <Tile
-      icon={Server}
       title="Agent"
       status={!host.supported && host.agentVersion !== null ? { status: "error", label: "Unsupported" } : undefined}
       actions={
         <>
-          <UpdateNowButton host={host} />
-          <UpdatePolicyButton host={host} />
+          <UpdateNowButton host={host} label="Update agent" size="sm" disabled={!host.online} />
+          <UpdatePolicyButton host={host} label="Change policy" size="sm" />
         </>
       }
     >
-      <span className="font-mono break-all">{host.agentVersion ?? "Not reported"}</span>
-      <div className="flex flex-wrap gap-1">
-        {host.protocolVersion !== null && <Badge variant="outline">{`protocol ${host.protocolVersion}`}</Badge>}
-        {host.os !== null && <Badge variant="outline">{host.os}</Badge>}
-        {host.arch !== null && <Badge variant="outline">{host.arch}</Badge>}
-      </div>
+      <span className="font-mono text-sm tabular-nums break-all">{host.agentVersion ?? "Not reported"}</span>
+      {host.protocolVersion !== null && <span className="text-muted-foreground text-sm">{`Protocol ${host.protocolVersion}`}</span>}
     </Tile>
   )
 }
@@ -375,7 +375,8 @@ function UpdateHistory({ hostId }: { hostId: string }) {
 export function HostOverview({ host }: { host: Host }) {
   return (
     <div className="flex flex-col gap-4">
-      <SectionHeader icon={Server} title="Host" status={hostStatus(host)} />
+      {/* The tiles are h3s under the page's h1; this keeps the levels from skipping one. */}
+      <h2 className="sr-only">Overview</h2>
       <FigureRow host={host} />
       <div className={ROW}>
         <UpdatesTile host={host} />

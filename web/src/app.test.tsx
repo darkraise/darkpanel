@@ -66,7 +66,7 @@ describe("app routes", () => {
     renderWithProviders(<App />, { path: "/" })
     expect((await heading("Hosts")).textContent).toBe("Hosts")
     await userEvent.setup().click(within(await screen.findByRole("article", { name: "web-1" })).getByRole("link", { name: "Open web-1" }))
-    await screen.findByRole("heading", { level: 2, name: "Host" })
+    await screen.findByRole("heading", { level: 1, name: "web-1" })
     expect(screen.getByTestId("location").textContent).toBe("/hosts/h1")
   })
 

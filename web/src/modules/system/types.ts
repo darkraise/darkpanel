@@ -1,3 +1,4 @@
+import type { Status } from "@/components/visual/status"
 export const SYSTEM_MODULE = "system"
 export const SYSTEM_ACTION_VERSION = 1
 
@@ -67,3 +68,7 @@ export interface RebootOutput {
   scheduledAt: string
   bootTimeBefore: string
 }
+
+// An offline host's tiles carry this pill, which is also why their actions
+// are disabled (UX-7).
+export const HOST_OFFLINE: { status: Status; label: string } = { status: "off", label: "Host offline" }

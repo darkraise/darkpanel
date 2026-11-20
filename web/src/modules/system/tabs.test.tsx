@@ -8,7 +8,7 @@ import { PackagesTab } from "./packages-tab"
 const R = (name: string) => `GET /api/v1/hosts/h1/resources/system/${name}`
 const host = makeHost({ id: "h1", modules: [{ id: "system", version: 1, enabled: true, available: true, reason: null, checkedAt: null }] })
 
-test("UX-1: security first, removals and held back in their own groups, Upgrade selected sends the names", async () => {
+test("UX-1: security first and preselected, removals and held back in their own groups, Upgrade selected sends the names", async () => {
   const calls = stubFetch({
     [R("updates")]: { body: { upgradable: [{ name: "curl", from: "1", to: "2", origin: "x-updates", security: false }, { name: "openssl", from: "1", to: "2", origin: "x-security", security: true }], removals: ["oldlib"], heldBack: [{ name: "systemd", version: "2", reason: "phased" }], refreshedAt: null, failedSources: [], dpkgInterrupted: false } },
     "POST /api/v1/hosts/h1/actions/system.packages.upgrade/v1/plan": { body: makePlan("system.packages.upgrade") },
@@ -16,10 +16,14 @@ test("UX-1: security first, removals and held back in their own groups, Upgrade 
   renderWithProviders(<UpdatesTab host={host} />)
   const groups = await screen.findAllByRole("group")
   expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["Security", "Other updates", "Will be removed", "Held back"])
-  within(groups[3]!).getByText("phased")
+  within(groups[3]!).getByText("systemd · phased")
+  expect(within(groups[0]!).getAllByText("Security")).toHaveLength(2)
+  screen.getByText("1 of 2 selected")
+  expect(screen.getByRole("checkbox", { name: "openssl" }).getAttribute("aria-checked")).toBe("true")
   await userEvent.click(screen.getByRole("checkbox", { name: "curl" }))
+  screen.getByText("2 of 2 selected")
   await userEvent.click(screen.getByRole("button", { name: "Upgrade selected" }))
-  expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { all: false, names: ["curl"] } })
+  expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { all: false, names: ["curl", "openssl"] } })
 })
 
 test("UX-3, A54: protected rows show a lock with the reason and no remove button", async () => {
@@ -27,7 +31,9 @@ test("UX-3, A54: protected rows show a lock with the reason and no remove button
   renderWithProviders(<PackagesTab host={host} />)
   const ssh = within(await screen.findByRole("row", { name: /openssh-server/ }))
   expect(ssh.queryByRole("button", { name: /Remove/ })).toBeNull()
-  ssh.getByRole("img", { name: "Protected: keeps remote access" })
+  ssh.getByRole("img", { name: "Protected" })
+  await userEvent.click(ssh.getByRole("button", { name: "Why openssh-server is protected" }))
+  expect((await screen.findAllByText("keeps remote access")).length).toBeGreaterThan(0)
   within(screen.getByRole("row", { name: /jq/ })).getByRole("button", { name: "Remove jq" })
 })
 

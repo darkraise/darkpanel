@@ -1,8 +1,9 @@
-import { screen, within } from "@testing-library/react"
+import { act, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import type { ModuleState } from "@/api/types"
 import { formatTime } from "@/lib/format"
+import { statusQueryKey } from "@/modules/firewall/types"
 import { makeHost, renderWithProviders, stubFetch } from "@/test/utils"
 import { HostOverview } from "./host-overview"
 
@@ -13,27 +14,24 @@ const tx = {
   startedAt: "2026-11-11T07:00:00Z", updatedAt: "2026-11-11T07:05:00Z",
 }
 
-test("UI-4: the header carries the host's state and the Agent tile its version, protocol, platform and update actions", async () => {
+test("UI-4: the Agent tile carries the agent's version, protocol and its update actions", async () => {
   stubFetch({ [STATUS]: { body: { output: { transactions: [] } } } })
   renderWithProviders(<HostOverview host={makeHost({ id: "h1", agentVersion: "1.2.0", protocolVersion: 3, os: "ubuntu-24.04", arch: "amd64" })} />)
-  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Host", "Agent update history", "Enrollment and removal"])
-  expect(screen.getByRole("heading", { level: 2, name: "Host" }).parentElement?.textContent).toContain("Online")
+  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Overview", "Agent update history", "Enrollment and removal"])
   const agent = within(screen.getByRole("region", { name: "Agent" }))
   agent.getByText("1.2.0")
-  agent.getByText("protocol 3")
-  agent.getByText("ubuntu-24.04")
-  agent.getByText("amd64")
-  agent.getByRole("button", { name: "Update now" })
-  agent.getByRole("button", { name: "Change update policy" })
+  agent.getByText("Protocol 3")
+  expect(agent.getByRole("button", { name: "Update agent" }).hasAttribute("disabled")).toBe(false)
+  agent.getByRole("button", { name: "Change policy" })
   expect(screen.queryByText(/Last seen/)).toBeNull()
 })
 
 test("UI-4: a pending host says its agent has not reported and reads nothing", () => {
   const calls = stubFetch({})
   renderWithProviders(<HostOverview host={makeHost({ state: "pending", online: false, lastSeenAt: null, agentVersion: null, protocolVersion: null, os: null, arch: null })} />)
-  expect(screen.getByRole("heading", { level: 2, name: "Host" }).parentElement?.textContent).toContain("Pending")
   within(screen.getByRole("region", { name: "Agent" })).getByText("Not reported")
-  screen.getByText("Never seen")
+  within(screen.getByRole("region", { name: "Updates" })).getByText("Never seen")
+  expect(screen.queryByText("Agent update needed")).toBeNull()
   expect(calls).toHaveLength(0)
 })
 
@@ -123,22 +121,42 @@ test("A12: gauges, load per core, uptime and the four service tiles", async () =
   within(screen.getByRole("region", { name: "Updates" })).getByText("Reboot needed")
 })
 
-test("UX-9: an offline host shows last seen instead of gauges", () => {
+test("UX-9: an offline host keeps the tile grid with last seen in place of each gauge and its agent actions disabled", () => {
   stubFetch({})
   renderWithProviders(<HostOverview host={makeHost({ id: "h1", online: false, lastSeenAt: "2026-11-19T10:00:00Z" })} />)
   expect(screen.queryByRole("img", { name: /^Memory/ })).toBeNull()
-  screen.getByText(/Last seen/)
+  for (const name of ["Memory", "Disk", "Swap"]) within(screen.getByRole("region", { name })).getByText(`Last seen ${formatTime("2026-11-19T10:00:00Z")}`)
+  screen.getByRole("group", { name: "Load per core: —" })
+  screen.getByRole("group", { name: "Uptime: —" })
+  expect(within(screen.getByRole("region", { name: "Agent" })).getByRole("button", { name: "Update agent" }).hasAttribute("disabled")).toBe(true)
+})
+
+test("UX-9: offline, firewall and Tailscale values read earlier stay under Last known and Unknown pills", async () => {
+  const calls = stubFetch({})
+  const { client } = renderWithProviders(<HostOverview host={makeHost({ id: "h1", online: false, modules: [on("firewall"), on("tailscale")] })} />)
+  within(screen.getByRole("region", { name: "Firewall" })).getByText(/Last seen/)
+  act(() => {
+    client.setQueryData(statusQueryKey("h1"), { supported: true, unsupported: [], active: true, inSync: true, outOfSync: [], configured: {}, loaded: {}, rules: [{}, {}, {}] })
+    client.setQueryData(["resource", "h1", "tailscale.status"], { version: "1.80.0", backendState: "Running", self: { id: "n1", hostName: "web-1", dnsName: "web-1.ts.net.", os: "linux", addresses: ["100.64.0.2"], tags: [] }, tailnet: "t", magicDNSSuffix: "ts.net", preferredDerp: "fra", runSSH: false, peers: [], health: [] })
+  })
+  const firewall = within(screen.getByRole("region", { name: "Firewall" }))
+  await firewall.findByText("Last known")
+  expect(screen.getByRole("region", { name: "Firewall" }).textContent).toContain("3 rules")
+  const tailscale = within(screen.getByRole("region", { name: "Tailscale" }))
+  tailscale.getByText("Unknown")
+  tailscale.getByText("100.64.0.2")
+  expect(calls).toHaveLength(0)
 })
 
 test("UX-9: a failed host information read puts the error icon and its reason in each figure tile", async () => {
   stubFetch({ "GET /api/v1/hosts/h1/resources/hostinfo/summary": { status: 502, body: { type: "about:blank", title: "Bad gateway", status: 502, detail: "the agent did not answer", code: "agent.unreachable" } } })
   renderWithProviders(<HostOverview host={makeHost({ id: "h1" })} />)
   const memory = within(screen.getByRole("region", { name: "Memory" }))
-  await memory.findByRole("img", { name: "Unavailable" })
-  for (const name of ["Disk", "Swap"]) within(screen.getByRole("region", { name })).getByRole("img", { name: "Unavailable" })
+  await memory.findByRole("img", { name: "Memory unavailable" })
+  for (const name of ["Disk", "Swap"]) within(screen.getByRole("region", { name })).getByRole("img", { name: `${name} unavailable` })
   screen.getByRole("group", { name: "Load per core: —" })
   screen.getByRole("group", { name: "Uptime: —" })
-  await userEvent.click(memory.getByRole("button", { name: "Why Memory is unavailable" }))
+  await userEvent.click(memory.getByRole("button", { name: "Why memory is unavailable" }))
   expect((await screen.findAllByText("the agent did not answer")).length).toBeGreaterThan(0)
 })
 
@@ -152,10 +170,10 @@ test("UI-4: the Docker, Firewall and Tailscale tiles show containers by state, r
   })
   renderWithProviders(<HostOverview host={makeHost({ id: "h1", modules: [on("docker"), on("firewall"), on("tailscale")] })} />)
   const docker = within(screen.getByRole("region", { name: "Docker" }))
-  await docker.findByRole("img", { name: "Containers: Running 2, Exited 1, Other 1" })
+  await docker.findByRole("img", { name: "Containers: Running 2, Exited 1, Stopped 1" })
   const firewall = within(screen.getByRole("region", { name: "Firewall" }))
   await firewall.findByText("Active")
-  firewall.getByText("2 rules")
+  expect(screen.getByRole("region", { name: "Firewall" }).textContent).toContain("2 rules")
   const tailscale = within(screen.getByRole("region", { name: "Tailscale" }))
   await tailscale.findByText("Connected")
   tailscale.getByText("100.64.0.2")
@@ -169,7 +187,7 @@ test("UI-4: each service tile says when its module is off, unavailable or predat
   within(screen.getByRole("region", { name: "Firewall" })).getByText("Not enabled")
   const tailscale = within(screen.getByRole("region", { name: "Tailscale" }))
   tailscale.getByText("Unavailable")
-  await userEvent.click(tailscale.getByRole("button", { name: "Why Tailscale is unavailable" }))
+  await userEvent.click(tailscale.getByRole("button", { name: "Why tailscale is unavailable" }))
   expect((await screen.findAllByText("tailscaled is not installed")).length).toBeGreaterThan(0)
   expect(calls.filter((c) => /\/(docker|firewall|tailscale|system)\//.test(c.path))).toHaveLength(0)
 })

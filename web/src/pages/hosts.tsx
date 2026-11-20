@@ -1,77 +1,40 @@
 import { Link, useSearchParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
-import { PageHeader } from "darkraise-ui/layout"
+import { RotateCcw, Server } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge, type BadgeVariant } from "darkraise-ui/components/badge"
-import { Card, CardContent } from "darkraise-ui/components/card"
+import { Badge } from "darkraise-ui/components/badge"
+import { Button } from "darkraise-ui/components/button"
 import { EmptyState } from "darkraise-ui/components/empty-state"
-import { Skeleton } from "darkraise-ui/components/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { ToggleGroup, ToggleGroupItem } from "darkraise-ui/components/toggle-group"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts } from "@/api/client"
-import type { Host, ModuleState } from "@/api/types"
+import { InfoTip } from "@/components/visual/info-tip"
+import { SectionHeader } from "@/components/visual/section-header"
+import { SkeletonTiles } from "@/components/visual/skeleton-tiles"
 import { StatusPill } from "@/components/visual/status-pill"
-import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
 import { CreateHostDialog } from "./create-host-dialog"
-import { HostCard } from "./host-card"
+import { HostCard, MemoryCell, ModuleIcons } from "./host-card"
+import { hostStatus } from "./host-status"
 
 type View = "cards" | "table"
 
 const GRID = "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
 
-function moduleStatus(m: ModuleState): { text: string; variant: BadgeVariant } {
-  if (!m.enabled) return { text: "off", variant: "outline" }
-  if (!m.available) return { text: "unavailable", variant: "destructive" }
-  return { text: "on", variant: "default" }
-}
-
-function ModuleStates({ host }: { host: Host }) {
-  const unavailable = host.modules.filter((m) => m.enabled && !m.available && m.reason !== null)
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap gap-1">
-        {host.modules.map((m) => {
-          const status = moduleStatus(m)
-          return (
-            <Badge key={m.id} variant={status.variant} size="sm">
-              {`${m.id}: ${status.text}`}
-            </Badge>
-          )
-        })}
-      </div>
-      {unavailable.map((m) => (
-        <p key={m.id} className="text-xs text-muted-foreground">{`${m.id}: ${m.reason}`}</p>
-      ))}
-    </div>
-  )
-}
-
-function LoadingCards() {
-  return (
-    <div role="status" aria-busy="true" aria-label="Loading the hosts" className={GRID}>
-      {Array.from({ length: 4 }, (_, i) => (
-        <Card key={i}>
-          <CardContent className="flex flex-col gap-3 p-4">
-            <Skeleton className="h-9 w-2/3" />
-            <Skeleton className="h-5 w-1/2" />
-            <Skeleton className="h-6 w-full" />
-            <Skeleton className="h-6 w-full" />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  )
-}
-
 function HostsBody({ view }: { view: View }) {
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
-  if (hosts.isPending) return <LoadingCards />
+  if (hosts.isPending) return <SkeletonTiles count={4} label="Loading the hosts" />
   if (hosts.isError) {
     return (
-      <Alert variant="destructive" role="alert">
-        <AlertDescription>{errorMessage(hosts.error)}</AlertDescription>
-      </Alert>
+      <div className="flex flex-col items-start gap-2">
+        <Alert variant="destructive" role="alert">
+          <AlertDescription>{errorMessage(hosts.error)}</AlertDescription>
+        </Alert>
+        <Button size="sm" variant="outline" onClick={() => void hosts.refetch()}>
+          <RotateCcw aria-hidden />
+          Retry
+        </Button>
+      </div>
     )
   }
   if (hosts.data.hosts.length === 0) {
@@ -80,7 +43,7 @@ function HostsBody({ view }: { view: View }) {
     return (
       <>
         <h2 className="sr-only">Host list</h2>
-        <EmptyState title="No hosts yet" />
+        <EmptyState icon={<Server aria-hidden />} title="No hosts yet" description="Add host enrolls the first server." />
       </>
     )
   }
@@ -100,19 +63,23 @@ function HostsBody({ view }: { view: View }) {
       <Table className="min-w-[44rem]">
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
+            <TableHead>Host</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Version</TableHead>
-            <TableHead>Platform</TableHead>
+            <TableHead>System</TableHead>
+            <TableHead>Memory</TableHead>
             <TableHead>Modules</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {hosts.data.hosts.map((h) => (
             <TableRow key={h.id}>
-              <TableCell>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link to={`/hosts/${encodeURIComponent(h.id)}`} className="font-medium break-all underline-offset-4 hover:underline">
+              <TableCell className="max-w-48">
+                <div className="flex flex-col items-start gap-1">
+                  <Link
+                    to={`/hosts/${encodeURIComponent(h.id)}`}
+                    title={h.name}
+                    className="block max-w-full truncate font-medium underline-offset-4 hover:underline"
+                  >
                     {h.name}
                   </Link>
                   {h.isLocal && (
@@ -120,52 +87,26 @@ function HostsBody({ view }: { view: View }) {
                       This controller
                     </Badge>
                   )}
-                  {h.state === "pending" && (
-                    <Badge variant="outline" size="sm">
-                      Pending
-                    </Badge>
-                  )}
-                  {h.state === "revoked" && (
-                    <Badge variant="destructive" size="sm">
-                      Revoked
-                    </Badge>
-                  )}
                 </div>
               </TableCell>
               <TableCell>
                 <div className="flex flex-col items-start gap-1">
-                  <StatusPill status={h.online ? "ok" : "error"} label={h.online ? "Online" : "Offline"} />
-                  <span className="text-xs text-muted-foreground">
-                    {h.lastSeenAt === null ? "Never seen" : `Last seen ${formatTime(h.lastSeenAt)}`}
-                  </span>
+                  <StatusPill {...hostStatus(h)} />
+                  {!h.supported && h.agentVersion !== null && <StatusPill status="error" label="Unsupported" />}
                   {h.ingestion !== null && !h.ingestion.ok && (
-                    <>
-                      <Badge variant="destructive" size="sm">
-                        Journal ingestion failing
-                      </Badge>
-                      {h.ingestion.error !== null && (
-                        <p className="text-xs text-muted-foreground">{h.ingestion.error}</p>
-                      )}
-                    </>
+                    <span className="inline-flex items-center">
+                      <StatusPill status="warn" label="Journal ingestion failing" />
+                      {h.ingestion.error !== null && <InfoTip label="Why journal ingestion fails">{h.ingestion.error}</InfoTip>}
+                    </span>
                   )}
                 </div>
               </TableCell>
-              <TableCell>
-                <div className="flex flex-col items-start gap-1">
-                  <span className="break-all">{h.agentVersion ?? "—"}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {h.protocolVersion === null ? "—" : `protocol ${h.protocolVersion}`}
-                  </span>
-                  {!h.supported && h.agentVersion !== null && (
-                    <Badge variant="destructive" size="sm">
-                      Unsupported
-                    </Badge>
-                  )}
-                </div>
+              <TableCell>{h.os === null || h.arch === null ? "—" : `${h.os} · ${h.arch}`}</TableCell>
+              <TableCell className="min-w-40">
+                <MemoryCell host={h} />
               </TableCell>
-              <TableCell>{h.os === null || h.arch === null ? "—" : `${h.os} / ${h.arch}`}</TableCell>
               <TableCell>
-                <ModuleStates host={h} />
+                <ModuleIcons host={h} />
               </TableCell>
             </TableRow>
           ))}
@@ -193,17 +134,18 @@ export function HostsPage() {
   }
   return (
     <>
-      <PageHeader
+      <SectionHeader
+        level={1}
+        icon={Server}
         title="Hosts"
-        description="The servers this controller manages."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             <ToggleGroup type="single" value={view} onValueChange={choose} aria-label="View">
               <ToggleGroupItem value="cards">Cards</ToggleGroupItem>
               <ToggleGroupItem value="table">Table</ToggleGroupItem>
             </ToggleGroup>
             <CreateHostDialog />
-          </div>
+          </>
         }
       />
       <HostsBody view={view} />

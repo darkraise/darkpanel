@@ -24,7 +24,7 @@ const TIME = /^([01][0-9]|2[0-3]):[0-5][0-9]$/
 
 type Phase = "closed" | "form" | "plan"
 
-export function UpdatePolicyButton({ host }: { host: Host }) {
+export function UpdatePolicyButton({ host, label = "Change update policy", size }: { host: Host; label?: string; size?: "sm" }) {
   const client = useQueryClient()
   const [phase, setPhase] = useState<Phase>("closed")
   const [channel, setChannel] = useState<Channel>("stable")
@@ -73,8 +73,8 @@ export function UpdatePolicyButton({ host }: { host: Host }) {
 
   return (
     <>
-      <Button variant="outline" onClick={() => setPhase("form")}>
-        Change update policy
+      <Button variant="outline" size={size} onClick={() => setPhase("form")}>
+        {label}
       </Button>
       <Dialog open={phase === "form"} onOpenChange={(next) => (next ? undefined : reset())}>
         <DialogContent>

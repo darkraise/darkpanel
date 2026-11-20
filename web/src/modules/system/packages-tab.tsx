@@ -1,16 +1,16 @@
 import { useEffect, useId, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Lock, PackageCheck, Search } from "lucide-react"
-import { Badge } from "darkraise-ui/components/badge"
+import { Lock, Search, Trash2 } from "lucide-react"
 import { Button } from "darkraise-ui/components/button"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Skeleton } from "darkraise-ui/components/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
-import { Tooltip, TooltipContent, TooltipTrigger } from "darkraise-ui/components/tooltip"
 import { readAction, readResource } from "@/api/client"
 import type { Host } from "@/api/types"
+import { InfoTip } from "@/components/visual/info-tip"
+import { StatusPill } from "@/components/visual/status-pill"
 import { SystemChange, type PendingChange } from "./system-change"
 import { TileError } from "./tile"
 import { SYSTEM_ACTION_VERSION, SYSTEM_MODULE, type InstalledPackage } from "./types"
@@ -46,48 +46,43 @@ function SearchPanel({ host, onChange }: { host: Host; onChange: (p: PendingChan
   const [typed, setTyped] = useState("")
   const term = useDebounced(typed.trim(), SEARCH_DELAY_MS)
   const valid = TERM.test(term)
+  const invalid = typed.trim() !== "" && term === typed.trim() && !valid
   const search = useQuery({
     queryKey: ["resource", host.id, "system.search", term],
     queryFn: () => readAction<SearchHit[]>("system.packages.search", SYSTEM_ACTION_VERSION, { term }, host.id),
     enabled: valid && host.online,
   })
   return (
-    <section className="flex flex-col gap-2" aria-labelledby={`${id}-title`}>
-      <h3 id={`${id}-title`} className="text-sm font-medium">
-        Install
-      </h3>
-      <div className="relative max-w-md">
+    <section className="flex flex-col gap-2" aria-label="Install a package">
+      <div className="relative">
         <Search aria-hidden className="text-muted-foreground absolute top-1/2 left-2 size-4 -translate-y-1/2" />
         <Input
           type="search"
           aria-label="Search packages"
-          placeholder="Package name"
+          placeholder="Search packages"
           autoComplete="off"
           className="ps-8"
           value={typed}
           disabled={!host.online}
-          aria-invalid={typed.trim() !== "" && term === typed.trim() && !valid}
+          aria-invalid={invalid}
           aria-describedby={`${id}-hint`}
           onChange={(e) => setTyped(e.target.value)}
         />
       </div>
-      <span id={`${id}-hint`} className="text-muted-foreground text-xs">
+      <span id={`${id}-hint`} className={invalid ? "text-muted-foreground text-xs" : "sr-only"}>
         Lowercase letters, digits, + . and -; at least 2 characters
       </span>
       {valid && search.isError && <TileError error={search.error} onRetry={() => void search.refetch()} />}
       {valid && search.isPending && host.online && <Skeleton className="h-9 w-full max-w-md" />}
       {valid && search.data?.length === 0 && <span className="text-sm">{`No package names contain ${term}`}</span>}
       {valid && search.data !== undefined && search.data.length > 0 && (
-        <ul aria-label="Search results" className="divide-border flex max-w-2xl flex-col divide-y rounded-md border">
+        <ul aria-label="Search results" className="divide-border flex flex-col divide-y rounded-md border">
           {search.data.map((hit) => (
             <li key={hit.name} className="flex flex-wrap items-center gap-2 p-2">
               <span className="min-w-0 flex-1 font-mono text-sm break-all">{hit.name}</span>
-              <span className="text-muted-foreground font-mono text-xs">{hit.candidate}</span>
+              <span className="font-mono text-sm tabular-nums break-all">{hit.candidate}</span>
               {hit.installed ? (
-                <Badge variant="outline">
-                  <PackageCheck aria-hidden className="size-3.5" />
-                  Installed
-                </Badge>
+                <StatusPill status="ok" label="Installed" />
               ) : (
                 <Button
                   size="sm"
@@ -106,16 +101,12 @@ function SearchPanel({ host, onChange }: { host: Host; onChange: (p: PendingChan
   )
 }
 
-function ProtectedLock({ reason }: { reason: string }) {
+function ProtectedLock({ name, reason }: { name: string; reason: string }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span tabIndex={0} className="inline-flex rounded-sm">
-          <Lock role="img" aria-label={`Protected: ${reason}`} className="text-muted-foreground size-4" />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-xs">{reason}</TooltipContent>
-    </Tooltip>
+    <span className="inline-flex items-center gap-1 text-sm">
+      <Lock role="img" aria-label="Protected" className="text-muted-foreground size-4" />
+      <InfoTip label={`Why ${name} is protected`}>{reason}</InfoTip>
+    </span>
   )
 }
 
@@ -134,10 +125,11 @@ function InstalledPanel({ host, onChange }: { host: Host; onChange: (p: PendingC
 
   return (
     <section className="flex flex-col gap-2" aria-labelledby={`${id}-title`}>
-      <h3 id={`${id}-title`} className="text-sm font-medium">
-        Installed
-      </h3>
-      <div className="flex max-w-md flex-col gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 id={`${id}-title`} className="text-sm font-semibold">
+          Installed{" "}
+          {packages.data !== undefined && <span className="text-muted-foreground font-mono tabular-nums">{packages.data.length}</span>}
+        </h3>
         <Label htmlFor={`${id}-filter`} className="sr-only">
           Filter installed packages
         </Label>
@@ -145,6 +137,7 @@ function InstalledPanel({ host, onChange }: { host: Host; onChange: (p: PendingC
           id={`${id}-filter`}
           placeholder="Filter"
           autoComplete="off"
+          className="max-w-56"
           value={filter}
           onChange={(e) => {
             setFilter(e.target.value)
@@ -165,29 +158,25 @@ function InstalledPanel({ host, onChange }: { host: Host; onChange: (p: PendingC
           <Table role="table" aria-label="Installed packages">
             <TableHeader className="hidden @min-[40rem]:table-header-group">
               <TableRow role="row">
-                <TableHead role="columnheader">Name</TableHead>
+                <TableHead role="columnheader">Package</TableHead>
                 <TableHead role="columnheader">Version</TableHead>
-                <TableHead role="columnheader">Description</TableHead>
-                <TableHead role="columnheader">
-                  <span className="sr-only">Actions</span>
+                <TableHead role="columnheader" className="text-end">
+                  Action
                 </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((p) => (
                 <TableRow key={p.name} role="row" className={STACK_ROW}>
-                  <TableCell role="cell" className={`${STACK_CELL} font-mono break-all`}>
+                  <TableCell role="cell" className={`${STACK_CELL} font-mono text-sm break-all`}>
                     {p.name}
                   </TableCell>
-                  <TableCell role="cell" className={`${STACK_CELL} text-muted-foreground font-mono text-xs break-all`}>
-                    {`${p.version} · ${p.arch}`}
-                  </TableCell>
-                  <TableCell role="cell" className={`${STACK_CELL} text-muted-foreground text-sm`}>
-                    {p.description}
+                  <TableCell role="cell" className={`${STACK_CELL} font-mono text-sm tabular-nums break-all`}>
+                    {p.version}
                   </TableCell>
                   <TableCell role="cell" className={`${STACK_CELL} @min-[40rem]:text-end`}>
                     {p.protected !== null ? (
-                      <ProtectedLock reason={p.protected} />
+                      <ProtectedLock name={p.name} reason={p.protected} />
                     ) : (
                       <Button
                         size="sm"
@@ -196,6 +185,7 @@ function InstalledPanel({ host, onChange }: { host: Host; onChange: (p: PendingC
                         disabled={!host.online}
                         onClick={() => onChange({ action: "system.packages.remove", title: `Remove ${p.name}`, input: { names: [p.name], purge: false } })}
                       >
+                        <Trash2 aria-hidden />
                         Remove
                       </Button>
                     )}
