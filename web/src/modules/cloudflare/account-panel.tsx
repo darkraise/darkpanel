@@ -9,6 +9,8 @@ import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { errorMessage, readAction } from "@/api/client"
 import { CapabilityList } from "@/components/capability-list"
+import { Fact } from "@/components/visual/fact"
+import { StatusPill } from "@/components/visual/status-pill"
 import { formatTime } from "@/lib/format"
 import { CloudflareChange } from "./cloudflare-change"
 import { CLOUDFLARE_ACTION_VERSION, cloudflareKey, type CloudflareAccountStatus, type CloudflareAccountView } from "./types"
@@ -46,7 +48,9 @@ function ConnectForm({
   }
   return (
     <form className="flex flex-col gap-4" onSubmit={submit}>
-      <p>No Cloudflare account is connected.</p>
+      <div>
+        <StatusPill status="off" label="Not connected" />
+      </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="cloudflare-account-id">Account ID</Label>
         <Input id="cloudflare-account-id" value={accountId} required autoComplete="off" onChange={(e) => onAccountId(e.target.value)} />
@@ -88,20 +92,13 @@ function Connected({
   onAbandon: (value: boolean) => void
   onPlan: (pending: Pending) => void
 }) {
-  const rows: { label: string; value: string; mono?: boolean }[] = [
-    { label: "Account ID", value: account.accountId, mono: true },
-    { label: "Connected", value: formatTime(account.connectedAt) },
-  ]
   return (
     <>
-      <dl aria-label="Cloudflare account" className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[max-content_1fr]">
-        {rows.map((row) => (
-          <div key={row.label} className="contents">
-            <dt className="text-muted-foreground">{row.label}</dt>
-            <dd className={row.mono === true ? "font-mono" : undefined}>{row.value}</dd>
-          </div>
-        ))}
-      </dl>
+      <div role="group" aria-label="Cloudflare account" className="flex flex-wrap items-center gap-2">
+        <StatusPill status="ok" label="Connected" />
+        <Fact label="Account ID" value={account.accountId} mono />
+        <Fact label="Connected since" value={formatTime(account.connectedAt)} />
+      </div>
       <div role="group" aria-label="Token capabilities" className="flex flex-col gap-2">
         <h3 className="text-sm font-medium">Token capabilities</h3>
         <CapabilityList capabilities={account.capabilities} />

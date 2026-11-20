@@ -14,6 +14,10 @@ const rows: Row[] = [
   { name: "DevicesPage", load: () => import("@/modules/tailnet/devices-page").then((m) => m.DevicesPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/tailnet/devices-page.test.tsx", expects: { role: "img", name: /^(Authorized|Pending approval)$/ } },
   { name: "DerpPage", load: () => import("@/modules/derp/derp-page").then((m) => m.DerpPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/derp/derp-page.test.tsx", expects: { role: "article" } },
   { name: "NpmPage", load: () => import("@/modules/npm/npm-page").then((m) => m.NpmPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/npm/npm-page.test.tsx", expects: { role: "article" } },
+  { name: "ConnectorsPage", load: () => import("@/modules/cloudflare/connectors-page").then((m) => m.ConnectorsPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/cloudflare/connectors-page.test.tsx", expects: { role: "img", name: /^(Healthy|Degraded|Down|Inactive)/ } },
+  { name: "PanelPage", load: () => import("@/modules/panel/panel-page").then((m) => m.PanelPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/panel/panel-page.test.tsx", expects: { role: "group", name: /: / } },
+  { name: "AuditPage", load: () => import("@/pages/audit").then((m) => m.AuditPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/pages/audit.test.tsx", expects: { role: "list", name: "Timeline" } },
+  { name: "RolloutsPage", load: () => import("@/pages/rollouts").then((m) => m.RolloutsPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/pages/rollouts.test.tsx", expects: { role: "img", name: /^Outcomes: / } },
 ]
 
 test.each(rows)("A10, UI-7: $name shows its state as graphics, not key/value text", async (row) => {

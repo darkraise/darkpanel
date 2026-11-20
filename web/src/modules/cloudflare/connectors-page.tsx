@@ -1,7 +1,6 @@
 import { useId, useState, type FormEvent } from "react"
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { EmptyState } from "darkraise-ui/components/empty-state"
@@ -9,11 +8,13 @@ import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Square } from "lucide-react"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts, readAction } from "@/api/client"
 import type { Host } from "@/api/types"
 import { CloudflareChange } from "./cloudflare-change"
 import { connectorListKey, tunnelLabel, type Connector, type ConnectorList } from "./connector-types"
-import { CLOUDFLARE_ACTION_VERSION, cloudflareKey, type TunnelView } from "./types"
+import { StateCell } from "./state-cell"
+import { CLOUDFLARE_ACTION_VERSION, cloudflareKey, connectorState, tunnelStatus, type TunnelView } from "./types"
 
 interface Pending {
   action: string
@@ -60,15 +61,11 @@ function ConnectorsTable({ connectors, tunnels, onPlan }: { connectors: Connecto
             <TableRow key={c.tunnel}>
               <TableCell className="whitespace-normal wrap-anywhere">{label}</TableCell>
               <TableCell className="whitespace-nowrap">
-                <Badge size="sm" variant={status === "healthy" ? "default" : "secondary"}>
-                  {status}
-                </Badge>
+                <StateCell state={tunnelStatus(status)} />
               </TableCell>
               <TableCell className="whitespace-normal font-mono wrap-anywhere">{c.container}</TableCell>
               <TableCell className="whitespace-nowrap">
-                <Badge size="sm" variant={c.state === "running" ? "default" : "secondary"}>
-                  {c.state}
-                </Badge>
+                <StateCell state={connectorState(c.state)} />
               </TableCell>
               <TableCell>
                 <div className="flex justify-end">
@@ -78,6 +75,7 @@ function ConnectorsTable({ connectors, tunnels, onPlan }: { connectors: Connecto
                     aria-label={`Stop the connector of ${label}`}
                     onClick={() => onPlan({ action: "cloudflare.connector.stop", title: `Stop the connector of ${label}`, input: { tunnel: c.tunnel } })}
                   >
+                    <Square aria-hidden />
                     Stop
                   </Button>
                 </div>

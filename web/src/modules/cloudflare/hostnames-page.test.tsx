@@ -55,9 +55,9 @@ test("lists the hostnames with their tunnel, service, state and health, in the s
   hpRender()
   const rows = within(await hpTable()).getAllByRole("row").slice(1)
   expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 5).map((c) => c.textContent))).toEqual([
-    ["app.example.com", "darkpanel-c1", "http://web:8080", "active", "ok"],
-    ["git.example.com", "darkpanel-c2", "https://git:3000", "active", "rule missing"],
-    ["new.example.com", "t9", "tcp://db:5432", "adding record", "unknown"],
+    ["app.example.com", "darkpanel-c1", "http://web:8080", "Active", "OK"],
+    ["git.example.com", "darkpanel-c2", "https://git:3000", "Active", "Rule missing"],
+    ["new.example.com", "t9", "tcp://db:5432", "Adding record", "Unknown"],
   ])
 })
 

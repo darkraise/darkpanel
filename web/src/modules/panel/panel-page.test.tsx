@@ -137,25 +137,25 @@ test("a host that is not the controller's gets no form and no plan", async () =>
 
 test("an exposure shows its route, hostname, network and state in place of the form", async () => {
   ppRender("h1", paStatus(paExposure()))
-  const list = await screen.findByLabelText("Panel exposure")
+  const list = await screen.findByRole("group", { name: "Panel exposure" })
   const value = (label: string) => within(list).getByText(label).nextElementSibling?.textContent ?? null
-  expect(value("Route")).toBe("Nginx Proxy Manager")
-  expect(value("Hostname")).toBe("panel.example.org")
+  expect(within(list).getByRole("group", { name: "Route: NPM" })).toBeTruthy()
+  expect(within(list).getByRole("heading", { name: "panel.example.org" })).toBeTruthy()
   expect(value("Network")).toBe("172.31.255.248/29")
   expect(value("Gateway")).toBe("172.31.255.249")
   expect(value("Proxy")).toBe("172.31.255.250")
-  expect(value("Port")).toBe("9443")
-  expect(value("State")).toBe("open")
+  expect(within(list).getByRole("group", { name: "Port: 9443" })).toBeTruthy()
+  expect(within(list).getByText("Open")).toBeTruthy()
   expect(within(list).queryByText("Tunnel")).toBeNull()
   expect(screen.queryByRole("form", { name: "Expose the panel" })).toBeNull()
 })
 
 test("a tunnel exposure shows its tunnel, and an exposure that needs repair can still be removed", async () => {
   ppRender("h1", paStatus(paExposure({ via: "tunnel", tunnel: PP_TUNNEL, state: "needs_repair" })))
-  const list = await screen.findByLabelText("Panel exposure")
-  expect(within(list).getByText("Cloudflare tunnel")).toBeTruthy()
-  expect(within(list).getByText("Tunnel").nextElementSibling?.textContent).toBe(PP_TUNNEL)
-  expect(within(list).getByText("State").nextElementSibling?.textContent).toBe("needs_repair")
+  const list = await screen.findByRole("group", { name: "Panel exposure" })
+  expect(within(list).getByRole("group", { name: "Route: Tunnel" })).toBeTruthy()
+  expect(within(list).getByText("Tunnel", { selector: "span" }).nextElementSibling?.textContent).toBe(PP_TUNNEL)
+  expect(within(list).getByText("Needs repair")).toBeTruthy()
   expect(screen.getByRole("button", { name: "Remove exposure" }).hasAttribute("disabled")).toBe(false)
 })
 

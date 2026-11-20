@@ -93,9 +93,9 @@ describe("ConnectorsPage", () => {
     expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Tunnel", "Tunnel status", "Container", "State", "Actions"])
     const rows = within(table).getAllByRole("row").slice(1)
     expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 4).map((c) => c.textContent))).toEqual([
-      ["darkpanel-c1", "healthy", "darkpanel-cloudflared-t1", "running"],
-      ["darkpanel-c2", "inactive", "darkpanel-cloudflared-t2", "running"],
-      ["t-gone", "unknown", "darkpanel-cloudflared-t-gone", "missing"],
+      ["darkpanel-c1", "Healthy", "darkpanel-cloudflared-t1", "Running"],
+      ["darkpanel-c2", "Inactive", "darkpanel-cloudflared-t2", "Running"],
+      ["t-gone", "Unknown", "darkpanel-cloudflared-t-gone", "Missing"],
     ])
     expect(screen.getByText("Connectors on web-1")).toBeTruthy()
     expect(screen.queryByRole("radiogroup", { name: "Host" })).toBeNull()
@@ -210,7 +210,7 @@ describe("ConnectorsPage", () => {
       },
     })
     const rows = within(await cnTable()).getAllByRole("row").slice(1)
-    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 2).map((c) => c.textContent))).toEqual([["t1", "unknown"]])
+    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 2).map((c) => c.textContent))).toEqual([["t1", "Unknown"]])
     expect((await screen.findByRole("alert")).textContent).toBe("no Cloudflare account is connected")
     const form = screen.getByRole("form", { name: "Deploy a connector" })
     expect(within(form).getAllByRole("radio")).toHaveLength(1)
@@ -220,7 +220,7 @@ describe("ConnectorsPage", () => {
   test("a tunnel list that is still pending does not hold back the connectors", async () => {
     cnRender([cnHost("h1", "web-1")], { [TUNNELS]: () => new Promise(() => {}) })
     const rows = within(await cnTable()).getAllByRole("row").slice(1)
-    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 2).map((c) => c.textContent))).toEqual([["t1", "unknown"]])
+    expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 2).map((c) => c.textContent))).toEqual([["t1", "Unknown"]])
     expect(screen.getByLabelText("Loading the tunnels")).toBeTruthy()
   })
 
@@ -261,7 +261,7 @@ describe("ConnectorsPage", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("the Docker Engine is not reachable")
     const rows = within(screen.getByRole("table", { name: "Connectors" })).getAllByRole("row").slice(1)
     expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 4).map((c) => c.textContent))).toEqual([
-      ["darkpanel-c1", "healthy", "darkpanel-cloudflared-t1", "running"],
+      ["darkpanel-c1", "Healthy", "darkpanel-cloudflared-t1", "Running"],
     ])
     const form = screen.getByRole("form", { name: "Deploy a connector" })
     expect(within(form).queryByRole("radio", { name: "darkpanel-c1" })).toBeNull()

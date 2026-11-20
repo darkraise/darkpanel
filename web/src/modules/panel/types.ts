@@ -1,3 +1,5 @@
+import type { Status } from "@/components/visual/status"
+
 export const PANEL_MODULE = "panel"
 export const PANEL_ACTION_VERSION = 1
 
@@ -54,4 +56,14 @@ function isExposureView(v: unknown): v is ExposureView {
 export function isStatusOutput(v: unknown): v is StatusOutput {
   if (!isRecord(v) || typeof v.exposed !== "boolean") return false
   return v.exposed ? isExposureView(v.exposure) : v.exposure === undefined || v.exposure === null
+}
+
+const EXPOSURE_STATE: Record<ExposureState, { status: Status; label: string }> = {
+  open: { status: "ok", label: "Open" },
+  revoked: { status: "warn", label: "Revoked" },
+  needs_repair: { status: "error", label: "Needs repair" },
+}
+
+export function exposureState(state: ExposureState): { status: Status; label: string } {
+  return EXPOSURE_STATE[state]
 }

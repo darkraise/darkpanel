@@ -2,19 +2,24 @@ import { useId, useRef, useState, type FormEvent, type ReactNode, type RefObject
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { PageHeader } from "darkraise-ui/layout"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { Checkbox } from "darkraise-ui/components/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Label } from "darkraise-ui/components/label"
+import { Progress } from "darkraise-ui/components/progress"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { HOSTS_QUERY_KEY, ROLLOUTS_QUERY_KEY, changeError, changeInProgress, errorMessage, listHosts, listRollouts } from "@/api/client"
 import type { Rollout } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
-import { stateVariant } from "@/lib/badges"
+import { Fact } from "@/components/visual/fact"
+import { StatusDonut } from "@/components/visual/status-donut"
+import { StatusDot } from "@/components/visual/status-dot"
+import { StatusPill } from "@/components/visual/status-pill"
+import type { Status } from "@/components/visual/status"
+import { UsageBar } from "@/components/visual/usage-bar"
 import { formatTime } from "@/lib/format"
 import { useReturnFocus } from "@/lib/return-focus"
 import { focusableScroller } from "@/lib/table"
@@ -22,6 +27,63 @@ import { usePageTitle } from "@/lib/page-title"
 import { StartRolloutFlow, StartRolloutTrigger } from "./start-rollout-dialog"
 
 const ACTIVE = new Set(["running", "draining"])
+
+interface StateView {
+  status: Status
+  label: string
+}
+
+function titleCase(state: string): string {
+  return state.charAt(0).toUpperCase() + state.slice(1)
+}
+
+function rolloutState(state: string): StateView {
+  switch (state) {
+    case "succeeded":
+      return { status: "ok", label: "Succeeded" }
+    case "running":
+    case "draining":
+      return { status: "info", label: titleCase(state) }
+    case "failed":
+    case "quarantined":
+      return { status: "error", label: titleCase(state) }
+    default:
+      return { status: "off", label: titleCase(state) }
+  }
+}
+
+function outcomeSegments(rollouts: Rollout[]): { status: Status; label: string; value: number }[] {
+  const count = (states: string[]) => rollouts.filter((r) => states.includes(r.state)).length
+  return [
+    { status: "ok", label: "Succeeded", value: count(["succeeded"]) },
+    { status: "info", label: "In progress", value: count(["running", "draining"]) },
+    { status: "error", label: "Failed", value: count(["failed", "quarantined"]) },
+    { status: "off", label: "Cancelled", value: count(["cancelled"]) },
+  ]
+}
+
+// A host's update runs waiting, updating, then committed; a failure stops it
+// part way and a skipped host never starts.
+const HOST_STEP: Record<string, { state: StateView; progress: number }> = {
+  waiting: { state: { status: "off", label: "Waiting" }, progress: 0 },
+  updating: { state: { status: "info", label: "Updating" }, progress: 50 },
+  committed: { state: { status: "ok", label: "Committed" }, progress: 100 },
+  failed: { state: { status: "error", label: "Failed" }, progress: 50 },
+  skipped: { state: { status: "off", label: "Skipped" }, progress: 0 },
+}
+
+function HostProgress({ host, state }: { host: string; state: string }) {
+  const step = HOST_STEP[state] ?? { state: { status: "off", label: titleCase(state) }, progress: 0 }
+  return (
+    <div className="flex min-w-32 flex-col gap-1">
+      <span className="inline-flex items-center gap-1.5">
+        <StatusDot status={step.state.status} label={step.state.label} />
+        <span aria-hidden>{step.state.label}</span>
+      </span>
+      <Progress value={step.progress} aria-label={`Update of ${host}`} getValueLabel={() => step.state.label} className="h-1.5" />
+    </div>
+  )
+}
 
 type Phase = "closed" | "form" | "plan"
 
@@ -94,16 +156,16 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
             <CardTitle>
               <h2 id={id} ref={title} tabIndex={-1} className="break-all">{`${rollout.version} (${rollout.channel})`}</h2>
             </CardTitle>
-            <Badge variant={stateVariant(rollout.state)} size="sm">
-              {rollout.state}
-            </Badge>
+            <StatusPill {...rolloutState(rollout.state)} />
           </div>
           <CancelRollout rollout={rollout} active={ACTIVE.has(rollout.state)} fallback={title} />
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <p className="text-xs text-muted-foreground">
-            {`Created ${formatTime(rollout.createdAt)} · updated ${formatTime(rollout.updatedAt)}`}
-          </p>
+          <div className="flex flex-wrap gap-1">
+            <Fact label="Created" value={formatTime(rollout.createdAt)} />
+            <Fact label="Updated" value={formatTime(rollout.updatedAt)} />
+          </div>
+          <UsageBar used={rollout.hosts.filter((h) => h.state === "committed").length} total={rollout.hosts.length} label="Hosts updated" />
           {rollout.error !== null && (
             <Alert variant="destructive">
               <AlertDescription>{rollout.error.message}</AlertDescription>
@@ -127,9 +189,7 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
                     <TableCell className="whitespace-nowrap">{h.position + 1}</TableCell>
                     <TableCell className="whitespace-normal break-all">{names.get(h.hostId) ?? h.hostId}</TableCell>
                     <TableCell>
-                      <Badge variant={stateVariant(h.state)} size="sm">
-                        {h.state}
-                      </Badge>
+                      <HostProgress host={names.get(h.hostId) ?? h.hostId} state={h.state} />
                     </TableCell>
                     <TableCell>{h.error?.message ?? "—"}</TableCell>
                   </TableRow>
@@ -171,6 +231,11 @@ function RolloutsBody({ startAction }: { startAction: ReactNode }) {
   const names = new Map((hosts.data?.hosts ?? []).map((h) => [h.id, h.name]))
   return (
     <div className="flex flex-col gap-4">
+      <Card>
+        <CardContent className="p-4">
+          <StatusDonut segments={outcomeSegments(rollouts.data.rollouts)} label="Outcomes" />
+        </CardContent>
+      </Card>
       {rollouts.data.rollouts.map((r) => (
         <RolloutCard key={r.id} rollout={r} names={names} />
       ))}

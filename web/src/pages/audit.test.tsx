@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react"
+import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import type { AuditEntry } from "@/api/types"
@@ -32,9 +32,10 @@ test("lists entries newest first and loads older ones by nextBefore", async () =
   await userEvent.setup().click(screen.getByRole("button", { name: "Load older entries" }))
   expect((await screen.findByText("core.auth.login/v1")).textContent).toBe("core.auth.login/v1")
   expect(screen.getByText("auth.invalid_credentials").textContent).toBe("auth.invalid_credentials")
+  expect(screen.getByRole("img", { name: "Failed" })).toBeTruthy()
   expect(calls[1]?.body).toEqual({ input: { limit: 50, before: "a2" } })
   expect(screen.queryByRole("button", { name: "Load older entries" })).toBeNull()
-  expect(screen.getAllByRole("row")).toHaveLength(3)
+  expect(within(screen.getByRole("list", { name: "Timeline" })).getAllByRole("listitem")).toHaveLength(2)
 })
 
 test("keeps loaded entries when an older page fails", async () => {

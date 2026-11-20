@@ -2,7 +2,6 @@ import { useId, useState, type FormEvent } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { Checkbox } from "darkraise-ui/components/checkbox"
@@ -12,24 +11,17 @@ import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Trash2 } from "lucide-react"
 import { errorMessage, readAction } from "@/api/client"
 import { formatTime } from "@/lib/format"
 import { CloudflareChange } from "./cloudflare-change"
-import { CLOUDFLARE_ACTION_VERSION, cloudflareKey, type HostnameView, type TunnelView } from "./types"
+import { StateCell } from "./state-cell"
+import { CLOUDFLARE_ACTION_VERSION, cloudflareKey, hostnameHealth, hostnamePhase, type HostnameView, type TunnelView } from "./types"
 
 interface Pending {
   action: string
   title: string
   input: Record<string, unknown>
-}
-
-function words(value: string): string {
-  return value.replace(/_/g, " ")
-}
-
-function healthVariant(health: HostnameView["health"]) {
-  if (health === "ok") return "default"
-  return health === "unknown" ? "secondary" : "destructive"
 }
 
 function HostnamesTable({ hostnames, tunnels, onPlan }: { hostnames: HostnameView[]; tunnels: TunnelView[]; onPlan: (pending: Pending) => void }) {
@@ -53,14 +45,14 @@ function HostnamesTable({ hostnames, tunnels, onPlan }: { hostnames: HostnameVie
       <TableBody>
         {hostnames.map((h) => (
           <TableRow key={h.hostname}>
-            <TableCell>{h.hostname}</TableCell>
-            <TableCell>{names.get(h.tunnel) ?? h.tunnel}</TableCell>
+            <TableCell className="min-w-40 whitespace-normal wrap-anywhere">{h.hostname}</TableCell>
+            <TableCell className="min-w-40 whitespace-normal wrap-anywhere">{names.get(h.tunnel) ?? h.tunnel}</TableCell>
             <TableCell className="font-mono">{h.service}</TableCell>
             <TableCell>
-              <Badge variant={h.phase === "active" ? "default" : "secondary"}>{words(h.phase)}</Badge>
+              <StateCell state={hostnamePhase(h.phase)} />
             </TableCell>
             <TableCell>
-              <Badge variant={healthVariant(h.health)}>{words(h.health)}</Badge>
+              <StateCell state={hostnameHealth(h.health)} />
             </TableCell>
             <TableCell>{formatTime(h.checkedAt ?? null)}</TableCell>
             <TableCell>
@@ -71,6 +63,7 @@ function HostnamesTable({ hostnames, tunnels, onPlan }: { hostnames: HostnameVie
                   aria-label={`Remove hostname ${h.hostname}`}
                   onClick={() => onPlan({ action: "cloudflare.hostname.remove", title: `Remove ${h.hostname}`, input: { hostname: h.hostname } })}
                 >
+                  <Trash2 aria-hidden />
                   Remove
                 </Button>
               </div>

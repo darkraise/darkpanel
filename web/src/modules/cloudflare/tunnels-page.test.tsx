@@ -53,9 +53,9 @@ test("lists the tunnels with status, connections, hostnames and configuration, i
   tpRender()
   const rows = within(await tpTable()).getAllByRole("row").slice(1)
   expect(rows.map((r) => within(r).getAllByRole("cell").slice(0, 5).map((c) => c.textContent))).toEqual([
-    ["darkpanel-c1", "healthy", "2 (ams01, fra02)", "2", "In sync"],
-    ["darkpanel-c2", "inactive", "0", "0", "Changed outside Darkpanel"],
-    ["darkpanel-c3", "unknown", "Unknown", "0", "In sync"],
+    ["darkpanel-c1", "Healthy", "2 (ams01, fra02)", "2", "In sync"],
+    ["darkpanel-c2", "Inactive", "0", "0", "Changed outside Darkpanel"],
+    ["darkpanel-c3", "Unknown", "Unknown", "0", "In sync"],
   ])
 })
 

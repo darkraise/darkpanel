@@ -6,13 +6,54 @@ import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Timeline, TimelineConnector, TimelineContent, TimelineIndicator, TimelineItem, TimelineTime, TimelineTitle } from "darkraise-ui/components/timeline"
 import { errorMessage, readAction } from "@/api/client"
-import type { AuditList } from "@/api/types"
+import type { AuditEntry, AuditList } from "@/api/types"
+import { Fact } from "@/components/visual/fact"
+import { StatusDot } from "@/components/visual/status-dot"
+import type { Status } from "@/components/visual/status"
 import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
 
 const PAGE_SIZE = 50
+
+const RESULT: Record<string, { status: Status; label: string }> = {
+  ok: { status: "ok", label: "Succeeded" },
+  error: { status: "error", label: "Failed" },
+  override: { status: "warn", label: "Overridden" },
+}
+
+function Entry({ entry: e }: { entry: AuditEntry }) {
+  const result = RESULT[e.result] ?? { status: "off", label: e.result }
+  const action = `${e.action}/v${e.version}`
+  return (
+    <TimelineItem>
+      {/* The kit hides the indicator as decoration; here it carries the entry's result. */}
+      <TimelineIndicator aria-hidden={false}>
+        <StatusDot status={result.status} label={result.label} />
+      </TimelineIndicator>
+      <TimelineConnector />
+      <TimelineContent>
+        <TimelineTitle className="flex-wrap gap-x-2">
+          {e.changeId === null ? (
+            <span className="font-mono break-all">{action}</span>
+          ) : (
+            <Link to={`/changes/${encodeURIComponent(e.changeId)}`} className="font-mono break-all underline-offset-4 hover:underline">
+              {action}
+            </Link>
+          )}
+          <span className="text-muted-foreground font-normal">{e.phase}</span>
+        </TimelineTitle>
+        <div className="flex flex-wrap gap-1">
+          <Fact label="Actor" value={e.actor} mono />
+          {e.hostId !== null && <Fact label="Host" value={e.hostId} mono />}
+          {e.errorCode !== null && <Fact label="Error" value={e.errorCode} mono />}
+        </div>
+        <TimelineTime dateTime={e.at}>{formatTime(e.at)}</TimelineTime>
+      </TimelineContent>
+    </TimelineItem>
+  )
+}
 
 function AuditBody() {
   const audit = useInfiniteQuery({
@@ -55,45 +96,11 @@ function AuditBody() {
   }
   return (
     <div className="flex flex-col gap-4">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Time</TableHead>
-            <TableHead>Actor</TableHead>
-            <TableHead>Host</TableHead>
-            <TableHead>Action</TableHead>
-            <TableHead>Result</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {entries.map((e) => (
-            <TableRow key={e.id}>
-              <TableCell>{formatTime(e.at)}</TableCell>
-              <TableCell className="font-mono">{e.actor}</TableCell>
-              <TableCell className="font-mono">{e.hostId ?? "—"}</TableCell>
-              <TableCell>
-                {e.changeId === null ? (
-                  <span className="font-mono">{`${e.action}/v${e.version}`}</span>
-                ) : (
-                  <Link to={`/changes/${encodeURIComponent(e.changeId)}`} className="font-mono underline-offset-4 hover:underline">
-                    {`${e.action}/v${e.version}`}
-                  </Link>
-                )}{" "}
-                <span className="text-muted-foreground">{e.phase}</span>
-              </TableCell>
-              <TableCell>
-                {e.result}
-                {e.errorCode !== null && (
-                  <>
-                    {" "}
-                    <span className="font-mono text-muted-foreground">{e.errorCode}</span>
-                  </>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <Timeline aria-label="Timeline">
+        {entries.map((e) => (
+          <Entry key={e.id} entry={e} />
+        ))}
+      </Timeline>
       {audit.isError && (
         <Alert variant="destructive" role="alert">
           <AlertDescription>{errorMessage(audit.error)}</AlertDescription>

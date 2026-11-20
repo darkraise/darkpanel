@@ -1,16 +1,17 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Check, Plus, Trash2 } from "lucide-react"
 import { errorMessage, readAction } from "@/api/client"
 import { formatTime } from "@/lib/format"
 import { CloudflareChange } from "./cloudflare-change"
-import { CLOUDFLARE_ACTION_VERSION, cloudflareKey, type TunnelView } from "./types"
+import { StateCell } from "./state-cell"
+import { CLOUDFLARE_ACTION_VERSION, cloudflareKey, tunnelStatus, type TunnelView } from "./types"
 
 interface Pending {
   action: string
@@ -44,14 +45,16 @@ function TunnelsTable({ tunnels, onPlan }: { tunnels: TunnelView[]; onPlan: (pen
       <TableBody>
         {tunnels.map((t) => (
           <TableRow key={t.id}>
-            <TableCell className="font-mono">{t.name}</TableCell>
+            <TableCell className="min-w-40 whitespace-normal font-mono wrap-anywhere">{t.name}</TableCell>
             <TableCell>
-              <Badge variant={t.status === "healthy" ? "default" : "secondary"}>{t.status}</Badge>
+              <StateCell state={tunnelStatus(t.status)} />
             </TableCell>
             <TableCell>{connections(t)}</TableCell>
             <TableCell>{t.hostnames}</TableCell>
-            <TableCell>{t.drift ? "Changed outside Darkpanel" : "In sync"}</TableCell>
-            <TableCell>{formatTime(t.createdAt)}</TableCell>
+            <TableCell>
+              <StateCell state={t.drift ? { status: "warn", label: "Changed outside Darkpanel" } : { status: "ok", label: "In sync" }} />
+            </TableCell>
+            <TableCell className="whitespace-normal">{formatTime(t.createdAt)}</TableCell>
             <TableCell>
               <div className="flex justify-end gap-2">
                 {t.drift && (
@@ -61,6 +64,7 @@ function TunnelsTable({ tunnels, onPlan }: { tunnels: TunnelView[]; onPlan: (pen
                     aria-label={`Accept the current configuration of ${t.name}`}
                     onClick={() => onPlan({ action: "cloudflare.tunnel.adopt", title: `Accept the configuration of ${t.name}`, input: { tunnel: t.id } })}
                   >
+                    <Check aria-hidden />
                     Accept configuration
                   </Button>
                 )}
@@ -70,6 +74,7 @@ function TunnelsTable({ tunnels, onPlan }: { tunnels: TunnelView[]; onPlan: (pen
                   aria-label={`Delete tunnel ${t.name}`}
                   onClick={() => onPlan({ action: "cloudflare.tunnel.delete", title: `Delete tunnel ${t.name}`, input: { tunnel: t.name } })}
                 >
+                  <Trash2 aria-hidden />
                   Delete
                 </Button>
               </div>
@@ -101,7 +106,10 @@ export function TunnelsPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Tunnels</CardTitle>
-          <Button onClick={() => setPending({ action: "cloudflare.tunnel.create", title: "Create a tunnel", input: {} })}>Create tunnel</Button>
+          <Button onClick={() => setPending({ action: "cloudflare.tunnel.create", title: "Create a tunnel", input: {} })}>
+            <Plus aria-hidden />
+            Create tunnel
+          </Button>
         </CardHeader>
         <CardContent>
           <TunnelsTable tunnels={tunnels.data.tunnels} onPlan={setPending} />

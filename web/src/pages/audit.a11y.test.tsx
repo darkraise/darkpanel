@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import type { AuditEntry } from "@/api/types"
@@ -72,12 +72,16 @@ test("the keyboard reaches the change link and then the load button", async () =
   expect(await tabSequence(user, 2)).toEqual(["core.token.create/v1", "Load older entries"])
 })
 
-test("the audit log has a level-one heading, named columns and the page title Audit log", async () => {
+test("the audit log has a level-one heading, a named timeline and the page title Audit log", async () => {
   stubFetch({ [AUDIT]: pages })
   renderWithProviders(<AuditPage />)
   await screen.findByText("core.token.create/v1")
   expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual(["Audit log"])
-  expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Time", "Actor", "Host", "Action", "Result"])
+  const item = within(screen.getByRole("list", { name: "Timeline" })).getByRole("listitem")
+  expect(within(item).getByRole("img", { name: "Succeeded" })).toBeTruthy()
+  expect(within(item).getByLabelText("Actor: user:u1")).toBeTruthy()
+  expect(within(item).getByLabelText("Host: h1")).toBeTruthy()
+  expect(item.querySelector("time")?.getAttribute("dateTime")).toBe("2026-10-19T08:00:00Z")
   expect(document.title).toBe("Audit log · Darkpanel")
 })
 

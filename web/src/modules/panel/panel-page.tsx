@@ -1,29 +1,32 @@
-import { useId, useState, type FormEvent, type ReactNode } from "react"
+import { useId, useState, type FormEvent } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { Spinner } from "darkraise-ui/components/spinner"
+import { Cloud, Globe, Plug, Trash2 } from "lucide-react"
 import { HOSTS_QUERY_KEY, listHosts } from "@/api/client"
+import { Fact } from "@/components/visual/fact"
+import { SectionHeader } from "@/components/visual/section-header"
+import { StatTile } from "@/components/visual/stat-tile"
 import { PanelChange } from "./panel-change"
 import { messageOf, readExposureStatus } from "./status"
-import { panelStatusKey, type ExposureVia, type ExposureView } from "./types"
+import { exposureState, panelStatusKey, type ExposureVia, type ExposureView } from "./types"
 
 type Pending = null | { action: string; title: string; input: Record<string, unknown> }
 
 const PORT_MIN = 1024
 const PORT_MAX = 65535
 
-const ROUTES: { value: ExposureVia; label: string }[] = [
-  { value: "npm", label: "Nginx Proxy Manager" },
-  { value: "tunnel", label: "Cloudflare tunnel" },
+const ROUTES: { value: ExposureVia; label: string; short: string }[] = [
+  { value: "npm", label: "Nginx Proxy Manager", short: "NPM" },
+  { value: "tunnel", label: "Cloudflare tunnel", short: "Tunnel" },
 ]
 
-function routeLabel(via: ExposureVia): string {
-  return ROUTES.find((r) => r.value === via)?.label ?? via
+function routeShort(via: ExposureVia): string {
+  return ROUTES.find((r) => r.value === via)?.short ?? via
 }
 
 // listenPort is the whole number typed, or null when it is not one the
@@ -34,26 +37,32 @@ function listenPort(typed: string): number | null {
   return port >= PORT_MIN && port <= PORT_MAX ? port : null
 }
 
-function ExposureRows({ exposure }: { exposure: ExposureView }) {
-  const rows: { label: string; value: ReactNode }[] = [
-    { label: "Route", value: routeLabel(exposure.via) },
-    { label: "Hostname", value: exposure.hostname },
-    ...(exposure.via === "tunnel" ? [{ label: "Tunnel", value: exposure.tunnel ?? "" }] : []),
-    { label: "Network", value: exposure.subnet },
-    { label: "Gateway", value: exposure.gateway },
-    { label: "Proxy", value: exposure.proxy },
-    { label: "Port", value: String(exposure.port) },
-    { label: "State", value: <Badge variant={exposure.state === "open" ? "default" : "destructive"}>{exposure.state}</Badge> },
-  ]
+function Exposure({ exposure, onRemove }: { exposure: ExposureView; onRemove: () => void }) {
+  const icon = exposure.via === "tunnel" ? Cloud : Globe
   return (
-    <dl aria-label="Panel exposure" className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[max-content_1fr]">
-      {rows.map((row) => (
-        <div key={row.label} className="contents">
-          <dt className="text-muted-foreground">{row.label}</dt>
-          <dd className="break-all">{row.value}</dd>
-        </div>
-      ))}
-    </dl>
+    <div role="group" aria-label="Panel exposure" className="flex flex-col gap-4">
+      <SectionHeader
+        icon={icon}
+        title={exposure.hostname}
+        status={exposureState(exposure.state)}
+        actions={
+          <Button variant="destructive" onClick={onRemove}>
+            <Trash2 aria-hidden />
+            Remove exposure
+          </Button>
+        }
+      />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatTile icon={icon} figure={routeShort(exposure.via)} caption="Route" />
+        <StatTile icon={Plug} figure={String(exposure.port)} caption="Port" />
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {exposure.via === "tunnel" && <Fact label="Tunnel" value={exposure.tunnel ?? ""} mono />}
+        <Fact label="Network" value={exposure.subnet} mono />
+        <Fact label="Gateway" value={exposure.gateway} mono />
+        <Fact label="Proxy" value={exposure.proxy} mono />
+      </div>
+    </div>
   )
 }
 
@@ -164,19 +173,10 @@ export function PanelPage({ hostId }: { hostId: string }) {
     const exposure = status.data.exposure
     if (status.data.exposed && exposure !== null && exposure !== undefined) {
       return (
-        <>
-          <ExposureRows exposure={exposure} />
-          <div>
-            <Button
-              variant="destructive"
-              onClick={() =>
-                plan({ action: "panel.exposure.remove", title: `Remove the panel exposure at ${exposure.hostname}`, input: {} })
-              }
-            >
-              Remove exposure
-            </Button>
-          </div>
-        </>
+        <Exposure
+          exposure={exposure}
+          onRemove={() => plan({ action: "panel.exposure.remove", title: `Remove the panel exposure at ${exposure.hostname}`, input: {} })}
+        />
       )
     }
     if (hosts.isPending) return <Spinner aria-label="Loading the host" />
