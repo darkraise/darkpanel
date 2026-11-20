@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -877,5 +878,19 @@ func TestA46_UpdatesReportsDpkgInterruptedAndRepairIsOffered(t *testing.T) {
 	p, err := h.planErr("system.packages.repair", `{}`)
 	if err != nil || !strings.Contains(p.Text(), "curl") {
 		t.Fatalf("repair plan = %v, %v", p.Text(), err)
+	}
+}
+
+func TestA29_TheEmbeddedKeyringHoldsExactlyThePinnedFingerprint(t *testing.T) {
+	b, err := os.ReadFile("docker_keyring.gpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fps, err := platform.KeyringFingerprints(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(fps, "9DC858229FC7DD38854AE2D88D81803C0EBFCD88") {
+		t.Fatalf("the embedded keyring's fingerprints are %v, want 9DC858229FC7DD38854AE2D88D81803C0EBFCD88", fps)
 	}
 }
