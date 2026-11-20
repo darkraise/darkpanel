@@ -6,6 +6,7 @@ import { Button } from "darkraise-ui/components/button"
 import { Checkbox } from "darkraise-ui/components/checkbox"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Skeleton } from "darkraise-ui/components/skeleton"
+import { Table, TableBody, TableCell, TableRow } from "darkraise-ui/components/table"
 import { readResource } from "@/api/client"
 import type { Host } from "@/api/types"
 import { InfoTip } from "@/components/visual/info-tip"
@@ -36,24 +37,39 @@ function Versions({ from, to }: { from: string; to: string }) {
   )
 }
 
+// Below 40rem of width each row stacks its cells; the explicit roles keep
+// the table semantics a changed display would drop.
+const STACK_ROW = "flex flex-col gap-1 py-2 @min-[40rem]:table-row @min-[40rem]:py-0"
+const STACK_CELL = "block h-auto py-0 whitespace-normal @min-[40rem]:table-cell @min-[40rem]:h-[revert-layer] @min-[40rem]:py-2"
+
 function UpgradableRow({ pkg, checked, onToggle }: { pkg: Upgradable; checked: boolean; onToggle: (on: boolean) => void }) {
   const id = `upgrade-${pkg.name}`
   return (
-    <li className="flex items-start gap-3 p-2">
-      <Checkbox id={id} aria-label={pkg.name} checked={checked} onCheckedChange={(v) => onToggle(v === true)} className="mt-0.5" />
-      <div className="grid min-w-0 flex-1 gap-1 @min-[40rem]:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_auto] @min-[40rem]:items-center">
-        <label htmlFor={id} className="font-mono text-sm break-all">
-          {pkg.name}
-        </label>
+    <TableRow role="row" className={STACK_ROW}>
+      <TableCell role="cell" className={`${STACK_CELL} @min-[40rem]:max-w-96`}>
+        <span className="flex items-start gap-3">
+          <Checkbox id={id} aria-label={pkg.name} checked={checked} onCheckedChange={(v) => onToggle(v === true)} className="mt-0.5 shrink-0" />
+          <label htmlFor={id} className="min-w-0 font-mono text-sm break-all">
+            {pkg.name}
+          </label>
+        </span>
+      </TableCell>
+      <TableCell role="cell" className={`${STACK_CELL} ps-9 @min-[40rem]:ps-2`}>
         <Versions from={pkg.from} to={pkg.to} />
-        <span>{pkg.security && <StatusPill status="warn" label="Security" />}</span>
-      </div>
-    </li>
+      </TableCell>
+      <TableCell role="cell" className={`${STACK_CELL} ps-9 @min-[40rem]:ps-2`}>
+        {pkg.security && <StatusPill status="warn" label="Security" />}
+      </TableCell>
+    </TableRow>
   )
 }
 
-function Rows({ children }: { children: ReactNode }) {
-  return <ul className="divide-border flex flex-col divide-y rounded-md border">{children}</ul>
+function Rows({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Table role="table" aria-label={label}>
+      <TableBody>{children}</TableBody>
+    </Table>
+  )
 }
 
 // UpdatesTab lists the upgradable packages, security first, with the
@@ -114,12 +130,12 @@ export function UpdatesTab({ host }: { host: Host }) {
       </div>
       {security.length > 0 && (
         <Group label="Security">
-          <Rows>{security.map(row)}</Rows>
+          <Rows label="Security updates">{security.map(row)}</Rows>
         </Group>
       )}
       {other.length > 0 && (
         <Group label="Other updates">
-          <Rows>{other.map(row)}</Rows>
+          <Rows label="Other updates">{other.map(row)}</Rows>
         </Group>
       )}
       {data.removals.length > 0 && (

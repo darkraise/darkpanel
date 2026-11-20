@@ -30,7 +30,7 @@ interface SearchHit {
 // Below 40rem of width each row stacks its cells; the explicit roles keep
 // the table semantics a changed display would drop.
 const STACK_ROW = "flex flex-col gap-1 py-2 @min-[40rem]:table-row @min-[40rem]:py-0"
-const STACK_CELL = "block py-0 whitespace-normal @min-[40rem]:table-cell @min-[40rem]:py-2"
+const STACK_CELL = "block h-auto py-0 whitespace-normal @min-[40rem]:table-cell @min-[40rem]:h-[revert-layer] @min-[40rem]:py-2"
 
 function useDebounced(value: string, delay: number): string {
   const [debounced, setDebounced] = useState(value)
