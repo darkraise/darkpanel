@@ -271,14 +271,28 @@ func (v *m9VM) settle(id string, d time.Duration, done func(string) bool) (Chang
 	return ch, err
 }
 
-// confirm confirms the pending change and fails the test unless it ends
-// confirmed.
+// confirm confirms the change, which must be awaiting confirmation, and fails
+// the test unless it is kept: a composite ends completed once its steps are
+// confirmed, a plain change ends confirmed.
 func (v *m9VM) confirm(t *testing.T, change string) {
 	t.Helper()
+	ch, err := v.f.api.m3Change(v.ctx, change)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.State != core.StateAwaitingConfirmation {
+		t.Fatalf("change %s is %s, want %s: error %s", change, ch.State, core.StateAwaitingConfirmation, m3JSON(ch.Error))
+	}
 	if _, err := v.f.api.m3dDockConfirm(v.ctx, change); err != nil {
 		t.Fatalf("confirm %s: %v", change, err)
 	}
-	v.awaitState(t, change, core.StateConfirmed, m9ApplyTimeout)
+	if ch, err = v.settle(change, m9ApplyTimeout, m5Terminal); err != nil {
+		t.Fatalf("change %s: %v", change, err)
+	}
+	if ch.State != core.StateCompleted && ch.State != core.StateConfirmed {
+		t.Fatalf("change %s ended %s after its confirmation, want %s or %s: error %s",
+			change, ch.State, core.StateCompleted, core.StateConfirmed, m3JSON(ch.Error))
+	}
 }
 
 // awaitState waits up to d for the change to reach state, failing the test

@@ -34,8 +34,8 @@ func TestM9SystemPackages(t *testing.T) {
 	if !strings.Contains(audit, "jq") { // A37
 		t.Fatalf("audit row lacks jq: %s", audit)
 	}
-	if n := len(vm.sshMust(t, "apt-cache pkgnames")); n > 3<<20 {
-		t.Fatalf("pkgnames output %d bytes is near the 4 MiB cap", n)
+	if n := len(vm.sshMust(t, "apt-cache pkgnames")); n > 8<<20 { // a quarter of the apt-cache rule's MaxOutput (32 MiB)
+		t.Fatalf("pkgnames output %d bytes is over a quarter of the apt-cache rule's 32 MiB cap", n)
 	}
 }
 
