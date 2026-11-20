@@ -84,7 +84,7 @@ export function PendingDockerInstall({ hostId }: { hostId: string }) {
   })
   if (awaiting === undefined) return null
   return (
-    <Alert variant="warning" role="region" aria-label="Docker install awaiting confirmation" data-testid="state-pendingInstall">
+    <Alert variant="warning" role="region" aria-label="Docker install awaiting confirmation" data-testid="state-pendingInstall" className="mb-4">
       <AlertTitle as="h2">Keep the Docker install?</AlertTitle>
       <AlertDescription className="flex flex-col gap-3">
         <Stepper steps={installSteps(true)} current="confirm" />
