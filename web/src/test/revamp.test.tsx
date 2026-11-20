@@ -11,6 +11,9 @@ const rows: Row[] = [
   { name: "FirewallPage", load: () => import("@/modules/firewall/firewall-page").then((m) => m.FirewallPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/firewall/firewall-page.test.tsx", expects: { role: "img", name: /^Inbound: / } },
   { name: "DockerPage", load: () => import("@/modules/docker/docker-page").then((m) => m.DockerPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/docker/docker-page.test.tsx", expects: { role: "img", name: /^Containers: / } },
   { name: "TailscalePage", load: () => import("@/modules/tailscale/tailscale-page").then((m) => m.TailscalePage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/tailscale/tailscale-page.test.tsx", expects: { role: "status", name: /^Node state: / } },
+  { name: "DevicesPage", load: () => import("@/modules/tailnet/devices-page").then((m) => m.DevicesPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/tailnet/devices-page.test.tsx", expects: { role: "img", name: /^(Authorized|Pending approval)$/ } },
+  { name: "DerpPage", load: () => import("@/modules/derp/derp-page").then((m) => m.DerpPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/derp/derp-page.test.tsx", expects: { role: "article" } },
+  { name: "NpmPage", load: () => import("@/modules/npm/npm-page").then((m) => m.NpmPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/npm/npm-page.test.tsx", expects: { role: "article" } },
 ]
 
 test.each(rows)("A10, UI-7: $name shows its state as graphics, not key/value text", async (row) => {

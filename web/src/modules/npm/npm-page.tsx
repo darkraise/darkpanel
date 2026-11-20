@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "darkraise-ui/components/tabs"
+import { Globe } from "lucide-react"
+import { SectionHeader } from "@/components/visual/section-header"
 import { AccessListsTab } from "./access-lists-tab"
 import { CertificatesTab } from "./certificates-tab"
 import { InstancePanel } from "./instance-panel"
@@ -16,9 +18,10 @@ export function NpmPage({ hostId }: { hostId: string }) {
   const exposure = status.data?.adminExposure
   return (
     <div className="flex flex-col gap-6">
+      <SectionHeader icon={Globe} title="Nginx Proxy Manager" />
       {exposure !== null && exposure !== undefined && (
         <Alert variant="warning" role="status">
-          <AlertTitle>Admin interface exposed</AlertTitle>
+          <AlertTitle as="h3">Admin interface exposed</AlertTitle>
           <AlertDescription>{`The NPM admin interface is published at https://${exposure.hostname}. Remove the exposure when you no longer need it.`}</AlertDescription>
         </Alert>
       )}

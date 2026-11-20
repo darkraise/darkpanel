@@ -33,7 +33,7 @@ function pgRender(path: string, status: InstanceStatus, routes: Record<string, S
 
 test("opens on the Instance tab and reads the status once for the page and the panel", async () => {
   const { calls } = pgRender("/hosts/h1/npm", pgStatus())
-  expect((await screen.findByText("admin@example.com")).tagName).toBe("DD")
+  expect((await screen.findByLabelText("Admin email: admin@example.com")).lastElementChild?.textContent).toBe("admin@example.com")
   expect(screen.getByRole("tab", { name: "Instance", selected: true })).toBeTruthy()
   expect(calls.filter((c) => c.method === "POST" && c.path.endsWith("/npm.instance.status/v1/read"))).toHaveLength(1)
 })
@@ -116,7 +116,7 @@ test("drops an admin password still being revealed for the previous host", async
   const user = userEvent.setup()
   await user.click(await screen.findByRole("button", { name: "Reveal admin password" }))
   await user.click(screen.getByRole("link", { name: "Other host" }))
-  expect((await screen.findByText("other@example.com")).tagName).toBe("DD")
+  expect((await screen.findByLabelText("Admin email: other@example.com")).lastElementChild?.textContent).toBe("other@example.com")
   await act(async () => {
     answer({ body: { value: { email: "admin@example.com", password: "s3cret-Pa55" } } })
     await new Promise((resolve) => setTimeout(resolve, 50))

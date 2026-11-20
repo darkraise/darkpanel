@@ -16,8 +16,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { changeError, changeInProgress, errorMessage, readAction } from "@/api/client"
 import type { Change } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
+import type { Status } from "@/components/visual/status"
+import { StatusPill } from "@/components/visual/status-pill"
 import { formatTime } from "@/lib/format"
 import { TAILNET_ACTION_VERSION, tailnetKey, type AuthKeyRow, type CreatedKey, type TailnetAccountStatus } from "./types"
+
+const KEY_STATUS: Record<string, Status> = { requested: "info", live: "ok", uncertain: "warn", used: "off", retired: "off", deleted: "off" }
 
 type Phase = "closed" | "plan" | "created"
 
@@ -100,7 +104,9 @@ function KeysTable({ keys }: { keys: AuthKeyRow[] }) {
           <TableRow key={`${k.description}-${k.requestedAt}`}>
             <TableCell className="font-mono">{k.description}</TableCell>
             <TableCell>{k.kind}</TableCell>
-            <TableCell>{k.state}</TableCell>
+            <TableCell>
+              <StatusPill status={KEY_STATUS[k.state] ?? "info"} label={k.state} />
+            </TableCell>
             <TableCell>{formatTime(k.requestedAt)}</TableCell>
             <TableCell>{formatTime(k.expires)}</TableCell>
             <TableCell className="font-mono">{k.keyId ?? ""}</TableCell>

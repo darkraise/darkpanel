@@ -8,6 +8,7 @@ import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { Textarea } from "darkraise-ui/components/textarea"
+import { Trash2 } from "lucide-react"
 import { MarkBadges, ReadFailure } from "./list-parts"
 import { readAccessListList } from "./list-replies"
 import { NpmChange } from "./npm-change"
@@ -89,6 +90,7 @@ function AccessListTable({ items, onRemove }: { items: AccessListView[]; onRemov
             </TableCell>
             <TableCell>
               <Button size="sm" variant="outline" aria-label={`Remove ${a.name}`} disabled={a.reserved !== ""} onClick={() => onRemove(a)}>
+                <Trash2 aria-hidden />
                 Remove
               </Button>
             </TableCell>

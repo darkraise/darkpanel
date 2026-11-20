@@ -50,8 +50,10 @@ test("reads the probe of the host and says whether the region can be published",
   renderWithProviders(<ProbePanel hostId="h2" />)
   expect(await screen.findByText("Ready to publish")).toBeTruthy()
   expect(calls.filter((c) => c.method === "POST").map((c) => c.body)).toEqual([{ input: { hostId: "h2" } }])
-  expect(screen.getByText("Region: fra-x (900)")).toBeTruthy()
-  expect(screen.getByText("203.0.113.10, derper v1.104.1, unit active")).toBeTruthy()
+  expect(screen.getByLabelText("Region: fra-x (900)")).toBeTruthy()
+  expect(screen.getByLabelText("Server name: 203.0.113.10")).toBeTruthy()
+  expect(screen.getByLabelText("derper: v1.104.1")).toBeTruthy()
+  expect(screen.getByText("Unit active")).toBeTruthy()
   expect(screen.queryByRole("list", { name: "Warnings" })).toBeNull()
 })
 
@@ -60,7 +62,7 @@ test("lists the probe's warnings and says when the server is not ready", async (
   stubFetch({ [PP_PROBE]: { body: { output: { ...ppProbe, ready: false, regionId: 0, regionCode: "", warnings: [warning] } } } })
   renderWithProviders(<ProbePanel hostId="h2" />)
   expect(await screen.findByText("Not ready")).toBeTruthy()
-  expect(screen.getByText("Region: not published")).toBeTruthy()
+  expect(screen.getByLabelText("Region: not published")).toBeTruthy()
   expect(within(screen.getByRole("list", { name: "Warnings" })).getAllByRole("listitem").map((i) => i.textContent)).toEqual([warning])
   expect(screen.queryByText("Ready to publish")).toBeNull()
 })
@@ -101,7 +103,8 @@ test("labels the region report as connectivity diagnostics and shows it only for
   expect(within(report).getByText("Errors")).toBeTruthy()
   expect(within(within(report).getByRole("list", { name: "Errors from web-1" })).getAllByRole("listitem").map((i) => i.textContent)).toEqual(["TLS name mismatch"])
   expect(within(within(report).getByRole("list", { name: "Information from web-1" })).getAllByRole("listitem").map((i) => i.textContent)).toEqual(["DERP server answered"])
-  expect(screen.getByText(/do not prove that two nodes can relay through it/)).toBeTruthy()
+  await userEvent.click(screen.getByRole("button", { name: "About the connectivity diagnostics" }))
+  expect((await screen.findAllByText(/do not prove that two nodes can relay through it/)).length).toBeGreaterThan(0)
 })
 
 test("shows whether each node is visible, its preferred region and whether it is relayed through this one", async () => {

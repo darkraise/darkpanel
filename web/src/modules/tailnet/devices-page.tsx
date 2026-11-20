@@ -2,7 +2,6 @@ import { useId, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Checkbox } from "darkraise-ui/components/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
@@ -10,7 +9,9 @@ import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Clock, Route, ShieldCheck, Trash2 } from "lucide-react"
 import { ApiError, errorMessage, readAction } from "@/api/client"
+import { StatusDot } from "@/components/visual/status-dot"
 import { formatTime } from "@/lib/format"
 import { TailnetChange } from "./tailnet-change"
 import { TAILNET_ACTION_VERSION, tailnetKey, type TailnetDevice } from "./types"
@@ -159,7 +160,10 @@ export function DevicesPage() {
                 <TableCell>{d.os}</TableCell>
                 <TableCell>{d.tags.join(", ")}</TableCell>
                 <TableCell>
-                  {d.authorized ? <Badge size="sm">Authorized</Badge> : <Badge variant="secondary" size="sm">Pending approval</Badge>}
+                  <span className="inline-flex items-center gap-1.5">
+                    <StatusDot status={d.authorized ? "ok" : "warn"} label={d.authorized ? "Authorized" : "Pending approval"} />
+                    <span aria-hidden>{d.authorized ? "Authorized" : "Pending approval"}</span>
+                  </span>
                 </TableCell>
                 <TableCell>{routesSummary(d)}</TableCell>
                 <TableCell>{formatTime(d.lastSeen ?? null)}</TableCell>
@@ -167,18 +171,22 @@ export function DevicesPage() {
                   <div className="flex flex-wrap gap-2">
                     {!d.authorized && (
                       <Button variant="outline" size="sm" aria-label={`Authorize ${d.name}`} onClick={() => plan("tailnet.device.authorize", "Authorize", d)}>
+                        <ShieldCheck aria-hidden />
                         Authorize
                       </Button>
                     )}
                     {d.advertisedRoutes.length > 0 && (
                       <Button variant="outline" size="sm" aria-label={`Routes of ${d.name}`} onClick={() => setRoutesOf(d)}>
+                        <Route aria-hidden />
                         Routes
                       </Button>
                     )}
                     <Button variant="outline" size="sm" aria-label={`Expire ${d.name}`} onClick={() => plan("tailnet.device.expire", "Expire", d)}>
+                      <Clock aria-hidden />
                       Expire
                     </Button>
                     <Button variant="destructive" size="sm" aria-label={`Delete ${d.name}`} onClick={() => plan("tailnet.device.delete", "Delete", d)}>
+                      <Trash2 aria-hidden />
                       Delete
                     </Button>
                   </div>

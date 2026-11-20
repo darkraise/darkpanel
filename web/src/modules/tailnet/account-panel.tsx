@@ -10,6 +10,7 @@ import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { errorMessage, readAction } from "@/api/client"
 import { CapabilityList } from "@/components/capability-list"
+import { Fact } from "@/components/visual/fact"
 import { formatTime } from "@/lib/format"
 import { TailnetChange } from "./tailnet-change"
 import { TAILNET_ACTION_VERSION, tailnetKey, type TailnetAccountStatus, type TailnetAccountView } from "./types"
@@ -143,14 +144,11 @@ function Connected({ account, onPlan }: { account: TailnetAccountView; onPlan: (
   ]
   return (
     <>
-      <dl aria-label="Tailnet account" className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[max-content_1fr]">
+      <div role="group" aria-label="Tailnet account" className="flex flex-wrap gap-1">
         {rows.map(([label, value]) => (
-          <div key={label} className="contents">
-            <dt className="text-muted-foreground">{label}</dt>
-            <dd>{value}</dd>
-          </div>
+          <Fact key={label} label={label} value={value} mono={label === "OAuth client"} />
         ))}
-      </dl>
+      </div>
       <div className="flex flex-col gap-2">
         <h3 className="text-sm font-medium">Capabilities</h3>
         <CapabilityList capabilities={account.capabilities} />

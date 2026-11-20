@@ -1,5 +1,8 @@
+import { serversFixture } from "@/modules/derp/fixtures"
 import { dkContainer, dkImage } from "@/modules/docker/fixtures"
-import { fwStatus } from "@/modules/firewall/fixtures"
+import { fwDocker, fwStatus } from "@/modules/firewall/fixtures"
+import { npInstance } from "@/modules/npm/fixtures"
+import { tnDevice } from "@/modules/tailnet/fixtures"
 import type { StubHandler } from "./utils"
 
 export interface ScreenStubs {
@@ -52,6 +55,30 @@ const stubs: Record<string, ScreenStubs> = {
     path: "/hosts/h1/tailscale",
     props: { hostId: "h1" },
     routes: { "GET /api/v1/hosts/h1/resources/tailscale/status": { body: tailscaleStatus } },
+  },
+  DevicesPage: {
+    path: "/tailnet/devices",
+    props: {},
+    routes: {
+      "POST /api/v1/actions/tailnet.device.list/v1/read": {
+        body: { output: { devices: [tnDevice({ id: "n1", name: "web-1.example.ts.net", authorized: true }), tnDevice({ id: "n2", name: "laptop.example.ts.net", authorized: false, advertisedRoutes: [], enabledRoutes: [] })] } },
+      },
+    },
+  },
+  DerpPage: {
+    path: "/derp",
+    props: {},
+    routes: { "POST /api/v1/actions/derp.server.list/v1/read": { body: { output: serversFixture } } },
+  },
+  NpmPage: {
+    path: "/hosts/h1/npm",
+    props: { hostId: "h1" },
+    routes: {
+      "POST /api/v1/hosts/h1/actions/npm.instance.status/v1/read": {
+        body: { output: npInstance({ deployed: true, containerId: "c0ffee", running: true, apiReady: true, public: "confirmed", adminEmail: "admin@example.com" }) },
+      },
+      "GET /api/v1/hosts/h1/resources/firewall/docker": { body: fwDocker() },
+    },
   },
 }
 

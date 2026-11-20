@@ -2,6 +2,7 @@ import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Badge } from "darkraise-ui/components/badge"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
+import { CircleHelp, Lock } from "lucide-react"
 import { messageOf } from "./status"
 
 // ReadFailure renders the alert for a failed read; a panel that holds data
@@ -18,8 +19,18 @@ export function ReadFailure({ error }: { error: unknown }) {
 export function MarkBadges({ reserved, unclaimed }: { reserved: string; unclaimed: boolean }) {
   return (
     <span className="flex flex-wrap gap-1">
-      {reserved !== "" && <Badge variant="secondary">{`Reserved: ${reserved}`}</Badge>}
-      {unclaimed && <Badge variant="outline">Unclaimed Darkpanel object</Badge>}
+      {reserved !== "" && (
+        <Badge variant="secondary">
+          <Lock aria-hidden className="size-3" />
+          {`Reserved: ${reserved}`}
+        </Badge>
+      )}
+      {unclaimed && (
+        <Badge variant="outline">
+          <CircleHelp aria-hidden className="size-3" />
+          Unclaimed Darkpanel object
+        </Badge>
+      )}
     </span>
   )
 }

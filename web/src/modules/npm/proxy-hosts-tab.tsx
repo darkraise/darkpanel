@@ -8,6 +8,7 @@ import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Pencil, Trash2 } from "lucide-react"
 import { Field, MarkBadges, ReadFailure } from "./list-parts"
 import { readProxyHostList } from "./list-replies"
 import { NpmChange } from "./npm-change"
@@ -165,9 +166,11 @@ function ProxyHostTable({ items, onEdit, onRemove }: { items: ProxyHostView[]; o
             <TableCell>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" aria-label={`Edit ${namesOf(h)}`} disabled={h.reserved !== ""} onClick={() => onEdit(h)}>
+                  <Pencil aria-hidden />
                   Edit
                 </Button>
                 <Button size="sm" variant="outline" aria-label={`Remove ${namesOf(h)}`} disabled={h.reserved !== ""} onClick={() => onRemove(h)}>
+                  <Trash2 aria-hidden />
                   Remove
                 </Button>
               </div>

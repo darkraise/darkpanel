@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Trash2 } from "lucide-react"
 import { Field, MarkBadges, ReadFailure } from "./list-parts"
 import { readCertificateList } from "./list-replies"
 import { NpmChange } from "./npm-change"
@@ -68,6 +69,7 @@ function CertificateTable({ items, onRemove }: { items: CertificateView[]; onRem
             </TableCell>
             <TableCell>
               <Button size="sm" variant="outline" aria-label={`Remove ${certLabel(c)}`} disabled={c.reserved !== ""} onClick={() => onRemove(c)}>
+                <Trash2 aria-hidden />
                 Remove
               </Button>
             </TableCell>

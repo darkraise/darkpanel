@@ -42,7 +42,7 @@ function dpBodies(calls: FetchCall[], suffix: string): unknown[] {
 }
 
 function dpRow(host: string): HTMLElement {
-  const row = screen.getByText(host).closest("tr")
+  const row = screen.getByText(host).closest<HTMLElement>("[role=article]")
   if (row === null) throw new Error(`no row for ${host}`)
   return row
 }
@@ -51,7 +51,7 @@ test("reads derp.server.list on the controller and lists the servers with their 
   const calls = stubFetch({ [DP_LIST]: dpServers })
   renderWithProviders(<DerpPage />)
   expect(screen.getByLabelText("Loading the DERP servers")).toBeTruthy()
-  await screen.findByRole("table", { name: "DERP servers" })
+  await screen.findByRole("region", { name: "DERP servers" })
   expect(dpBodies(calls, "derp.server.list/v1/read")).toEqual([{ input: {} }])
   expect(calls.some((c) => c.path.includes("/hosts/"))).toBe(false)
   expect(within(dpRow("derp-1")).getByText("ok")).toBeTruthy()
@@ -68,7 +68,7 @@ test("a refused list read shows its message and keeps the deploy button", async 
   renderWithProviders(<DerpPage />)
   expect((await screen.findByRole("alert")).textContent).toBe("the controller cannot read the servers")
   expect(screen.getByRole("button", { name: "Deploy a DERP server" })).toBeTruthy()
-  expect(screen.queryByRole("table")).toBeNull()
+  expect(screen.queryByRole("region", { name: "DERP servers" })).toBeNull()
 })
 
 test("an answer that is not a server list is an error", async () => {
@@ -89,7 +89,7 @@ test("the deploy button opens the deploy dialog and Cancel closes it", async () 
   stubFetch({ [DP_LIST]: dpServers, [DP_HOSTS]: dpHosts })
   renderWithProviders(<DerpPage />)
   const user = userEvent.setup()
-  await screen.findByRole("table", { name: "DERP servers" })
+  await screen.findByRole("region", { name: "DERP servers" })
   await user.click(screen.getByRole("button", { name: "Deploy a DERP server" }))
   const dialog = await screen.findByRole("dialog", { name: "Deploy a DERP server" })
   await within(dialog).findByRole("radio", { name: "web-1" })
@@ -108,7 +108,7 @@ test("lists the published regions with a way to remove each, and no section with
 
   stubFetch({ [DP_LIST]: { body: { output: { ...serversFixture, servers: [serversFixture.servers[1]] } } } })
   renderWithProviders(<DerpPage />)
-  await screen.findByRole("table", { name: "DERP servers" })
+  await screen.findByRole("region", { name: "DERP servers" })
   expect(screen.queryByRole("region", { name: "Published regions" })).toBeNull()
 })
 
@@ -122,7 +122,7 @@ test("Probe shows the probe panel of that host and Close probe hides it", async 
   expect(dpBodies(calls, "derp.server.probe/v1/read")).toEqual([{ input: { hostId: DP_ONE } }])
   await user.click(within(panel).getByRole("button", { name: "Close probe" }))
   expect(screen.queryByRole("region", { name: "Probe of derp-1" })).toBeNull()
-  expect(screen.getByRole("table", { name: "DERP servers" })).toBeTruthy()
+  expect(screen.getByRole("region", { name: "DERP servers" })).toBeTruthy()
 })
 
 test("probing another server replaces the panel", async () => {

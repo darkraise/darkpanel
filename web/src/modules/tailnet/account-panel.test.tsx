@@ -58,7 +58,7 @@ function apRender(status: TailnetAccountStatus, routes: Record<string, StubHandl
 }
 
 function apValue(label: string): string | null | undefined {
-  return within(screen.getByLabelText("Tailnet account")).getByText(label, { selector: "dt" }).nextElementSibling?.textContent
+  return within(screen.getByLabelText("Tailnet account")).getByText(label, { selector: "span" }).nextElementSibling?.textContent
 }
 
 function apPlanned(calls: FetchCall[]): { path: string; body: unknown }[] {

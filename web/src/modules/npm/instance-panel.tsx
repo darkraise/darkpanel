@@ -1,13 +1,16 @@
 import { useId, useState, type FormEvent } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
+import { CircleArrowUp, Globe, ShieldAlert } from "lucide-react"
 import { readResource, request } from "@/api/client"
+import { Fact } from "@/components/visual/fact"
+import { ResourceCard } from "@/components/visual/resource-card"
+import { StatusPill } from "@/components/visual/status-pill"
 import { dockerQueryKey, FIREWALL_MODULE, statusQueryKey, type DockerStatus, type FirewallStatus } from "@/modules/firewall/types"
 import { NpmChange, NpmControllerChange } from "./npm-change"
 import { messageOf, readInstanceStatus } from "./status"
@@ -93,26 +96,24 @@ function DeployForm({ hostId, onPlan }: { hostId: string; onPlan: PlanChange }) 
   )
 }
 
-function StatusRows({ status }: { status: InstanceStatus }) {
+function InstanceCard({ status }: { status: InstanceStatus }) {
   const exposure = status.adminExposure
-  const rows: { label: string; value: string }[] = [
-    { label: "Status", value: status.running ? "running" : "stopped" },
-    { label: "API", value: status.apiReady ? "ready" : "not ready" },
-    { label: "Image", value: status.image },
-    { label: "Pinned image", value: status.pinnedImage },
-    { label: "Admin email", value: status.adminEmail },
-    { label: "Public", value: status.public === "confirmed" ? "confirmed" : "not confirmed" },
-    { label: "Admin interface", value: exposure !== null && exposure !== undefined ? `https://${exposure.hostname}` : "not exposed" },
-  ]
+  const exposed = exposure !== null && exposure !== undefined
   return (
-    <dl aria-label="NPM instance" className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[max-content_1fr]">
-      {rows.map((row) => (
-        <div key={row.label} className="contents">
-          <dt className="text-muted-foreground">{row.label}</dt>
-          <dd className="break-all">{row.value}</dd>
-        </div>
-      ))}
-    </dl>
+    <ResourceCard icon={Globe} title="Nginx Proxy Manager" status={status.running ? { status: "ok", label: "Running" } : { status: "error", label: "Stopped" }}>
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusPill status={status.apiReady ? "ok" : "warn"} label={status.apiReady ? "API ready" : "API not ready"} />
+        <StatusPill status={status.public === "confirmed" ? "ok" : "warn"} label={status.public === "confirmed" ? "Public confirmed" : "Public not confirmed"} />
+        {exposed && <StatusPill status="warn" icon={ShieldAlert} label="Admin interface exposed" />}
+        {status.upgradeAvailable && <StatusPill status="info" icon={CircleArrowUp} label="Upgrade available" />}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        <Fact label="Image" value={status.image} mono />
+        <Fact label="Pinned image" value={status.pinnedImage} mono />
+        <Fact label="Admin email" value={status.adminEmail} />
+        <Fact label="Admin interface" value={exposed ? `https://${exposure.hostname}` : "not exposed"} />
+      </div>
+    </ResourceCard>
   )
 }
 
@@ -174,16 +175,10 @@ function RevealDialog({ credentials, onHide }: { credentials: AdminPassword; onH
           <DialogTitle>NPM admin credentials</DialogTitle>
           <DialogDescription>Shown once. Closing this dialog hides the password.</DialogDescription>
         </DialogHeader>
-        <dl className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[max-content_1fr]">
-          <div className="contents">
-            <dt className="text-muted-foreground">Email</dt>
-            <dd className="break-all">{credentials.email}</dd>
-          </div>
-          <div className="contents">
-            <dt className="text-muted-foreground">Password</dt>
-            <dd className="break-all font-mono">{credentials.password}</dd>
-          </div>
-        </dl>
+        <div className="flex flex-wrap gap-1">
+          <Fact label="Email" value={credentials.email} />
+          <Fact label="Password" value={credentials.password} mono />
+        </div>
         <DialogFooter>
           <Button onClick={onHide}>Hide password</Button>
         </DialogFooter>
@@ -245,7 +240,7 @@ export function InstancePanel({ hostId }: { hostId: string }) {
     <div className="flex flex-col gap-4">
       {status.deployed ? (
         <>
-          <StatusRows status={status} />
+          <InstanceCard status={status} />
           {status.public !== "confirmed" && (
             <Alert variant="warning" role="status">
               <AlertDescription>Public access is not confirmed. Confirm only when ports 80 and 443 reach this host from the internet.</AlertDescription>
@@ -285,7 +280,6 @@ export function InstancePanel({ hostId }: { hostId: string }) {
                 Expose admin interface
               </Button>
             )}
-            {status.upgradeAvailable && <Badge variant="secondary">Upgrade available</Badge>}
           </div>
           {revealError !== null && (
             <Alert variant="destructive" role="alert">

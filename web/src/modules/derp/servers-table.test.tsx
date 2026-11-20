@@ -45,15 +45,15 @@ const stLE: DerpServerView = {
 const stServers: DerpServers = { servers: [stIP, stLE], availableVersion: "v1.104.1" }
 
 function stRow(host: string): HTMLElement {
-  const row = screen.getByText(host).closest("tr")
+  const row = screen.getByText(host).closest<HTMLElement>("[role=article]")
   if (row === null) throw new Error(`no row for ${host}`)
   return row
 }
 
 test("renders a row for every server of the shared fixture, with its health", () => {
   renderWithProviders(<ServersTable servers={serversFixture} onAction={() => {}} />)
-  const table = screen.getByRole("table", { name: "DERP servers" })
-  expect(within(table).getAllByRole("row")).toHaveLength(serversFixture.servers.length + 1)
+  const list = screen.getByRole("region", { name: "DERP servers" })
+  expect(within(list).getAllByRole("article")).toHaveLength(serversFixture.servers.length)
   for (const s of serversFixture.servers) {
     expect(within(stRow(s.host)).getByText(s.health)).toBeTruthy()
   }
@@ -61,10 +61,10 @@ test("renders a row for every server of the shared fixture, with its health", ()
 
 test("shows each server's mode, region, version, certificate and health", () => {
   renderWithProviders(<ServersTable servers={stServers} onAction={() => {}} />)
-  const headers = within(screen.getByRole("table", { name: "DERP servers" })).getAllByRole("columnheader")
-  expect(headers.map((h) => h.textContent)).toEqual(["Host", "Mode", "Server name", "Region", "Version", "Certificate", "Health", "Actions"])
-
   const ip = within(stRow("derp-1"))
+  for (const fact of ["Mode: IP certificate", "Server name: 203.0.113.10", "Region: fra-x (900)", "Version: v1.104.1", `Certificate: Expires ${formatTime("2027-06-01T00:00:00Z")}`]) {
+    expect(ip.getByLabelText(fact)).toBeTruthy()
+  }
   expect(ip.getByText("IP certificate")).toBeTruthy()
   expect(ip.getByText("203.0.113.10")).toBeTruthy()
   expect(ip.getByText("fra-x (900)")).toBeTruthy()
@@ -136,7 +136,7 @@ test.each(stActions)("$button reports $action with its server", async ({ button,
 test("no server is an empty state", () => {
   renderWithProviders(<ServersTable servers={{ servers: [], availableVersion: "v1.104.1" }} onAction={() => {}} />)
   expect(screen.getByText("No DERP servers")).toBeTruthy()
-  expect(screen.queryByRole("table")).toBeNull()
+  expect(screen.queryByRole("region", { name: "DERP servers" })).toBeNull()
 })
 
 test("the table has no accessibility violations", async () => {

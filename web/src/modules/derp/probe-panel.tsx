@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { ApiError, errorMessage, readAction } from "@/api/client"
+import { Fact } from "@/components/visual/fact"
+import { InfoTip } from "@/components/visual/info-tip"
+import { StatusPill } from "@/components/visual/status-pill"
 import { DERP_ACTION_VERSION, derpKey, isServerProbe, type ProbeResult, type ProbeSource, type RegionDiagnostics, type ServerProbe } from "./types"
 
 function readProbe(hostId: string): Promise<ServerProbe> {
@@ -106,18 +108,25 @@ export function ProbePanel({ hostId }: { hostId: string }) {
   const probe = query.data
   return (
     <div className="flex flex-col gap-3">
-      <div>
-        <Badge variant={probe.ready ? "default" : "secondary"}>{probe.ready ? "Ready to publish" : "Not ready"}</Badge>
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusPill status={probe.ready ? "ok" : "warn"} label={probe.ready ? "Ready to publish" : "Not ready"} />
+        <StatusPill status={probe.server.unitActive ? "ok" : "error"} label={probe.server.unitActive ? "Unit active" : "Unit inactive"} />
       </div>
-      <p>{probe.regionId === 0 ? "Region: not published" : `Region: ${probe.regionCode} (${probe.regionId})`}</p>
-      <p>{`${probe.server.hostName}, derper ${probe.server.derperVersion}, ${probe.server.unitActive ? "unit active" : "unit inactive"}`}</p>
+      <div className="flex flex-wrap gap-1">
+        <Fact label="Region" value={probe.regionId === 0 ? "not published" : `${probe.regionCode} (${probe.regionId})`} />
+        <Fact label="Server name" value={probe.server.hostName} mono />
+        <Fact label="derper" value={probe.server.derperVersion} mono />
+      </div>
       <ReportList label="Warnings" name="Warnings" items={probe.warnings} />
       <SourcesTable sources={probe.sources} />
       {probe.sources.map((s) => s.region !== null && <RegionReport key={s.source} name={s.name} report={s.region} />)}
       {probe.sources.some((s) => s.region !== null) && (
-        <p className="text-sm text-muted-foreground">
-          Connectivity diagnostics show that the region answers a throwaway node key. They do not prove that two nodes can relay through it.
-        </p>
+        <div className="text-muted-foreground flex items-center gap-1 text-sm">
+          What the diagnostics prove
+          <InfoTip label="About the connectivity diagnostics">
+            Connectivity diagnostics show that the region answers a throwaway node key. They do not prove that two nodes can relay through it.
+          </InfoTip>
+        </div>
       )}
       {probe.nodes.length === 0 ? (
         <EmptyState title="No nodes" />
