@@ -27,9 +27,20 @@ function ModuleBody({ view, host }: { view: ModuleView; host: Host }) {
       return (
         <>
           <h2 className="sr-only">Module</h2>
-          <EmptyState title="Module not enabled" description="This module is not enabled on this host." />
+          <EmptyState data-testid="state-disabled" title="Module not enabled" description="This module is not enabled on this host." />
         </>
       )
+    case "unreported": {
+      const Unreported = view.entry.unreported
+      return (
+        <>
+          <h2 className="sr-only">{view.entry.label}</h2>
+          <Suspense fallback={<Spinner aria-label="Loading the module" />}>
+            <Unreported host={host} />
+          </Suspense>
+        </>
+      )
+    }
     case "unavailable": {
       const Unavailable = view.entry.unavailable
       if (Unavailable !== undefined) {

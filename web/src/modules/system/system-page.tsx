@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { Server } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
@@ -24,9 +25,12 @@ function SystemHeader({ host }: { host: Host }) {
   return <SectionHeader icon={Server} title="System" status={status} />
 }
 
+export type SystemTab = "overview" | "updates" | "packages"
+
 // SystemPage is /hosts/:hostId/system: the overview, the upgradable
-// packages and the installed packages, one tab each.
-export function SystemPage({ hostId }: { hostId: string }) {
+// packages and the installed packages, one tab each at its own address.
+export function SystemPage({ hostId, tab = "overview" }: { hostId: string; tab?: SystemTab }) {
+  const navigate = useNavigate()
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
   const host = hosts.data?.hosts.find((h) => h.id === hostId)
   if (hosts.isPending) return <Spinner aria-label="Loading the host" />
@@ -41,7 +45,13 @@ export function SystemPage({ hostId }: { hostId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <SystemHeader host={host} />
-      <Tabs defaultValue="overview">
+      <Tabs
+        value={tab}
+        onValueChange={(next) => {
+          const base = `/hosts/${encodeURIComponent(host.id)}/system`
+          void navigate(next === "overview" ? base : `${base}/${next}`)
+        }}
+      >
         <TabsList aria-label="System">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="updates">Updates</TabsTrigger>

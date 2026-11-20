@@ -49,6 +49,9 @@ export interface ModuleEntry {
   // Shown instead of the plain "unavailable" alert when the module is
   // enabled but unavailable on the host.
   unavailable?: LazyExoticComponent<ComponentType<{ host: Host; reason: string }>>
+  // Shown when the host's agent reports no state for the module at all:
+  // the agent predates it.
+  unreported?: LazyExoticComponent<ComponentType<{ host: Host }>>
   containerActions?: ContainerAction[]
   hostCreate?: HostCreateExtension
   global?: GlobalPage

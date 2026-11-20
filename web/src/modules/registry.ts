@@ -7,7 +7,13 @@ import type { GlobalPage, HostCreateExtension, ModuleEntry } from "./types"
 // folder modules/<id>/; no other module's files change.
 export const moduleRegistry: ModuleEntry[] = [
   { id: "hostinfo", label: "Host information", icon: Info, routes: lazy(() => import("./hostinfo/routes")) },
-  { id: "system", label: "System", icon: Server, routes: lazy(() => import("./system/routes")) },
+  {
+    id: "system",
+    label: "System",
+    icon: Server,
+    routes: lazy(() => import("./system/routes")),
+    unreported: lazy(() => import("./system/overview-tab").then((m) => ({ default: m.OverviewTab }))),
+  },
   {
     id: "firewall",
     label: "Firewall",
@@ -65,6 +71,7 @@ export type HostModuleEntry = ModuleEntry & { routes: NonNullable<ModuleEntry["r
 export type ModuleView =
   | { kind: "pages"; entry: HostModuleEntry }
   | { kind: "unavailable"; entry: HostModuleEntry; reason: string }
+  | { kind: "unreported"; entry: HostModuleEntry & { unreported: NonNullable<ModuleEntry["unreported"]> } }
   | { kind: "not-enabled" }
 
 function enabledOn(host: Host, moduleId: string): boolean {
@@ -78,10 +85,15 @@ export function enabledModules(entries: ModuleEntry[], host: Host): HostModuleEn
 }
 
 // moduleView decides what a module's tab shows: its pages, or the reason an
-// enabled module is unavailable (R9), or that it is not enabled.
+// enabled module is unavailable (R9), or that it is not enabled. A module
+// the agent does not report at all shows its unreported view, if it has one.
 export function moduleView(entries: ModuleEntry[], host: Host, moduleId: string): ModuleView {
   const entry = enabledModules(entries, host).find((e) => e.id === moduleId)
   const state = host.modules.find((s) => s.id === moduleId)
+  const known = entries.find((e) => e.id === moduleId)
+  if (state === undefined && known?.routes !== undefined && known.unreported !== undefined) {
+    return { kind: "unreported", entry: { ...known, routes: known.routes, unreported: known.unreported } }
+  }
   if (entry === undefined || state === undefined) return { kind: "not-enabled" }
   if (!state.available) return { kind: "unavailable", entry, reason: state.reason ?? "The module is unavailable on this host." }
   return { kind: "pages", entry }

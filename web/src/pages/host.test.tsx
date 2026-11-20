@@ -108,6 +108,13 @@ describe("registry", () => {
     const view = moduleView([entry("beta")], host([state("beta", true, false)]), "beta")
     expect(view.kind === "unavailable" ? view.reason : "").toBe("The module is unavailable on this host.")
   })
+
+  test("a module the agent does not report shows its unreported view; a disabled one stays not enabled", () => {
+    const withUnreported: ModuleEntry = { ...entry("alpha"), unreported: lazy(async () => ({ default: () => null })) }
+    expect(moduleView([withUnreported], host([]), "alpha").kind).toBe("unreported")
+    expect(moduleView([withUnreported], host([state("alpha", false, true)]), "alpha").kind).toBe("not-enabled")
+    expect(moduleView([entry("alpha")], host([]), "alpha").kind).toBe("not-enabled")
+  })
 })
 
 describe("host page", () => {
