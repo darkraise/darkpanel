@@ -90,7 +90,9 @@ func TestM9SystemDockerInstall(t *testing.T) {
 	vm.uninstallDocker(t, false)
 	ch = vm.applyComposite(t, "system.docker.install", `{"hostId":"`+vm.hostID+`","firewallIntegration":true}`, 1*time.Minute)
 	vm.awaitState(t, ch, "reverted", 5*time.Minute) // A42: not confirmed
-	vm.sshFails(t, "dpkg -s docker-ce")
+	// A removed package keeps its configuration (status deinstall ok
+	// config-files), which dpkg -s still reports with exit 0.
+	vm.sshFails(t, "dpkg-query -W -f='${db:Status-Status}' docker-ce | grep -qx installed")
 	vm.sshFails(t, "test -e /etc/apt/sources.list.d/docker.list || test -e /usr/share/keyrings/docker-archive-keyring.gpg")
 }
 
