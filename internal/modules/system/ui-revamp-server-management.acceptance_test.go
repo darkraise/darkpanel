@@ -753,6 +753,7 @@ func TestA45_DriftIsPlanStateChangedAndTheTaskResimulationIsPlanStale(t *testing
 	p := h.plan(t, "system.packages.install", `{"names":["jq"]}`)
 	h.run(planVec("install", []string{"jq"}), qaSim([]string{"jq", "htop"}, nil, 0), 0)
 	h.run(resimVec("install", []string{"jq"}), qaSim([]string{"jq", "htop"}, nil, 0), 0)
+	h.runChanges(runVec("install", []string{"jq"}), "", 0, "bash", "jq", "htop")
 	_, err := h.applyPlan(p)
 	if errcode.From(err).Code != "plan.state_changed" {
 		t.Fatalf("err = %v, want plan.state_changed", err)
