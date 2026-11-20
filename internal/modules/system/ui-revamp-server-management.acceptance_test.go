@@ -894,3 +894,77 @@ func TestA29_TheEmbeddedKeyringHoldsExactlyThePinnedFingerprint(t *testing.T) {
 		t.Fatalf("the embedded keyring's fingerprints are %v, want 9DC858229FC7DD38854AE2D88D81803C0EBFCD88", fps)
 	}
 }
+
+func TestA26_DockerInstallWritesTheRepositoryWithThePinnedKeyInstallsTheFivePackagesAndRechecksDocker(t *testing.T) {
+	h := newSysHost(t)
+	h.osRelease("ubuntu", "noble", "amd64")
+	h.run(aptGet+" "+strings.Join(platform.SystemAptUpdate("/etc/apt/sources.list.d/docker.list"), " "), "Hit:1 https://download.docker.com/linux/ubuntu noble InRelease\n", 0)
+	sim := "Inst containerd.io (1.7.24-1 Docker:noble [amd64])\nInst docker-buildx-plugin (0.17.1 Docker:noble [amd64])\nInst docker-ce-cli (5:27.3.1 Docker:noble [amd64])\nInst docker-ce (5:27.3.1 Docker:noble [amd64])\nInst docker-compose-plugin (2.29.7 Docker:noble [amd64])\n0 upgraded, 5 newly installed, 0 to remove and 0 not upgraded.\n"
+	h.run(resimVec("install", qaDockerFive), sim, 0)
+	h.runChanges(runVec("install", qaDockerFive), "", 0, append([]string{"bash"}, qaDockerFive...)...)
+	out, err := h.applyTask("system.docker.engine-install", `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range qaDockerFive {
+		if !strings.Contains(out, `"`+p+`"`) {
+			t.Errorf("the change output does not list %s: %s", p, out)
+		}
+	}
+	list := string(h.written("/etc/apt/sources.list.d/docker.list"))
+	if !strings.Contains(list, "https://download.docker.com/linux/ubuntu noble stable") || !strings.Contains(list, "signed-by=/usr/share/keyrings/docker-archive-keyring.gpg") {
+		t.Errorf("docker.list = %q", list)
+	}
+	fps, err := platform.KeyringFingerprints(h.written("/usr/share/keyrings/docker-archive-keyring.gpg"))
+	if err != nil || !slices.Contains(fps, "9DC858229FC7DD38854AE2D88D81803C0EBFCD88") {
+		t.Errorf("the keyring written holds %v (%v)", fps, err)
+	}
+	// The module's availability is read again after each of these actions, so
+	// the Docker module reads available without an agent restart.
+	for _, name := range []string{"system.docker.install", "system.docker.uninstall", "system.docker.engine-update", "system.packages.install", "system.packages.remove", "system.packages.upgrade", "system.packages.repair"} {
+		a, err := h.action(name)
+		if err != nil {
+			t.Errorf("%v", err)
+			continue
+		}
+		if !slices.Equal(a.Spec.Rechecks, []string{"docker"}) {
+			t.Errorf("%s rechecks %v, want [docker]", name, a.Spec.Rechecks)
+		}
+	}
+}
+
+func TestA27_DockerInstallWithTheFirewallFlagEndsWithTheFirewallDockerIntegration(t *testing.T) {
+	c := dockerInstallComposer{}
+	steps, err := c.Steps(context.Background(), core.Env{}, dockerInstallIn{HostID: "h1", FirewallIntegration: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) < 2 || steps[len(steps)-1].Action.Name != "firewall.docker.enable" {
+		t.Fatalf("steps = %+v, want the install to end with firewall.docker.enable", steps)
+	}
+	steps, _ = c.Steps(context.Background(), core.Env{}, dockerInstallIn{HostID: "h1", FirewallIntegration: false})
+	for _, s := range steps {
+		if strings.HasPrefix(s.Action.Name, "firewall.") {
+			t.Errorf("a firewall step is planned without the flag: %+v", s)
+		}
+	}
+}
+
+func TestA56_DockersOwnRefreshFailsTheStepEvenWhenAptExitsZero(t *testing.T) {
+	for name, out := range map[string]string{
+		"fetch failure":     "Err:1 https://download.docker.com/linux/ubuntu noble InRelease\n  Could not connect to download.docker.com:443\nW: Failed to fetch https://download.docker.com/linux/ubuntu/dists/noble/InRelease\nW: Some index files failed to download.\n",
+		"signature failure": "Get:1 https://download.docker.com/linux/ubuntu noble InRelease\nW: GPG error: https://download.docker.com/linux/ubuntu noble InRelease: The following signatures couldn't be verified because the public key is not available: NO_PUBKEY 7EA0A9C3F273FCD8\nE: The repository 'https://download.docker.com/linux/ubuntu noble InRelease' is not signed.\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newSysHost(t)
+			h.osRelease("ubuntu", "noble", "amd64")
+			h.run(aptGet+" "+strings.Join(platform.SystemAptUpdate("/etc/apt/sources.list.d/docker.list"), " "), out, 0)
+			if _, err := h.applyTask("system.docker.engine-install", `{}`); err == nil {
+				t.Fatal("the install went on after Docker's own source failed to refresh")
+			}
+			if qaHasMutatingApt(h.calls()) {
+				t.Fatalf("packages were installed: %v", h.calls())
+			}
+		})
+	}
+}
