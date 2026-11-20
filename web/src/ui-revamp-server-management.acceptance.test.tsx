@@ -151,3 +151,31 @@ describe("A7: the copy guard", () => {
     expect(longTexts("x.tsx", "<p>{`" + "y".repeat(40) + "${someVeryLongRuntimeValueThatWouldMakeItLong}" + "y".repeat(40) + "`}</p>", 90)).toHaveLength(0)
   })
 })
+
+// A39 --------------------------------------------------------------------
+
+const BASE = "a424a369"
+const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+const countAssertions = (text: string) => (text.match(/\bexpect\s*\(|\.toBe\w*\(|\bassert\w*\(/g) ?? []).length
+
+describe("A39: no assertion about behaviour is removed from the existing suites", () => {
+  test("A39: every Vitest and Playwright file that existed at the base still has at least as many assertions", () => {
+    const changed = git("diff", "--name-status", "-M", `${BASE}..HEAD`, "--", "web")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => l.split("\t"))
+      .filter(([, ...paths]) => paths.some((p) => /\.(test|pw)\.tsx?$/.test(p ?? "")))
+    const lost: string[] = []
+    for (const [status, from, to] of changed) {
+      if (status === undefined || from === undefined || status === "A") continue
+      const before = countAssertions(git("show", `${BASE}:${from}`))
+      if (status === "D") {
+        lost.push(`${from}: deleted (${before} assertions)`)
+        continue
+      }
+      const after = countAssertions(readFileSync(`../${to ?? from}`, "utf8"))
+      if (after < before) lost.push(`${to ?? from}: ${before} -> ${after} assertions`)
+    }
+    expect(lost).toEqual([])
+  })
+})
