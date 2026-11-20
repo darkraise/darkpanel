@@ -59,7 +59,11 @@ function FailedChange({ change, disabled, onRetry }: { change: Change; disabled:
   const pkg = /^apt failed on (\S+):$/.exec(head ?? "")?.[1]
   const retry = RETRYABLE[change.action]
   return (
-    <Alert variant={error.code === "system.apt_busy" ? "warning" : "destructive"} role="alert">
+    <Alert
+      variant={error.code === "system.apt_busy" ? "warning" : "destructive"}
+      role="alert"
+      data-testid={error.code === "system.apt_busy" ? "state-aptBusy" : "state-failedChange"}
+    >
       <AlertTitle as="h4">{APT_MESSAGES[error.code] ?? "Last change failed"}</AlertTitle>
       <AlertDescription className="flex flex-col items-start gap-2">
         {pkg !== undefined && (
@@ -137,7 +141,7 @@ function UpdatesTile({
       {data !== undefined && (
         <>
           {upToDate ? (
-            <CircleCheck aria-hidden className="text-success-text size-8" />
+            <CircleCheck aria-hidden className="text-success-text size-8" data-testid="state-upToDate" />
           ) : (
             <div className="@container">
               <div className="grid grid-cols-1 gap-2 @min-[22rem]:grid-cols-2">
@@ -148,7 +152,7 @@ function UpdatesTile({
           )}
           <span className="text-muted-foreground text-xs">{data.refreshedAt === null ? "Never refreshed" : `Refreshed ${formatTime(data.refreshedAt)}`}</span>
           {data.dpkgInterrupted && (
-            <Alert variant="destructive" role="alert">
+            <Alert variant="destructive" role="alert" data-testid="state-dpkgInterrupted">
               <AlertTitle as="h4">Package installation was interrupted</AlertTitle>
               <AlertDescription>
                 <Button size="sm" variant="outline" disabled={offline} onClick={() => onChange(REPAIR)}>
@@ -159,7 +163,7 @@ function UpdatesTile({
             </Alert>
           )}
           {data.failedSources.length > 0 && (
-            <Alert variant="warning">
+            <Alert variant="warning" data-testid="state-failedSources">
               <AlertTitle as="h4">{`${data.failedSources.length} ${data.failedSources.length === 1 ? "source" : "sources"} failed at the last refresh`}</AlertTitle>
               <AlertDescription>
                 <ul className="font-mono text-xs break-all">
@@ -245,7 +249,7 @@ function OverviewTiles({ host }: { host: Host }) {
   return (
     <div className="flex flex-col gap-4">
       {!host.online && (
-        <Alert variant="warning" role="status">
+        <Alert variant="warning" role="status" data-testid="state-offline">
           <AlertTitle as="h3">Host offline</AlertTitle>
           <AlertDescription>{`Last seen ${formatTime(host.lastSeenAt)}`}</AlertDescription>
         </Alert>
@@ -275,6 +279,7 @@ export function OverviewTab({ host }: { host: Host }) {
   if (state === undefined) {
     return (
       <EmptyState
+        data-testid="state-agentTooOld"
         icon={<Server aria-hidden />}
         title="Agent update needed"
         description="This agent predates the system module."
@@ -282,6 +287,6 @@ export function OverviewTab({ host }: { host: Host }) {
       />
     )
   }
-  if (!state.enabled) return <EmptyState title="Module not enabled" description="This module is not enabled on this host." />
+  if (!state.enabled) return <EmptyState data-testid="state-disabled" title="Module not enabled" description="This module is not enabled on this host." />
   return <OverviewTiles host={host} />
 }

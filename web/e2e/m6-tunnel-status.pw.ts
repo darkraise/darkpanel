@@ -36,12 +36,12 @@ const CONNECTORS = [
   cfConnector({ tunnel: "t-gone", container: "darkpanel-cloudflared-t-gone", state: "missing" }),
 ]
 const EXPECTED = [
-  ["darkpanel-c1", "healthy"],
-  [LONG_TUNNEL, "degraded"],
-  ["darkpanel-c3", "down"],
-  ["darkpanel-c4", "inactive"],
-  ["darkpanel-c5", "unknown"],
-  ["t-gone", "unknown"],
+  ["darkpanel-c1", "Healthy"],
+  [LONG_TUNNEL, "Degraded"],
+  ["darkpanel-c3", "Down"],
+  ["darkpanel-c4", "Inactive"],
+  ["darkpanel-c5", "Unknown"],
+  ["t-gone", "Unknown"],
 ]
 
 const ok = (output: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify({ output }) })
@@ -150,7 +150,7 @@ for (const theme of THEMES) {
         for (const [i, c] of CONNECTORS.entries()) {
           const cells = rows.nth(i + 1).getByRole("cell")
           await expect(cells.nth(0)).toHaveText(c.tunnel)
-          await expect(cells.nth(1)).toHaveText("unknown")
+          await expect(cells.nth(1)).toHaveText("Unknown")
         }
         await expectNoAxeViolations(page, "tunnel list refused")
         await expectNoSidewaysScroll(page)

@@ -166,7 +166,7 @@ for (const theme of THEMES) {
         page.on("pageerror", (e) => errors.push(String(e)))
         const fixtures = await open(page, theme, true)
         for (const [path, ready] of [
-          ["/", (p: Page) => p.getByRole("table").getByRole("link", { name: "node-45" })],
+          ["/?view=table", (p: Page) => p.getByRole("table").getByRole("link", { name: "node-45" })],
           [`/hosts/${HOST_ID}`, history],
           [`/hosts/${PENDING_HOST_ID}`, (p: Page) => p.getByText("The update history is unavailable while the host is offline.")],
           ["/rollouts", (p: Page) => p.getByRole("heading", { name: "1.3.0 (stable)" })],

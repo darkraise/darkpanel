@@ -137,7 +137,7 @@ for (const vp of VIEWPORTS) {
       const table = await openConnectors(page)
       const rows = table.getByRole("row")
       await expect(rows).toHaveCount(CONNECTORS.length + 1)
-      for (const state of ["running", "exited", "restarting", "missing"]) {
+      for (const state of ["Running", "Exited", "Restarting", "Missing"]) {
         const badge = table.getByRole("cell").getByText(state, { exact: true })
         await expect(badge, state).toHaveCount(1)
         expect(await lineCount(badge), `the ${state} badge`).toBe(1)
@@ -206,7 +206,7 @@ for (const vp of VIEWPORTS) {
         const errors = watchConsole(page)
         const unhandled = await open(page, theme)
         const table = await openConnectors(page)
-        const badges = table.getByRole("cell").getByText(/^(running|exited|restarting|missing)$/)
+        const badges = table.getByRole("cell").getByText(/^(Running|Exited|Restarting|Missing)$/)
         await expect(badges).toHaveCount(CONNECTORS.length)
         for (const badge of await badges.all()) expect(await overhang(badge, table), "a State badge past the table").toBeLessThanOrEqual(0.5)
         for (const name of [LONG_TUNNEL, LONG_CONTAINER]) {

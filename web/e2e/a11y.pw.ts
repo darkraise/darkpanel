@@ -57,7 +57,7 @@ const VIEWS: View[] = [
     slug: "hosts",
     signedIn: true,
     open: async (page) => {
-      await page.goto("/")
+      await page.goto("/?view=table")
       await expect(page.getByRole("table")).toContainText("This controller")
       await expect(page.getByRole("table")).toContainText("Journal ingestion failing")
     },

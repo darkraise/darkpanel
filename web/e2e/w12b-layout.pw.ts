@@ -114,7 +114,7 @@ for (const theme of THEMES) {
         await page.getByRole("radio", { name: "web-1", exact: true }).click()
         const table = page.getByRole("table", { name: "Connectors" })
         await expect(table).toBeVisible()
-        for (const state of ["running", "exited"]) {
+        for (const state of ["Running", "Exited"]) {
           const badge = table.getByText(state, { exact: true })
           expect(await lineCount(badge), `UI-1 the ${state} badge`).toBe(1)
           await expectInside(badge, badge.locator("xpath=ancestor::td[1]"), `UI-1 the ${state} badge`)

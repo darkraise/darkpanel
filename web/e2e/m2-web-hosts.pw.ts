@@ -54,7 +54,7 @@ for (const theme of THEMES) {
       test.use({ viewport: vp })
 
       test(`UX-1, UX-2, UX-8, UX-12: worst-case pages ${tag}`, async ({ page }) => {
-        const fixtures = await open(page, theme, "/")
+        const fixtures = await open(page, theme, "/?view=table")
         await expect(page.getByRole("table").getByRole("row")).toHaveCount(51)
         await expect(page.getByRole("table").getByRole("link", { name: LONG_NAME })).toBeVisible()
         await noPageScroll(page)
@@ -89,7 +89,7 @@ for (const theme of THEMES) {
         // A revoked host offers delete and a new token in place of revoke.
         await expect(page.getByRole("button", { name: "Delete host" })).toBeVisible()
         await expect(button).toHaveCount(0)
-        await page.goto(url("/"))
+        await page.goto(url("/?view=table"))
         const row = page.getByRole("table").getByRole("row").filter({ has: page.getByRole("link", { name: LONG_NAME }) })
         await expect(row.getByText("Revoked", { exact: true })).toBeVisible()
         await row.scrollIntoViewIfNeeded()
@@ -107,6 +107,7 @@ for (const theme of THEMES) {
         await tabTo(page, dialog.getByRole("button", { name: "Apply" }))
         await page.keyboard.press("Enter")
         await expect(page).toHaveURL(url("/"))
+        await page.goto(url("/?view=table"))
         await expect(page.getByRole("table").getByRole("link", { name: "node-45" })).toBeVisible()
         await expect(page.getByRole("table").getByRole("link", { name: "old-1" })).toHaveCount(0)
         await page.screenshot({ path: `${EVIDENCE}/UX-4-${tag}-deleted.png` })

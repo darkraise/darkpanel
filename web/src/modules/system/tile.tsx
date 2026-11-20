@@ -54,7 +54,7 @@ export function Tile({
 // TileSkeleton fills a loading tile's body at the height of its content.
 export function TileSkeleton() {
   return (
-    <div className="flex flex-col gap-3" aria-hidden>
+    <div className="flex flex-col gap-3" aria-hidden data-testid="state-loading">
       <Skeleton className="h-8 w-24" />
       <Skeleton className="h-4 w-full" />
       <Skeleton className="h-8 w-32" />
@@ -65,7 +65,7 @@ export function TileSkeleton() {
 // TileError is a failed read: the error and a retry, inside its own tile.
 export function TileError({ error, onRetry, disabled }: { error: unknown; onRetry: () => void; disabled?: boolean }) {
   return (
-    <Alert variant="destructive" role="alert">
+    <Alert variant="destructive" role="alert" data-testid="state-error">
       <AlertDescription className="flex flex-col items-start gap-2">
         <span className="break-words">{errorMessage(error)}</span>
         <Button size="sm" variant="outline" disabled={disabled} onClick={onRetry}>
