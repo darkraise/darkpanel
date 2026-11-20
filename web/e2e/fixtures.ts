@@ -471,7 +471,8 @@ function systemUpdates(sys: SystemContext, worstCase: boolean): Updates {
   if (sys.upgraded || sys.state === "upToDate") return { ...defaultUpdates, upgradable: [], refreshedAt: NOW }
   const base = worstCase ? updatesFixture : defaultUpdates
   if (sys.state === "failedSources") return { ...base, failedSources: ["http://deb.example.com/debian bookworm InRelease", "https://packages.example.org/apt stable Release"] }
-  if (sys.state === "dpkgInterrupted") return { ...base, dpkgInterrupted: true }
+  // The agent stops reading at an interrupted dpkg: its lists come back empty.
+  if (sys.state === "dpkgInterrupted") return { ...base, upgradable: [], removals: [], heldBack: [], dpkgInterrupted: true }
   return base
 }
 

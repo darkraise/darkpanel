@@ -178,6 +178,8 @@ function UpdatesTile({
   // An interrupted dpkg leaves the lists unread, which is not "up to date".
   const upToDate = data !== undefined && !data.dpkgInterrupted && data.upgradable.length === 0 && data.removals.length === 0
   const security = data?.upgradable.filter((u) => u.security).length ?? 0
+  // Nor are its counts read: the tile offers the repair alone.
+  const interrupted = data?.dpkgInterrupted === true
 
   let status: { status: Status; label: string } | undefined
   if (offline) status = HOST_OFFLINE
@@ -203,7 +205,7 @@ function UpdatesTile({
         <RefreshCw aria-hidden />
         Refresh
       </Button>
-      {!upToDate && upgradeAll}
+      {!upToDate && !interrupted && upgradeAll}
     </>
   )
 
@@ -214,7 +216,7 @@ function UpdatesTile({
       {!offline && updates.isPending && <TileSkeleton />}
       {!offline && data !== undefined && (
         <>
-          {upToDate ? (
+          {interrupted ? null : upToDate ? (
             <CircleCheck role="img" aria-label="Up to date" className="text-success-text size-8" data-testid="state-upToDate" />
           ) : (
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -226,7 +228,8 @@ function UpdatesTile({
           {data.dpkgInterrupted && (
             <Alert variant="destructive" role="alert" data-testid="state-dpkgInterrupted">
               <AlertTitle as="h4">Package installation was interrupted</AlertTitle>
-              <AlertDescription>
+              <AlertDescription className="flex flex-col items-start gap-2">
+                <span>The updates cannot be read until the packages are repaired.</span>
                 <Button size="sm" variant="outline" onClick={() => onChange(REPAIR)}>
                   Repair packages
                 </Button>

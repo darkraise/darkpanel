@@ -8,15 +8,15 @@ import { updatesFixture, rebootFixture } from "./fixtures"
 
 const R = (name: string) => `GET /api/v1/hosts/h1/resources/system/${name}`
 
-test("UX-7: the updates tile shows counts, the repair alert and failed sources", async () => {
-  stubFetch({ [R("updates")]: { body: { ...updatesFixture, dpkgInterrupted: true, failedSources: ["https://bad.example stable"] } }, [R("reboot")]: { body: rebootFixture }, [R("autoupdates")]: { body: { installed: true, enabled: false } }, [R("docker")]: { body: { state: "absent" } } })
+test("UX-7: the updates tile shows counts and failed sources", async () => {
+  stubFetch({ [R("updates")]: { body: { ...updatesFixture, failedSources: ["https://bad.example stable"] } }, [R("reboot")]: { body: rebootFixture }, [R("autoupdates")]: { body: { installed: true, enabled: false } }, [R("docker")]: { body: { state: "absent" } } })
   renderWithProviders(<OverviewTab host={makeHost({ id: "h1", modules: [{ id: "system", version: 1, enabled: true, available: true, reason: null, checkedAt: null }] })} />)
   const tile = within(await screen.findByRole("region", { name: "Updates" }))
   tile.getByText(String(updatesFixture.upgradable.length))
   tile.getByText("pending")
   tile.getByText(String(updatesFixture.upgradable.filter((u) => u.security).length))
   tile.getByText("security")
-  tile.getByRole("button", { name: "Repair packages" })
+  tile.getByRole("button", { name: "Upgrade all" })
   tile.getByText("https://bad.example stable")
 })
 
@@ -116,6 +116,9 @@ test("S1: an interrupted dpkg with nothing read shows no Up to date check mark",
   const tile = within(await screen.findByRole("region", { name: "Updates" }))
   await tile.findByText("Interrupted")
   expect(tile.queryByRole("img", { name: "Up to date" })).toBeNull()
+  expect(tile.queryByText("pending")).toBeNull()
+  expect(tile.queryByRole("button", { name: "Upgrade all" })).toBeNull()
+  tile.getByRole("button", { name: "Repair packages" })
 })
 
 test("S2: a failed read of the recent changes says the last change and a reboot may not show", async () => {
