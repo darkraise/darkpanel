@@ -133,6 +133,37 @@ const stubs: Record<string, ScreenStubs> = {
       "POST /api/v1/actions/core.host.list/v1/read": { body: { output: { hosts: [makeHost()] } } },
     },
   },
+  ChangePage: {
+    // No route supplies the change id here, so the page reads the change at the empty id.
+    path: "/changes/c1",
+    props: {},
+    routes: {
+      "GET /api/v1/changes/": {
+        body: {
+          id: "c1", hostId: "h1", action: "cdx.rule.set", version: 1, class: "compensable", state: "completed", actor: "user:u1",
+          createdAt: "2026-10-23T08:00:00Z", updatedAt: "2026-10-23T08:05:00Z", revertDeadline: null, output: null, error: null,
+          compensatedBy: null, parentChangeId: null, owner: null, repairedBy: null, repairOutcome: null, override: null,
+        },
+      },
+      "GET /api/v1/changes//effects": { body: { effects: [] } },
+    },
+  },
+  TokensPage: {
+    path: "/tokens",
+    props: {},
+    routes: {
+      "POST /api/v1/actions/core.token.list/v1/read": {
+        body: { output: { tokens: [{ id: "tok1", name: "ci", scope: "read", createdAt: "2026-10-01T08:00:00Z", expiresAt: "2999-01-01T00:00:00Z", lastUsedAt: null, revokedAt: null }] } },
+      },
+    },
+  },
+  LoginPage: {
+    path: "/login",
+    props: {},
+    routes: {
+      "GET /api/v1/auth/session": { status: 401, body: { type: "about:blank", title: "auth.required", status: 401, detail: "sign in", code: "auth.required" } },
+    },
+  },
 }
 
 export function screenStubs(name: string): ScreenStubs {

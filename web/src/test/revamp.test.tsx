@@ -1,6 +1,7 @@
 import { screen } from "@testing-library/react"
 import { expect, test } from "vitest"
 import type { ComponentType } from "react"
+import { SessionProvider } from "@/session/session"
 import { renderWithProviders, stubFetch } from "@/test/utils"
 import { screenStubs } from "./revamp-stubs" // per-row props and routes, built from each stubsFrom file
 
@@ -18,6 +19,10 @@ const rows: Row[] = [
   { name: "PanelPage", load: () => import("@/modules/panel/panel-page").then((m) => m.PanelPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/panel/panel-page.test.tsx", expects: { role: "group", name: /: / } },
   { name: "AuditPage", load: () => import("@/pages/audit").then((m) => m.AuditPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/pages/audit.test.tsx", expects: { role: "list", name: "Timeline" } },
   { name: "RolloutsPage", load: () => import("@/pages/rollouts").then((m) => m.RolloutsPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/pages/rollouts.test.tsx", expects: { role: "img", name: /^Outcomes: / } },
+  { name: "ChangePage", load: () => import("@/pages/change").then((m) => m.ChangePage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/pages/change.test.tsx", expects: { role: "list", name: "Progress" } },
+  { name: "TokensPage", load: () => import("@/pages/tokens").then((m) => m.TokensPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/pages/tokens.test.tsx", expects: { role: "img", name: /^Scope: / } },
+  // LoginPage reads the session, so it renders under the provider the app puts above it.
+  { name: "LoginPage", load: () => import("@/pages/login").then((m) => () => <SessionProvider><m.LoginPage /></SessionProvider>), stubsFrom: "web/src/pages/login.test.tsx", expects: { role: "img", name: "Darkpanel" } },
 ]
 
 test.each(rows)("A10, UI-7: $name shows its state as graphics, not key/value text", async (row) => {

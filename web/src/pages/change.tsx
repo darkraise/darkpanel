@@ -1,15 +1,16 @@
-import { useState, type ReactNode } from "react"
+import { useState } from "react"
 import { Link, useParams } from "react-router"
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query"
 import { PageHeader } from "darkraise-ui/layout"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge, type BadgeVariant } from "darkraise-ui/components/badge"
+import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Minus, Pencil, Plus, type LucideIcon } from "lucide-react"
 import {
   changeQueryKey,
   effectsQueryKey,
@@ -21,27 +22,78 @@ import {
   resolveEffect,
   stepsQueryKey,
 } from "@/api/client"
-import type { Change, Effect, StateDoc } from "@/api/types"
+import type { Change, Effect, EffectKind, StateDoc } from "@/api/types"
+import { Fact } from "@/components/visual/fact"
+import { StatusDot } from "@/components/visual/status-dot"
+import { StatusPill } from "@/components/visual/status-pill"
+import { Stepper } from "@/components/visual/stepper"
+import { statusText, type Status } from "@/components/visual/status"
 import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
 import { ChangeActions } from "./change-actions"
 
-function stateVariant(state: string): BadgeVariant {
+// stateStatus covers the change, step and effect states.
+function stateStatus(state: string): Status {
   switch (state) {
     case "completed":
     case "confirmed":
+    case "repaired":
+    case "kept":
+    case "applied":
+    case "read":
     case "made":
     case "undone":
     case "accepted":
-      return "default"
+      return "ok"
     case "failed":
     case "needs_repair":
     case "interrupted":
+    case "quarantined":
     case "unresolved":
-      return "destructive"
+      return "error"
+    case "reverted":
+    case "abandoned":
+    case "pending":
+    case "skipped":
+    case "released":
+      return "off"
     default:
-      return "secondary"
+      return "info"
   }
+}
+
+function stateLabel(state: string): string {
+  const words = state.replace(/_/g, " ")
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+function StateText({ state, text = stateLabel(state) }: { state: string; text?: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <StatusDot status={stateStatus(state)} label={text} />
+      <span aria-hidden>{text}</span>
+    </span>
+  )
+}
+
+const KIND: Record<EffectKind, { icon: LucideIcon; label: string; status: Status }> = {
+  create: { icon: Plus, label: "Create", status: "ok" },
+  modify: { icon: Pencil, label: "Modify", status: "warn" },
+  delete: { icon: Minus, label: "Delete", status: "error" },
+}
+
+const STEPS = [
+  { id: "plan", label: "Plan" },
+  { id: "confirm", label: "Confirm" },
+  { id: "apply", label: "Apply" },
+]
+
+// A stored change was planned and confirmed already; it settles once its
+// state is final, failed when the apply did not hold.
+function ChangeProgress({ state }: { state: string }) {
+  const status = stateStatus(state)
+  const failed = status === "error" || state === "reverted" || state === "abandoned"
+  return <Stepper steps={STEPS} current="apply" failed={failed} done={status === "ok"} />
 }
 
 function ChangeLink({ id }: { id: string }) {
@@ -63,31 +115,37 @@ function Doc({ label, doc }: { label: string; doc: StateDoc | null }) {
   )
 }
 
+function LinkFact({ label, id }: { label: string; id: string }) {
+  return (
+    <Badge variant="outline" className="max-w-full gap-1.5 whitespace-normal">
+      <span className="text-muted-foreground shrink-0">{label}</span>
+      <span className="min-w-0 break-all">
+        <ChangeLink id={id} />
+      </span>
+    </Badge>
+  )
+}
+
 function Summary({ change }: { change: Change }) {
-  const rows: Array<[string, ReactNode]> = [
-    ["State", <Badge variant={stateVariant(change.state)}>{change.state}</Badge>],
-    ["Class", change.class],
-    ["Host", change.hostId ?? "The controller"],
-    ["Actor", <span className="font-mono">{change.actor}</span>],
-    ["Created", formatTime(change.createdAt)],
-    ["Updated", formatTime(change.updatedAt)],
-  ]
-  if (change.revertDeadline !== null) rows.push(["Revert deadline", formatTime(change.revertDeadline)])
-  if (change.owner !== null) rows.push(["Being worked on by", change.owner])
-  if (change.parentChangeId !== null) rows.push(["Step of", <ChangeLink id={change.parentChangeId} />])
-  if (change.repairedBy !== null) rows.push(["Repaired by", <ChangeLink id={change.repairedBy} />])
-  if (change.repairOutcome !== null) rows.push(["Repair outcome", change.repairOutcome])
-  if (change.compensatedBy !== null) rows.push(["Compensated by", <span className="font-mono">{change.compensatedBy}</span>])
   return (
     <div className="flex flex-col gap-4">
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
-        {rows.map(([term, value]) => (
-          <div key={term} className="contents">
-            <dt className="text-muted-foreground">{term}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <StatusPill status={stateStatus(change.state)} label={stateLabel(change.state)} live />
+        <ChangeProgress state={change.state} />
+      </div>
+      <div className="flex flex-wrap gap-1">
+        <Fact label="Class" value={change.class} />
+        <Fact label="Host" value={change.hostId ?? "The controller"} mono={change.hostId !== null} />
+        <Fact label="Actor" value={change.actor} mono />
+        <Fact label="Created" value={formatTime(change.createdAt)} />
+        <Fact label="Updated" value={formatTime(change.updatedAt)} />
+        {change.revertDeadline !== null && <Fact label="Revert deadline" value={formatTime(change.revertDeadline)} />}
+        {change.owner !== null && <Fact label="Being worked on by" value={change.owner} />}
+        {change.parentChangeId !== null && <LinkFact label="Step of" id={change.parentChangeId} />}
+        {change.repairedBy !== null && <LinkFact label="Repaired by" id={change.repairedBy} />}
+        {change.repairOutcome !== null && <Fact label="Repair outcome" value={change.repairOutcome} />}
+        {change.compensatedBy !== null && <Fact label="Compensated by" value={change.compensatedBy} mono />}
+      </div>
       {change.error !== null && (
         <Alert variant="destructive" role="alert">
           <AlertDescription>
@@ -138,9 +196,7 @@ function Steps({ changeId }: { changeId: string }) {
               <TableCell className="font-mono">{s.id}</TableCell>
               <TableCell className="font-mono">{s.action}</TableCell>
               <TableCell>
-                <Badge variant={stateVariant(s.state)} size="sm">
-                  {s.state}
-                </Badge>
+                <StateText state={s.error !== null ? "failed" : s.state} text={stateLabel(s.state)} />
                 {s.error !== null && <p className="text-xs text-destructive-text">{s.error.message}</p>}
               </TableCell>
               <TableCell>{s.childChangeId === "" ? "—" : <ChangeLink id={s.childChangeId} />}</TableCell>
@@ -245,6 +301,18 @@ function ResolveDialog({ effect, onClose }: { effect: Effect; onClose: () => voi
   )
 }
 
+function EffectKindCell({ kind }: { kind: EffectKind }) {
+  const k = KIND[kind]
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span role="img" aria-label={k.label} className={`inline-flex shrink-0 ${statusText[k.status]}`}>
+        <k.icon aria-hidden className="size-4" />
+      </span>
+      <span aria-hidden>{k.label}</span>
+    </span>
+  )
+}
+
 function Effects({ change }: { change: Change }) {
   // Change events refetch the change, not its effects; keying the effects
   // on the change's last update refetches them whenever the change moved on.
@@ -285,12 +353,12 @@ function Effects({ change }: { change: Change }) {
             {effects.data.map((e) => (
               <TableRow key={`${e.changeId}-${e.seq}`}>
                 <TableCell>{e.seq}</TableCell>
-                <TableCell>{e.kind}</TableCell>
+                <TableCell>
+                  <EffectKindCell kind={e.kind} />
+                </TableCell>
                 <TableCell className="font-mono">{e.resource}</TableCell>
                 <TableCell>
-                  <Badge variant={stateVariant(e.state)} size="sm">
-                    {e.reason === "" ? e.state : `${e.state}: ${e.reason}`}
-                  </Badge>
+                  <StateText state={e.state} text={e.reason === "" ? stateLabel(e.state) : `${stateLabel(e.state)}: ${e.reason}`} />
                 </TableCell>
                 <TableCell>
                   {e.state === "unresolved" ? (

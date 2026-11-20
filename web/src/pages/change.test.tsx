@@ -49,7 +49,8 @@ test("shows the change with its error, cause and links", async () => {
     "GET /api/v1/changes/c1/effects": { body: { effects: [] } },
   })
   expect((await screen.findByRole("heading", { level: 1, name: "cdx.rule.set/v1" })).textContent).toBe("cdx.rule.set/v1")
-  expect(screen.getByText("needs_repair").textContent).toBe("needs_repair")
+  expect(screen.getByText("Needs repair").textContent).toBe("Needs repair")
+  expect(within(screen.getByRole("list", { name: "Progress" })).getByText("Apply").closest("li")?.getAttribute("data-status")).toBe("error")
   expect(screen.getByRole("alert").textContent).toBe("core.needs_repair: the provider's answer was lostCause: cloud.uncertain_outcome")
   expect(screen.getByRole("link", { name: "p9" }).getAttribute("href")).toBe("/changes/p9")
   expect(screen.getByRole("link", { name: "r7" }).getAttribute("href")).toBe("/changes/r7")

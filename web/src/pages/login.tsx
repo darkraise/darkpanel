@@ -59,9 +59,12 @@ export function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-sm">
-        <CardHeader>
+        <CardHeader className="flex flex-col items-center gap-3 text-center">
+          <span role="img" aria-label="Darkpanel" className="bg-primary text-primary-foreground flex size-12 items-center justify-center rounded-xl text-xl font-semibold">
+            <span aria-hidden>D</span>
+          </span>
           <CardTitle>
-            <h1 className="text-xl font-medium">Darkpanel</h1>
+            <h1 className="text-xl font-medium">Sign in</h1>
           </CardTitle>
         </CardHeader>
         <CardContent>
