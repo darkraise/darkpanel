@@ -192,7 +192,10 @@ func TestA40_InstallUndoRefusedWhenALaterPackageDependsOnIt(t *testing.T) {
 	h := newSysHost(t)
 	h.recordedInstall([]string{"jq", "libjq1"})
 	h.installed("bash", "jq", "libjq1", "jq-extras")
-	h.run(planVec("remove", []string{"jq", "libjq1"}), qaSim(nil, []string{"jq-extras", "jq", "libjq1"}, 0), 0)
+	bigger := qaSim(nil, []string{"jq-extras", "jq", "libjq1"}, 0)
+	h.run(planVec("remove", []string{"jq", "libjq1"}), bigger, 0)
+	h.run(resimVec("remove", []string{"jq", "libjq1"}), bigger, 0)
+	h.runChanges(runVec("remove", []string{"jq", "libjq1"}), "", 0, "bash")
 	err := h.undo("system.packages.install")
 	if err == nil || !strings.Contains(err.Error(), "jq-extras") {
 		t.Fatalf("err = %v, want a refusal naming jq-extras", err)
@@ -799,7 +802,9 @@ func TestA47_FailedAptRunsCarryTheirCodeThePackageAndTheLast40Lines(t *testing.T
 func TestA52_SearchTermIsALiteralSubstringNeverAPattern(t *testing.T) {
 	h := newSysHost(t)
 	h.run("/usr/bin/apt-cache pkgnames", "a.out-tools\nabc\nlibva.2\nzlib1g\n", 0)
-	h.run("/usr/bin/apt-cache policy -- a.out-tools libva.2", "a.out-tools:\n  Installed: (none)\n  Candidate: 1.0\nlibva.2:\n  Installed: (none)\n  Candidate: 2.1\n", 0)
+	policy := "a.out-tools:\n  Installed: (none)\n  Candidate: 1.0\nlibva.2:\n  Installed: (none)\n  Candidate: 2.1\n"
+	h.run("/usr/bin/apt-cache policy -- a.out-tools libva.2", policy, 0)
+	h.run("/usr/bin/apt-cache policy -- a.out-tools abc libva.2", policy+"abc:\n  Installed: (none)\n  Candidate: 1.0\n", 0)
 	out := h.callRead(t, "system.packages.search", `{"term":"a."}`)
 	var got []struct{ Name string }
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
