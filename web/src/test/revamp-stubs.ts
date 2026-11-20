@@ -1,3 +1,4 @@
+import { dkContainer, dkImage } from "@/modules/docker/fixtures"
 import { fwStatus } from "@/modules/firewall/fixtures"
 import type { StubHandler } from "./utils"
 
@@ -14,6 +15,17 @@ const summary = {
   load: { one: 0, five: 0, fifteen: 0 }, rootFs: { totalBytes: 10737418240, availableBytes: 5368709120 }, darkpanelVersion: "0.1.0",
 }
 
+const tailscaleStatus = {
+  version: "1.104.1", backendState: "Running",
+  self: { id: "n-self", hostName: "web", dnsName: "web.tail1234.ts.net", os: "linux", addresses: ["100.64.0.1"], tags: ["tag:server"] },
+  tailnet: "example.com", magicDNSSuffix: "tail1234.ts.net", preferredDerp: "fra", runSSH: true,
+  peers: [{
+    id: "n-peer", hostName: "db", dnsName: "db.tail1234.ts.net", os: "linux", addresses: ["100.64.0.7"], tags: [],
+    online: true, connection: "direct", endpoint: "203.0.113.9:41641", region: "", exitNode: false, exitNodeOption: false, lastHandshake: null,
+  }],
+  health: [],
+}
+
 const stubs: Record<string, ScreenStubs> = {
   SummaryPage: {
     path: "/hosts/h1/hostinfo",
@@ -24,6 +36,22 @@ const stubs: Record<string, ScreenStubs> = {
     path: "/hosts/h1/firewall",
     props: { hostId: "h1" },
     routes: { "GET /api/v1/hosts/h1/resources/firewall/status": { body: fwStatus() } },
+  },
+  DockerPage: {
+    path: "/hosts/h1/docker",
+    props: { hostId: "h1" },
+    routes: {
+      "GET /api/v1/hosts/h1/resources/docker/containers": { body: { containers: [dkContainer({ id: "c1", name: "web" })] } },
+      "GET /api/v1/hosts/h1/resources/docker/images": { body: { images: [dkImage({ tags: ["nginx:1.27"] })] } },
+      "GET /api/v1/hosts/h1/resources/docker/networks": { body: { networks: [] } },
+      "GET /api/v1/hosts/h1/resources/docker/volumes": { body: { volumes: [] } },
+      "GET /api/v1/hosts/h1/resources/docker/projects": { body: { projects: [] } },
+    },
+  },
+  TailscalePage: {
+    path: "/hosts/h1/tailscale",
+    props: { hostId: "h1" },
+    routes: { "GET /api/v1/hosts/h1/resources/tailscale/status": { body: tailscaleStatus } },
   },
 }
 

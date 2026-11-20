@@ -1,14 +1,17 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
-import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
+import { CirclePlay, CircleStop, Download, RotateCw } from "lucide-react"
 import { errorMessage, readResource } from "@/api/client"
+import { Fact } from "@/components/visual/fact"
+import type { Status } from "@/components/visual/status"
+import { StatusPill } from "@/components/visual/status-pill"
 import { formatTime } from "@/lib/format"
 import { DockerChange } from "./docker-change"
 import { DOCKER_MODULE, dockerKey, type DockerProject } from "./types"
@@ -20,14 +23,19 @@ interface Pending {
 }
 
 const VERBS = [
-  { verb: "Up", action: "docker.compose.up", title: (name: string) => `Start project ${name}` },
-  { verb: "Down", action: "docker.compose.down", title: (name: string) => `Take down project ${name}` },
-  { verb: "Pull", action: "docker.compose.pull", title: (name: string) => `Pull images of project ${name}` },
-  { verb: "Restart", action: "docker.compose.restart", title: (name: string) => `Restart project ${name}` },
+  { verb: "Up", icon: CirclePlay, action: "docker.compose.up", title: (name: string) => `Start project ${name}` },
+  { verb: "Down", icon: CircleStop, action: "docker.compose.down", title: (name: string) => `Take down project ${name}` },
+  { verb: "Pull", icon: Download, action: "docker.compose.pull", title: (name: string) => `Pull images of project ${name}` },
+  { verb: "Restart", icon: RotateCw, action: "docker.compose.restart", title: (name: string) => `Restart project ${name}` },
 ]
 
 function listOrNone(items: string[]): string {
   return items.length === 0 ? "none" : items.join(", ")
+}
+
+function runningStatus(p: DockerProject): Status {
+  if (p.containers.length === 0 || p.running === 0) return "off"
+  return p.running === p.containers.length ? "ok" : "warn"
 }
 
 function parseProfiles(typed: string): string[] {
@@ -57,9 +65,7 @@ function ProjectCard({ project, onChange }: { project: DockerProject; onChange: 
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             {project.name}
-            <Badge variant={project.running > 0 ? "default" : "secondary"} size="sm">
-              {`${project.running} of ${project.containers.length} running`}
-            </Badge>
+            <StatusPill status={runningStatus(project)} label={`${project.running} of ${project.containers.length} running`} />
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -73,14 +79,11 @@ function ProjectCard({ project, onChange }: { project: DockerProject; onChange: 
               <AlertDescription>The Compose files cannot be read.</AlertDescription>
             </Alert>
           )}
-          <dl className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[max-content_1fr]">
+          <div role="group" aria-label="Project details" className="flex flex-wrap gap-1">
             {rows.map(([label, value]) => (
-              <div key={label} className="contents">
-                <dt className="text-muted-foreground">{label}</dt>
-                <dd>{value}</dd>
-              </div>
+              <Fact key={label} label={label} value={value} mono={label !== "Last run"} />
             ))}
-          </dl>
+          </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor={profilesId}>Profiles</Label>
             <Input id={profilesId} value={typed} placeholder="none" autoComplete="off" onChange={(e) => setTyped(e.target.value)} />
@@ -99,6 +102,7 @@ function ProjectCard({ project, onChange }: { project: DockerProject; onChange: 
                   })
                 }
               >
+                <v.icon aria-hidden />
                 {v.verb}
               </Button>
             ))}

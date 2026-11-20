@@ -9,6 +9,8 @@ type Row = { name: string; load: () => Promise<ComponentType<Record<string, unkn
 const rows: Row[] = [
   { name: "SummaryPage", load: () => import("@/modules/hostinfo/summary-page").then((m) => m.SummaryPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/hostinfo/summary-page.test.tsx", expects: { role: "img", name: /^Memory: / } },
   { name: "FirewallPage", load: () => import("@/modules/firewall/firewall-page").then((m) => m.FirewallPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/firewall/firewall-page.test.tsx", expects: { role: "img", name: /^Inbound: / } },
+  { name: "DockerPage", load: () => import("@/modules/docker/docker-page").then((m) => m.DockerPage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/docker/docker-page.test.tsx", expects: { role: "img", name: /^Containers: / } },
+  { name: "TailscalePage", load: () => import("@/modules/tailscale/tailscale-page").then((m) => m.TailscalePage as unknown as ComponentType<Record<string, unknown>>), stubsFrom: "web/src/modules/tailscale/tailscale-page.test.tsx", expects: { role: "status", name: /^Node state: / } },
 ]
 
 test.each(rows)("A10, UI-7: $name shows its state as graphics, not key/value text", async (row) => {

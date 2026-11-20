@@ -5,7 +5,9 @@ import { Button } from "darkraise-ui/components/button"
 import { Input } from "darkraise-ui/components/input"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "darkraise-ui/components/tabs"
+import { Network } from "lucide-react"
 import { ApiError, errorMessage, readResource } from "@/api/client"
+import { SectionHeader } from "@/components/visual/section-header"
 import { TailnetChange } from "@/modules/tailnet/tailnet-change"
 import { LatencyPanel } from "./latency-panel"
 import { NodeControls } from "./node-controls"
@@ -13,7 +15,7 @@ import { PackagePanel } from "./package-panel"
 import { PeersTable } from "./peers-table"
 import { PrefsForm } from "./prefs-form"
 import { StatusPanel } from "./status-panel"
-import { TAILSCALE_MODULE, type TailscaleStatus } from "./types"
+import { backendPill, TAILSCALE_MODULE, type TailscaleStatus } from "./types"
 
 const TAG = /^tag:[a-z0-9][a-z0-9-]{0,62}$/
 
@@ -73,6 +75,7 @@ export function TailscalePage({ hostId }: { hostId: string }) {
     if (error instanceof ApiError && error.code === "tailscale.unavailable") {
       return (
         <div className="flex flex-col gap-4">
+          <SectionHeader icon={Network} title="Tailscale" status={{ status: "off", label: "Not available" }} />
           <Alert variant="warning" role="status">
             <AlertDescription>{`Tailscale is not available on this host: ${message}`}</AlertDescription>
           </Alert>
@@ -82,15 +85,19 @@ export function TailscalePage({ hostId }: { hostId: string }) {
       )
     }
     return (
-      <Alert variant="destructive" role="alert">
-        <AlertDescription>{message}</AlertDescription>
-      </Alert>
+      <div className="flex flex-col gap-4">
+        <SectionHeader icon={Network} title="Tailscale" />
+        <Alert variant="destructive" role="alert">
+          <AlertDescription>{message}</AlertDescription>
+        </Alert>
+      </div>
     )
   }
 
   const status = query.data
   return (
     <div className="flex flex-col gap-4">
+      <SectionHeader icon={Network} title="Tailscale" status={backendPill(status.backendState)} />
       {status.self === null && <JoinControl hostId={hostId} install={false} />}
       <Tabs defaultValue="status">
         <TabsList aria-label="Tailscale">

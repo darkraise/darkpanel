@@ -9,6 +9,7 @@ import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Lock, Trash2 } from "lucide-react"
 import { errorMessage, readResource } from "@/api/client"
 import { DockerChange } from "./docker-change"
 import { DOCKER_MODULE, dockerKey, type DockerNetwork } from "./types"
@@ -152,7 +153,14 @@ function NetworkTable({ networks, onRemove }: { networks: DockerNetwork[]; onRem
             <TableCell>{flags(n)}</TableCell>
             <TableCell className="font-mono">{n.subnets.join(", ")}</TableCell>
             <TableCell>{n.containers.join(", ")}</TableCell>
-            <TableCell>{n.owner ?? ""}</TableCell>
+            <TableCell>
+              {n.owner ? (
+                <span className="inline-flex items-center gap-1">
+                  <Lock aria-hidden className="text-muted-foreground size-3.5" />
+                  {n.owner}
+                </span>
+              ) : null}
+            </TableCell>
             <TableCell>
               <Button
                 size="sm"
@@ -161,6 +169,7 @@ function NetworkTable({ networks, onRemove }: { networks: DockerNetwork[]; onRem
                 disabled={n.owner !== undefined && n.owner !== ""}
                 onClick={() => onRemove(n)}
               >
+                <Trash2 aria-hidden />
                 Remove
               </Button>
             </TableCell>

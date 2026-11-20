@@ -36,7 +36,8 @@ test("shows both measurements for each region and says what they measure", async
   const cells = (row: HTMLElement | undefined) => within(row as HTMLElement).getAllByRole("cell").map((c) => c.textContent)
   expect(cells(rows[1])).toEqual(["New York City (nyc)", "12.3 ms", "20.5 ms"])
   expect(cells(rows[2])).toEqual(["Frankfurt (fra)", "Unavailable: no STUN endpoint", "101.0 ms"])
-  expect(screen.getByText(/measures reaching the server, not a relayed peer path/)).toBeTruthy()
+  await userEvent.click(screen.getByRole("button", { name: "About the latency figures" }))
+  expect((await screen.findAllByText(/measures reaching the server, not a relayed peer path/)).length).toBeGreaterThan(0)
 })
 
 test("an empty DERP map is an empty state", async () => {

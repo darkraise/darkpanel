@@ -1,3 +1,5 @@
+import type { Status } from "@/components/visual/status"
+
 export const TAILSCALE_MODULE = "tailscale"
 export const TAILSCALE_ACTION_VERSION = 1
 
@@ -134,4 +136,18 @@ function isRegion(v: unknown): v is RegionLatency {
 
 export function isTailscaleLatency(v: unknown): v is TailscaleLatency {
   return isRecord(v) && Array.isArray(v.regions) && v.regions.every(isRegion)
+}
+
+export function backendPill(state: string): { status: Status; label: string } {
+  switch (state) {
+    case "Running":
+      return { status: "ok", label: "Connected" }
+    case "NeedsLogin":
+    case "NeedsMachineAuth":
+      return { status: "warn", label: "Needs login" }
+    case "Stopped":
+      return { status: "off", label: "Stopped" }
+    default:
+      return { status: "info", label: state }
+  }
 }

@@ -7,10 +7,12 @@ import { Button } from "darkraise-ui/components/button"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Lock, Play, RotateCw, Square, Trash2, type LucideIcon } from "lucide-react"
 import { errorMessage, readResource } from "@/api/client"
+import { StatusPill } from "@/components/visual/status-pill"
 import { formatBytes } from "@/lib/format"
 import { DockerChange } from "./docker-change"
-import { DOCKER_MODULE, dockerKey, type DockerContainer, type DockerPort, type DockerUsage } from "./types"
+import { DOCKER_MODULE, containerStatus, dockerKey, type DockerContainer, type DockerPort, type DockerUsage } from "./types"
 
 interface Pending {
   action: string
@@ -48,7 +50,7 @@ function usage(u: DockerUsage | undefined): string {
 function ContainerRow({ container: c, onChange }: { container: DockerContainer; onChange: (p: Pending) => void }) {
   const running = c.state === "running"
   const owned = c.owner !== undefined && c.owner !== ""
-  const act = (verb: string, action: string) => {
+  const act = (verb: string, action: string, Icon: LucideIcon) => {
     const label = `${verb} ${c.name}`
     return (
       <Button
@@ -58,6 +60,7 @@ function ContainerRow({ container: c, onChange }: { container: DockerContainer; 
         disabled={owned || (verb === "Remove" && running)}
         onClick={() => onChange({ action, title: label, container: c.id })}
       >
+        <Icon aria-hidden />
         {verb}
       </Button>
     )
@@ -70,15 +73,16 @@ function ContainerRow({ container: c, onChange }: { container: DockerContainer; 
         </Link>
         {owned ? (
           <Badge variant="secondary" size="sm" className="ml-2">
+            <Lock aria-hidden className="size-3" />
             owned by {c.owner}
           </Badge>
         ) : null}
       </TableCell>
-      <TableCell className="font-mono">{c.image}</TableCell>
+      <TableCell className="max-w-xs min-w-48 font-mono break-all whitespace-normal">{c.image}</TableCell>
       <TableCell>
-        <Badge variant={running ? "default" : "secondary"} size="sm" title={c.status}>
-          {c.state}
-        </Badge>
+        <span title={c.status} className="inline-flex">
+          <StatusPill status={containerStatus(c.state)} label={c.state} />
+        </span>
       </TableCell>
       <TableCell>{ports(c.ports)}</TableCell>
       <TableCell>{project(c)}</TableCell>
@@ -87,13 +91,13 @@ function ContainerRow({ container: c, onChange }: { container: DockerContainer; 
         <div className="flex gap-2">
           {running ? (
             <>
-              {act("Stop", "docker.container.stop")}
-              {act("Restart", "docker.container.restart")}
+              {act("Stop", "docker.container.stop", Square)}
+              {act("Restart", "docker.container.restart", RotateCw)}
             </>
           ) : (
-            act("Start", "docker.container.start")
+            act("Start", "docker.container.start", Play)
           )}
-          {act("Remove", "docker.container.remove")}
+          {act("Remove", "docker.container.remove", Trash2)}
         </div>
       </TableCell>
     </TableRow>

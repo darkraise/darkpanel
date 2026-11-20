@@ -4,7 +4,9 @@ import { Button } from "darkraise-ui/components/button"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { RefreshCw } from "lucide-react"
 import { ApiError, errorMessage, readResource } from "@/api/client"
+import { InfoTip } from "@/components/visual/info-tip"
 import { isTailscaleLatency, TAILSCALE_MODULE, type Measurement, type TailscaleLatency } from "./types"
 
 function readLatency(hostId: string): Promise<TailscaleLatency> {
@@ -65,13 +67,14 @@ export function LatencyPanel({ hostId }: { hostId: string }) {
           ))}
         </TableBody>
       </Table>
-      <p className="text-sm text-muted-foreground">
-        STUN latency is the median of three STUN binding requests from the host. The DERP HTTPS probe measures reaching the server, not a relayed peer path.
-      </p>
-      <div>
+      <div className="flex items-center gap-2">
         <Button variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}>
+          <RefreshCw aria-hidden />
           Measure again
         </Button>
+        <InfoTip label="About the latency figures">
+          STUN latency is the median of three STUN binding requests from the host. The DERP HTTPS probe measures reaching the server, not a relayed peer path.
+        </InfoTip>
       </div>
     </div>
   )

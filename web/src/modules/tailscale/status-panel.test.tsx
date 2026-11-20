@@ -29,23 +29,28 @@ function spStatus(over: Partial<TailscaleStatus> = {}): TailscaleStatus {
   }
 }
 
-function spValue(list: HTMLElement, label: string): string | null | undefined {
-  return within(list).getByText(label, { selector: "dt" }).nextElementSibling?.textContent
+function spFact(list: HTMLElement, label: string, value: string): string | null {
+  return within(list).getByLabelText(`${label}: ${value}`).lastElementChild?.textContent ?? null
+}
+
+function spState(list: HTMLElement): string | null {
+  return within(list).getByRole("status", { name: /^Node state: / }).textContent
 }
 
 test("shows the node's state, names, addresses, home DERP region and SSH setting", async () => {
   stubFetch({ [SP_STATUS]: { body: spStatus() } })
   renderWithProviders(<StatusPanel hostId="h1" />)
   const list = await screen.findByLabelText("Tailscale status")
-  expect(spValue(list, "Backend state")).toBe("Running")
-  expect(spValue(list, "Version")).toBe("1.104.1")
-  expect(spValue(list, "Tailnet")).toBe("example.com")
-  expect(spValue(list, "MagicDNS suffix")).toBe("tail1234.ts.net")
-  expect(spValue(list, "DNS name")).toBe("web-1.tail1234.ts.net")
-  expect(spValue(list, "Addresses")).toBe("100.64.0.1, fd7a:115c:a1e0::1")
-  expect(spValue(list, "Tags")).toBe("tag:server")
-  expect(spValue(list, "Home DERP region")).toBe("fra")
-  expect(spValue(list, "Tailscale SSH")).toBe("On")
+  expect(spState(list)).toBe("Running")
+  expect(within(list).getByRole("status", { name: "Node state: Running" })).toBeTruthy()
+  expect(spFact(list, "Version", "1.104.1")).toBe("1.104.1")
+  expect(spFact(list, "Tailnet", "example.com")).toBe("example.com")
+  expect(spFact(list, "MagicDNS suffix", "tail1234.ts.net")).toBe("tail1234.ts.net")
+  expect(spFact(list, "DNS name", "web-1.tail1234.ts.net")).toBe("web-1.tail1234.ts.net")
+  expect(spFact(list, "Addresses", "100.64.0.1, fd7a:115c:a1e0::1")).toBe("100.64.0.1, fd7a:115c:a1e0::1")
+  expect(spFact(list, "Tags", "tag:server")).toBe("tag:server")
+  expect(spFact(list, "Home DERP region", "fra")).toBe("fra")
+  expect(within(list).getByText("Tailscale SSH on").textContent).toBe("Tailscale SSH on")
 })
 
 test("a logged-out node shows its state and dashes where it has no value", async () => {
@@ -54,11 +59,11 @@ test("a logged-out node shows its state and dashes where it has no value", async
   })
   renderWithProviders(<StatusPanel hostId="h1" />)
   const list = await screen.findByLabelText("Tailscale status")
-  expect(spValue(list, "Backend state")).toBe("NeedsLogin")
+  expect(spState(list)).toBe("NeedsLogin")
   for (const label of ["Tailnet", "MagicDNS suffix", "DNS name", "Addresses", "Tags", "Home DERP region"]) {
-    expect(spValue(list, label)).toBe("—")
+    expect(spFact(list, label, "—")).toBe("—")
   }
-  expect(spValue(list, "Tailscale SSH")).toBe("Off")
+  expect(within(list).getByText("Tailscale SSH off").textContent).toBe("Tailscale SSH off")
 })
 
 test("health warnings are listed, and none shows no list", async () => {

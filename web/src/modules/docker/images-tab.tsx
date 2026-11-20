@@ -9,6 +9,7 @@ import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Trash2 } from "lucide-react"
 import { errorMessage, readResource } from "@/api/client"
 import { formatBytes } from "@/lib/format"
 import { DockerChange } from "./docker-change"
@@ -57,6 +58,7 @@ function ImageTable({ images, onRemove }: { images: DockerImage[]; onRemove: (i:
             <TableCell>{i.containers.length === 0 ? "—" : i.containers.join(", ")}</TableCell>
             <TableCell>
               <Button size="sm" variant="outline" aria-label={`Remove image ${imageName(i)}`} disabled={i.containers.length > 0} onClick={() => onRemove(i)}>
+                <Trash2 aria-hidden />
                 Remove
               </Button>
             </TableCell>

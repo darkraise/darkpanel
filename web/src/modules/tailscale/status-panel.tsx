@@ -1,18 +1,14 @@
 import { useQuery } from "@tanstack/react-query"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
-import { Badge } from "darkraise-ui/components/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { Spinner } from "darkraise-ui/components/spinner"
+import { SquareTerminal } from "lucide-react"
 import { ApiError, errorMessage, readResource } from "@/api/client"
-import { isTailscaleStatus, TAILSCALE_MODULE, type TailscaleStatus } from "./types"
+import { Fact } from "@/components/visual/fact"
+import { StatusPill } from "@/components/visual/status-pill"
+import { backendPill, isTailscaleStatus, TAILSCALE_MODULE, type TailscaleStatus } from "./types"
 
 const EMPTY = "—"
-
-function stateVariant(state: string): "default" | "destructive" | "secondary" {
-  if (state === "Running") return "default"
-  if (state === "NeedsLogin" || state === "NeedsMachineAuth") return "destructive"
-  return "secondary"
-}
 
 function joined(list: string[] | undefined): string {
   return list === undefined || list.length === 0 ? EMPTY : list.join(", ")
@@ -29,34 +25,30 @@ function readStatus(hostId: string): Promise<TailscaleStatus> {
   })
 }
 
-function Rows({ status }: { status: TailscaleStatus }) {
-  const rows: { label: string; value: string }[] = [
-    { label: "Version", value: orDash(status.version) },
+function Facts({ status }: { status: TailscaleStatus }) {
+  const facts: { label: string; value: string; mono?: boolean }[] = [
+    { label: "Version", value: orDash(status.version), mono: true },
     { label: "Tailnet", value: orDash(status.tailnet) },
-    { label: "MagicDNS suffix", value: orDash(status.magicDNSSuffix) },
-    { label: "DNS name", value: orDash(status.self?.dnsName) },
-    { label: "Addresses", value: joined(status.self?.addresses) },
-    { label: "Tags", value: joined(status.self?.tags) },
-    { label: "Home DERP region", value: orDash(status.preferredDerp) },
-    { label: "Tailscale SSH", value: status.runSSH ? "On" : "Off" },
+    { label: "MagicDNS suffix", value: orDash(status.magicDNSSuffix), mono: true },
+    { label: "DNS name", value: orDash(status.self?.dnsName), mono: true },
+    { label: "Addresses", value: joined(status.self?.addresses), mono: true },
+    { label: "Tags", value: joined(status.self?.tags), mono: true },
+    { label: "Home DERP region", value: orDash(status.preferredDerp), mono: true },
   ]
   return (
-    <dl aria-label="Tailscale status" className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[max-content_1fr]">
-      <div className="contents">
-        <dt className="text-muted-foreground">Backend state</dt>
-        <dd>
-          <Badge variant={stateVariant(status.backendState)} size="sm">
-            {status.backendState}
-          </Badge>
-        </dd>
-      </div>
-      {rows.map((row) => (
-        <div key={row.label} className="contents">
-          <dt className="text-muted-foreground">{row.label}</dt>
-          <dd>{row.value}</dd>
+    <div role="group" aria-label="Tailscale status" className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="status" aria-live="polite" aria-label={`Node state: ${status.backendState}`} className="inline-flex">
+          <StatusPill status={backendPill(status.backendState).status} label={status.backendState} />
         </div>
-      ))}
-    </dl>
+        <StatusPill status={status.runSSH ? "ok" : "off"} icon={SquareTerminal} label={status.runSSH ? "Tailscale SSH on" : "Tailscale SSH off"} />
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {facts.map((f) => (
+          <Fact key={f.label} label={f.label} value={f.value} mono={f.mono} />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -82,7 +74,7 @@ export function StatusPanel({ hostId }: { hostId: string }) {
     <div className="flex flex-col gap-4">
       {status.health.length > 0 && (
         <Alert variant="warning" role="status">
-          <AlertTitle>Tailscale reports problems</AlertTitle>
+          <AlertTitle as="h3">Tailscale reports problems</AlertTitle>
           <AlertDescription>
             <ul aria-label="Health warnings" className="mt-1 list-disc pl-5">
               {status.health.map((message) => (
@@ -97,7 +89,7 @@ export function StatusPanel({ hostId }: { hostId: string }) {
           <CardTitle>Node</CardTitle>
         </CardHeader>
         <CardContent>
-          <Rows status={status} />
+          <Facts status={status} />
         </CardContent>
       </Card>
     </div>

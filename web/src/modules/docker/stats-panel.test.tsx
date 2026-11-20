@@ -17,8 +17,12 @@ function spSample(over: Partial<StatsEvent> = {}): StatsEvent {
   return { read: "2026-10-30T09:00:00Z", cpuPercent: 12.345, memUsage: 268435456, memLimit: 1073741824, netRx: 5242880, netTx: 1024, pids: 12, ...over }
 }
 
-function spValue(label: string): string | null | undefined {
-  return within(screen.getByLabelText("Container usage")).getByText(label, { selector: "dt" }).nextElementSibling?.textContent
+// spValue reads a usage tile as "<figure>" or, with its limit line, "<figure> <limit>".
+function spValue(label: string): string {
+  const tile = within(screen.getByLabelText("Container usage")).getByRole("group", { name: new RegExp(`^${label}: `) })
+  const figure = (tile.getAttribute("aria-label") ?? "").slice(label.length + 2)
+  const limit = tile.querySelector(".text-xs")?.textContent
+  return limit ? `${figure} ${limit}` : figure
 }
 
 function spRender() {

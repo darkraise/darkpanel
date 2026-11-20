@@ -6,13 +6,15 @@ import { Badge } from "darkraise-ui/components/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { HOSTS_QUERY_KEY, errorMessage, listHosts, readAction, readResource } from "@/api/client"
+import { Fact } from "@/components/visual/fact"
+import { StatusPill } from "@/components/visual/status-pill"
 import type { ModuleState } from "@/api/types"
 import { FIREWALL_MODULE, exposureQueryKey, type ExposureView } from "@/modules/firewall/types"
 import { moduleRegistry } from "@/modules/registry"
 import type { ContainerRef } from "@/modules/types"
 import { LogsPanel } from "./logs-panel"
 import { StatsPanel } from "./stats-panel"
-import { DOCKER_ACTION_VERSION, type ContainerDetail, type DockerPort } from "./types"
+import { DOCKER_ACTION_VERSION, containerStatus, type ContainerDetail, type DockerPort } from "./types"
 
 type RefPort = ContainerRef["ports"][number]
 
@@ -56,16 +58,11 @@ function BackLink() {
 
 function Definition({ rows }: { rows: [string, string | undefined][] }) {
   return (
-    <dl className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-[max-content_1fr]">
+    <div role="group" aria-label="Definition" className="flex flex-wrap gap-1">
       {rows.map(([label, value]) =>
-        value === undefined || value === "" ? null : (
-          <div key={label} className="contents">
-            <dt className="text-muted-foreground">{label}</dt>
-            <dd className="break-all">{value}</dd>
-          </div>
-        ),
+        value === undefined || value === "" ? null : <Fact key={label} label={label} value={value} mono={label === "ID" || label === "Image"} />,
       )}
-    </dl>
+    </div>
   )
 }
 
@@ -238,7 +235,7 @@ export function ContainerPage({ hostId }: { hostId: string }) {
       <BackLink />
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold">{ref.name}</h2>
-        <Badge variant={detail.running ? "default" : "secondary"}>{detail.running ? "running" : detail.state}</Badge>
+        <StatusPill status={detail.running ? "ok" : containerStatus(detail.state)} label={detail.running ? "running" : detail.state} />
       </div>
       <Inspect detail={detail} />
       <Card>

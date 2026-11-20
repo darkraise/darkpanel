@@ -47,8 +47,8 @@ async function ptProject(name: string): Promise<HTMLElement> {
   return screen.findByRole("region", { name: `Project ${name}` })
 }
 
-function ptValue(section: HTMLElement, label: string): string | null | undefined {
-  return within(section).getByText(label, { selector: "dt" }).nextElementSibling?.textContent
+function ptValue(section: HTMLElement, label: string, value: string): string | null | undefined {
+  return within(section).getByLabelText(`${label}: ${value}`).lastElementChild?.textContent
 }
 
 function ptPlanned(calls: FetchCall[]): { path: string; body: unknown }[] {
@@ -58,16 +58,16 @@ function ptPlanned(calls: FetchCall[]): { path: string; body: unknown }[] {
 test("shows each project's files, containers and last run", async () => {
   ptRender()
   const blog = await ptProject("blog")
-  expect(ptValue(blog, "Directory")).toBe("/srv/blog")
-  expect(ptValue(blog, "Compose files")).toBe("/srv/blog/compose.yaml, /srv/blog/compose.prod.yaml")
-  expect(ptValue(blog, "Env files")).toBe("/srv/blog/.env")
-  expect(ptValue(blog, "Containers")).toBe("blog-web-1, blog-db-1")
-  expect(ptValue(blog, "Last run")).toBe(formatTime(PT_RAN))
+  expect(ptValue(blog, "Directory", "/srv/blog")).toBe("/srv/blog")
+  expect(ptValue(blog, "Compose files", "/srv/blog/compose.yaml, /srv/blog/compose.prod.yaml")).toBe("/srv/blog/compose.yaml, /srv/blog/compose.prod.yaml")
+  expect(ptValue(blog, "Env files", "/srv/blog/.env")).toBe("/srv/blog/.env")
+  expect(ptValue(blog, "Containers", "blog-web-1, blog-db-1")).toBe("blog-web-1, blog-db-1")
+  expect(ptValue(blog, "Last run", formatTime(PT_RAN))).toBe(formatTime(PT_RAN))
   expect(within(blog).getByText("1 of 2 running").textContent).toBe("1 of 2 running")
   const mail = await ptProject("mail")
-  expect(ptValue(mail, "Env files")).toBe("none")
-  expect(ptValue(mail, "Containers")).toBe("none")
-  expect(ptValue(mail, "Last run")).toBe("never")
+  expect(ptValue(mail, "Env files", "none")).toBe("none")
+  expect(ptValue(mail, "Containers", "none")).toBe("none")
+  expect(ptValue(mail, "Last run", "never")).toBe("never")
 })
 
 test("a changed hash and unreadable files are called out", async () => {

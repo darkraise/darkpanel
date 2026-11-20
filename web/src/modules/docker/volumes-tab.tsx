@@ -8,6 +8,7 @@ import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
+import { Lock, Trash2 } from "lucide-react"
 import { errorMessage, readResource } from "@/api/client"
 import { formatTime } from "@/lib/format"
 import { DockerChange } from "./docker-change"
@@ -106,7 +107,14 @@ function VolumeTable({ volumes, onRemove }: { volumes: DockerVolume[]; onRemove:
             <TableCell className="font-mono">{v.mountpoint}</TableCell>
             <TableCell>{formatTime(v.created)}</TableCell>
             <TableCell>{v.containers.join(", ")}</TableCell>
-            <TableCell>{v.owner ?? ""}</TableCell>
+            <TableCell>
+              {v.owner ? (
+                <span className="inline-flex items-center gap-1">
+                  <Lock aria-hidden className="text-muted-foreground size-3.5" />
+                  {v.owner}
+                </span>
+              ) : null}
+            </TableCell>
             <TableCell>
               <Button
                 size="sm"
@@ -115,6 +123,7 @@ function VolumeTable({ volumes, onRemove }: { volumes: DockerVolume[]; onRemove:
                 disabled={v.owner !== undefined && v.owner !== ""}
                 onClick={() => onRemove(v)}
               >
+                <Trash2 aria-hidden />
                 Remove
               </Button>
             </TableCell>

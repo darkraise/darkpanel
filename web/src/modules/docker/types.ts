@@ -1,3 +1,5 @@
+import type { Status } from "@/components/visual/status"
+
 export const DOCKER_MODULE = "docker"
 export const DOCKER_ACTION_VERSION = 1
 
@@ -175,4 +177,31 @@ export interface PullEvent {
 export interface Pruned {
   images: { id: string; tags: string[]; size: number }[]
   reclaimed: number
+}
+
+export function containerStatus(state: string): Status {
+  switch (state) {
+    case "running":
+      return "ok"
+    case "exited":
+    case "dead":
+      return "error"
+    case "restarting":
+    case "paused":
+    case "removing":
+      return "warn"
+    default:
+      return "off"
+  }
+}
+
+export function containerSegments(containers: { state: string }[]): { status: Status; label: string; value: number }[] {
+  const count = (pred: (state: string) => boolean) => containers.filter((c) => pred(c.state)).length
+  const running = count((s) => s === "running")
+  const exited = count((s) => s === "exited" || s === "dead")
+  return [
+    { status: "ok", label: "Running", value: running },
+    { status: "error", label: "Exited", value: exited },
+    { status: "off", label: "Other", value: containers.length - running - exited },
+  ]
 }
