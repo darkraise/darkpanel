@@ -158,7 +158,7 @@ describe("A7: the copy guard", () => {
 
 const BASE = "a424a369"
 const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
-const countAssertions = (text: string) => (text.match(/\bexpect\s*\(|\.toBe\w*\(|\bassert\w*\(/g) ?? []).length
+const countAssertions = (text: string) => (text.match(/\bexpect(?:\.\w+)?\s*\(|\bassert\w*\(/g) ?? []).length
 
 describe("A39: no assertion about behaviour is removed from the existing suites", () => {
   test("A39: every Vitest and Playwright file that existed at the base still has at least as many assertions", () => {
