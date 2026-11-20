@@ -11,7 +11,13 @@ import (
 
 // KeyringFingerprints lists the OpenPGP version 4 fingerprints of every public key and public subkey packet of
 // the binary keyring b, in order. Keys of another version are skipped.
-func KeyringFingerprints(b []byte) ([]string, error) {
+func KeyringFingerprints(b []byte) ([]string, error) { return keyringFingerprints(b, false) }
+
+// KeyringPrimaryFingerprints is KeyringFingerprints of the primary keys alone (packet tag 6): a keyring pinned
+// to one key must hold no other primary key, whose signatures apt would also trust.
+func KeyringPrimaryFingerprints(b []byte) ([]string, error) { return keyringFingerprints(b, true) }
+
+func keyringFingerprints(b []byte, primaryOnly bool) ([]string, error) {
 	var fps []string
 	for len(b) > 0 {
 		first := b[0]
@@ -72,7 +78,7 @@ func KeyringFingerprints(b []byte) ([]string, error) {
 		}
 		body := b[header : header+length]
 		b = b[header+length:]
-		if (tag != 6 && tag != 14) || len(body) == 0 || body[0] != 4 {
+		if (tag != 6 && tag != 14) || (primaryOnly && tag != 6) || len(body) == 0 || body[0] != 4 {
 			continue
 		}
 		if len(body) > math.MaxUint16 {

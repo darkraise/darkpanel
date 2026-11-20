@@ -1,6 +1,7 @@
 package system
 
 import (
+	"bytes"
 	"slices"
 	"strings"
 	"testing"
@@ -35,6 +36,9 @@ func TestEngineInstallRefusals(t *testing.T) {
 			h.file("/etc/apt/sources.list.d/my.list", []byte("deb [signed-by=/x.gpg] https://download.docker.com/linux/ubuntu noble stable\n"))
 		}, "system.docker_repo_conflict"},
 		{"keyring fingerprint wrong", func(h *sysHost) { h.keyringOverride([]byte("not the pinned key")) }, "system.docker_keyring"},
+		{"keyring with another primary key beside the pinned one", func(h *sysHost) {
+			h.keyringOverride(append(bytes.Clone(dockerKeyring), qaOtherKeyring()...))
+		}, "system.docker_keyring"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

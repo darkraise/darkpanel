@@ -53,17 +53,20 @@ func repoFileDoc(data []byte) core.StateDoc {
 	return core.StateDoc{State: json.RawMessage(`{"sha256":"` + hex.EncodeToString(sum[:]) + `"}`)}
 }
 
-// dockerRepoFiles renders the keyring, refused with system.docker_keyring unless it holds the pinned key, and
+// dockerRepoFiles renders the keyring, refused with system.docker_keyring unless the pinned key is its one primary key, and
 // the source line for this host.
 func (m module) dockerRepoFiles() (keyring, list []byte, err error) {
 	keyring = dockerKeyring
 	if m.d.keyring != nil {
 		keyring = m.d.keyring
 	}
-	fps, err := platform.KeyringFingerprints(keyring)
-	if err != nil || !slices.Contains(fps, dockerKeyFingerprint) {
+	primaries, err := platform.KeyringPrimaryFingerprints(keyring)
+	if err != nil {
+		return nil, nil, errcode.Wrap(errcode.SystemDockerKeyring, err, "the Docker repository keyring Darkpanel carries cannot be read")
+	}
+	if !slices.Equal(primaries, []string{dockerKeyFingerprint}) {
 		return nil, nil, errcode.New(errcode.SystemDockerKeyring,
-			"the Docker repository keyring Darkpanel carries does not hold the pinned key "+dockerKeyFingerprint)
+			"the Docker repository keyring Darkpanel carries must hold the pinned key "+dockerKeyFingerprint+" and no other")
 	}
 	info, err := readOSRelease(m.d.readFile)
 	if err != nil {
