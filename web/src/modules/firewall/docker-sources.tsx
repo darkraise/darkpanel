@@ -158,7 +158,7 @@ export function DockerSources({ hostId, docker, fallbackFocus }: {
       <Card>
         <CardHeader>
           <CardTitle>Private sources</CardTitle>
-          <CardDescription>Traffic from these ranges reaches every published port, whatever the container rules allow.</CardDescription>
+          <CardDescription>Traffic from these ranges reaches every published port, whatever container rules say.</CardDescription>
         </CardHeader>
         <CardContent>
           <form aria-label="Private sources" className="flex flex-col gap-4" onSubmit={submitSources}>

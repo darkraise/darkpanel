@@ -47,14 +47,14 @@ export function PolicyPage() {
         <CardHeader>
           <CardTitle>Policy file</CardTitle>
           <CardDescription>
-            The policy is HuJSON: comments are kept. Review checks the text with Tailscale and shows what changes before anything is applied.
+            HuJSON, comments kept. Review checks it with Tailscale and shows the changes first.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {replaced && (
             <Alert role="status" className="mb-4">
               <AlertDescription>
-                {`The policy changed on Tailscale since you began editing, so your edits were replaced by version ${stored.etag}.`}
+                {`Changed on Tailscale since you began editing; your edits were replaced by version ${stored.etag}.`}
               </AlertDescription>
               <Button type="button" variant="outline" size="sm" onClick={() => setDraft(null)}>
                 Dismiss

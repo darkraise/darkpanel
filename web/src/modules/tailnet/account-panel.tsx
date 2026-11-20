@@ -173,7 +173,7 @@ function Connected({ account, onPlan }: { account: TailnetAccountView; onPlan: (
       </div>
       {abandon && (
         <p className="text-sm text-muted-foreground">
-          Disconnecting then deletes the credentials even if auth keys Darkpanel created are not yet deleted from the tailnet. Those keys stay there.
+          Disconnecting deletes the credentials; auth keys Darkpanel created stay on the tailnet.
         </p>
       )}
     </>

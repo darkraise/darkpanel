@@ -134,7 +134,7 @@ function DockerBody({ hostId, docker }: { hostId: string; docker: DockerStatus }
       )}
       {manualRoutes.length > 0 && (
         <div className="flex flex-col gap-2">
-          <p>These manual route rules have no effect on Docker traffic until a container rule binds a published port:</p>
+          <p>These manual route rules do nothing for Docker until a container rule binds a port:</p>
           <ul aria-label="Manual route rules" className="list-disc pl-5 font-mono text-xs">
             {manualRoutes.map((rule) => (
               <li key={rule}>{rule}</li>

@@ -88,8 +88,8 @@ test("an out-of-sync host names the differing chains and offers a repair", async
 test("a sync that could not be checked says why", () => {
   stubFetch({})
   renderWithProviders(<StatusBanners hostId="h1" status={fwStatus({ inSync: false, syncError: "firewall: predict: no ufw-user-input chain" })} />)
-  expect(screen.getByText(/could not be checked/).textContent).toBe(
-    "Whether the loaded rules match UFW's files could not be checked, so every change except a repair is refused: firewall: predict: no ufw-user-input chain",
+  expect(screen.getByText(/Could not check the loaded rules/).textContent).toBe(
+    "Could not check the loaded rules against UFW's files, so only a repair is allowed: firewall: predict: no ufw-user-input chain",
   )
   expect(screen.queryByRole("list", { name: "Differing chains" })).toBeNull()
 })

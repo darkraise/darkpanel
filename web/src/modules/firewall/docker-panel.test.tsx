@@ -134,7 +134,7 @@ test("manual route rules to containers are listed with what they do not do", asy
   dpRender(dpDocker({ manualRoutes: ["allow in on docker0 out on docker0 to 172.17.0.2 port 80 proto tcp"] }))
   const routes = within(await screen.findByRole("list", { name: "Manual route rules" })).getAllByRole("listitem")
   expect(routes.map((li) => li.textContent)).toEqual(["allow in on docker0 out on docker0 to 172.17.0.2 port 80 proto tcp"])
-  expect(screen.getByText(/no effect on Docker traffic until a container rule/).textContent).toContain("container rule")
+  expect(screen.getByText(/do nothing for Docker until a container rule/).textContent).toContain("container rule")
 })
 
 test("the networks table says which networks are protected", async () => {

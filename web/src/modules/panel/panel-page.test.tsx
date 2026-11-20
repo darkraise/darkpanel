@@ -130,7 +130,7 @@ test.each(["1024", "65535"])("the port %s is accepted", async (port) => {
 
 test("a host that is not the controller's gets no form and no plan", async () => {
   const { calls } = ppRender("h2", paStatus())
-  expect(await screen.findByText("The panel can be exposed only from the controller's own host. Open the panel page of that host.")).toBeTruthy()
+  expect(await screen.findByText("The panel is exposed only from the controller's own host. Open that host's panel page.")).toBeTruthy()
   expect(screen.queryByRole("form", { name: "Expose the panel" })).toBeNull()
   expect(ppPlanBodies(calls, "/plan")).toEqual([])
 })

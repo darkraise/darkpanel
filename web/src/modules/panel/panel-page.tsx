@@ -188,7 +188,7 @@ export function PanelPage({ hostId }: { hostId: string }) {
       )
     }
     if (hosts.data.hosts.some((h) => h.id === hostId && h.isLocal)) return <ExposeForm hostId={hostId} onPlan={plan} />
-    return <p>The panel can be exposed only from the controller&apos;s own host. Open the panel page of that host.</p>
+    return <p>The panel is exposed only from the controller&apos;s own host. Open that host&apos;s panel page.</p>
   }
 
   return (

@@ -57,7 +57,7 @@ export default function TailnetHostCreate({ value, onChange }: { value: Record<s
             )}
           </div>
           <p className="text-sm text-muted-foreground">
-            The new host gets a one-use tailnet auth key in a bootstrap bundle and enrolls over the tailnet, so leave the controller address empty.
+            Leave the controller address empty: the host enrolls over the tailnet with a one-use key.
           </p>
         </>
       )}

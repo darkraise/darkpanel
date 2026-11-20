@@ -243,7 +243,7 @@ export function InstancePanel({ hostId }: { hostId: string }) {
           <InstanceCard status={status} />
           {status.public !== "confirmed" && (
             <Alert variant="warning" role="status">
-              <AlertDescription>Public access is not confirmed. Confirm only when ports 80 and 443 reach this host from the internet.</AlertDescription>
+              <AlertDescription>Public access not confirmed. Confirm only once ports 80 and 443 reach this host.</AlertDescription>
             </Alert>
           )}
           <div className="flex flex-wrap items-center gap-2">

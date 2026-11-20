@@ -38,7 +38,7 @@ export function StatusBanners({ hostId, status, fallbackFocus }: {
         <Alert variant="destructive" role="alert">
           <AlertTitle>Unsupported configuration</AlertTitle>
           <AlertDescription>
-            <p>Darkpanel cannot predict what UFW will load on this host, so it refuses every firewall change until this is fixed:</p>
+            <p>UFW's load on this host is unpredictable, so every firewall change is refused until fixed:</p>
             <ul aria-label="Unsupported configuration reasons" className="mt-1 list-disc pl-5">
               {status.unsupported.map((reason) => (
                 <li key={reason}>{reason}</li>
@@ -52,10 +52,10 @@ export function StatusBanners({ hostId, status, fallbackFocus }: {
           <AlertTitle>Out of sync</AlertTitle>
           <AlertDescription>
             {status.syncError !== undefined && status.syncError !== "" ? (
-              <p>{`Whether the loaded rules match UFW's files could not be checked, so every change except a repair is refused: ${status.syncError}`}</p>
+              <p>{`Could not check the loaded rules against UFW's files, so only a repair is allowed: ${status.syncError}`}</p>
             ) : (
               <>
-                <p>The loaded rules differ from what UFW&apos;s files describe, so every change except a repair is refused. Differing chains:</p>
+                <p>The loaded rules differ from UFW&apos;s files, so only a repair is allowed. Differing chains:</p>
                 <ul aria-label="Differing chains" className="mt-1 list-disc pl-5 font-mono text-xs">
                   {status.outOfSync.map((d) => (
                     <li key={chainName(d)}>{chainName(d)}</li>

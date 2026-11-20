@@ -22,7 +22,7 @@ export function NpmPage({ hostId }: { hostId: string }) {
       {exposure !== null && exposure !== undefined && (
         <Alert variant="warning" role="status">
           <AlertTitle as="h3">Admin interface exposed</AlertTitle>
-          <AlertDescription>{`The NPM admin interface is published at https://${exposure.hostname}. Remove the exposure when you no longer need it.`}</AlertDescription>
+          <AlertDescription>{`Published at https://${exposure.hostname}. Remove the exposure when you no longer need it.`}</AlertDescription>
         </Alert>
       )}
       <Tabs defaultValue="instance">

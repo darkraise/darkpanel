@@ -10,7 +10,7 @@ import NpmRoutes from "./routes"
 import type { InstanceStatus } from "./types"
 
 const PG_STATUS = "POST /api/v1/hosts/h1/actions/npm.instance.status/v1/read"
-const PG_EXPOSED = "The NPM admin interface is published at https://npm.example.com. Remove the exposure when you no longer need it."
+const PG_EXPOSED = "Published at https://npm.example.com. Remove the exposure when you no longer need it."
 
 function pgStatus(over: Partial<InstanceStatus> = {}): InstanceStatus {
   return npInstance({ deployed: true, containerId: "c0ffee", running: true, apiReady: true, public: "confirmed", adminEmail: "admin@example.com", ...over })

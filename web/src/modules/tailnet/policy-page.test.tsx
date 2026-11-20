@@ -126,7 +126,7 @@ test("a policy that changes on the provider replaces an edit made on the old ver
   await client.invalidateQueries({ queryKey: ["tailnet"] })
   await waitFor(() => expect(screen.getByText("Version etag-9").textContent).toBe("Version etag-9"))
   expect((await ppEditor()).value).toBe('{"acls": []}\n')
-  const notice = "The policy changed on Tailscale since you began editing, so your edits were replaced by version etag-9."
+  const notice = "Changed on Tailscale since you began editing; your edits were replaced by version etag-9."
   expect(screen.getByText(notice).textContent).toBe(notice)
   await user.click(screen.getByRole("button", { name: "Dismiss" }))
   expect(screen.queryByText(/your edits were replaced/)).toBeNull()
