@@ -570,7 +570,8 @@ func TestA28_DockerInstallRefusedWhileConflictingPackagesAreInstalled(t *testing
 // fingerprint is not Docker's.
 func qaOtherKeyring() []byte {
 	body := []byte{0x04, 0, 0, 0, 1, 0x01, 0x00, 0x09, 0x01, 0xAB, 0x00, 0x11, 0x01, 0x00, 0x01}
-	return append([]byte{0x99, 0x00, byte(len(body))}, body...)
+	// Tag 6 with a two-byte length: the body's 15 bytes.
+	return append([]byte{0x99, 0x00, 0x0F}, body...)
 }
 
 func TestA29_InstallRefusedBeforeWritingWhenTheKeyringFingerprintDiffers(t *testing.T) {
