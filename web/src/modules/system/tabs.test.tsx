@@ -83,6 +83,7 @@ test("U10: a filter with no match says so; a name installed for two architecture
   await screen.findByText("2.39-0ubuntu8 · amd64")
   screen.getByText("2.39-0ubuntu8 · i386")
   expect(screen.getAllByRole("button", { name: "Remove libc6" })).toHaveLength(1)
+  screen.getByRole("button", { name: "Why libc6 (i386) has no Remove" })
   await userEvent.type(screen.getByRole("textbox", { name: "Filter installed packages" }), "zzzz")
   await screen.findByText("No installed package matches zzzz")
 })

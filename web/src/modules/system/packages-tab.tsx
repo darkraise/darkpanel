@@ -188,7 +188,12 @@ function InstalledPanel({ host, onChange }: { host: Host; onChange: (p: PendingC
                   <TableCell role="cell" className={`${STACK_CELL} @min-[40rem]:text-end`}>
                     {p.protected !== null ? (
                       <ProtectedLock name={p.name} reason={p.protected} />
-                    ) : !removable ? null : (
+                    ) : !removable ? (
+                      <InfoTip label={`Why ${p.name} (${p.arch}) has no Remove`}>
+                        Only one architecture of a package can be removed here: Remove on the first row removes the host&apos;s own. Remove {p.name}:{p.arch} with apt on
+                        the host.
+                      </InfoTip>
+                    ) : (
                       <Button
                         size="sm"
                         variant="outline"
