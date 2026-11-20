@@ -298,6 +298,30 @@ func TestRunKeepTail(t *testing.T) {
 	}
 }
 
+func TestRunMaxOutput(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := core.Cmd{Path: self, Args: []string{"-test.run=^TestExecHelperProcess$", "--", helperTailArg}}
+	always := func([]string) error { return nil }
+
+	raised := NewRunner([]ExecRule{{Path: self, Match: always, MaxOutput: 8 << 20}})
+	res, err := raised.Run(context.Background(), cmd)
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("MaxOutput 8 MiB: %v, exit %d; want the 6 MiB run to finish", err, res.ExitCode)
+	}
+	if !bytes.HasSuffix(res.Stdout, []byte("END")) || len(res.Stdout) != 6<<20+3 {
+		t.Errorf("MaxOutput 8 MiB: %d bytes; want all %d", len(res.Stdout), 6<<20+3)
+	}
+
+	_, err = NewRunner([]ExecRule{{Path: self, Match: always}}).Run(context.Background(), cmd)
+	var coded *errcode.Error
+	if !errors.As(err, &coded) || coded.Code != errcode.ExecOutputTooLarge || !strings.Contains(coded.Detail, "4 MiB") {
+		t.Errorf("default cap: err = %v, want %s naming 4 MiB", err, errcode.ExecOutputTooLarge)
+	}
+}
+
 func TestCappedBufferKeepTail(t *testing.T) {
 	c := &cappedBuffer{limit: 8, keepTail: true}
 	for _, w := range []string{"abc", "defgh", "ij", "klmnopqrstuvwxyz", "1"} {

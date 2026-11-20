@@ -141,6 +141,18 @@ func TestSystemAptRulesRefuse(t *testing.T) {
 	}
 }
 
+func TestSystemRulesMaxOutput(t *testing.T) {
+	rule, err := NewRunner(ProductionRules()).matchRule("/usr/bin/apt-cache", SystemAptCachePkgnames())
+	if err != nil || rule.MaxOutput != 32<<20 || rule.KeepTail {
+		t.Errorf("apt-cache pkgnames: MaxOutput %d, KeepTail %v, %v; want 32 MiB without KeepTail", rule.MaxOutput, rule.KeepTail, err)
+	}
+	for _, r := range ProductionRules() {
+		if r.Path != "/usr/bin/apt-cache" && r.MaxOutput != 0 {
+			t.Errorf("%s: MaxOutput %d, want the default", r.Path, r.MaxOutput)
+		}
+	}
+}
+
 func TestSystemRulesKeepTail(t *testing.T) {
 	r := NewRunner(ProductionRules())
 	tests := []struct {

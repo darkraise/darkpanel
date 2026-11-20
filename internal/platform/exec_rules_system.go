@@ -153,7 +153,9 @@ func systemRules() []ExecRule {
 		{Path: "/usr/bin/dpkg", Match: exactly(SystemDpkgConfigure()), Env: env(), KeepTail: true},
 		{Path: "/usr/bin/dpkg", Match: exactly(SystemDpkgAudit()), Env: env()},
 		{Path: "/usr/bin/dpkg-query", Match: exactly(SystemDpkgQuery())},
-		{Path: "/usr/bin/apt-cache", Match: execMatchAptCache},
+		// pkgnames prints 3.46 MiB on a stock Ubuntu 22.04 image; a list cut
+		// short would refuse valid install names, so it fails over the cap.
+		{Path: "/usr/bin/apt-cache", Match: execMatchAptCache, MaxOutput: 32 << 20},
 		{Path: "/usr/bin/apt-config", Match: exactly(SystemAptConfigDump())},
 		{Path: "/usr/sbin/needrestart", Match: exactly(SystemNeedrestart())},
 	}

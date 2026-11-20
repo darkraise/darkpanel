@@ -34,10 +34,13 @@ type ExecRule struct {
 	Path  string                    // absolute, clean
 	Match func(args []string) error // nil error: the vector is allowed
 	Env   []string                  // KEY=VALUE pairs appended to the base environment; nothing else is inherited
-	// KeepTail keeps the last maxOutput bytes of each stream instead of
-	// cancelling the program: a mutating apt or dpkg run killed for its
-	// output would leave dpkg interrupted.
+	// KeepTail keeps the last bytes of each stream, up to the rule's cap,
+	// instead of cancelling the program: a mutating apt or dpkg run killed
+	// for its output would leave dpkg interrupted.
 	KeepTail bool
+	// MaxOutput is the rule's cap on each stream; 0 means maxOutput. A rule
+	// raises it only for a read whose full output it needs.
+	MaxOutput int
 }
 
 // Runner is the core.Runner of the agent: it runs only programs a rule
@@ -132,8 +135,8 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 
 // Run runs cmd. A non-zero exit is reported in the result's ExitCode, not as
 // an error; a refused path, a timeout or a failure to start is an error, and
-// more than 4 MiB on either stream fails with exec.output_too_large, unless
-// the rule keeps the tail.
+// more than the rule's cap (4 MiB by default) on either stream fails with
+// exec.output_too_large, unless the rule keeps the tail.
 func (r *Runner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
 	rule, err := r.matchRule(cmd.Path, cmd.Args)
 	if err != nil {
@@ -154,8 +157,12 @@ func (r *Runner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) 
 	if len(cmd.Stdin) > 0 {
 		c.Stdin = bytes.NewReader(cmd.Stdin)
 	}
-	stdout := &cappedBuffer{limit: maxOutput, keepTail: rule.KeepTail, cancel: cancel}
-	stderr := &cappedBuffer{limit: maxOutput, keepTail: rule.KeepTail, cancel: cancel}
+	limit := maxOutput
+	if rule.MaxOutput > 0 {
+		limit = rule.MaxOutput
+	}
+	stdout := &cappedBuffer{limit: limit, keepTail: rule.KeepTail, cancel: cancel}
+	stderr := &cappedBuffer{limit: limit, keepTail: rule.KeepTail, cancel: cancel}
 	c.Stdout, c.Stderr = stdout, stderr
 	// The program leads its own process group so that the timeout and the
 	// output cap stop every process it started, not only the program itself.
@@ -167,7 +174,7 @@ func (r *Runner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) 
 
 	err = c.Run()
 	if stdout.over || stderr.over {
-		return core.CmdResult{}, errcode.New(errcode.ExecOutputTooLarge, cmd.Path+" wrote more than 4 MiB")
+		return core.CmdResult{}, errcode.New(errcode.ExecOutputTooLarge, fmt.Sprintf("%s wrote more than %d MiB", cmd.Path, limit>>20))
 	}
 	res := core.CmdResult{Stdout: stdout.buf.Bytes(), Stderr: stderr.buf.Bytes()}
 	if c.ProcessState != nil {

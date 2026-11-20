@@ -53,7 +53,10 @@ The module's natural id, `system`, was a reserved top-level CLI name: ADR
   (remove, purge, upgrade), so apt never reads a name as an option, a version,
   an action suffix or a regular expression. Mutating runs keep their output's
   tail rather than being killed for its length, since a killed dpkg leaves
-  the package database interrupted.
+  the package database interrupted. The `apt-cache` read is capped at 32 MiB
+  instead of the runner's 4 MiB default, because `pkgnames` already prints
+  3.46 MiB on a stock Ubuntu 22.04 image; it still fails rather than
+  truncates over the cap.
 - **Protected packages.** A package change whose simulation removes an
   essential or required package, the remote-access, network, boot and
   firewall packages, the running kernel or the Docker packages is refused
