@@ -84,6 +84,21 @@ func TestRecheckModulesUpsertsAvailabilityOnly(t *testing.T) {
 	}
 }
 
+func TestRecheckModulesInventsNoRowForAModuleWithout(t *testing.T) {
+	d, h, agent := newRecheckFixture(t)
+	agent.preflight["docker"] = core.ModuleStatus{ID: "docker", Available: true}
+	if err := d.RecheckModules(context.Background(), testHost, []string{"docker"}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := h.db.Read().QueryRow(`SELECT COUNT(*) FROM core_module_state WHERE host_id = ? AND module_id = 'docker'`, testHost).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatal("the recheck inserted a row the host's Hello had not seeded")
+	}
+}
+
 func TestRecheckModulesRecordsTheReasonAndLeavesARowOnAnUnreachableAgent(t *testing.T) {
 	d, h, agent := newRecheckFixture(t)
 	insertModuleRow(t, h)
@@ -96,8 +111,8 @@ func TestRecheckModulesRecordsTheReasonAndLeavesARowOnAnUnreachableAgent(t *test
 	}
 	agent.err = errors.New("host offline")
 	_, _, _, before := moduleRow(t, h, "docker")
-	if err := d.RecheckModules(context.Background(), testHost, []string{"docker"}); err != nil {
-		t.Fatalf("an unreachable agent is logged, not returned: %v", err)
+	if err := d.RecheckModules(context.Background(), testHost, []string{"docker"}); err == nil {
+		t.Fatal("an unreachable agent was not returned, so the recheck would never be retried")
 	}
 	if _, available, reason, checked := moduleRow(t, h, "docker"); available != 0 || reason != "docker is not installed" || checked != before {
 		t.Fatalf("row changed on an unreachable agent: available=%d reason=%q checked=%s", available, reason, checked)

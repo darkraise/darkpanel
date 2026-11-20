@@ -53,12 +53,56 @@ func WithRegistry(reg *core.Registry) Option { return func(o *options) { o.reg =
 // WithRechecker rechecks a change's Rechecks modules when it ends.
 func WithRechecker(r Rechecker) Option { return func(o *options) { o.rechecker = r } }
 
-func newOptions(opts []Option) options {
+func newOptions(opts []Option, log *slog.Logger) options {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
 	}
+	if o.rechecker != nil {
+		o.rechecker = retryingRechecker{next: o.rechecker, after: afterFunc, log: log}
+	}
 	return o
+}
+
+// A failed recheck (an agent that did not answer) is tried again every
+// recheckRetryEvery, recheckRetries times: the change that asked has ended
+// and its event does not come again. A host away longer is rechecked by its
+// next Hello.
+const (
+	recheckRetryEvery = 30 * time.Second
+	recheckRetries    = 10
+)
+
+func afterFunc(d time.Duration, f func()) { time.AfterFunc(d, f) }
+
+// retryingRechecker retries a failed recheck in the background.
+type retryingRechecker struct {
+	next  Rechecker
+	after func(time.Duration, func())
+	log   *slog.Logger
+}
+
+func (r retryingRechecker) RecheckModules(ctx context.Context, host string, modules []string) error {
+	err := r.next.RecheckModules(ctx, host, modules)
+	if err != nil {
+		r.retry(host, modules, 1)
+	}
+	return err
+}
+
+func (r retryingRechecker) retry(host string, modules []string, attempt int) {
+	if attempt > recheckRetries {
+		r.log.Warn("events: recheck modules: retries spent; the host's next hello rechecks them", "host", host, "modules", modules)
+		return
+	}
+	r.after(recheckRetryEvery, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), agentReadTimeout)
+		defer cancel()
+		if err := r.next.RecheckModules(ctx, host, modules); err != nil {
+			r.log.Warn("events: recheck modules: retry failed", "host", host, "modules", modules, "attempt", attempt, "err", err)
+			r.retry(host, modules, attempt+1)
+		}
+	})
 }
 
 // recheckStates are the change states after which the modules an action
@@ -115,7 +159,7 @@ func StartWatchers(db *store.DB, clock core.Clock, bus *Bus, visible func(core.C
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	w := &watcher{db: db, clock: clock, bus: bus, visible: visible, log: log, opts: newOptions(opts), last: clock.Now(),
+	w := &watcher{db: db, clock: clock, bus: bus, visible: visible, log: log, opts: newOptions(opts, log), last: clock.Now(),
 		changes: map[string]changeSeen{}, modules: map[moduleKey]moduleSeen{}}
 	w.mu.Lock()
 	w.poll(false)
@@ -308,7 +352,7 @@ func AgentChanges(bus *Bus, change func(ctx context.Context, hostID, changeID st
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	o := newOptions(opts)
+	o := newOptions(opts, log)
 	return func(hostID string, entries []core.JournalEntry) {
 		var ids []string
 		seen := map[string]bool{}

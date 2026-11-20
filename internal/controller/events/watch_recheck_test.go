@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -152,5 +153,39 @@ func TestWatcherFirstPollOnlyRecords(t *testing.T) {
 	f.poll()
 	if calls := rec.settled(false); len(calls) != 0 {
 		t.Fatalf("a change that ended before the watchers started was rechecked: %v", calls)
+	}
+}
+
+type flakyRechecker struct {
+	mu    sync.Mutex
+	fails int
+	calls int
+}
+
+func (f *flakyRechecker) RecheckModules(context.Context, string, []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.calls <= f.fails {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+func TestAFailedRecheckIsRetriedUntilItSucceedsOrItsRetriesAreSpent(t *testing.T) {
+	now := func(_ time.Duration, f func()) { f() }
+	ok := &flakyRechecker{fails: 2}
+	r := retryingRechecker{next: ok, after: now, log: slog.New(slog.DiscardHandler)}
+	if err := r.RecheckModules(context.Background(), "h1", []string{"docker"}); err == nil {
+		t.Fatal("the first failure was not returned")
+	}
+	if ok.calls != 3 {
+		t.Fatalf("calls = %d, want the first and two retries", ok.calls)
+	}
+	never := &flakyRechecker{fails: 1000}
+	r = retryingRechecker{next: never, after: now, log: slog.New(slog.DiscardHandler)}
+	_ = r.RecheckModules(context.Background(), "h1", []string{"docker"})
+	if never.calls != 1+recheckRetries {
+		t.Fatalf("calls = %d, want 1 + %d retries", never.calls, recheckRetries)
 	}
 }

@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -10,21 +11,22 @@ import (
 const recheckTimeFormat = "2006-01-02T15:04:05.000000000Z"
 
 // RecheckModules asks the agent on hostID for each module's preflight and
-// records the answer in core_module_state, leaving enabled as it is; a
-// module without a row is recorded disabled. Each module's cached
-// availability is retired, so the next request asks the agent again. An
-// agent that cannot be reached leaves the rows as they are: the error is
-// logged, not returned, because the change that asked has already ended.
+// records the answer in core_module_state, leaving enabled as it is. Only a
+// module that already has a row is updated: rows are seeded at Hello from
+// each module's default, and the recheck must not invent one. Each recorded
+// module's cached availability is retired, so the next request asks the
+// agent again. An agent that cannot be reached, or a preflight that fails,
+// leaves the rows as they are and is returned, so the caller can retry.
 func (d *Dispatcher) RecheckModules(ctx context.Context, hostID string, modules []string) error {
 	agent, err := d.cfg.Hosts.Agent(ctx, hostID)
 	if err != nil {
-		d.cfg.Log.Warn("dispatch: recheck modules: host unreachable", "host", hostID, "modules", modules, "error", err)
-		return nil
+		return fmt.Errorf("dispatch: recheck modules on host %s: host unreachable: %w", hostID, err)
 	}
+	var failed []error
 	for _, module := range modules {
 		status, err := agent.Preflight(ctx, module)
 		if err != nil {
-			d.cfg.Log.Warn("dispatch: recheck module", "host", hostID, "module", module, "error", err)
+			failed = append(failed, fmt.Errorf("dispatch: recheck module %s on host %s: %w", module, hostID, err))
 			continue
 		}
 		var reason any
@@ -33,11 +35,9 @@ func (d *Dispatcher) RecheckModules(ctx context.Context, hostID string, modules 
 		}
 		now := d.cfg.Clock.Now().UTC().Format(recheckTimeFormat)
 		err = d.cfg.DB.Write(ctx, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, `INSERT INTO core_module_state (host_id, module_id, enabled, available, reason, checked_at)
-				VALUES (?, ?, 0, ?, ?, ?)
-				ON CONFLICT (host_id, module_id) DO UPDATE SET available = excluded.available,
-				reason = excluded.reason, checked_at = excluded.checked_at`,
-				hostID, module, status.Available, reason, now)
+			_, err := tx.ExecContext(ctx, `UPDATE core_module_state SET available = ?, reason = ?, checked_at = ?
+				WHERE host_id = ? AND module_id = ?`,
+				status.Available, reason, now, hostID, module)
 			return err
 		})
 		if err != nil {
@@ -45,5 +45,5 @@ func (d *Dispatcher) RecheckModules(ctx context.Context, hostID string, modules 
 		}
 		d.avail.retire(availabilityKey{hostID, module})
 	}
-	return nil
+	return errors.Join(failed...)
 }
