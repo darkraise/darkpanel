@@ -120,7 +120,6 @@ export function DockerTile({ host }: { host: Host }) {
         title={`Install Docker on ${host.name}`}
         target={{ name: "system.docker.install", version: SYSTEM_ACTION_VERSION, revertible: flag, revertSeconds: 900, confirmLabel: "Keep" }}
         input={{ hostId: host.id, firewallIntegration: flag }}
-        onApplied={refresh}
       />
       <ChangeDialog
         open={open === "update"}
@@ -131,7 +130,6 @@ export function DockerTile({ host }: { host: Host }) {
         title={`Update Docker on ${host.name}`}
         target={{ name: "system.docker.engine-update", version: SYSTEM_ACTION_VERSION, hostId: host.id, module: SYSTEM_MODULE }}
         input={{}}
-        onApplied={refresh}
       />
     </Tile>
   )

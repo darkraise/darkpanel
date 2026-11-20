@@ -29,7 +29,9 @@ export function DockerUninstall({ host, docker, integrationOn }: { host: Host; d
   const blockedId = useId()
   const client = useQueryClient()
   // Docker's state, the firewall's integration and the host's modules all
-  // change with an uninstall.
+  // change with an uninstall. They are read again when the dialog closes:
+  // read on apply, Docker's absence would unmount this section, and the
+  // dialog with it, before it shows the change.
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["resource", host.id] })
     void client.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
@@ -115,7 +117,6 @@ export function DockerUninstall({ host, docker, integrationOn }: { host: Host; d
         title={purging ? `Uninstall Docker and delete its data on ${host.name}` : `Uninstall Docker on ${host.name}`}
         target={{ name: "system.docker.uninstall", version: SYSTEM_ACTION_VERSION, hostId: host.id, module: SYSTEM_MODULE }}
         input={{ purge: purging }}
-        onApplied={refresh}
       />
     </div>
   )
