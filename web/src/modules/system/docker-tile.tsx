@@ -94,7 +94,7 @@ export function DockerTile({ host }: { host: Host }) {
         open={open === "install"}
         onOpenChange={(next) => setOpen(next ? "install" : null)}
         title={`Install Docker on ${host.name}`}
-        target={{ name: "system.docker.install", version: SYSTEM_ACTION_VERSION, revertible: flag, revertSeconds: 900 }}
+        target={{ name: "system.docker.install", version: SYSTEM_ACTION_VERSION, revertible: flag, revertSeconds: 900, confirmLabel: "Keep" }}
         input={{ hostId: host.id, firewallIntegration: flag }}
       />
       <ChangeDialog

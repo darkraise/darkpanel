@@ -33,6 +33,7 @@ export interface ChangeTarget {
   module?: string // checked against getAvailability when hostId is set
   revertible?: boolean // asks for the revert timeout, sent as confirmTimeoutSeconds
   revertSeconds?: number // the revert timeout offered first; CONFIRM_TIMEOUT_DEFAULT otherwise
+  confirmLabel?: string // the label of the button that keeps a change awaiting confirmation; "Confirm" otherwise
 }
 
 // The revert timeout an apply request accepts, in seconds.
@@ -184,8 +185,9 @@ type Outcome = "running" | "done" | "failed"
 const DONE_STATES = new Set(["completed", "confirmed", "kept", "repaired"])
 const FAILED_STATES = new Set(["failed", "reverted", "needs_repair", "interrupted", "abandoned"])
 
-function Applied({ applied, onError, onProgress, onOutcome }: {
+function Applied({ applied, confirmLabel, onError, onProgress, onOutcome }: {
   applied: Change
+  confirmLabel: string
   onError: (message: string | null) => void
   onProgress: (text: string) => void
   onOutcome: (outcome: Outcome) => void
@@ -246,7 +248,7 @@ function Applied({ applied, onError, onProgress, onOutcome }: {
     onOutcome(outcome)
   }, [outcome, onOutcome])
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" data-testid={outcome === "done" ? "change-done" : undefined}>
       <div className="flex items-center gap-2">
         <span className="text-sm">State</span>
         <Badge variant={stateVariant(current.state)}>{current.state}</Badge>
@@ -261,7 +263,7 @@ function Applied({ applied, onError, onProgress, onOutcome }: {
           {left !== null && <Countdown left={left} />}
           <div className="flex gap-2">
             <Button loading={busy} onClick={() => void decide(true)}>
-              Confirm
+              {confirmLabel}
             </Button>
             <Button variant="outline" disabled={busy} onClick={() => void decide(false)}>
               Revert
@@ -429,7 +431,7 @@ function ChangeDialogBody({ target, input, plan: given, onApplied, busy, setBusy
         </Alert>
       )}
       {applied !== null ? (
-        <Applied applied={applied} onError={setError} onProgress={setProgress} onOutcome={setOutcome} />
+        <Applied applied={applied} confirmLabel={target.confirmLabel ?? "Confirm"} onError={setError} onProgress={setProgress} onOutcome={setOutcome} />
       ) : plan === null ? (
         shownError === null && <Spinner aria-label="Planning the change" />
       ) : (
