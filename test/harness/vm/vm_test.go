@@ -604,6 +604,26 @@ func TestRunReconnectsAfterATimedOutRun(t *testing.T) {
 	}
 }
 
+// TestRunReconnectsAfterAClosedConnection: a connection that died without a
+// Run timing out, as when the guest reboots on its own, fails that Run, and
+// the next Run must dial a new connection rather than fail on the dead one.
+func TestRunReconnectsAfterAClosedConnection(t *testing.T) {
+	s := testServer(t, false, func(n int32, _ string) (string, bool) { return fmt.Sprintf("conn %d\n", n), true })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	v := vmOf(ctx, t, s, "rebooted")
+	v.mu.Lock()
+	dead := v.client
+	v.mu.Unlock()
+	_ = dead.Close()
+	if _, err := v.Run(ctx, "true"); err == nil {
+		t.Fatal("Run on a closed connection = nil, want an error")
+	}
+	if out, err := v.Run(ctx, "true"); err != nil || out != "conn 2\n" {
+		t.Errorf("Run after a closed connection = %q, %v; want the answer of a new connection", out, err)
+	}
+}
+
 // TestDialContextReachesAGuestListener: the harness's HTTP client reaches a
 // listener on the guest's loopback interface through the SSH connection, and
 // a target that refuses fails the dial without dropping the connection.

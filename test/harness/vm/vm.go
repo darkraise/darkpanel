@@ -305,6 +305,9 @@ func (v *VM) runWith(ctx context.Context, cmd string, stdin io.Reader) (string, 
 	go func() {
 		s, err := c.NewSession()
 		if err != nil {
+			// The connection is gone, as after a reboot the harness did not
+			// start: the next Run dials a new one.
+			v.dropClient(c)
 			done <- err
 			return
 		}
