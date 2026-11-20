@@ -62,7 +62,7 @@ function Detection({ docker }: { docker: DockerStatus }) {
 
 function Networks({ networks }: { networks: DockerNetwork[] }) {
   return (
-    <Table aria-label="Docker networks">
+    <Table aria-label="Docker networks" className="[--density-container-p:0.5rem]">
       <TableHeader>
         <TableRow>
           <TableHead>Network</TableHead>
@@ -74,10 +74,10 @@ function Networks({ networks }: { networks: DockerNetwork[] }) {
       <TableBody>
         {networks.map((n) => (
           <TableRow key={n.id}>
-            <TableCell>{n.name}</TableCell>
-            <TableCell className="font-mono">{n.bridge}</TableCell>
-            <TableCell className="font-mono">{n.subnets.join(", ")}</TableCell>
-            <TableCell>{protection(n)}</TableCell>
+            <TableCell className="whitespace-normal wrap-anywhere">{n.name}</TableCell>
+            <TableCell className="font-mono whitespace-normal wrap-anywhere">{n.bridge}</TableCell>
+            <TableCell className="font-mono whitespace-normal wrap-anywhere">{n.subnets.join(", ")}</TableCell>
+            <TableCell className="whitespace-normal">{protection(n)}</TableCell>
           </TableRow>
         ))}
       </TableBody>
