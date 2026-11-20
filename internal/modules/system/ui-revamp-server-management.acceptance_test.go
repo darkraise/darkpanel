@@ -566,19 +566,37 @@ func TestA28_DockerInstallRefusedWhileConflictingPackagesAreInstalled(t *testing
 	}
 }
 
+// qaOtherKeyring is a well-formed OpenPGP public-key packet whose
+// fingerprint is not Docker's.
+func qaOtherKeyring() []byte {
+	body := []byte{0x04, 0, 0, 0, 1, 0x01, 0x00, 0x09, 0x01, 0xAB, 0x00, 0x11, 0x01, 0x00, 0x01}
+	return append([]byte{0x99, 0x00, byte(len(body))}, body...)
+}
+
 func TestA29_InstallRefusedBeforeWritingWhenTheKeyringFingerprintDiffers(t *testing.T) {
-	h := newSysHost(t)
-	h.osRelease("ubuntu", "noble", "amd64")
-	h.keyringOverride([]byte("this is not the pinned keyring"))
-	_, err := h.applyTask("system.docker.engine-install", `{}`)
-	if err == nil {
-		t.Fatal("an install with a different keyring was not refused")
+	other, err := platform.KeyringFingerprints(qaOtherKeyring())
+	if err != nil || len(other) != 1 || other[0] == "9DC858229FC7DD38854AE2D88D81803C0EBFCD88" {
+		t.Fatalf("the stand-in keyring is not a different key: %v, %v", other, err)
 	}
-	if w := h.writtenPaths(); len(w) != 0 {
-		t.Fatalf("wrote %v before the keyring check", w)
-	}
-	if qaHasMutatingApt(h.calls()) {
-		t.Fatalf("apt ran: %v", h.calls())
+	for name, ring := range map[string][]byte{"a different key": qaOtherKeyring(), "not a keyring": []byte("this is not the pinned keyring")} {
+		t.Run(name, func(t *testing.T) {
+			h := newSysHost(t)
+			h.osRelease("ubuntu", "noble", "amd64")
+			h.keyringOverride(ring)
+			h.run(aptGet+" "+strings.Join(platform.SystemAptUpdate("/etc/apt/sources.list.d/docker.list"), " "), "Hit:1 https://download.docker.com/linux/ubuntu noble InRelease\n", 0)
+			sim := "Inst docker-ce (5:27.3.1-1 Docker:noble [amd64])\n0 upgraded, 1 newly installed, 0 to remove and 0 not upgraded.\n"
+			h.run(resimVec("install", qaDockerFive), sim, 0)
+			h.runChanges(runVec("install", qaDockerFive), "", 0, append([]string{"bash"}, qaDockerFive...)...)
+			if _, err := h.applyTask("system.docker.engine-install", `{}`); err == nil {
+				t.Fatal("an install with a keyring of another fingerprint was not refused")
+			}
+			if w := h.writtenPaths(); len(w) != 0 {
+				t.Fatalf("wrote %v before the keyring check", w)
+			}
+			if qaHasMutatingApt(h.calls()) {
+				t.Fatalf("apt ran: %v", h.calls())
+			}
+		})
 	}
 }
 
@@ -734,6 +752,7 @@ func TestA45_DriftIsPlanStateChangedAndTheTaskResimulationIsPlanStale(t *testing
 	h.run(planVec("install", []string{"jq"}), one, 0)
 	p := h.plan(t, "system.packages.install", `{"names":["jq"]}`)
 	h.run(planVec("install", []string{"jq"}), qaSim([]string{"jq", "htop"}, nil, 0), 0)
+	h.run(resimVec("install", []string{"jq"}), qaSim([]string{"jq", "htop"}, nil, 0), 0)
 	_, err := h.applyPlan(p)
 	if errcode.From(err).Code != "plan.state_changed" {
 		t.Fatalf("err = %v, want plan.state_changed", err)
