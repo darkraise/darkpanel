@@ -18,6 +18,9 @@ test("UX-6: labelled containers are named with links to their pages", () => {
   stubFetch({})
   renderWithProviders(<DockerUninstall host={host} docker={{ state: "docker-ce", running: true, containers: 1, images: 1, volumes: 0, labelled: [{ name: "npm-1", module: "npm" }] }} integrationOn={false} />)
   expect(screen.getByRole("link", { name: "npm-1" }).getAttribute("href")).toBe("/hosts/h1/npm")
+  const uninstall = screen.getByRole("button", { name: "Uninstall" })
+  expect(uninstall.hasAttribute("disabled")).toBe(true)
+  expect(document.getElementById(uninstall.getAttribute("aria-describedby") ?? "")?.textContent).toContain("Remove them on their pages first")
 })
 
 test("UX-6: purge is off by default, disabled when the daemon is down, and sends purge", async () => {

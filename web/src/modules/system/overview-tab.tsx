@@ -175,7 +175,8 @@ function UpdatesTile({
   const updates = useSystemResource<Updates>(host, "updates")
   const offline = !host.online
   const data = updates.data
-  const upToDate = data !== undefined && data.upgradable.length === 0 && data.removals.length === 0
+  // An interrupted dpkg leaves the lists unread, which is not "up to date".
+  const upToDate = data !== undefined && !data.dpkgInterrupted && data.upgradable.length === 0 && data.removals.length === 0
   const security = data?.upgradable.filter((u) => u.security).length ?? 0
 
   let status: { status: Status; label: string } | undefined
@@ -314,8 +315,32 @@ function OverviewTiles({ host }: { host: Host }) {
   const failed = lastPackageChange?.state === "failed" ? lastPackageChange : undefined
   const busy = failed?.error?.code === "system.apt_busy" ? failed : undefined
 
+  // The changes give the last package change and the reboot in progress,
+  // the summary the boot time a reboot is judged by: without them those
+  // states cannot show, so say so rather than show nothing.
+  const unread = [changes.isError && "recent changes", host.online && summary.isError && "boot time"].filter(Boolean).join(" and ")
+
   return (
     <div className="flex flex-col gap-4">
+      {unread !== "" && (
+        <Alert variant="warning" role="status" data-testid="state-partialRead">
+          <AlertTitle as="h3">{`The host's ${unread} could not be read`}</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-2">
+            <span>The last change and a reboot in progress may not show.</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (changes.isError) void changes.refetch()
+                if (summary.isError) void refetchSummary()
+              }}
+            >
+              <RotateCcw aria-hidden />
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <UpdatesTile host={host} busy={busy} onChange={setPending} />
         <RebootTile

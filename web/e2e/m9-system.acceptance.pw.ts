@@ -150,6 +150,9 @@ const flows: { name: string; state: SystemState; route: string; steps: (p: Page)
       await tabTo(p, "button", "Keep")
       await p.keyboard.press("Enter")
     },
+    after: async (p) => {
+      await expect(p.getByRole("tab", { name: "Containers" }).or(p.getByRole("link", { name: "Containers" })).first()).toBeVisible({ timeout: 15_000 })
+    },
   },
   {
     name: "UX-6 uninstall Docker",
@@ -160,12 +163,17 @@ const flows: { name: string; state: SystemState; route: string; steps: (p: Page)
       await p.keyboard.press("Enter")
       await tabTo(p, "checkbox", "Delete all containers, images and volumes")
       await p.keyboard.press("Space")
+      const plan = p.waitForRequest((r) => r.url().includes("/system.docker.uninstall/v1/plan"))
       await tabTo(p, "button", "Uninstall")
       await p.keyboard.press("Enter")
+      expect(((await plan).postDataJSON() as { input: { purge: boolean } }).input.purge).toBe(true)
       await tabTo(p, "textbox", /confirm/i)
       await p.keyboard.type(`purge docker on ${HOST}`)
       await tabTo(p, "button", "Apply")
       await p.keyboard.press("Enter")
+    },
+    after: async (p) => {
+      await expect(p.getByRole("region", { name: "Docker Engine" }).getByText("Not installed")).toBeVisible()
     },
   },
 ]

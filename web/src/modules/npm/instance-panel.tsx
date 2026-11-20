@@ -177,7 +177,7 @@ function RevealDialog({ credentials, onHide }: { credentials: AdminPassword; onH
         </DialogHeader>
         <div className="flex flex-wrap gap-1">
           <Fact label="Email" value={credentials.email} />
-          <Fact label="Password" value={credentials.password} mono />
+          <Fact label="Password" value={credentials.password} mono secret />
         </div>
         <DialogFooter>
           <Button onClick={onHide}>Hide password</Button>

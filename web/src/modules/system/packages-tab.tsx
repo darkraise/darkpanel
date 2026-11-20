@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Lock, Search, Trash2 } from "lucide-react"
 import { Button } from "darkraise-ui/components/button"
@@ -122,6 +122,13 @@ function InstalledPanel({ host, onChange }: { host: Host; onChange: (p: PendingC
   const needle = filter.trim().toLowerCase()
   const matches = (packages.data ?? []).filter((p) => needle === "" || p.name.includes(needle) || p.description.toLowerCase().includes(needle))
   const rows = matches.slice(0, shown)
+  const countRef = useRef<HTMLSpanElement>(null)
+  // A name installed for two architectures lists one row each; removal names
+  // the package alone, which apt reads as the native one, so only the first
+  // row of such a name offers Remove.
+  const seen = new Map<string, number>()
+  for (const p of packages.data ?? []) seen.set(p.name, (seen.get(p.name) ?? 0) + 1)
+  const firstOfName = new Set<string>()
 
   return (
     <section className="flex flex-col gap-2" aria-labelledby={`${id}-title`}>
@@ -166,18 +173,22 @@ function InstalledPanel({ host, onChange }: { host: Host; onChange: (p: PendingC
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((p) => (
-                <TableRow key={p.name} role="row" className={STACK_ROW}>
+              {rows.map((p) => {
+                const multiarch = (seen.get(p.name) ?? 0) > 1
+                const removable = !firstOfName.has(p.name)
+                firstOfName.add(p.name)
+                return (
+                <TableRow key={`${p.name}:${p.arch}`} role="row" className={STACK_ROW}>
                   <TableCell role="cell" className={`${STACK_CELL} font-mono text-sm break-all`}>
                     {p.name}
                   </TableCell>
                   <TableCell role="cell" className={`${STACK_CELL} font-mono text-sm tabular-nums break-all`}>
-                    {p.version}
+                    {multiarch ? `${p.version} · ${p.arch}` : p.version}
                   </TableCell>
                   <TableCell role="cell" className={`${STACK_CELL} @min-[40rem]:text-end`}>
                     {p.protected !== null ? (
                       <ProtectedLock name={p.name} reason={p.protected} />
-                    ) : (
+                    ) : !removable ? null : (
                       <Button
                         size="sm"
                         variant="outline"
@@ -191,13 +202,23 @@ function InstalledPanel({ host, onChange }: { host: Host; onChange: (p: PendingC
                     )}
                   </TableCell>
                 </TableRow>
-              ))}
+                )
+              })}
             </TableBody>
           </Table>
+          {matches.length === 0 && <p className="text-muted-foreground text-sm">{`No installed package matches ${filter.trim()}`}</p>}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-muted-foreground text-sm tabular-nums">{`Showing ${rows.length} of ${matches.length}`}</span>
+            <span ref={countRef} tabIndex={-1} className="text-muted-foreground text-sm tabular-nums outline-none">{`Showing ${rows.length} of ${matches.length}`}</span>
             {rows.length < matches.length && (
-              <Button size="sm" variant="outline" onClick={() => setShown((n) => n + PAGE)}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  // The button goes with the last page: keep focus on the count.
+                  if (rows.length + PAGE >= matches.length) setTimeout(() => countRef.current?.focus())
+                  setShown((n) => n + PAGE)
+                }}
+              >
                 Show more
               </Button>
             )}

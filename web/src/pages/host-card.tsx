@@ -151,13 +151,16 @@ export function ModuleIcons({ host }: { host: Host }) {
     <ul aria-label="Modules" className="flex flex-wrap gap-2">
       {enabled.map((m) => {
         const name = m.available ? moduleLabel(m.id) : `${moduleLabel(m.id)} (unavailable)`
+        const full = m.available || m.reason === null ? name : `${name}: ${m.reason}`
         return (
-          <li key={m.id} title={m.available || m.reason === null ? name : `${name}: ${m.reason}`}>
-            {/* The list item's text names the module, so the icon's own label stays out of the accessibility tree. */}
+          <li key={m.id} title={full}>
+            {/* The list item's text names the module, and the reason it is
+                unavailable, so the icon's own label stays out of the
+                accessibility tree and no reason is reachable only by hover. */}
             <span aria-hidden>
               <ModuleIcon module={m.id} dimmed={!m.available} />
             </span>
-            <span className="sr-only">{name}</span>
+            <span className="sr-only">{full}</span>
           </li>
         )
       })}

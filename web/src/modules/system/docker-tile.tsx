@@ -1,9 +1,9 @@
 import { useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Download } from "lucide-react"
 import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
-import { readResource } from "@/api/client"
+import { HOSTS_QUERY_KEY, readResource } from "@/api/client"
 import type { Host } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { StatusPill } from "@/components/visual/status-pill"
@@ -27,6 +27,11 @@ export function DockerTile({ host }: { host: Host }) {
   const [open, setOpen] = useState<Open>(null)
   const [uninstalling, setUninstalling] = useState(false)
   const offline = !host.online
+  const client = useQueryClient()
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ["resource", host.id] })
+    void client.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+  }
   const firewallOn = host.modules.some((m) => m.id === FIREWALL_MODULE && m.enabled && m.available)
   const docker = useQuery({
     queryKey: ["resource", host.id, "system.docker"],
@@ -49,7 +54,7 @@ export function DockerTile({ host }: { host: Host }) {
   let actions = null
   if (d?.state === "absent") {
     actions = (
-      <Button size="sm" disabled={offline || (firewallOn && ufw.isPending)} onClick={() => setOpen("install")}>
+      <Button size="sm" disabled={offline || (firewallOn && (ufw.isPending || ufw.isError))} onClick={() => setOpen("install")}>
         <Download aria-hidden />
         Install Docker
       </Button>
@@ -60,7 +65,7 @@ export function DockerTile({ host }: { host: Host }) {
         <Button size="sm" disabled={offline || d.updateAvailable !== true} onClick={() => setOpen("update")}>
           Update
         </Button>
-        <Button size="sm" variant="outline" disabled={offline || (firewallOn && integration.isPending)} onClick={() => setUninstalling((u) => !u)}>
+        <Button size="sm" variant="outline" disabled={offline || (firewallOn && (integration.isPending || integration.isError))} onClick={() => setUninstalling((u) => !u)}>
           {uninstalling ? "Cancel" : "Uninstall"}
         </Button>
       </>
@@ -78,6 +83,12 @@ export function DockerTile({ host }: { host: Host }) {
       {offline && <LastSeen host={host} />}
       {!offline && docker.isError && <TileError error={docker.error} onRetry={() => void docker.refetch()} />}
       {!offline && docker.isPending && <TileSkeleton />}
+      {/* Without the firewall's answer the install cannot tell whether to turn
+          the integration on, nor the uninstall whether to turn it off first. */}
+      {!offline && firewallOn && d?.state === "absent" && ufw.isError && <TileError error={ufw.error} onRetry={() => void ufw.refetch()} />}
+      {!offline && firewallOn && d?.state === "docker-ce" && integration.isError && (
+        <TileError error={integration.error} onRetry={() => void integration.refetch()} />
+      )}
       {!offline && d?.state === "docker-ce" && (
         <>
           <span className="text-sm">
@@ -102,17 +113,25 @@ export function DockerTile({ host }: { host: Host }) {
       )}
       <ChangeDialog
         open={open === "install"}
-        onOpenChange={(next) => setOpen(next ? "install" : null)}
+        onOpenChange={(next) => {
+          setOpen(next ? "install" : null)
+          if (!next) refresh()
+        }}
         title={`Install Docker on ${host.name}`}
         target={{ name: "system.docker.install", version: SYSTEM_ACTION_VERSION, revertible: flag, revertSeconds: 900, confirmLabel: "Keep" }}
         input={{ hostId: host.id, firewallIntegration: flag }}
+        onApplied={refresh}
       />
       <ChangeDialog
         open={open === "update"}
-        onOpenChange={(next) => setOpen(next ? "update" : null)}
+        onOpenChange={(next) => {
+          setOpen(next ? "update" : null)
+          if (!next) refresh()
+        }}
         title={`Update Docker on ${host.name}`}
         target={{ name: "system.docker.engine-update", version: SYSTEM_ACTION_VERSION, hostId: host.id, module: SYSTEM_MODULE }}
         input={{}}
+        onApplied={refresh}
       />
     </Tile>
   )

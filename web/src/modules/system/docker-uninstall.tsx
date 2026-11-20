@@ -1,8 +1,10 @@
 import { useId, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Link } from "react-router"
 import { Trash2 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
+import { HOSTS_QUERY_KEY } from "@/api/client"
 import type { Host } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { InfoTip } from "@/components/visual/info-tip"
@@ -24,8 +26,18 @@ export function DockerUninstall({ host, docker, integrationOn }: { host: Host; d
   const [open, setOpen] = useState<Open>(null)
   const [purge, setPurge] = useState(false)
   const purgeId = useId()
+  const blockedId = useId()
+  const client = useQueryClient()
+  // Docker's state, the firewall's integration and the host's modules all
+  // change with an uninstall.
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ["resource", host.id] })
+    void client.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+  }
   const labelled = docker.labelled ?? []
   const daemonUp = docker.running === true
+  // A purge needs the daemon's counts: a choice made while it ran lapses when it stops.
+  const purging = purge && daemonUp
 
   if (integrationOn) {
     return (
@@ -55,7 +67,8 @@ export function DockerUninstall({ host, docker, integrationOn }: { host: Host; d
       {labelled.length > 0 && (
         <Alert variant="destructive">
           <AlertTitle as="h4">Darkpanel manages these containers</AlertTitle>
-          <AlertDescription>
+          <AlertDescription id={blockedId}>
+            <p className="mb-1">Remove them on their pages first; Docker cannot be uninstalled while they exist.</p>
             <ul className="flex flex-col gap-1">
               {labelled.map((c) => (
                 <li key={`${c.module}/${c.name}`}>
@@ -73,26 +86,36 @@ export function DockerUninstall({ host, docker, integrationOn }: { host: Host; d
           id={purgeId}
           type="checkbox"
           className="accent-primary size-4"
-          checked={purge}
+          checked={purging}
           disabled={!daemonUp}
           onChange={(e) => setPurge(e.target.checked)}
         />
         <label htmlFor={purgeId}>Delete all containers, images and volumes</label>
         {!daemonUp && <InfoTip label="Why purge is off">The Docker daemon does not answer, so nothing can be counted or deleted.</InfoTip>}
       </span>
-      {purge && <span className="text-muted-foreground text-xs tabular-nums">{counts(docker)}</span>}
+      {purging && <span className="text-muted-foreground text-xs tabular-nums">{counts(docker)}</span>}
       <div>
-        <Button size="sm" variant="outline" disabled={labelled.length > 0} onClick={() => setOpen("uninstall")}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={labelled.length > 0}
+          aria-describedby={labelled.length > 0 ? blockedId : undefined}
+          onClick={() => setOpen("uninstall")}
+        >
           <Trash2 aria-hidden />
           Uninstall
         </Button>
       </div>
       <ChangeDialog
         open={open === "uninstall"}
-        onOpenChange={(next) => setOpen(next ? "uninstall" : null)}
-        title={purge ? `Uninstall Docker and delete its data on ${host.name}` : `Uninstall Docker on ${host.name}`}
+        onOpenChange={(next) => {
+          setOpen(next ? "uninstall" : null)
+          if (!next) refresh()
+        }}
+        title={purging ? `Uninstall Docker and delete its data on ${host.name}` : `Uninstall Docker on ${host.name}`}
         target={{ name: "system.docker.uninstall", version: SYSTEM_ACTION_VERSION, hostId: host.id, module: SYSTEM_MODULE }}
-        input={{ purge }}
+        input={{ purge: purging }}
+        onApplied={refresh}
       />
     </div>
   )

@@ -32,10 +32,10 @@ test("UX-7: no updates shows Up to date", async () => {
 
 const ON = makeHost({ id: "h1", modules: [{ id: "system", version: 1, enabled: true, available: true, reason: null, checkedAt: null }] })
 const failedChange = (action: string, code: string, message: string) => ({
-  id: "c9", hostId: "h1", action, version: 1, class: "agent", state: "failed", actor: "admin", createdAt: "2026-11-19T11:00:00Z", updatedAt: "2026-11-19T11:01:00Z",
+  id: "c9", hostId: "h1", action, version: 1, class: "irreversible", state: "failed", actor: "admin", createdAt: "2026-11-19T11:00:00Z", updatedAt: "2026-11-19T11:01:00Z",
   revertDeadline: null, output: null, error: { code, message }, compensatedBy: null, parentChangeId: null, owner: null, repairedBy: null, repairOutcome: null, override: null,
 })
-const reads = { [R("updates")]: { body: updatesFixture }, [R("reboot")]: { body: rebootFixture }, [R("autoupdates")]: { body: { installed: true, enabled: true } }, [R("docker")]: { body: { state: "absent" } } }
+const reads = { "GET /api/v1/hosts/h1/resources/hostinfo/summary": { body: { bootTime: "2026-11-01T00:00:00Z" } }, [R("updates")]: { body: updatesFixture }, [R("reboot")]: { body: rebootFixture }, [R("autoupdates")]: { body: { installed: true, enabled: true } }, [R("docker")]: { body: { state: "absent" } } }
 
 test("UX-7: apt busy marks the updates tile Busy, and Retry on an upgrade goes back to the Updates tab", async () => {
   stubFetch({ ...reads, "GET /api/v1/changes": { body: { changes: [failedChange("system.packages.upgrade", "system.apt_busy", "another package manager holds the lock")] } } })
@@ -109,3 +109,31 @@ test("UX-4: reboot states derive from the change output and boot time, so a relo
     unmount()
   }
 })
+
+test("S1: an interrupted dpkg with nothing read shows no Up to date check mark", async () => {
+  stubFetch({ ...reads, [R("updates")]: { body: { upgradable: [], removals: [], heldBack: [], refreshedAt: null, failedSources: [], dpkgInterrupted: true } } })
+  renderWithProviders(<OverviewTab host={ON} />)
+  const tile = within(await screen.findByRole("region", { name: "Updates" }))
+  await tile.findByText("Interrupted")
+  expect(tile.queryByRole("img", { name: "Up to date" })).toBeNull()
+})
+
+test("S2: a failed read of the recent changes says the last change and a reboot may not show", async () => {
+  stubFetch({ ...reads, "GET /api/v1/changes": { status: 503, body: { type: "about:blank", title: "Unavailable", status: 503, detail: "busy", code: "store.busy" } } })
+  renderWithProviders(<OverviewTab host={ON} />)
+  await screen.findByText("The host's recent changes could not be read")
+  screen.getByRole("button", { name: "Retry" })
+})
+
+test("U2: with the firewall's status unread the Docker tile does not install without the integration", async () => {
+  stubFetch({
+    ...reads,
+    "GET /api/v1/hosts/h1/resources/firewall/status": { status: 502, body: { type: "about:blank", title: "Bad gateway", status: 502, detail: "the agent did not answer", code: "agent.unreachable" } },
+  })
+  const fw = { id: "firewall", version: 1, enabled: true, available: true, reason: null, checkedAt: null }
+  renderWithProviders(<OverviewTab host={makeHost({ id: "h1", modules: [{ id: "system", version: 1, enabled: true, available: true, reason: null, checkedAt: null }, fw] })} />)
+  const tile = within(await screen.findByRole("region", { name: "Docker Engine" }))
+  await tile.findByText("the agent did not answer")
+  expect(tile.getByRole("button", { name: "Install Docker" }).hasAttribute("disabled")).toBe(true)
+})
+

@@ -432,6 +432,7 @@ interface SystemContext {
   installed: Map<string, InstalledPackage>
   upgraded: boolean
   dockerInstalled: boolean
+  dockerRemoved: boolean
   // Whether the fixtures stand for the System tests: the firewall's Docker
   // integration is then off, so the uninstall flow needs no firewall step.
   integrationOff: boolean
@@ -444,6 +445,7 @@ function systemContext(state: SystemState | undefined, worstCase: boolean): Syst
     installed: new Map(installed.map((p) => [p.name, p])),
     upgraded: false,
     dockerInstalled: false,
+    dockerRemoved: false,
     integrationOff: state !== undefined,
   }
 }
@@ -474,6 +476,7 @@ function systemUpdates(sys: SystemContext, worstCase: boolean): Updates {
 }
 
 function systemDocker(sys: SystemContext): DockerState {
+  if (sys.dockerRemoved) return { state: "absent" }
   if (sys.dockerInstalled) return dockerCe
   if (DOCKER_ABSENT.includes(sys.state)) return { state: "absent" }
   if (sys.state === "dockerDistro") return { state: "distro", conflicts: ["docker.io", "containerd", "runc"] }
@@ -529,19 +532,24 @@ function systemPlan(name: string, input: Record<string, unknown>, host: Host, sy
     case "system.packages.upgrade": {
       const all = systemUpdates(sys, worstCase).upgradable
       const chosen = input.all === true ? all : all.filter((u) => names(input).includes(u.name))
-      return { json: plan({ ...base, diff: chosen.map((u) => ({ op: "~", text: `${u.name} ${u.from} -> ${u.to}` })), confirmation: host.name }) }
+      // The agent's own diff: upgrades, then the removals a full upgrade makes.
+      const removals = input.all === true ? systemUpdates(sys, worstCase).removals.map((r) => ({ op: "-", text: `Remove: ${r}` })) : []
+      return {
+        json: plan({ ...base, diff: [...chosen.map((u) => ({ op: "~", text: `Upgrade: ${u.name} ${u.from} → ${u.to}` })), ...removals], confirmation: host.name }),
+      }
     }
     case "system.packages.install":
-      return { json: plan({ ...base, diff: names(input).map((n) => ({ op: "+", text: `${n} ${SEARCHABLE[n] ?? ""}`.trim() })) }) }
+      return { json: plan({ ...base, diff: names(input).map((n) => ({ op: "+", text: `Install: ${n} ${SEARCHABLE[n] ?? ""}`.trim() })) }) }
     case "system.packages.remove":
-      return { json: plan({ ...base, diff: names(input).map((n) => ({ op: "-", text: n })), confirmation: host.name }) }
+      return { json: plan({ ...base, diff: names(input).map((n) => ({ op: "-", text: `Remove: ${n}` })), confirmation: host.name }) }
     case "system.host.reboot":
       return { json: plan({ ...base, diff: [{ op: "~", text: `reboot ${host.name} in 1 minute` }], confirmation: host.name }) }
     case "system.index.refresh":
-    case "system.packages.repair":
     case "system.autoupdates.set":
-    case "system.docker.engine-update":
       return { json: plan({ ...base, diff: [{ op: "~", text: name }] }) }
+    case "system.packages.repair":
+    case "system.docker.engine-update":
+      return { json: plan({ ...base, diff: [{ op: "~", text: name }], confirmation: host.name }) }
     case "system.docker.uninstall": {
       const purge = input.purge === true
       const diff = [{ op: "-", text: "docker-ce containerd.io docker-ce-cli docker-buildx-plugin docker-compose-plugin" }]
@@ -609,7 +617,10 @@ function installChange(sys: SystemContext, firewall: boolean): { change: Change;
 // systemApply applies a System plan: the change, and its effect on the
 // dataset the next reads answer.
 function systemApply(name: string, input: Record<string, unknown>, sys: SystemContext, steps: Map<string, Step[]>): Change | null {
-  const done = (output: unknown = null) => change({ id: `change-${name}`, hostId: HOST_ID, action: name, class: "irreversible", state: "completed", output })
+  // The classes the actions declare: an install, an automatic-updates switch
+  // and a refresh are compensable, so the dialog offers Undo for them.
+  const cls = ["system.packages.install", "system.autoupdates.set", "system.index.refresh"].includes(name) ? "compensable" : "irreversible"
+  const done = (output: unknown = null) => change({ id: `change-${name}`, hostId: HOST_ID, action: name, class: cls, state: "completed", output })
   switch (name) {
     case "system.packages.upgrade":
       sys.upgraded = true
@@ -626,7 +637,9 @@ function systemApply(name: string, input: Record<string, unknown>, sys: SystemCo
     case "system.packages.repair":
     case "system.autoupdates.set":
     case "system.docker.engine-update":
+      return done()
     case "system.docker.uninstall":
+      sys.dockerRemoved = true
       return done()
     case "system.docker.install": {
       const { change: c, steps: s } = installChange(sys, input.firewallIntegration === true)
@@ -946,7 +959,11 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
     return found === undefined ? null : { json: found }
   }
   if (path === "/api/v1/changes" && method === "GET") {
-    return { json: { changes: [...[...changes.values()].filter((c) => c.hostId === HOST_ID).reverse(), ...seededChanges(sys)] } }
+    // Without hostId the controller lists its own changes, the install
+    // composite among them; with it, the host's.
+    const host = new URL(route.request().url()).searchParams.get("hostId")
+    if (host === null) return { json: { changes: [...changes.values()].filter((c) => c.hostId === null).reverse() } }
+    return { json: { changes: [...[...changes.values()].filter((c) => c.hostId === host).reverse(), ...(host === HOST_ID ? seededChanges(sys) : [])] } }
   }
   const stream = STREAM.exec(path)
   if (stream !== null) {
@@ -972,7 +989,9 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
     const verb = changeMatch[2]
     if (verb === "steps") return { json: { steps: steps.get(found.id) ?? [] } }
     if (verb === "confirm" || verb === "revert") {
-      const next = { ...found, state: verb === "confirm" ? "confirmed" : "reverted", revertDeadline: null }
+      // A composite ends completed once its steps are confirmed; a plain change ends confirmed.
+      const kept = found.class === "composite" ? "completed" : "confirmed"
+      const next = { ...found, state: verb === "confirm" ? kept : "reverted", revertDeadline: null }
       changes.set(next.id, next)
       if (found.action === "system.docker.install") {
         steps.set(found.id, (steps.get(found.id) ?? []).map((s) => ({ ...s, state: verb === "confirm" ? "confirmed" : "undone", childDeadline: null })))

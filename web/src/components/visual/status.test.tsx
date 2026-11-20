@@ -5,6 +5,7 @@ import { expectNoAxeViolations } from "@/test/a11y"
 import { StatusDot } from "./status-dot"
 import { StatusPill } from "./status-pill"
 import { StatTile } from "./stat-tile"
+import { Fact } from "./fact"
 import { InfoTip } from "./info-tip"
 import { SectionHeader } from "./section-header"
 import { ModuleIcon } from "./module-icon"
@@ -52,4 +53,10 @@ test("A6: no axe violation in light and dark", async () => {
     await expectNoAxeViolations(container)
     unmount()
   }
+})
+
+test("X3: a secret fact keeps its value out of every attribute", () => {
+  const { container } = render(<Fact label="Password" value="s3cret-value" mono secret />)
+  expect(container.textContent).toContain("s3cret-value")
+  for (const el of container.querySelectorAll("*")) for (const a of el.attributes) expect(a.value).not.toContain("s3cret-value")
 })

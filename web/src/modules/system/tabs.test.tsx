@@ -47,3 +47,42 @@ test("UX-2: search lists results with install buttons", async () => {
   await screen.findByRole("button", { name: "Install jq" })
   expect(calls.some((c) => (c.body as { input?: { term?: string } })?.input?.term === "jq")).toBe(true)
 })
+
+test("FR: a package a full upgrade installs cannot be selected and is not preselected", async () => {
+  const calls = stubFetch({
+    [R("updates")]: { body: { upgradable: [{ name: "openssl", from: "1", to: "2", origin: "x-security", security: true }, { name: "linux-image-6.8.0-48-generic", from: "", to: "6.8.0-48.48", origin: "x-security", security: true }], removals: [], heldBack: [], refreshedAt: null, failedSources: [], dpkgInterrupted: false } },
+    "POST /api/v1/hosts/h1/actions/system.packages.upgrade/v1/plan": { body: makePlan("system.packages.upgrade") },
+  })
+  renderWithProviders(<UpdatesTab host={host} />)
+  const kernel = await screen.findByRole("checkbox", { name: "linux-image-6.8.0-48-generic" })
+  expect(kernel.hasAttribute("disabled")).toBe(true)
+  screen.getByText("1 of 1 selected")
+  await userEvent.click(screen.getByRole("button", { name: "Upgrade selected" }))
+  expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { all: false, names: ["openssl"] } })
+})
+
+test("S1: an interrupted dpkg is not up to date: the tab offers Repair packages and names failed sources", async () => {
+  stubFetch({ [R("updates")]: { body: { upgradable: [], removals: [], heldBack: [], refreshedAt: null, failedSources: ["https://bad.example stable"], dpkgInterrupted: true } } })
+  renderWithProviders(<UpdatesTab host={host} />)
+  await screen.findByText("Package installation was interrupted")
+  screen.getByRole("button", { name: "Repair packages" })
+  screen.getByText("https://bad.example stable")
+  expect(screen.queryByText("Up to date")).toBeNull()
+})
+
+test("U10: a filter with no match says so; a name installed for two architectures keeps one Remove", async () => {
+  stubFetch({
+    [R("packages")]: {
+      body: [
+        { name: "libc6", version: "2.39-0ubuntu8", arch: "amd64", description: "GNU C Library", protected: null },
+        { name: "libc6", version: "2.39-0ubuntu8", arch: "i386", description: "GNU C Library", protected: null },
+      ],
+    },
+  })
+  renderWithProviders(<PackagesTab host={host} />)
+  await screen.findByText("2.39-0ubuntu8 · amd64")
+  screen.getByText("2.39-0ubuntu8 · i386")
+  expect(screen.getAllByRole("button", { name: "Remove libc6" })).toHaveLength(1)
+  await userEvent.type(screen.getByRole("textbox", { name: "Filter installed packages" }), "zzzz")
+  await screen.findByText("No installed package matches zzzz")
+})

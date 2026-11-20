@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowRight, CircleCheck } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Checkbox } from "darkraise-ui/components/checkbox"
@@ -30,12 +31,21 @@ function Group({ label, tip, children }: { label: string; tip?: string; children
 function Versions({ from, to }: { from: string; to: string }) {
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-1 font-mono text-sm tabular-nums">
-      <span className="break-all">{from}</span>
-      <ArrowRight aria-label="to" className="size-3.5 shrink-0" />
+      {from !== "" && (
+        <>
+          <span className="break-all">{from}</span>
+          <ArrowRight aria-label="to" className="size-3.5 shrink-0" />
+        </>
+      )}
       <span className="break-all">{to}</span>
     </span>
   )
 }
+
+// A row with no installed version is a package a full upgrade installs (a
+// new kernel, for one): an upgrade of selected packages cannot name it, so
+// it comes only with Upgrade all.
+const selectable = (u: Upgradable) => u.from !== ""
 
 // Below 40rem of width each row stacks its cells; the explicit roles keep
 // the table semantics a changed display would drop.
@@ -44,11 +54,12 @@ const STACK_CELL = "block h-auto py-0 whitespace-normal @min-[40rem]:table-cell 
 
 function UpgradableRow({ pkg, checked, onToggle }: { pkg: Upgradable; checked: boolean; onToggle: (on: boolean) => void }) {
   const id = `upgrade-${pkg.name}`
+  const fresh = !selectable(pkg)
   return (
     <TableRow role="row" className={STACK_ROW}>
       <TableCell role="cell" className={`${STACK_CELL} @min-[40rem]:max-w-96`}>
         <span className="flex items-start gap-3">
-          <Checkbox id={id} aria-label={pkg.name} checked={checked} onCheckedChange={(v) => onToggle(v === true)} className="mt-0.5 shrink-0" />
+          <Checkbox id={id} aria-label={pkg.name} checked={checked && !fresh} disabled={fresh} onCheckedChange={(v) => onToggle(v === true)} className="mt-0.5 shrink-0" />
           <label htmlFor={id} className="min-w-0 font-mono text-sm break-all">
             {pkg.name}
           </label>
@@ -58,7 +69,15 @@ function UpgradableRow({ pkg, checked, onToggle }: { pkg: Upgradable; checked: b
         <Versions from={pkg.from} to={pkg.to} />
       </TableCell>
       <TableCell role="cell" className={`${STACK_CELL} ps-9 @min-[40rem]:ps-2`}>
-        {pkg.security && <StatusPill status="warn" label="Security" />}
+        <span className="flex flex-wrap items-center gap-1">
+          {pkg.security && <StatusPill status="warn" label="Security" />}
+          {fresh && (
+            <span className="inline-flex items-center">
+              <StatusPill status="info" label="New" />
+              <InfoTip label={`Why ${pkg.name} cannot be selected`}>A full upgrade installs it; Upgrade all on the Overview tab brings it.</InfoTip>
+            </span>
+          )}
+        </span>
       </TableCell>
     </TableRow>
   )
@@ -96,14 +115,48 @@ export function UpdatesTab({ host }: { host: Host }) {
     )
   }
   const data = updates.data
+  const notices = (
+    <>
+      {data.failedSources.length > 0 && (
+        <Alert variant="warning">
+          <AlertTitle as="h3">{`${data.failedSources.length} ${data.failedSources.length === 1 ? "source" : "sources"} failed at the last refresh`}</AlertTitle>
+          <AlertDescription className="font-mono text-xs break-all">{data.failedSources.join(", ")}</AlertDescription>
+        </Alert>
+      )}
+      <SystemChange hostId={host.id} pending={pending} onClose={() => setPending(null)} />
+    </>
+  )
+  // An interrupted dpkg leaves the lists unread: that is not "up to date".
+  if (data.dpkgInterrupted) {
+    return (
+      <div className="flex flex-col gap-4">
+        <Alert variant="destructive" role="alert">
+          <AlertTitle as="h3">Package installation was interrupted</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-2">
+            <span>The updates cannot be read until the packages are repaired.</span>
+            <Button size="sm" variant="outline" onClick={() => setPending({ action: "system.packages.repair", title: "Repair packages", input: {} })}>
+              Repair packages
+            </Button>
+          </AlertDescription>
+        </Alert>
+        {notices}
+      </div>
+    )
+  }
   if (data.upgradable.length === 0 && data.removals.length === 0 && data.heldBack.length === 0) {
-    return <EmptyState icon={<CircleCheck aria-hidden />} title="Up to date" />
+    return (
+      <div className="flex flex-col gap-4">
+        <EmptyState icon={<CircleCheck aria-hidden />} title="Up to date" />
+        {notices}
+      </div>
+    )
   }
   const security = data.upgradable.filter((u) => u.security)
   const other = data.upgradable.filter((u) => !u.security)
-  const selected = chosen ?? new Set(security.map((u) => u.name))
+  const choosable = data.upgradable.filter(selectable)
+  const selected = chosen ?? new Set(security.filter(selectable).map((u) => u.name))
   // A selection only ever names packages the latest read still lists.
-  const names = data.upgradable.map((u) => u.name).filter((n) => selected.has(n))
+  const names = choosable.map((u) => u.name).filter((n) => selected.has(n))
 
   function toggle(name: string, on: boolean) {
     setChosen((cur) => {
@@ -119,7 +172,7 @@ export function UpdatesTab({ host }: { host: Host }) {
   return (
     <div className="@container flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground text-sm tabular-nums">{`${names.length} of ${data.upgradable.length} selected`}</span>
+        <span className="text-muted-foreground text-sm tabular-nums">{`${names.length} of ${choosable.length} selected`}</span>
         <Button
           size="sm"
           disabled={names.length === 0}
@@ -158,7 +211,7 @@ export function UpdatesTab({ host }: { host: Host }) {
           </span>
         </Group>
       )}
-      <SystemChange hostId={host.id} pending={pending} onClose={() => setPending(null)} />
+      {notices}
     </div>
   )
 }

@@ -12,6 +12,7 @@ import { InfoTip } from "@/components/visual/info-tip"
 import { SectionHeader } from "@/components/visual/section-header"
 import { SkeletonTiles } from "@/components/visual/skeleton-tiles"
 import { StatusPill } from "@/components/visual/status-pill"
+import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
 import { CreateHostDialog } from "./create-host-dialog"
 import { HostCard, MemoryCell, ModuleIcons } from "./host-card"
@@ -92,6 +93,9 @@ function HostsBody({ view }: { view: View }) {
               <TableCell>
                 <div className="flex flex-col items-start gap-1">
                   <StatusPill {...hostStatus(h)} />
+                  {h.state === "enrolled" && !h.online && (
+                    <span className="text-xs text-muted-foreground">{h.lastSeenAt === null ? "Never seen" : `Last seen ${formatTime(h.lastSeenAt)}`}</span>
+                  )}
                   {!h.supported && h.agentVersion !== null && <StatusPill status="error" label="Unsupported" />}
                   {h.ingestion !== null && !h.ingestion.ok && (
                     <span className="inline-flex items-center">
