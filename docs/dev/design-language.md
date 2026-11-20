@@ -26,7 +26,9 @@ records why the look is fixed and how it is enforced.
 ## Visual vocabulary
 
 Shared components live in `web/src/components/visual/`, one file per component,
-each a named export. `status` is always `"ok" | "warn" | "error" | "info" |
+each a named export. `status.ts` (the status type with its icon and colour maps)
+and `figures.ts` (the percentage and label rule that `Gauge` and `UsageBar`
+share) are helpers, not components. `status` is always `"ok" | "warn" | "error" | "info" |
 "off"`. Each status has its own lucide icon: `CircleCheck`, `TriangleAlert`,
 `CircleX`, `Info` and `CircleMinus`.
 
@@ -39,10 +41,12 @@ each a named export. `status` is always `"ok" | "warn" | "error" | "info" |
 | `UsageBar` | A segmented bar showing used of total, with the figures | `used`, `total`, `label`, `unit?` |
 | `StatusDonut` | The share of each state, such as Docker containers or rollout outcomes | `segments: {status, label, value}[]`, `label` |
 | `ResourceCard` | One resource: icon tile, title, status, figures, actions | `icon`, `title`, `status`, `figures?`, `actions?`, `children?` |
-| `Stepper` | The progress of a change: `ChangeDialog`, the change page, reboot and Docker install | `steps: {id, label}[]`, `current`, `failed?` |
+| `Stepper` | The progress of a change: `ChangeDialog`, the change page, reboot and Docker install | `steps: {id, label}[]`, `current`, `failed?`, `done?` |
 | `InfoTip` | Explanation behind an info button; opens on hover, keyboard focus or tap | `label`, `children` |
-| `SectionHeader` | A section title (`h2`) with an optional icon, status and actions | `icon?`, `title`, `status?`, `actions?` |
+| `SectionHeader` | A section title (`h2`, or `h1` with `level={1}`) with an optional icon, status and actions | `icon?`, `title`, `status?`, `actions?`, `level?` |
 | `ModuleIcon` | The icon of a module or resource kind; `dimmed` marks an unavailable module | `module`, `dimmed?` |
+| `Fact` | A labelled value as an outline badge; `secret` keeps the value out of `aria-label` | `label`, `value`, `mono?`, `secret?` |
+| `SkeletonTiles` | The loading state of a row of tiles | `count`, `label?` |
 
 Figures (counts, sizes, percentages, versions) are set in the tabular
 monospace face, so columns of numbers line up.
@@ -107,12 +111,12 @@ except `theme-accent`.
 Two Vitest guards in `web/src/test/design-guards.test.ts` enforce the rules:
 
 - **Colour:** no colour literal in `web/src/**/*.{ts,tsx,css}` except
-  `theme.config.ts`.
-- **Copy:** no JSX text, and no literal string passed to a visible-text prop,
-  longer than 90 characters. The checked props are `title`, `description`,
-  `label`, and the `children` of `Alert*`, `EmptyState`, `StatTile`,
-  `StatusPill`, `SectionHeader`, `CardTitle` and `Badge`. Text inside `InfoTip`
-  and dialog bodies is exempt. A template literal is measured by its static
+  `theme.config.ts` and test files (`*.test.*`).
+- **Copy:** in any `.tsx` file, no JSX text, no literal or template literal in
+  a JSX child expression, and no literal string passed to a `title`,
+  `description`, `label` or `caption` prop, may be longer than 90 characters,
+  on any element. Text inside `InfoTip`, `Dialog*`, `AlertDialog*` and
+  `Sheet*` elements is exempt. A template literal is measured by its static
   parts.
 
 A text that must exceed the budget goes in `web/src/test/copy-allowlist.ts`,
