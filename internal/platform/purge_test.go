@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestPurgeDir(t *testing.T) {
@@ -110,5 +112,32 @@ func TestParseMountInfo(t *testing.T) {
 	}
 	if _, err := parseMountInfo([]byte("22 1 8:1 /\n")); err == nil {
 		t.Error("a short mountinfo line was accepted")
+	}
+}
+
+// A btrfs subvolume cannot be made in a test: checkDevices is given a device
+// the tree is not on, which every directory beneath then differs from.
+func TestCheckDevicesRefusesADirectoryOnAnotherDevice(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "overlay2", "l1", "diff"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	fd, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unix.Close(fd) }()
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkDevices(fd, root, st.Dev); err != nil {
+		t.Fatalf("one device: %v", err)
+	}
+	if err := checkDevices(fd, root, st.Dev+1); !errors.Is(err, ErrPurgeMount) {
+		t.Fatalf("another device: err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "overlay2", "l1", "diff")); err != nil {
+		t.Fatalf("the check removed something: %v", err)
 	}
 }

@@ -46,13 +46,87 @@ func newPurge(root string, mounts func() ([]string, error)) *DirPurge {
 	return &DirPurge{root: root, mounts: mounts}
 }
 
-// CheckPurgeable implements Purge.
+// CheckPurgeable implements Purge. Beyond the path checks it walks the
+// tree, so a directory on another device (a btrfs subvolume, which no mount
+// table lists) refuses the plan before anything is removed, instead of
+// stopping a purge halfway.
 func (p *DirPurge) CheckPurgeable(path string) error {
 	pfd, err := p.open(path)
-	if pfd >= 0 {
-		_ = unix.Close(pfd)
+	if err != nil || pfd < 0 {
+		return err
 	}
-	return err
+	defer func() { _ = unix.Close(pfd) }()
+	fd, dev, err := openTop(pfd, path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unix.Close(fd) }()
+	return checkDevices(fd, path, dev)
+}
+
+// openTop opens path, a child of the directory pfd, refusing a symlink and
+// a directory on another device than its parent; it returns the
+// descriptor and the device.
+func openTop(pfd int, path string) (int, uint64, error) {
+	fd, err := unix.Openat(pfd, filepath.Base(path), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if errors.Is(err, unix.ELOOP) {
+		return -1, 0, fmt.Errorf("%w: %s", ErrPurgeSymlink, path)
+	}
+	if err != nil {
+		return -1, 0, fmt.Errorf("platform: open %s: %w", path, err)
+	}
+	var parent, top unix.Stat_t
+	if err := unix.Fstat(pfd, &parent); err != nil {
+		_ = unix.Close(fd)
+		return -1, 0, fmt.Errorf("platform: stat the directory of %s: %w", path, err)
+	}
+	if err := unix.Fstat(fd, &top); err != nil {
+		_ = unix.Close(fd)
+		return -1, 0, fmt.Errorf("platform: stat %s: %w", path, err)
+	}
+	if top.Dev != parent.Dev {
+		_ = unix.Close(fd)
+		return -1, 0, fmt.Errorf("%w: %s", ErrPurgeMount, path)
+	}
+	return fd, top.Dev, nil
+}
+
+// checkDevices refuses when any directory beneath fd, which is path on
+// device dev, is on another device.
+func checkDevices(fd int, path string, dev uint64) error {
+	names, err := purgeListing(fd, path)
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		child := filepath.Join(path, n)
+		var st unix.Stat_t
+		if err := unix.Fstatat(fd, n, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+			if errors.Is(err, unix.ENOENT) {
+				continue
+			}
+			return fmt.Errorf("platform: stat %s: %w", child, err)
+		}
+		if st.Mode&unix.S_IFMT != unix.S_IFDIR {
+			continue
+		}
+		if st.Dev != dev {
+			return fmt.Errorf("%w: %s is on another device (a mount or a btrfs subvolume); delete it by hand", ErrPurgeMount, child)
+		}
+		cfd, err := unix.Openat(fd, n, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENOENT) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("platform: open %s: %w", child, err)
+		}
+		err = checkDevices(cfd, child, dev)
+		_ = unix.Close(cfd)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // PurgeDir implements Purge. It runs CheckPurgeable's checks again, then
@@ -67,27 +141,17 @@ func (p *DirPurge) PurgeDir(path string) error {
 	}
 	defer func() { _ = unix.Close(pfd) }()
 	base := filepath.Base(path)
-	fd, err := unix.Openat(pfd, base, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-	if errors.Is(err, unix.ELOOP) {
-		return fmt.Errorf("%w: %s", ErrPurgeSymlink, path)
-	}
+	fd, dev, err := openTop(pfd, path)
 	if err != nil {
-		return fmt.Errorf("platform: open %s: %w", path, err)
+		return err
 	}
-	var parent, top unix.Stat_t
-	if err := unix.Fstat(pfd, &parent); err != nil {
+	// Refuse before deleting anything, so a tree on two devices is never
+	// left half purged.
+	if err := checkDevices(fd, path, dev); err != nil {
 		_ = unix.Close(fd)
-		return fmt.Errorf("platform: stat the directory of %s: %w", path, err)
+		return err
 	}
-	if err := unix.Fstat(fd, &top); err != nil {
-		_ = unix.Close(fd)
-		return fmt.Errorf("platform: stat %s: %w", path, err)
-	}
-	if top.Dev != parent.Dev {
-		_ = unix.Close(fd)
-		return fmt.Errorf("%w: %s", ErrPurgeMount, path)
-	}
-	err = purgeContents(fd, path, top.Dev)
+	err = purgeContents(fd, path, dev)
 	_ = unix.Close(fd)
 	if err != nil {
 		return err
