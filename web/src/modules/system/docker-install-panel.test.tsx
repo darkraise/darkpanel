@@ -4,6 +4,7 @@ import { expect, test } from "vitest"
 import { makeChange, makeHost, makePlan, renderWithProviders, stubFetch } from "@/test/utils"
 import { fwStatus } from "@/modules/firewall/fixtures"
 import { DockerInstallPanel } from "./docker-install-panel"
+import { stepAt } from "./install-steps"
 
 const R = "GET /api/v1/hosts/h1/resources/system/docker"
 const sys = { id: "system", version: 1, enabled: true, available: true, reason: null, checkedAt: null }
@@ -42,4 +43,19 @@ test("UX-8: a rolled-back install says so and offers install again; agent too ol
   unmount()
   renderWithProviders(<DockerInstallPanel host={makeHost({ id: "h1", modules: [] })} reason="docker absent" />)
   screen.getByText("Agent update needed")
+})
+
+const step = (ordinal: number, action: string, state: string, error: { code: string; message: string } | null = null) => ({
+  id: `s${ordinal}`, ordinal, host: "h1", action, state, attempt: 1, childChangeId: `k${ordinal}`, earlierChildChangeIds: null, childDeadline: null, error,
+})
+const ALL = ["check", "packages", "firewall", "confirm"].map((id) => ({ id }))
+
+test.each([
+  ["a running install", [step(0, "system.docker.check/v1", "read"), step(1, "system.docker.engine-install/v1", "applying")], false, "packages"],
+  ["a finished check", [step(0, "system.docker.check", "read"), step(1, "system.docker.engine-install", "pending")], false, "packages"],
+  ["a firewall refusal", [step(0, "system.docker.check/v1", "read"), step(1, "system.docker.engine-install/v1", "undone"), step(2, "firewall.docker.enable/v1", "undone", { code: "firewall.docker_refused", message: "UFW manages FORWARD" })], true, "firewall"],
+  ["a failed package install", [step(0, "system.docker.check", "read"), step(1, "system.docker.engine-install", "undone"), step(2, "firewall.docker.enable", "pending")], true, "packages"],
+  ["no steps read yet", undefined, true, "check"],
+])("UX-8: %s puts the stepper at its step", (_, steps, failed, want) => {
+  expect(stepAt(ALL, steps, false, failed)).toBe(want)
 })

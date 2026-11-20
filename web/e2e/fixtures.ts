@@ -567,9 +567,13 @@ function systemPlan(name: string, input: Record<string, unknown>, host: Host, sy
 
 const INSTALL_CHANGE_ID = "01JE000000000000000000C003"
 
-function installStep(ordinal: number, action: string, state: string, childDeadline: string | null = null): Step {
-  return { id: `step-${ordinal}`, ordinal, host: HOST_ID, action, state, attempt: 1, childChangeId: `child-${ordinal}`, earlierChildChangeIds: null, childDeadline, error: null }
+// Steps as the controller lists them: "<name>/v<version>" actions and the
+// composite step states (read, applying, applied, confirmed, undone, ...).
+function installStep(ordinal: number, action: string, state: string, childDeadline: string | null = null, error: Step["error"] = null): Step {
+  return { id: `step-${ordinal}`, ordinal, host: HOST_ID, action: `${action}/v1`, state, attempt: 1, childChangeId: `child-${ordinal}`, earlierChildChangeIds: null, childDeadline, error }
 }
+
+const FIREWALL_REFUSAL = "The firewall refused the Docker integration: UFW manages the FORWARD chain on this host."
 
 // The install composite as the System state leaves it: running, waiting for
 // the firewall step's confirmation, rolled back or failed.
@@ -578,7 +582,7 @@ function installChange(sys: SystemContext, firewall: boolean): { change: Change;
   const base = { id: INSTALL_CHANGE_ID, hostId: null, action: "system.docker.install", class: "composite" }
   switch (sys.state) {
     case "installing":
-      return { change: change({ ...base, state: "applying" }), steps: [installStep(0, "system.docker.check", "completed"), installStep(1, "system.docker.engine-install", "applying")] }
+      return { change: change({ ...base, state: "applying" }), steps: [installStep(0, "system.docker.check", "read"), installStep(1, "system.docker.engine-install", "applying")] }
     case "rolledBack":
       return { change: change({ ...base, state: "reverted" }), steps: [] }
     case "installFailed":
@@ -586,12 +590,16 @@ function installChange(sys: SystemContext, firewall: boolean): { change: Change;
         change: change({
           ...base,
           state: "failed",
-          error: { code: "system.firewall_flag_mismatch", message: "The firewall refused the Docker integration: UFW manages the FORWARD chain on this host." },
+          error: { code: "core.child_failed", message: FIREWALL_REFUSAL },
         }),
-        steps: [],
+        steps: [
+          installStep(0, "system.docker.check", "read"),
+          installStep(1, "system.docker.engine-install", "undone"),
+          installStep(2, "firewall.docker.enable", "undone", null, { code: "firewall.unsupported_integration", message: FIREWALL_REFUSAL }),
+        ],
       }
     default: {
-      const steps = [installStep(0, "system.docker.check", "completed"), installStep(1, "system.docker.engine-install", "completed")]
+      const steps = [installStep(0, "system.docker.check", "read"), installStep(1, "system.docker.engine-install", "confirmed")]
       if (!firewall) return { change: change({ ...base, state: "completed" }), steps }
       return { change: change({ ...base, state: "awaiting_confirmation" }), steps: [...steps, installStep(2, "firewall.docker.enable", "applied", deadline)] }
     }

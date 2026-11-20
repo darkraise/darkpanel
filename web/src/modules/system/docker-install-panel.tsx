@@ -27,6 +27,7 @@ import { StatusPill } from "@/components/visual/status-pill"
 import type { Status } from "@/components/visual/status"
 import { FIREWALL_MODULE, type FirewallStatus } from "@/modules/firewall/types"
 import { UpdateNowButton } from "@/pages/update-now-dialog"
+import { stepAt } from "./install-steps"
 import { TileError } from "./tile"
 import { SYSTEM_ACTION_VERSION, SYSTEM_MODULE, type DockerState } from "./types"
 
@@ -82,14 +83,6 @@ function installSteps(firewall: boolean) {
         ]
       : []),
   ]
-}
-
-// stepAt is the stepper position of an install: the first step not yet
-// finished, or the confirmation while the firewall step awaits it.
-function stepAt(all: { id: string }[], steps: Step[] | undefined, awaiting: boolean): string {
-  if (awaiting) return "confirm"
-  const done = steps?.filter((s) => s.state === "completed" || s.state === "confirmed").length ?? 0
-  return all[Math.min(done, all.length - 1)]?.id ?? "check"
 }
 
 // lastDeadline is the revert deadline of the step awaiting confirmation.
@@ -295,7 +288,7 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
     body = (
       <>
         <Header status={{ status: "error", label: "Install failed" }} />
-        <Stepper steps={all} current={stepAt(all, install.steps, false)} failed />
+        <Stepper steps={all} current={stepAt(all, install.steps, false, true)} failed />
         <Alert variant="destructive" role="alert" data-testid="state-installFailed">
           <AlertTitle as="h3">Install failed</AlertTitle>
           <AlertDescription className="flex flex-col items-start gap-2">
