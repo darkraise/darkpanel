@@ -237,22 +237,15 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
   const current = install.current
   const firewallPending = moduleOn(host, FIREWALL_MODULE) && flag === null
   const all = installSteps(flag === true)
-  const offerInstall = (label: string, icon = <Download aria-hidden />, inline = false) =>
+  // "center" sits in the empty state, "start" under an alert, "inline" in one.
+  const offerInstall = (label: string, icon = <Download aria-hidden />, layout: "center" | "start" | "inline" = "center") =>
     firewall.isError ? (
       <TileError error={firewall.error} onRetry={() => void firewall.refetch()} />
     ) : firewallPending ? (
       <Skeleton className="h-9 w-36" aria-busy />
     ) : (
-      <div className={inline ? "flex flex-col items-start gap-2" : "flex flex-col items-center gap-2"}>
-        {flag === true && (
-          <span className="text-muted-foreground flex items-center gap-1 text-sm">
-            With the firewall integration
-            <InfoTip label="About the firewall integration">
-              UFW keeps control of published ports. Confirm within 15 minutes, or the whole install rolls back.
-            </InfoTip>
-          </span>
-        )}
-        <Button size={inline ? "sm" : undefined} variant={inline ? "outline" : undefined} onClick={() => setOpen(true)}>
+      <div className={layout === "center" ? "flex justify-center" : "flex"}>
+        <Button size={layout === "inline" ? "sm" : undefined} variant={layout === "inline" ? "outline" : undefined} onClick={() => setOpen(true)}>
           {icon}
           {label}
         </Button>
@@ -285,16 +278,17 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
       </>
     )
   } else if (current !== undefined && current.state !== "reverted" && changeError(current as Change) !== null) {
+    const failedAt = stepAt(all, install.steps, false, true)
     body = (
       <>
         <Header status={{ status: "error", label: "Install failed" }} />
-        <Stepper steps={all} current={stepAt(all, install.steps, false, true)} failed />
+        <Stepper steps={all} current={failedAt} failed />
         <Alert variant="destructive" role="alert" data-testid="state-installFailed">
-          <AlertTitle as="h3">Install failed</AlertTitle>
+          <AlertTitle as="h3">{failedAt === "firewall" ? "The firewall refused the Docker integration" : "Install failed"}</AlertTitle>
           <AlertDescription className="flex flex-col items-start gap-2">
             <span className="break-words">{changeError(current as Change)}</span>
             <span>The install was rolled back.</span>
-            {offerInstall("Retry", <RotateCcw aria-hidden />, true)}
+            {offerInstall("Retry", <RotateCcw aria-hidden />, "inline")}
           </AlertDescription>
         </Alert>
       </>
@@ -305,9 +299,9 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
         <Header status={{ status: "off", label: "Not installed" }} />
         <Alert variant="warning" role="status" data-testid="state-rolledBack">
           <AlertTitle as="h3">Install rolled back</AlertTitle>
-          <AlertDescription>The firewall step was not confirmed, so the install was undone.</AlertDescription>
+          <AlertDescription>The firewall step was not confirmed in time.</AlertDescription>
         </Alert>
-        <div className="flex">{offerInstall("Install Docker")}</div>
+        {offerInstall("Install Docker", undefined, "start")}
       </>
     )
   } else {
