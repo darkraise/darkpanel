@@ -89,9 +89,9 @@ const STATES: State[] = [
 // Each dialog opens from a page, is scanned by axe while open and, where an ID
 // is given, screenshotted; invalid opens it and presses Continue empty.
 const DIALOGS: { path: string; button: string; id?: string; invalid?: boolean }[] = [
-  { path: `/hosts/${HOST_ID}`, button: "Update now", id: "UX-7" },
-  { path: `/hosts/${HOST_ID}`, button: "Update now", id: "UX-7", invalid: true },
-  { path: `/hosts/${HOST_ID}`, button: "Change update policy" },
+  { path: `/hosts/${HOST_ID}`, button: "Update agent", id: "UX-7" },
+  { path: `/hosts/${HOST_ID}`, button: "Update agent", id: "UX-7", invalid: true },
+  { path: `/hosts/${HOST_ID}`, button: "Change policy" },
   { path: `/hosts/${PENDING_HOST_ID}`, button: "New enrollment token" },
   { path: `/hosts/${PENDING_HOST_ID}`, button: "Revoke host", id: "UX-3" },
   { path: "/rollouts", button: "Start rollout", id: "UX-9" },
@@ -147,7 +147,7 @@ for (const theme of THEMES) {
       test(`UX-11: focus ring ${tag}`, async ({ page }) => {
         await open(page, theme, true)
         await page.goto(url(`/hosts/${HOST_ID}`))
-        const button = page.getByRole("button", { name: "Update now" })
+        const button = page.getByRole("button", { name: "Update agent" })
         await expect(button).toBeVisible()
         await page.keyboard.press("Tab")
         await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused()

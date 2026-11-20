@@ -146,7 +146,7 @@ for (const theme of THEMES) {
 
       test(`UX-6, UX-11: update policy by keyboard ${tag}`, async ({ page }) => {
         const fixtures = await open(page, theme, `/hosts/${HOST_ID}`)
-        await tabTo(page, page.getByRole("button", { name: "Change update policy" }))
+        await tabTo(page, page.getByRole("button", { name: "Change policy" }))
         await page.keyboard.press("Enter")
         await expect(page.getByRole("radio", { name: "Stable" })).toBeFocused()
         await page.keyboard.press("ArrowDown")
@@ -170,7 +170,7 @@ for (const theme of THEMES) {
 
       test(`UX-7, UX-11: update now by keyboard ${tag}`, async ({ page }) => {
         const fixtures = await open(page, theme, `/hosts/${HOST_ID}`)
-        await tabTo(page, page.getByRole("button", { name: "Update now" }))
+        await tabTo(page, page.getByRole("button", { name: "Update agent" }))
         await page.keyboard.press("Enter")
         await expect(page.getByLabel("Version")).toBeFocused()
         await page.keyboard.type("v2")
@@ -210,8 +210,8 @@ for (const theme of THEMES) {
       test(`UX-11: Escape closes each form dialog and returns focus ${tag}`, async ({ page }) => {
         const fixtures = await open(page, theme, `/hosts/${HOST_ID}`)
         for (const [path, name] of [
-          [`/hosts/${HOST_ID}`, "Update now"],
-          [`/hosts/${HOST_ID}`, "Change update policy"],
+          [`/hosts/${HOST_ID}`, "Update agent"],
+          [`/hosts/${HOST_ID}`, "Change policy"],
           [`/hosts/${PENDING_HOST_ID}`, "New enrollment token"],
           ["/rollouts", "Start rollout"],
           ["/rollouts", "Cancel rollout"],
