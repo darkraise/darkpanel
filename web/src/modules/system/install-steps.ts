@@ -30,3 +30,22 @@ export function stepAt(all: { id: string }[], steps: Step[] | undefined, awaitin
   if (next !== undefined) return next
   return all[Math.min(known.length, all.length - 1)]?.id ?? "check"
 }
+
+export function installSteps(firewall: boolean) {
+  return [
+    { id: "check", label: "Check" },
+    { id: "packages", label: "Install packages" },
+    ...(firewall
+      ? [
+          { id: "firewall", label: "Firewall integration" },
+          { id: "confirm", label: "Confirm" },
+        ]
+      : []),
+  ]
+}
+
+// lastDeadline is the revert deadline of the step awaiting confirmation.
+export function lastDeadline(steps: Step[] | undefined): string | null {
+  const waiting = steps?.filter((s) => (s.state === "applied" || s.state === "confirming") && s.childDeadline !== null) ?? []
+  return waiting[waiting.length - 1]?.childDeadline ?? null
+}
