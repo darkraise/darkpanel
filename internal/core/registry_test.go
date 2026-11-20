@@ -273,9 +273,6 @@ func TestLifecycleRegistryAccepts(t *testing.T) {
 	}
 }
 
-// TestRegistryAcceptsRevertibleRepairActions registers a revertible action
-// that repairs itself and one repaired by another revertible action, which
-// in turn repairs itself (owner ruling R1).
 func TestRegistryAcceptsRechecksOfARegisteredModule(t *testing.T) {
 	a := mutating("demo.item.add", ClassIrreversible, SideAgent, "")
 	a.Spec.Rechecks = []string{"docker"}
@@ -284,6 +281,9 @@ func TestRegistryAcceptsRechecksOfARegisteredModule(t *testing.T) {
 	}
 }
 
+// TestRegistryAcceptsRevertibleRepairActions registers a revertible action
+// that repairs itself and one repaired by another revertible action, which
+// in turn repairs itself (owner ruling R1).
 func TestRegistryAcceptsRevertibleRepairActions(t *testing.T) {
 	self := revertible("demo.state.repair", SideAgent)
 	self.Spec.RepairedBy = self.Spec.Name

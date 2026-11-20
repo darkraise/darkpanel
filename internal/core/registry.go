@@ -13,8 +13,8 @@ import (
 )
 
 // ReservedNames are top-level CLI names no module id may take (ADR 0006 and
-// ADR 0011). system is reserved by the CLI's own hand-written group, which
-// adopts the system module.
+// ADR 0011). system is not listed: the CLI's hand-written group of that name
+// adopts the system module (ADR 0016).
 var ReservedNames = []string{
 	"serve", "agent", "update", "user", "controller", "change", "uninstall", "version",
 	"host", "module", "token", "audit", "help", "completion",

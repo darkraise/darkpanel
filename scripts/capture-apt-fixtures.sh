@@ -76,7 +76,8 @@ quiet dpkg-deb --build /root/holder /root/dp-holder.deb
 touch /root/hold
 apt-get -y -q install /root/dp-holder.deb >/dev/null 2>&1 &
 for _ in $(seq 1 120); do
-  grep -qsa 'slee[p] 120' /proc/[0-9]*/cmdline && break
+  # cmdline separates the arguments with NUL bytes, which "." matches.
+  grep -qsa 'slee[p].120' /proc/[0-9]*/cmdline && break
   sleep 0.5
 done
 fresh lock-held
