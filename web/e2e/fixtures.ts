@@ -975,7 +975,7 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
       const next = { ...found, state: verb === "confirm" ? "confirmed" : "reverted", revertDeadline: null }
       changes.set(next.id, next)
       if (found.action === "system.docker.install") {
-        steps.set(found.id, (steps.get(found.id) ?? []).map((s) => ({ ...s, state: verb === "confirm" ? "confirmed" : "reverted", childDeadline: null })))
+        steps.set(found.id, (steps.get(found.id) ?? []).map((s) => ({ ...s, state: verb === "confirm" ? "confirmed" : "undone", childDeadline: null })))
         sys.dockerInstalled = verb === "confirm"
       }
       return { json: next }

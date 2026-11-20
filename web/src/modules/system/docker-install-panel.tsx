@@ -108,7 +108,7 @@ function mmss(seconds: number): string {
 
 // Confirmation is the firewall step's window: the time left, Keep and
 // Revert (UX-5).
-function Confirmation({ changeId, deadline, onDecided }: { changeId: string; deadline: string | null; onDecided: () => void }) {
+function Confirmation({ changeId, deadline, onDecided }: { changeId: string; deadline: string | null; onDecided: (kept: boolean) => void }) {
   const client = useQueryClient()
   const now = useClock(deadline !== null)
   const [busy, setBusy] = useState(false)
@@ -120,7 +120,7 @@ function Confirmation({ changeId, deadline, onDecided }: { changeId: string; dea
       const next = await (keep ? confirmChange(changeId) : revertChange(changeId))
       client.setQueryData(changeQueryKey(changeId), next)
       void client.invalidateQueries({ queryKey: stepsQueryKey(changeId) })
-      onDecided()
+      onDecided(keep)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -180,6 +180,8 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
   const client = useQueryClient()
   const [open, setOpen] = useState(false)
   const [started, setStarted] = useState<InstallChange | null>(null)
+  // Whether the operator pressed Revert here, rather than letting the window lapse.
+  const [revertedHere, setRevertedHere] = useState(false)
   const docker = useQuery({
     queryKey: ["resource", host.id, "system.docker"],
     queryFn: () => readResource<DockerState>(host.id, SYSTEM_MODULE, "docker"),
@@ -227,7 +229,13 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
       <div className="flex flex-col gap-4">
         <Header status={d.running ? { status: "ok", label: "Running" } : { status: "error", label: "Daemon stopped" }} />
         <span className="flex items-center gap-1 text-sm" data-testid={d.running ? undefined : "state-dockerStopped"}>
-          docker-ce <span className="font-mono tabular-nums">{d.version ?? "—"}</span>
+          {d.running ? (
+            <>
+              docker-ce <span className="font-mono tabular-nums">{d.version ?? "—"}</span>
+            </>
+          ) : (
+            <StatusPill status="error" label="Daemon stopped" />
+          )}
           <InfoTip label="Why Docker is unavailable">{reason}</InfoTip>
         </span>
       </div>
@@ -264,7 +272,8 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
             <Confirmation
               changeId={current.id}
               deadline={lastDeadline(install.steps)}
-              onDecided={() => {
+              onDecided={(kept) => {
+                setRevertedHere(!kept)
                 void client.invalidateQueries({ queryKey: ["resource", host.id] })
                 void client.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
               }}
@@ -299,7 +308,7 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
         <Header status={{ status: "off", label: "Not installed" }} />
         <Alert variant="warning" role="status" data-testid="state-rolledBack">
           <AlertTitle as="h3">Install rolled back</AlertTitle>
-          <AlertDescription>The firewall step was not confirmed in time.</AlertDescription>
+          <AlertDescription>{revertedHere ? "You reverted the firewall step." : "The firewall step was not confirmed in time."}</AlertDescription>
         </Alert>
         {offerInstall("Install Docker", undefined, "start")}
       </>

@@ -16,7 +16,7 @@ test.each([
 ])("UX-8: %o shows %s", async (docker, text) => {
   stubFetch({ [R]: { body: docker } })
   renderWithProviders(<DockerInstallPanel host={makeHost({ id: "h1", modules: [sys] })} reason="daemon not running" />)
-  expect(await screen.findByText(text)).toBeTruthy()
+  expect((await screen.findAllByText(text)).length).toBe(docker.state === "docker-ce" ? 2 : 1)
   if (docker.state === "distro") expect(screen.queryByRole("button", { name: "Install Docker" })).toBeNull()
 })
 
