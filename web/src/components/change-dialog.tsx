@@ -286,7 +286,8 @@ const DIFF_ICON: Partial<Record<string, { icon: LucideIcon; label: string; class
 }
 
 // DiffLineView names its op by an icon; the op character stays in the text
-// for copying but is hidden from screen readers, which hear the icon's name.
+// for copying but is hidden from sight and from screen readers, which hear
+// the icon's name.
 function DiffLineView({ line }: { line: DiffLine }) {
   const kind = DIFF_ICON[line.op]
   const Icon = kind?.icon
@@ -296,8 +297,8 @@ function DiffLineView({ line }: { line: DiffLine }) {
         {Icon && <Icon aria-hidden className="size-3.5" />}
       </span>
       <span className="whitespace-pre-wrap break-all">
-        <span aria-hidden>{line.op}</span>
-        {` ${line.text}`}
+        <span aria-hidden className="sr-only">{`${line.op} `}</span>
+        {line.text}
       </span>
     </div>
   )

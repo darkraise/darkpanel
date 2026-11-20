@@ -237,13 +237,13 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
   const current = install.current
   const firewallPending = moduleOn(host, FIREWALL_MODULE) && flag === null
   const all = installSteps(flag === true)
-  const offerInstall = (label: string, icon = <Download aria-hidden />) =>
+  const offerInstall = (label: string, icon = <Download aria-hidden />, inline = false) =>
     firewall.isError ? (
       <TileError error={firewall.error} onRetry={() => void firewall.refetch()} />
     ) : firewallPending ? (
       <Skeleton className="h-9 w-36" aria-busy />
     ) : (
-      <div className="flex flex-col items-center gap-2">
+      <div className={inline ? "flex flex-col items-start gap-2" : "flex flex-col items-center gap-2"}>
         {flag === true && (
           <span className="text-muted-foreground flex items-center gap-1 text-sm">
             With the firewall integration
@@ -252,7 +252,7 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
             </InfoTip>
           </span>
         )}
-        <Button onClick={() => setOpen(true)}>
+        <Button size={inline ? "sm" : undefined} variant={inline ? "outline" : undefined} onClick={() => setOpen(true)}>
           {icon}
           {label}
         </Button>
@@ -294,9 +294,9 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
           <AlertDescription className="flex flex-col items-start gap-2">
             <span className="break-words">{changeError(current as Change)}</span>
             <span>The install was rolled back.</span>
+            {offerInstall("Retry", <RotateCcw aria-hidden />, true)}
           </AlertDescription>
         </Alert>
-        <div>{offerInstall("Retry", <RotateCcw aria-hidden />)}</div>
       </>
     )
   } else if (current?.state === "reverted") {
