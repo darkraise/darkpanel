@@ -139,6 +139,8 @@ A cell never contains a pipe character. Several rows may name one `(Package, Tar
 | `system.(module).dockerDataRoot` | `/etc/docker/daemon.json` | `encoding/json` decodes into a typed struct; there is no hand-written parser |
 | `ValidateStaged` | the staged update binary and its record | root-owned state that only Darkpanel writes |
 | Release index decoding (`update` source `releases.json`) | the release index of the update mirror | `encoding/json` decodes into typed structs after a size bound, and the format version is checked; there is no hand-written parser |
+| OIDC discovery, token response and ID token (`auth.FinishOIDC`) | the configured OIDC provider's answers | parsed and verified by the third-party `github.com/coreos/go-oidc/v3` and `golang.org/x/oauth2`; Darkpanel decodes only the verified ID token's claims into a typed struct |
+| OIDC state and sign-in ticket cookies (`auth.openJSON`) | cookies the browser returns | sealed by the controller's AEAD sealer; a cookie that does not open is refused before `encoding/json` reads it |
 | Signature parsing in `update.VerifyChecksums` | the minisign signatures of `checksums.txt` from the update mirror | parsed and verified by the third-party `aead.dev/minisign`; Darkpanel's own code only compares the parsed algorithm and trusted comment |
 | `backup.Read` as a whole | a `.dpbk` backup file | every input runs Argon2id at 64 MiB or more, so the header and the frames are fuzzed separately by `FuzzReadHeader` and `FuzzFrames` |
 | Process ownership in `netstat` | `/proc/<pid>/fd` links | a file walk without a text grammar |
