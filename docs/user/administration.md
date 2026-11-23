@@ -79,6 +79,25 @@ action named after it, with the previous value.
 [Recover from a lockout](lockout-recovery.md) uses these commands when nobody
 can sign in.
 
+## Host groups
+
+A host group names a set of hosts that member grants, alert rules and
+notification routes target. A host may sit in several groups. These actions
+need an admin; each one is undone by the action named after it.
+
+- `core.group.create`: `darkpanel group create --name <name>` creates an empty
+  group. Names are 1 to 48 letters, digits, spaces, dots, underscores or
+  hyphens and are unique without regard to case. Undo it with
+  `core.group.delete`.
+- `core.group.rename`: renames a group. Undo it with `core.group.rename`.
+- `core.group.set-members`: replaces a group's hosts. Undo it with
+  `core.group.set-members`.
+- `core.group.delete`: deletes a group, its hosts stay. It is refused with
+  `group.in_use`, naming each grant, alert rule and notification route that
+  targets the group, until none does. It cannot be undone.
+- `core.group.list`: `darkpanel group list` lists the groups with their hosts
+  and how many grants target each.
+
 ## API tokens
 
 A token belongs to the user who created it. Its scope is `read`, `operate` or

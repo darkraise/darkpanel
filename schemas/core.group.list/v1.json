@@ -1,0 +1,79 @@
+{
+  "name": "core.group.list",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NoInput",
+    "$defs": {
+      "NoInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/GroupList",
+    "$defs": {
+      "Group": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The group's id, which grants and notification routes name."
+          },
+          "name": {
+            "type": "string",
+            "description": "The group's name, unique without regard to case."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hostIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The ids of the group's hosts, sorted."
+          },
+          "hostCount": {
+            "type": "integer",
+            "description": "How many hosts the group holds."
+          },
+          "grantCount": {
+            "type": "integer",
+            "description": "How many member grants target the group."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "hostIds",
+          "hostCount",
+          "grantCount"
+        ]
+      },
+      "GroupList": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/$defs/Group"
+            },
+            "type": "array",
+            "description": "Every host group, sorted by name."
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups"
+        ]
+      }
+    }
+  }
+}

@@ -43,6 +43,7 @@ func TestEntries(t *testing.T) {
 		"cov rule repair", "cov rule set",
 		"demo item add", "demo item get", "demo item list", "demo item remove",
 		"demo rule get", "demo rule repair", "demo rule set", "demo status get",
+		"group create", "group delete", "group list", "group rename", "group set-members",
 		"host create", "host delete", "host enroll-local", "host list", "host revoke", "host token", "host update-policy",
 		"module disable", "module enable", "module list",
 		"token create", "token list", "token revoke",

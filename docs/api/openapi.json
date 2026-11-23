@@ -1874,6 +1874,326 @@
         ],
         "type": "object"
       },
+      "core.group.create.v1.input": {
+        "$ref": "#/components/schemas/core.group.create.v1.input.GroupCreateInput"
+      },
+      "core.group.create.v1.input.GroupCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The name: 1 to 48 letters, digits, spaces, dots, underscores or hyphens, starting with a letter or digit.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "core.group.create.v1.output": {
+        "$ref": "#/components/schemas/core.group.create.v1.output.Group"
+      },
+      "core.group.create.v1.output.Group": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "grantCount": {
+            "description": "How many member grants target the group.",
+            "type": "integer"
+          },
+          "hostCount": {
+            "description": "How many hosts the group holds.",
+            "type": "integer"
+          },
+          "hostIds": {
+            "description": "The ids of the group's hosts, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The group's id, which grants and notification routes name.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The group's name, unique without regard to case.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "hostIds",
+          "hostCount",
+          "grantCount"
+        ],
+        "type": "object"
+      },
+      "core.group.delete.v1.input": {
+        "$ref": "#/components/schemas/core.group.delete.v1.input.GroupIDInput"
+      },
+      "core.group.delete.v1.input.GroupIDInput": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The group's id.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "core.group.delete.v1.output": {
+        "$ref": "#/components/schemas/core.group.delete.v1.output.Group"
+      },
+      "core.group.delete.v1.output.Group": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "grantCount": {
+            "description": "How many member grants target the group.",
+            "type": "integer"
+          },
+          "hostCount": {
+            "description": "How many hosts the group holds.",
+            "type": "integer"
+          },
+          "hostIds": {
+            "description": "The ids of the group's hosts, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The group's id, which grants and notification routes name.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The group's name, unique without regard to case.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "hostIds",
+          "hostCount",
+          "grantCount"
+        ],
+        "type": "object"
+      },
+      "core.group.list.v1.input": {
+        "$ref": "#/components/schemas/core.group.list.v1.input.NoInput"
+      },
+      "core.group.list.v1.input.NoInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "core.group.list.v1.output": {
+        "$ref": "#/components/schemas/core.group.list.v1.output.GroupList"
+      },
+      "core.group.list.v1.output.Group": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "grantCount": {
+            "description": "How many member grants target the group.",
+            "type": "integer"
+          },
+          "hostCount": {
+            "description": "How many hosts the group holds.",
+            "type": "integer"
+          },
+          "hostIds": {
+            "description": "The ids of the group's hosts, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The group's id, which grants and notification routes name.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The group's name, unique without regard to case.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "hostIds",
+          "hostCount",
+          "grantCount"
+        ],
+        "type": "object"
+      },
+      "core.group.list.v1.output.GroupList": {
+        "properties": {
+          "groups": {
+            "description": "Every host group, sorted by name.",
+            "items": {
+              "$ref": "#/components/schemas/core.group.list.v1.output.Group"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
+        ],
+        "type": "object"
+      },
+      "core.group.rename.v1.input": {
+        "$ref": "#/components/schemas/core.group.rename.v1.input.GroupRenameInput"
+      },
+      "core.group.rename.v1.input.GroupRenameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The group's id.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "The new name, as core.group.create takes it.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "core.group.rename.v1.output": {
+        "$ref": "#/components/schemas/core.group.rename.v1.output.Group"
+      },
+      "core.group.rename.v1.output.Group": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "grantCount": {
+            "description": "How many member grants target the group.",
+            "type": "integer"
+          },
+          "hostCount": {
+            "description": "How many hosts the group holds.",
+            "type": "integer"
+          },
+          "hostIds": {
+            "description": "The ids of the group's hosts, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The group's id, which grants and notification routes name.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The group's name, unique without regard to case.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "hostIds",
+          "hostCount",
+          "grantCount"
+        ],
+        "type": "object"
+      },
+      "core.group.set-members.v1.input": {
+        "$ref": "#/components/schemas/core.group.set-members.v1.input.GroupMembersInput"
+      },
+      "core.group.set-members.v1.input.GroupMembersInput": {
+        "additionalProperties": false,
+        "properties": {
+          "hostIds": {
+            "description": "The ids of the hosts the group holds, replacing its members; each names a host once.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The group's id.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hostIds"
+        ],
+        "type": "object"
+      },
+      "core.group.set-members.v1.output": {
+        "$ref": "#/components/schemas/core.group.set-members.v1.output.Group"
+      },
+      "core.group.set-members.v1.output.Group": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "grantCount": {
+            "description": "How many member grants target the group.",
+            "type": "integer"
+          },
+          "hostCount": {
+            "description": "How many hosts the group holds.",
+            "type": "integer"
+          },
+          "hostIds": {
+            "description": "The ids of the group's hosts, sorted.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The group's id, which grants and notification routes name.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The group's name, unique without regard to case.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "hostIds",
+          "hostCount",
+          "grantCount"
+        ],
+        "type": "object"
+      },
       "core.host.create.v1.input": {
         "$ref": "#/components/schemas/core.host.create.v1.input.HostCreateInput"
       },
@@ -18351,6 +18671,410 @@
           }
         ],
         "summary": "List audit log entries, newest first, filtered by actor, host or action."
+      }
+    },
+    "/api/v1/actions/core.group.create/v1/apply": {
+      "post": {
+        "operationId": "core.group.create.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a host group with no hosts."
+      }
+    },
+    "/api/v1/actions/core.group.create/v1/plan": {
+      "post": {
+        "operationId": "core.group.create.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.group.create.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a host group with no hosts."
+      }
+    },
+    "/api/v1/actions/core.group.delete/v1/apply": {
+      "post": {
+        "operationId": "core.group.delete.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a host group, refused while a grant, alert rule or notification route names it; returns the removed group; the confirmation phrase is its name."
+      }
+    },
+    "/api/v1/actions/core.group.delete/v1/plan": {
+      "post": {
+        "operationId": "core.group.delete.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.group.delete.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a host group, refused while a grant, alert rule or notification route names it; returns the removed group; the confirmation phrase is its name."
+      }
+    },
+    "/api/v1/actions/core.group.list/v1/read": {
+      "post": {
+        "operationId": "core.group.list.v1.read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.group.list.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/core.group.list.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the host groups with their hosts and how many grants target each."
+      }
+    },
+    "/api/v1/actions/core.group.rename/v1/apply": {
+      "post": {
+        "operationId": "core.group.rename.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Rename a host group."
+      }
+    },
+    "/api/v1/actions/core.group.rename/v1/plan": {
+      "post": {
+        "operationId": "core.group.rename.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.group.rename.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Rename a host group."
+      }
+    },
+    "/api/v1/actions/core.group.set-members/v1/apply": {
+      "post": {
+        "operationId": "core.group.set-members.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Replace the hosts of a host group."
+      }
+    },
+    "/api/v1/actions/core.group.set-members/v1/plan": {
+      "post": {
+        "operationId": "core.group.set-members.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.group.set-members.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Replace the hosts of a host group."
       }
     },
     "/api/v1/actions/core.host.create/v1/apply": {

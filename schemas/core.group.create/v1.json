@@ -1,0 +1,73 @@
+{
+  "name": "core.group.create",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/GroupCreateInput",
+    "$defs": {
+      "GroupCreateInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$",
+            "description": "The name: 1 to 48 letters, digits, spaces, dots, underscores or hyphens, starting with a letter or digit."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Group",
+    "$defs": {
+      "Group": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The group's id, which grants and notification routes name."
+          },
+          "name": {
+            "type": "string",
+            "description": "The group's name, unique without regard to case."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hostIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The ids of the group's hosts, sorted."
+          },
+          "hostCount": {
+            "type": "integer",
+            "description": "How many hosts the group holds."
+          },
+          "grantCount": {
+            "type": "integer",
+            "description": "How many member grants target the group."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "hostIds",
+          "hostCount",
+          "grantCount"
+        ]
+      }
+    }
+  }
+}

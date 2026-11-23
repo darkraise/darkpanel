@@ -45,6 +45,166 @@ Returned in the `output` field of the response.
 | `entries[].version` | integer | yes | The action version. |
 | `nextBefore` | string or null | yes |  |
 
+## core.group.create v1
+
+Create a host group with no hosts.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.group.create/v1/plan` |
+| apply | `POST /api/v1/actions/core.group.create/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | The name: 1 to 48 letters, digits, spaces, dots, underscores or hyphens, starting with a letter or digit. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `grantCount` | integer | yes | How many member grants target the group. |
+| `hostCount` | integer | yes | How many hosts the group holds. |
+| `hostIds` | array of string | yes | The ids of the group's hosts, sorted. |
+| `id` | string | yes | The group's id, which grants and notification routes name. |
+| `name` | string | yes | The group's name, unique without regard to case. |
+
+## core.group.delete v1
+
+Delete a host group, refused while a grant, alert rule or notification route names it; returns the removed group; the confirmation phrase is its name.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.group.delete/v1/plan` |
+| apply | `POST /api/v1/actions/core.group.delete/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The group's id. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `grantCount` | integer | yes | How many member grants target the group. |
+| `hostCount` | integer | yes | How many hosts the group holds. |
+| `hostIds` | array of string | yes | The ids of the group's hosts, sorted. |
+| `id` | string | yes | The group's id, which grants and notification routes name. |
+| `name` | string | yes | The group's name, unique without regard to case. |
+
+## core.group.list v1
+
+List the host groups with their hosts and how many grants target each.
+
+| Operation | Request |
+|---|---|
+| read | `POST /api/v1/actions/core.group.list/v1/read` |
+
+Minimum scope: `read`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `groups` | array of object | yes | Every host group, sorted by name. |
+| `groups[].createdAt` | string (date-time) | yes |  |
+| `groups[].grantCount` | integer | yes | How many member grants target the group. |
+| `groups[].hostCount` | integer | yes | How many hosts the group holds. |
+| `groups[].hostIds` | array of string | yes | The ids of the group's hosts, sorted. |
+| `groups[].id` | string | yes | The group's id, which grants and notification routes name. |
+| `groups[].name` | string | yes | The group's name, unique without regard to case. |
+
+## core.group.rename v1
+
+Rename a host group.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.group.rename/v1/plan` |
+| apply | `POST /api/v1/actions/core.group.rename/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The group's id. |
+| `name` | string | yes | The new name, as core.group.create takes it. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `grantCount` | integer | yes | How many member grants target the group. |
+| `hostCount` | integer | yes | How many hosts the group holds. |
+| `hostIds` | array of string | yes | The ids of the group's hosts, sorted. |
+| `id` | string | yes | The group's id, which grants and notification routes name. |
+| `name` | string | yes | The group's name, unique without regard to case. |
+
+## core.group.set-members v1
+
+Replace the hosts of a host group.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.group.set-members/v1/plan` |
+| apply | `POST /api/v1/actions/core.group.set-members/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `hostIds` | array of string | yes | The ids of the hosts the group holds, replacing its members; each names a host once. |
+| `id` | string | yes | The group's id. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `grantCount` | integer | yes | How many member grants target the group. |
+| `hostCount` | integer | yes | How many hosts the group holds. |
+| `hostIds` | array of string | yes | The ids of the group's hosts, sorted. |
+| `id` | string | yes | The group's id, which grants and notification routes name. |
+| `name` | string | yes | The group's name, unique without regard to case. |
+
 ## core.host.create v1
 
 Create a pending host and return its one-hour enrollment token, shown only once.

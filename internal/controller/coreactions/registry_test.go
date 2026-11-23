@@ -60,6 +60,11 @@ var declarations = map[string]declaration{
 	"core.user.set-grants":     {class: core.ClassCompensable, compensatedBy: "core.user.set-grants"},
 	"core.user.set-identity":   {class: core.ClassCompensable, compensatedBy: "core.user.set-identity"},
 	"core.user.directory":      {class: core.ClassRead},
+	"core.group.create":        {class: core.ClassCompensable, compensatedBy: "core.group.delete"},
+	"core.group.rename":        {class: core.ClassCompensable, compensatedBy: "core.group.rename"},
+	"core.group.set-members":   {class: core.ClassCompensable, compensatedBy: "core.group.set-members"},
+	"core.group.delete":        {class: core.ClassIrreversible},
+	"core.group.list":          {class: core.ClassRead},
 
 	"core.update.apply":          {class: core.ClassCompensable, compensatedBy: "core.update.rollback", agent: true},
 	"core.update.rollback":       {class: core.ClassIrreversible, agent: true},

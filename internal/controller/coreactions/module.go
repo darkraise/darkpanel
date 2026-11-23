@@ -82,6 +82,7 @@ func (m module) Manifest() core.Manifest {
 		m.userActions(),
 		m.inviteActions(),
 		m.roleActions(),
+		m.groupActions(),
 		m.enrollActions(),
 		m.hostRevokeActions(),
 		m.hostEnrollActions(),

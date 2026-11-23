@@ -124,6 +124,7 @@ const (
 	PanelNotExposed                  Code = "panel.not_exposed"
 	Quarantined                      Code = "core.quarantined"
 	UserLastAdmin                    Code = "user.last_admin"
+	GroupInUse                       Code = "group.in_use"
 )
 
 // Action-level codes of the v1 modules: they appear in a change's error,
@@ -268,6 +269,7 @@ var registry = map[Code]info{
 	PanelNotExposed:                  {http.StatusNotFound, "Panel not exposed"},
 	Quarantined:                      {http.StatusConflict, "Controller in restore quarantine"},
 	UserLastAdmin:                    {http.StatusConflict, "Last active admin"},
+	GroupInUse:                       {http.StatusConflict, "Host group in use"},
 	SystemAptBusy:                    {http.StatusConflict, "Another package manager is running"},
 	SystemRepoSignature:              {http.StatusConflict, "Repository signature does not verify"},
 	SystemDiskFull:                   {http.StatusInsufficientStorage, "Not enough disk space"},

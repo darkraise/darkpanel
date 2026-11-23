@@ -186,6 +186,7 @@ func TestSection11Codes(t *testing.T) {
 		{DERPRegionTaken, "derp.region_taken", 409, "DERP region id taken"},
 		{DERPPortInUse, "derp.port_in_use", 409, "Port in use"},
 		{UserLastAdmin, "user.last_admin", 409, "Last active admin"},
+		{GroupInUse, "group.in_use", 409, "Host group in use"},
 		{DERPVerifyFailed, "derp.verify_failed", 500, "DERP verification failed"},
 		{DERPNotReady, "derp.not_ready", 409, "DERP server not ready"},
 		{DERPNoFallback, "derp.no_fallback", 409, "No other reachable DERP region"},

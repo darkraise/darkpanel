@@ -1,0 +1,79 @@
+{
+  "name": "core.group.rename",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/GroupRenameInput",
+    "$defs": {
+      "GroupRenameInput": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The group's id."
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$",
+            "description": "The new name, as core.group.create takes it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Group",
+    "$defs": {
+      "Group": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The group's id, which grants and notification routes name."
+          },
+          "name": {
+            "type": "string",
+            "description": "The group's name, unique without regard to case."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hostIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The ids of the group's hosts, sorted."
+          },
+          "hostCount": {
+            "type": "integer",
+            "description": "How many hosts the group holds."
+          },
+          "grantCount": {
+            "type": "integer",
+            "description": "How many member grants target the group."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "hostIds",
+          "hostCount",
+          "grantCount"
+        ]
+      }
+    }
+  }
+}
