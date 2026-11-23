@@ -13,15 +13,12 @@ type revealResponse struct {
 	Value json.RawMessage `json:"value"`
 }
 
-// authorizeReveal refuses p unless it has admin, which every reveal route
-// needs (spec 1.14), and the scope the action itself requires. The registry
-// already gives every reveal action MinScope admin; checking admin here
-// keeps the route closed should that rule ever change.
-func authorizeReveal(p core.Principal, s core.ActionSpec) error {
-	if err := authorize(p, core.ScopeAdmin); err != nil {
-		return err
-	}
-	return authorize(p, core.RequiredScope(s))
+// authorizeReveal refuses p unless it has admin access, which every reveal
+// route needs (spec 1.14) and which includes the scope the action itself
+// requires. The registry already gives every reveal action MinScope admin;
+// checking admin here keeps the route closed should that rule ever change.
+func authorizeReveal(p core.Principal, _ core.ActionSpec) error {
+	return authorizeAdmin(p)
 }
 
 // revealHandler serves the reveal route of side's actions: a reveal

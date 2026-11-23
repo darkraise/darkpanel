@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/darkraise/darkpanel/internal/buildinfo"
-	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/schema"
 )
 
@@ -23,8 +22,7 @@ type healthDetail struct {
 // with valid credentials (spec section 12). The authentication middleware
 // drops invalid credentials on this route instead of refusing them.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	c, ok := callerFrom(r.Context())
-	if !ok || authorize(c.principal, core.ScopeRead) != nil {
+	if _, ok := callerFrom(r.Context()); !ok {
 		writeJSON(w, s.log, http.StatusOK, healthStatus{Status: s.health()})
 		return
 	}
@@ -52,12 +50,7 @@ func (s *Server) health() string {
 
 // handleOpenAPI answers the OpenAPI document (spec section 7), built from
 // the registry and OpenAPIRoutes on each request; it is rarely fetched.
-func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
-	c, _ := callerFrom(r.Context())
-	if err := authorize(c.principal, core.ScopeRead); err != nil {
-		writeProblem(w, s.log, err)
-		return
-	}
+func (s *Server) handleOpenAPI(w http.ResponseWriter, _ *http.Request) {
 	doc, err := schema.OpenAPI(s.cfg.Registry, s.OpenAPIRoutes())
 	if err != nil {
 		writeProblem(w, s.log, err)
@@ -69,11 +62,6 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 
 // handleListeners answers the listener state for the UI footer (spec section
 // 13) from the source SetListenerState set.
-func (s *Server) handleListeners(w http.ResponseWriter, r *http.Request) {
-	c, _ := callerFrom(r.Context())
-	if err := authorize(c.principal, core.ScopeRead); err != nil {
-		writeProblem(w, s.log, err)
-		return
-	}
+func (s *Server) handleListeners(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, s.log, http.StatusOK, s.listenerState())
 }

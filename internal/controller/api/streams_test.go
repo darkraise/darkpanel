@@ -311,10 +311,11 @@ func TestRelayRefusals(t *testing.T) {
 	r.SetPathValue("host", "h1")
 	r.SetPathValue("module", "sm")
 	r.SetPathValue("name", "logs")
+	// A principal whose access reaches no host is told the host is not found.
 	r = r.WithContext(withCaller(r.Context(), caller{principal: core.Principal{Actor: "token:t1", Scope: "none"}}))
 	rec := httptest.NewRecorder()
 	h.srv.handleStream(rec, r)
-	decodeProblem(t, rec, http.StatusForbidden, errcode.Forbidden)
+	decodeProblem(t, rec, http.StatusNotFound, errcode.NotFound)
 }
 
 // TestRelayEndsWhenRecheckFails: a re-authentication that fails for a

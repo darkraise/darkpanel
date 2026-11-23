@@ -178,8 +178,8 @@ func TestTokenNeverExceedsItsUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := (core.Access{Fleet: true, All: core.ScopeRead}); !reflect.DeepEqual(got.Principal.Access, want) ||
-		got.Principal.Scope != core.ScopeRead {
-		t.Errorf("admin read token principal = %+v, want scope read and access %+v", got.Principal, want)
+		got.Principal.Scope != "" {
+		t.Errorf("admin read token principal = %+v, want scope \"\" and access %+v", got.Principal, want)
 	}
 
 	_, operateToken, err := s.CreateToken(ctx, member.ID, "operate", core.ScopeOperate, 0)

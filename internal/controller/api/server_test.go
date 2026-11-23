@@ -120,6 +120,7 @@ type harness struct {
 	user   auth.User
 	secret string
 	log    *bytes.Buffer
+	db     *store.DB
 	// cfg is srv's configuration, for a test that serves one with a field
 	// changed.
 	cfg Config
@@ -149,7 +150,7 @@ func newHarnessWith(t *testing.T, mods ...core.Module) *harness {
 	if _, err := store.Migrate(ctx, db, opts, set, nil); err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{t: t, clock: coretest.NewFakeClock(testStart), audit: &coretest.MemAudit{}, disp: &coretest.FakeDispatcher{}}
+	h := &harness{t: t, clock: coretest.NewFakeClock(testStart), audit: &coretest.MemAudit{}, disp: &coretest.FakeDispatcher{}, db: db}
 	h.auth = auth.New(db, coretest.Sealer{}, h.clock, h.audit, auth.Options{Params: testParams})
 	if _, h.secret, err = h.auth.CreateUser(ctx, "admin", testPassword); err != nil {
 		t.Fatal(err)
@@ -442,7 +443,7 @@ func TestCredentialPrecedence(t *testing.T) {
 
 	rec, p = h.through(withSession(withToken(request("GET", "/api/v1/changes", ""), token), "bogus", ""))
 	recs = append(recs, rec)
-	if !p.found || !strings.HasPrefix(p.caller.principal.Actor, "token:") || p.caller.principal.Scope != core.ScopeOperate ||
+	if !p.found || !strings.HasPrefix(p.caller.principal.Actor, "token:") || p.caller.principal.Access.All != core.ScopeOperate ||
 		p.caller.identity.FromSession || p.caller.session != "" {
 		t.Errorf("a valid token with a stale cookie: caller %+v, want the token", p.caller)
 	}

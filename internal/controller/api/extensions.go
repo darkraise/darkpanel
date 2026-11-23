@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/ext"
 	"github.com/darkraise/darkpanel/internal/core/schema"
 )
@@ -70,8 +71,10 @@ func (s *Server) mountWebExtensions() error {
 		need := rt.Scope
 		h := requireCaller(s.log, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			c, _ := callerFrom(r.Context())
-			if err := authorize(c.principal, need); err != nil {
-				writeProblem(w, s.log, err)
+			// A module web route names no host, so it needs its scope on all.
+			if !c.principal.HostAccess().AllHosts(need) {
+				writeProblem(w, s.log, errcode.New(errcode.Forbidden,
+					fmt.Sprintf("this request needs the %s scope on every host", need)))
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -142,7 +145,7 @@ func (s *Server) extensionStream(rt ext.Route) http.Handler {
 		// request the handler may still be using.
 		watched := make(chan string, 1)
 		watcher := r.Clone(ctx)
-		go func() { watched <- s.watchStream(ctx, cancel, watcher, recheck, revoked) }()
+		go func() { watched <- s.watchStream(ctx, cancel, watcher, recheck, rt.Scope, revoked) }()
 		dw := &deadlineWriter{ResponseWriter: w, ctx: ctx}
 		dw.renew()
 		rt.Handler.ServeHTTP(dw, r)
@@ -165,7 +168,7 @@ func (s *Server) extensionStream(rt ext.Route) http.Handler {
 // context ended first. It ends the stream on a failed re-authentication of
 // r only with recheck: the socket's peer check holds for the connection's
 // life.
-func (s *Server) watchStream(ctx context.Context, cancel context.CancelFunc, r *http.Request, recheck bool, revoked <-chan struct{}) string {
+func (s *Server) watchStream(ctx context.Context, cancel context.CancelFunc, r *http.Request, recheck bool, need core.Scope, revoked <-chan struct{}) string {
 	defer cancel()
 	c, _ := callerFrom(r.Context())
 	expires := c.identity.ExpiresAt
@@ -193,8 +196,12 @@ func (s *Server) watchStream(ctx context.Context, cancel context.CancelFunc, r *
 		case <-revoked:
 			return "revoked"
 		case <-check:
-			if reason := s.sseRecheck(r, &expires); reason != "" {
+			p, reason := s.sseRecheck(r, &expires)
+			if reason != "" {
 				return reason
+			}
+			if !p.HostAccess().AllHosts(need) {
+				return "revoked"
 			}
 			checkT = clock.AfterFunc(SSERecheck, sseSignal(check))
 		}

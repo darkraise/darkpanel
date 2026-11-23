@@ -271,6 +271,6 @@ func (e *Engine) confirmationWon(ctx context.Context, c compositeRow, s stepRow)
 	if err != nil {
 		return fmt.Errorf("lifecycle: record the confirmation of %s: %w", c.ID, err)
 	}
-	e.publishStep(c.ID, s.ID, core.StepConfirmed, s.ChildID)
+	e.publishStep(c.ID, s.ID, s.Host, core.StepConfirmed, s.ChildID)
 	return nil
 }

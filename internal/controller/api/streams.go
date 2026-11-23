@@ -35,7 +35,8 @@ type relayEnd struct {
 // sseStream itself ends the stream, the end frame is written here.
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
-	if err := authorize(c.principal, core.ScopeRead); err != nil {
+	host := r.PathValue("host")
+	if err := authorizeHost(c.principal, host, core.ScopeRead); err != nil {
 		writeProblem(w, s.log, err)
 		return
 	}
@@ -49,7 +50,13 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	frames := make(chan sseFrame, relayBuffer+1)
 	go relay(body, frames, s.log.With("host", r.PathValue("host"), "module", r.PathValue("module"), "stream", r.PathValue("name")))
 	rw := &relayWriter{ResponseWriter: w}
-	reason := s.sseStream(rw, r, frames)
+	// The stream ends with revoked once its host leaves the caller's access.
+	reason := s.sseStreamChecked(rw, r, frames, func(p core.Principal) (string, []sseFrame) {
+		if authorizeHost(p, host, core.ScopeRead) != nil {
+			return "revoked", nil
+		}
+		return "", nil
+	})
 	// sseStream may pick an expiry, a revocation or CloseStreams over the
 	// closed source right after it wrote the relay's end frame; the stream
 	// has one. A stream whose writes failed or whose client left cannot

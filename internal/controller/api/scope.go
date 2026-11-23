@@ -10,11 +10,40 @@ import (
 )
 
 // authorize refuses p with auth.forbidden unless its scope includes need.
+// Only the controller socket, whose principals are break-glass admins, still
+// checks a bare scope; network routes check access (authorizeHost,
+// authorizeController, authorizeAdmin).
 func authorize(p core.Principal, need core.Scope) error {
 	if !p.Scope.Allows(need) {
 		return errcode.New(errcode.Forbidden, fmt.Sprintf("this request needs the %s scope", need))
 	}
 	return nil
+}
+
+// authorizeAdmin refuses p unless it has admin access.
+func authorizeAdmin(p core.Principal) error {
+	if !p.HostAccess().Admin {
+		return errcode.New(errcode.Forbidden, "this request needs the admin scope")
+	}
+	return nil
+}
+
+// authorizeReader refuses p unless it may read the fleet or at least one
+// host: the lists and streams that filter their rows by host.
+func authorizeReader(p core.Principal) error {
+	if a := p.HostAccess(); a.Fleet || readsAnyHost(a) {
+		return nil
+	}
+	return errcode.New(errcode.Forbidden, "this request needs read access to a host")
+}
+
+// authorizeAction refuses p def on its route: an agent-side action needs its
+// scope on hostID, a controller-side one the rules of authorizeController.
+func authorizeAction(p core.Principal, def core.ActionDef, hostID string) error {
+	if def.Spec.Side == core.SideAgent {
+		return authorizeHost(p, hostID, core.RequiredScope(def.Spec))
+	}
+	return authorizeController(p, def)
 }
 
 // authorizeHost refuses p on hostID: request.not_found when the host is
@@ -26,19 +55,27 @@ func authorizeHost(p core.Principal, hostID string, need core.Scope) error {
 		return errcode.New(errcode.NotFound, fmt.Sprintf("no host %s", hostID))
 	}
 	if !have.Allows(need) {
-		return errcode.New(errcode.Forbidden, fmt.Sprintf("this request needs the %s scope on host %s", need, hostID))
+		return errcode.New(errcode.Forbidden, fmt.Sprintf("this request needs the %s scope", need))
 	}
 	return nil
 }
 
-// authorizeController refuses p a controller-side read by the read's
-// HostData class (ADR 0018). An input read's hosts are checked once its
-// input is decoded (authorizeInputHosts).
+// authorizeController refuses p a controller-side action. A mutating one
+// needs fleet access and its scope on every host, whatever hosts its input
+// names, so members are refused. A read is served by its HostData class
+// (ADR 0018); an input read's hosts are checked once its input is decoded
+// (authorizeInputHosts).
 func authorizeController(p core.Principal, def core.ActionDef) error {
 	need := core.RequiredScope(def.Spec)
+	access := p.HostAccess()
+	if def.Spec.Class != core.ClassRead {
+		if access.Fleet && access.AllHosts(need) {
+			return nil
+		}
+		return errcode.New(errcode.Forbidden, fmt.Sprintf("this request needs the %s scope", need))
+	}
 	// A MinScope read needs that scope everywhere: the class rules alone would
 	// serve it to an admin's read token.
-	access := p.HostAccess()
 	if !core.ScopeRead.Allows(need) && !access.AllHosts(need) {
 		return errcode.New(errcode.Forbidden, fmt.Sprintf("this request needs the %s scope", need))
 	}
@@ -131,4 +168,11 @@ func jsonPointer(doc any, ptr string) (any, bool) {
 		}
 	}
 	return doc, true
+}
+
+// changeVisible reports whether p may see change v: the network shows it,
+// and its host is visible to p; a host-less change, a composite's included,
+// only to a fleet principal.
+func (s *Server) changeVisible(p core.Principal, v core.ChangeView) bool {
+	return s.networkVisible(v) && p.HostAccess().Sees(v.HostID)
 }

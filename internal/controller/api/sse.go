@@ -90,6 +90,17 @@ func (s *Server) CloseStreams() {
 // away or CloseStreams ran). A HEAD request gets the headers alone and ends
 // at once with done.
 func (s *Server) sseStream(w http.ResponseWriter, r *http.Request, src <-chan sseFrame) string {
+	return s.sseStreamChecked(w, r, src, nil)
+}
+
+// streamCheck is a stream's own check at each recheck, given the caller's
+// principal with its access resolved anew: an end reason, or "" and the
+// frames to send at once.
+type streamCheck func(p core.Principal) (reason string, frames []sseFrame)
+
+// sseStreamChecked is sseStream with onCheck run after each successful
+// recheck; a nil onCheck checks nothing more.
+func (s *Server) sseStreamChecked(w http.ResponseWriter, r *http.Request, src <-chan sseFrame, onCheck streamCheck) string {
 	c, _ := callerFrom(r.Context())
 	expires := c.identity.ExpiresAt
 	h := w.Header()
@@ -144,8 +155,26 @@ func (s *Server) sseStream(w http.ResponseWriter, r *http.Request, src <-chan ss
 			}
 			beatT = clock.AfterFunc(SSEHeartbeat, sseSignal(beat))
 		case <-check:
-			if reason := s.sseRecheck(r, &expires); reason != "" {
+			p, reason := s.sseRecheck(r, &expires)
+			if reason != "" {
 				return reason
+			}
+			if onCheck != nil {
+				reason, frames := onCheck(p)
+				if reason != "" {
+					return reason
+				}
+				for _, f := range frames {
+					b, err := sseEncode(f)
+					if err != nil {
+						s.log.Error("api: encode a stream event", "event", f.Event, "err", err)
+						return "error"
+					}
+					if sseWrite(w, b) != nil {
+						return "error"
+					}
+					lastFrame = clock.Now()
+				}
 			}
 			checkT = clock.AfterFunc(SSERecheck, sseSignal(check))
 		case <-idle:
@@ -169,25 +198,26 @@ func (s *Server) sseStream(w http.ResponseWriter, r *http.Request, src <-chan ss
 	}
 }
 
-// sseRecheck authenticates r again; it returns "" while the credentials
-// hold and moves *expires to their new end. The identity service answers
+// sseRecheck authenticates r again; it returns the principal, with its
+// access resolved anew, and "" while the credentials hold, and moves
+// *expires to their new end. The identity service answers
 // auth.required for every refusal, so a refusal before *expires is a
 // revocation (logout, a revoked token, a disabled user) and one after it an
 // expiry. The check is passive (streamRoute), so an open stream does not
 // keep its session alive: past the idle limit the next check ends it.
-func (s *Server) sseRecheck(r *http.Request, expires *time.Time) string {
+func (s *Server) sseRecheck(r *http.Request, expires *time.Time) (core.Principal, string) {
 	c, err := s.identify(r)
 	switch {
 	case err == nil:
 		*expires = c.identity.ExpiresAt
-		return ""
+		return c.principal, ""
 	case errcode.From(err).Code != errcode.AuthRequired:
 		s.log.Error("api: re-authenticate a stream", "err", err)
-		return "error"
+		return core.Principal{}, "error"
 	case s.cfg.Clock.Now().Before(*expires):
-		return "revoked"
+		return core.Principal{}, "revoked"
 	default:
-		return "expired"
+		return core.Principal{}, "expired"
 	}
 }
 

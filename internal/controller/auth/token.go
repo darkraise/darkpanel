@@ -257,11 +257,11 @@ func (s *Service) authenticateToken(ctx context.Context, token, source string) (
 	if err != nil {
 		return Identity{}, err
 	}
-	// An admin user's token keeps its stored scope while routes still check
-	// Principal.Scope; a member's carries "", its access only in Access.
-	scope := info.Scope
-	if u.Role != RoleAdmin {
-		scope = ""
+	// Only an admin user's admin token carries a scope; any other token
+	// carries "", its access only in Access (C2).
+	scope := core.Scope("")
+	if u.Role == RoleAdmin && info.Scope == core.ScopeAdmin {
+		scope = core.ScopeAdmin
 	}
 	return Identity{
 		Principal: core.Principal{Actor: "token:" + id, UserID: u.ID, TokenID: id, Scope: scope, Source: source, Access: access},

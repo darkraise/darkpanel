@@ -207,11 +207,7 @@ func (s *Server) actionHandler(side core.Side, op string) http.HandlerFunc {
 			err = errcode.New(errcode.Forbidden, "break-glass actions are served only on the controller socket")
 		}
 		if err == nil {
-			if side == core.SideController && def.Spec.Class == core.ClassRead && !def.Spec.Internal {
-				err = authorizeController(c.principal, def)
-			} else {
-				err = authorize(c.principal, core.RequiredScope(def.Spec))
-			}
+			err = authorizeAction(c.principal, def, r.PathValue("host"))
 		}
 		if err != nil {
 			writeProblem(w, s.log, err)
@@ -309,7 +305,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.cfg.Registry.Resource(name); !ok {
 		err = errcode.New(errcode.NotFound, "no resource "+name)
 	} else {
-		err = authorize(c.principal, core.ScopeRead)
+		err = authorizeHost(c.principal, r.PathValue("host"), core.ScopeRead)
 	}
 	if err != nil {
 		writeProblem(w, s.log, err)
@@ -339,9 +335,10 @@ func changeFilter(q url.Values) (core.ChangeFilter, error) {
 	return f, nil
 }
 
+// handleChanges lists the changes the caller may see.
 func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
-	if err := authorize(c.principal, core.ScopeRead); err != nil {
+	if err := authorizeReader(c.principal); err != nil {
 		writeProblem(w, s.log, err)
 		return
 	}
@@ -365,7 +362,7 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 			if len(out.Changes) == want {
 				break
 			}
-			if s.networkVisible(v) {
+			if s.changeVisible(c.principal, v) {
 				out.Changes = append(out.Changes, toChange(v))
 			}
 		}
@@ -379,13 +376,9 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleChange(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
-	if err := authorize(c.principal, core.ScopeRead); err != nil {
-		writeProblem(w, s.log, err)
-		return
-	}
 	id := r.PathValue("id")
 	v, err := s.cfg.Dispatcher.Change(r.Context(), c.principal, id)
-	if err == nil && !s.networkVisible(v) {
+	if err == nil && !s.changeVisible(c.principal, v) {
 		err = errHiddenChange(id)
 	}
 	if err != nil {
@@ -421,16 +414,16 @@ func errHiddenChange(id string) error {
 	return errcode.New(errcode.ChangeNotFound, fmt.Sprintf("no change %s", id))
 }
 
-// authorizeChange applies to an operation on a change the scope of the
-// change's own action, never of the route: core.RequiredScope of its spec,
-// MinScope included. A change whose action the registry no longer has needs
-// admin: its MinScope is unknown and the engine checks nothing further on
-// confirm, revert or undo, so the check fails closed.
+// authorizeChange applies to an operation on a change the access its own
+// action needs, never the route's: core.RequiredScope of its spec, MinScope
+// included, on the change's host. A change whose action the registry no
+// longer has needs admin: its MinScope is unknown and the engine checks
+// nothing further on confirm, revert or undo, so the check fails closed.
 func (s *Server) authorizeChange(p core.Principal, v core.ChangeView) error {
 	if def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version}); ok {
-		return authorize(p, core.RequiredScope(def.Spec))
+		return authorizeAction(p, def, v.HostID)
 	}
-	return authorize(p, core.ScopeAdmin)
+	return authorizeAdmin(p)
 }
 
 // changeOp serves confirm or revert. It reads the change first, as the
@@ -440,12 +433,8 @@ func (s *Server) changeOp(confirm bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, _ := callerFrom(r.Context())
 		id := r.PathValue("id")
-		err := authorize(c.principal, core.ScopeRead)
-		var v core.ChangeView
-		if err == nil {
-			v, err = s.cfg.Dispatcher.Change(r.Context(), c.principal, id)
-		}
-		if err == nil && !s.networkVisible(v) {
+		v, err := s.cfg.Dispatcher.Change(r.Context(), c.principal, id)
+		if err == nil && !s.changeVisible(c.principal, v) {
 			err = errHiddenChange(id)
 		}
 		if err == nil {

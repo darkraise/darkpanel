@@ -315,7 +315,7 @@ func (e *Engine) decideStep(ctx context.Context, p core.Principal, id, stepID, a
 	if clearChild {
 		child = ""
 	}
-	e.publishStep(id, stepID, state, child)
+	e.publishStep(id, stepID, s.Host, state, child)
 	v, err := e.Change(ctx, id)
 	if err != nil {
 		return core.RepairResult{}, err
@@ -423,7 +423,7 @@ func (e *Engine) releaseStep(ctx context.Context, c compositeRow, steps []stepRo
 		return fmt.Errorf("lifecycle: release the steps of %s: %w", c.ID, err)
 	}
 	for _, s := range steps {
-		e.publishStep(c.ID, s.ID, core.StepReleased, s.ChildID)
+		e.publishStep(c.ID, s.ID, s.Host, core.StepReleased, s.ChildID)
 	}
 	if _, err := e.transition(ctx, c.ID, transition{
 		from: core.StateReleasing, to: core.StateAbandoned, owner: newOwner(""), release: true,

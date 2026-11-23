@@ -13,7 +13,7 @@ import (
 // out the others. Internal actions are left out: no public route names them.
 func (s *Server) handleAvailability(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
-	err := authorize(c.principal, core.ScopeRead)
+	err := authorizeHost(c.principal, r.PathValue("host"), core.ScopeRead)
 	if err == nil && s.cfg.Availability == nil {
 		err = errcode.New(errcode.NotFound, "module availability is not served by this controller")
 	}

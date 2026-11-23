@@ -47,7 +47,9 @@ func (a *sseAuth) VerifyCSRF(string, string) bool               { return false }
 
 // sseIdentity is a token identity of the read scope that ends at expires.
 func sseIdentity(expires time.Time) auth.Identity {
-	return auth.Identity{Principal: core.Principal{Actor: "token:T1", Scope: core.ScopeRead, Source: "192.0.2.10"}, ExpiresAt: expires}
+	// An admin's read token: its access, not its scope, carries the read.
+	return auth.Identity{Principal: core.Principal{Actor: "token:T1", Source: "192.0.2.10",
+		Access: core.Access{Fleet: true, All: core.ScopeRead}}, ExpiresAt: expires}
 }
 
 // sseRecorder is a ResponseWriter that records each header, deadline,

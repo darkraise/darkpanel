@@ -31,6 +31,7 @@ const EventCompositeStep = "composite.step"
 type StepEvent struct {
 	ChangeID      string `json:"changeId"`
 	StepID        string `json:"stepId"`
+	HostID        string `json:"hostId"` // the step's host; "" for a controller-side step
 	State         string `json:"state"`
 	ChildChangeID string `json:"childChangeId"`
 }
@@ -218,13 +219,13 @@ func optBlob(b []byte) any {
 // own committed write, made before the act it announces. A step in another
 // state is change.not_pending: another mechanism moved it first.
 func (e *Engine) setStep(ctx context.Context, id, stepID string, from []string, u stepUpdate) error {
-	var child string
+	var child, host string
 	err := e.cfg.Base.DB.Write(ctx, func(tx *sql.Tx) error {
 		var state string
 		var stored sql.NullString
 		err := tx.QueryRowContext(ctx,
-			"SELECT state, child_change_id FROM core_composite_steps WHERE change_id = ? AND step_id = ?", id, stepID).
-			Scan(&state, &stored)
+			"SELECT state, child_change_id, host_id FROM core_composite_steps WHERE change_id = ? AND step_id = ?", id, stepID).
+			Scan(&state, &stored, &host)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			return errcode.New(errcode.ChangeNotFound, fmt.Sprintf("composite %s has no step %s", id, stepID))
@@ -294,15 +295,15 @@ func (e *Engine) setStep(ctx context.Context, id, stepID string, from []string, 
 	case err != nil:
 		return fmt.Errorf("lifecycle: record step %s of %s: %w", stepID, id, err)
 	}
-	e.publishStep(id, stepID, u.State, child)
+	e.publishStep(id, stepID, host, u.State, child)
 	return nil
 }
 
-func (e *Engine) publishStep(id, stepID, state, childID string) {
+func (e *Engine) publishStep(id, stepID, hostID, state, childID string) {
 	if e.cfg.Publish == nil {
 		return
 	}
-	e.cfg.Publish(EventCompositeStep, StepEvent{ChangeID: id, StepID: stepID, State: state, ChildChangeID: childID})
+	e.cfg.Publish(EventCompositeStep, StepEvent{ChangeID: id, StepID: stepID, HostID: hostID, State: state, ChildChangeID: childID})
 }
 
 // compLock serializes the acts on one composite. refs counts its holders

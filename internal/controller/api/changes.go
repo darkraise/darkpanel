@@ -70,16 +70,20 @@ func (b repairRequest) request() (core.RepairRequest, error) {
 	return core.RepairRequest{Input: input, Step: b.Step, As: b.As}, nil
 }
 
-// visibleChange authorizes need, then reads the route's change as the
-// caller; a change the network hides is answered as missing.
+// visibleChange reads the route's change as the caller, first refusing a
+// caller without admin access when need is admin; a change the network
+// hides, or whose host the caller cannot see, is answered as missing. A
+// visible change's host grants read, so need read is met once it is read.
 func (s *Server) visibleChange(r *http.Request, need core.Scope) (core.Principal, core.ChangeView, error) {
 	c, _ := callerFrom(r.Context())
-	if err := authorize(c.principal, need); err != nil {
-		return c.principal, core.ChangeView{}, err
+	if need == core.ScopeAdmin {
+		if err := authorizeAdmin(c.principal); err != nil {
+			return c.principal, core.ChangeView{}, err
+		}
 	}
 	id := r.PathValue("id")
 	v, err := s.cfg.Dispatcher.Change(r.Context(), c.principal, id)
-	if err == nil && !s.networkVisible(v) {
+	if err == nil && !s.changeVisible(c.principal, v) {
 		err = errHiddenChange(id)
 	}
 	return c.principal, v, err
@@ -166,7 +170,7 @@ func (s *Server) authorizeRepair(p core.Principal, v core.ChangeView) error {
 	}
 	for _, a := range s.cfg.Registry.Actions() {
 		if a.Spec.Name == def.Spec.RepairedBy {
-			if err := authorize(p, core.RequiredScope(a.Spec)); err != nil {
+			if err := authorizeAction(p, a, v.HostID); err != nil {
 				return err
 			}
 		}
