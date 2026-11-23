@@ -23347,7 +23347,7 @@
             "token": []
           }
         ],
-        "summary": "Change a notification channel's settings and routing; omitted write-only values are kept."
+        "summary": "Change a notification channel's settings and routing; omitted write-only values are kept while the destination stays."
       }
     },
     "/api/v1/actions/notify.channel.update/v1/plan": {
@@ -23395,7 +23395,7 @@
             "token": []
           }
         ],
-        "summary": "Change a notification channel's settings and routing; omitted write-only values are kept."
+        "summary": "Change a notification channel's settings and routing; omitted write-only values are kept while the destination stays."
       }
     },
     "/api/v1/actions/npm.admin.expose/v1/apply": {

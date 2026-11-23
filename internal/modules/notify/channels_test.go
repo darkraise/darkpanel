@@ -405,14 +405,58 @@ func TestChannelCRUD(t *testing.T) {
 		t.Errorf("after update the webhook secrets are %v", s)
 	}
 	e.run("notify.channel.update", ChannelUpdateInput{ID: ids["ntfy"], Name: "Phone", MinSeverity: "info", Enabled: true,
-		Ntfy: &NtfyInput{Server: "https://ntfy.example.com/"}}, &up)
-	if up.Ntfy == nil || up.Ntfy.Server != "https://ntfy.example.com/" || up.Ntfy.Topic != "dark…" {
+		Ntfy: &NtfyInput{}}, &up)
+	if up.Ntfy == nil || up.Ntfy.Server != "https://ntfy.sh" || up.Ntfy.Topic != "dark…" || !up.Ntfy.TokenSet {
 		t.Errorf("ntfy update output %+v", up.Ntfy)
 	}
 	if s := e.secrets(ids["ntfy"]); s["topic"] != "darkpanel-alerts-x7" || s["token"] != "tk_ntfy_token" {
 		t.Errorf("after update the ntfy secrets are %v", s)
 	}
+
+	// A new destination never receives a kept write-only value: the required
+	// ones are entered again, the optional ones are dropped.
 	_, err := e.plan("notify.channel.update", ChannelUpdateInput{ID: ids["ntfy"], Name: "Phone", MinSeverity: "info",
+		Ntfy: &NtfyInput{Server: "https://ntfy.example.com/"}})
+	wantField(t, "a new ntfy server keeping the topic", err, "/ntfy/topic")
+	e.run("notify.channel.update", ChannelUpdateInput{ID: ids["ntfy"], Name: "Phone", MinSeverity: "info", Enabled: true,
+		Ntfy: &NtfyInput{Server: "https://ntfy.example.com/", Topic: "darkpanel-alerts-x8"}}, &up)
+	if up.Ntfy == nil || up.Ntfy.Server != "https://ntfy.example.com/" || up.Ntfy.TokenSet {
+		t.Errorf("ntfy output after a new server %+v; want the token dropped", up.Ntfy)
+	}
+	if s := e.secrets(ids["ntfy"]); s["topic"] != "darkpanel-alerts-x8" || s["token"] != "" {
+		t.Errorf("after a new server the ntfy secrets are %v", s)
+	}
+	mail := validInputs(web.ID)["email"]
+	for _, c := range []struct {
+		label string
+		mut   func(m *EmailInput)
+	}{
+		{"a new SMTP host", func(m *EmailInput) { m.Host = "smtp2.example.com" }},
+		{"a new SMTP port", func(m *EmailInput) { m.Port = 465 }},
+		{"new SMTP security", func(m *EmailInput) { m.Security = "tls" }},
+	} {
+		m := *mail.Email
+		m.Password = ""
+		c.mut(&m)
+		_, err = e.plan("notify.channel.update", ChannelUpdateInput{ID: ids["email"], Name: "mail", MinSeverity: "info", Email: &m})
+		wantField(t, c.label+" keeping the password", err, "/email/password")
+	}
+	same := *mail.Email
+	same.Password = ""
+	same.Recipients = []string{"c@example.com"}
+	e.run("notify.channel.update", ChannelUpdateInput{ID: ids["email"], Name: "mail", MinSeverity: "info", Enabled: true, Email: &same}, nil)
+	if s := e.secrets(ids["email"]); s["password"] != "smtp-password" {
+		t.Errorf("an update to the same SMTP server dropped the password: %v", s)
+	}
+	e.run("notify.channel.update", ChannelUpdateInput{ID: ids["webhook"], Name: "hook 2", MinSeverity: "critical",
+		Webhook: &WebhookInput{URL: "https://hooks2.example.com/darkpanel"}}, &up)
+	if up.Webhook == nil || up.Webhook.SecretSet {
+		t.Errorf("webhook output after a new URL %+v; want the HMAC key dropped", up.Webhook)
+	}
+	if s := e.secrets(ids["webhook"]); s["url"] != "https://hooks2.example.com/darkpanel" || s["secret"] != "" {
+		t.Errorf("after a new URL the webhook secrets are %v", s)
+	}
+	_, err = e.plan("notify.channel.update", ChannelUpdateInput{ID: ids["ntfy"], Name: "Phone", MinSeverity: "info",
 		Telegram: &TelegramInput{ChatID: "1"}})
 	wantField(t, "update with another kind's config", err, "/telegram")
 	_, err = e.plan("notify.channel.update", ChannelUpdateInput{ID: ids["ntfy"], Name: "mail", MinSeverity: "info", Ntfy: &NtfyInput{}})

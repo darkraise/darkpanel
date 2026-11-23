@@ -56,7 +56,10 @@ type ChannelInput struct {
 
 // ChannelUpdateInput is the input of notify.channel.update/v1. It replaces
 // the channel's settings, except a write-only value it omits; the kind
-// stays, and the settings object is the one its kind names.
+// stays, and the settings object is the one its kind names. A stored
+// write-only value is kept only while its destination stays: a new ntfy
+// server, SMTP host, port or security, or webhook URL needs the required
+// ones entered again and drops the optional ones.
 type ChannelUpdateInput struct {
 	ID          string         `json:"id" jsonschema:"minLength=1" jsonschema_description:"The channel's id."`
 	Name        string         `json:"name" jsonschema:"pattern=^[A-Za-z0-9][A-Za-z0-9 ._-]{0\\,47}$" jsonschema_description:"The name, as notify.channel.create takes it."`

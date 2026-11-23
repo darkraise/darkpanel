@@ -146,7 +146,7 @@ Returned in the `output` field of the response.
 
 ## notify.channel.update v1
 
-Change a notification channel's settings and routing; omitted write-only values are kept.
+Change a notification channel's settings and routing; omitted write-only values are kept while the destination stays.
 
 | Operation | Request |
 |---|---|

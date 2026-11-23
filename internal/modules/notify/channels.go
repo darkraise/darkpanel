@@ -109,7 +109,7 @@ func channelActions() []core.ActionDef {
 		core.DefineMutating[ChannelUpdateInput, Channel](core.ActionSpec{
 			Name: ID + ".channel.update", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
 			MinScope: core.ScopeAdmin, CompensatedBy: ID + ".channel.update",
-			Summary: "Change a notification channel's settings and routing; omitted write-only values are kept.",
+			Summary: "Change a notification channel's settings and routing; omitted write-only values are kept while the destination stays.",
 		}, channelUpdate{}),
 		core.DefineMutating[ChannelIDInput, Channel](core.ActionSpec{
 			Name: ID + ".channel.delete", Version: 1, Class: core.ClassIrreversible, Side: core.SideController,
@@ -199,9 +199,11 @@ func mailAddress(s string) bool {
 }
 
 // build checks d's settings for a kind channel and returns its stored
-// config and secrets. prev holds the stored secrets an update keeps; nil on
-// create.
-func build(kind string, d definition, prev map[string]string) (storedConfig, map[string]string, []errcode.FieldError) {
+// config and secrets. was and prev are the stored config and secrets an
+// update keeps; nil on create. A stored write-only value is kept only while
+// the destination it is sent to stays: when an update moves the channel, a
+// required one is entered again and an optional one is dropped.
+func build(kind string, d definition, was *storedConfig, prev map[string]string) (storedConfig, map[string]string, []errcode.FieldError) {
 	var fields []errcode.FieldError
 	add := func(path, msg string) { fields = append(fields, errcode.FieldError{Path: path, Message: msg}) }
 	given := map[string]bool{kindNtfy: d.Ntfy != nil, kindTelegram: d.Telegram != nil, kindDiscord: d.Discord != nil,
@@ -217,6 +219,7 @@ func build(kind string, d definition, prev map[string]string) (storedConfig, map
 	if len(fields) > 0 {
 		return storedConfig{}, nil, fields
 	}
+	moved := map[string]string{} // a write-only value's key -> why its stored value is not kept
 	// value is the write-only value given, or the stored one an update keeps.
 	value := func(path, key, given string, required bool, check func(string) string) string {
 		if given != "" {
@@ -226,6 +229,12 @@ func build(kind string, d definition, prev map[string]string) (storedConfig, map
 			return given
 		}
 		v := prev[key]
+		if why, ok := moved[key]; ok && v != "" {
+			if required {
+				add(path, why)
+			}
+			return ""
+		}
 		if v == "" && required {
 			add(path, "is required")
 		}
@@ -239,6 +248,10 @@ func build(kind string, d definition, prev map[string]string) (storedConfig, map
 		c.Server = n.Server
 		if c.Server == "" {
 			c.Server = defaultNtfyServer
+		}
+		if was != nil && c.Server != was.Server {
+			moved[secretTopic] = "is entered again when the server changes"
+			moved[secretToken] = moved[secretTopic]
 		}
 		if u, err := url.Parse(c.Server); !httpURL(c.Server) || err != nil || u.RawQuery != "" {
 			add("/ntfy/server", "is an http or https URL with a host and no user information, query or fragment")
@@ -272,6 +285,9 @@ func build(kind string, d definition, prev map[string]string) (storedConfig, map
 		})
 	case kindEmail:
 		e := d.Email
+		if was != nil && (e.Host != was.Host || e.Port != was.Port || e.Security != was.Security) {
+			moved[secretPassword] = "is entered again when the host, port or security changes"
+		}
 		if a, err := netip.ParseAddr(e.Host); (err != nil || a.Zone() != "") && (len(e.Host) > 253 || !hostLabels.MatchString(e.Host)) {
 			add("/email/host", "is a host name or an IP address")
 		}
@@ -316,6 +332,9 @@ func build(kind string, d definition, prev map[string]string) (storedConfig, map
 		c.PasswordSet = s[secretPassword] != ""
 	case kindWebhook:
 		w := d.Webhook
+		if w.URL != "" && w.URL != prev[secretURL] {
+			moved[secretHMAC] = "is entered again when the URL changes"
+		}
 		s[secretURL] = value("/webhook/url", secretURL, w.URL, true, func(v string) string {
 			if !httpURL(v) {
 				return "is an http or https URL with a host and no user information or fragment"
@@ -340,7 +359,7 @@ func build(kind string, d definition, prev map[string]string) (storedConfig, map
 
 // checkDefinition checks d for a kind channel named by id ("" on create)
 // and returns its stored config and secrets.
-func checkDefinition(ctx context.Context, q querier, id, kind string, d definition,
+func checkDefinition(ctx context.Context, q querier, id, kind string, d definition, was *storedConfig,
 	prev map[string]string) (storedConfig, map[string]string, error) {
 	var fields []errcode.FieldError
 	add := func(path, msg string) { fields = append(fields, errcode.FieldError{Path: path, Message: msg}) }
@@ -382,7 +401,7 @@ func checkDefinition(ctx context.Context, q querier, id, kind string, d definiti
 			add(at, "is not a host group")
 		}
 	}
-	c, s, more := build(kind, d, prev)
+	c, s, more := build(kind, d, was, prev)
 	fields = append(fields, more...)
 	if len(fields) > 0 {
 		return storedConfig{}, nil, refusal(fields)
@@ -600,7 +619,7 @@ type channelCreate struct{}
 
 func (channelCreate) Plan(ctx context.Context, env core.Env, in ChannelInput) (core.PlanOutcome, error) {
 	d := in.definition()
-	if _, _, err := checkDefinition(ctx, env.DB.Read(), "", in.Kind, d, nil); err != nil {
+	if _, _, err := checkDefinition(ctx, env.DB.Read(), "", in.Kind, d, nil, nil); err != nil {
 		return core.PlanOutcome{}, err
 	}
 	return core.PlanOutcome{
@@ -622,7 +641,7 @@ func (channelCreate) Apply(ctx context.Context, env core.Env, in ChannelInput) (
 		GroupIDs: in.GroupIDs, Enabled: true, CreatedAt: now}
 	var out Channel
 	err = env.DB.Write(ctx, func(tx *sql.Tx) error {
-		c, s, err := checkDefinition(ctx, tx, "", in.Kind, in.definition(), nil)
+		c, s, err := checkDefinition(ctx, tx, "", in.Kind, in.definition(), nil, nil)
 		if err != nil {
 			return core.Definite(err)
 		}
@@ -664,7 +683,7 @@ func (channelUpdate) Plan(ctx context.Context, env core.Env, in ChannelUpdateInp
 		return core.PlanOutcome{}, err
 	}
 	d := in.definition()
-	if _, _, err := checkDefinition(ctx, env.DB.Read(), r.ID, r.Kind, d, prev); err != nil {
+	if _, _, err := checkDefinition(ctx, env.DB.Read(), r.ID, r.Kind, d, &r.Config, prev); err != nil {
 		return core.PlanOutcome{}, err
 	}
 	state := "on"
@@ -693,7 +712,7 @@ func (channelUpdate) Apply(ctx context.Context, env core.Env, in ChannelUpdateIn
 		if err != nil {
 			return err
 		}
-		c, s, err := checkDefinition(ctx, tx, r.ID, r.Kind, in.definition(), prev)
+		c, s, err := checkDefinition(ctx, tx, r.ID, r.Kind, in.definition(), &r.Config, prev)
 		if err != nil {
 			return core.Definite(err)
 		}
