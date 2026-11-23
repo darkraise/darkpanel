@@ -115,12 +115,15 @@ type oidcState struct {
 // Subject are the OIDC identity to pin once the code is right, empty when
 // the user is already pinned.
 type signInTicket struct {
-	ID      string    `json:"id"`
-	UserID  string    `json:"user"`
-	Method  string    `json:"method"`
-	Issuer  string    `json:"iss,omitempty"`
-	Subject string    `json:"sub,omitempty"`
-	Expires time.Time `json:"exp"`
+	ID      string `json:"id"`
+	UserID  string `json:"user"`
+	Method  string `json:"method"`
+	Issuer  string `json:"iss,omitempty"`
+	Subject string `json:"sub,omitempty"`
+	// TailnetUserID is the Tailscale user id to pin once the code is right,
+	// empty when the user is already pinned.
+	TailnetUserID string    `json:"tailnetUser,omitempty"`
+	Expires       time.Time `json:"exp"`
 }
 
 func errMethodOff() error {
@@ -449,14 +452,12 @@ func (s *Service) FinishTOTPStep(ctx context.Context, r TOTPStepRequest) (LoginR
 		if !cur.usable() {
 			return errSignInRefused()
 		}
-		if t.Method == MethodOIDC {
-			st, err := loadSettings(ctx, tx)
-			if err != nil {
-				return err
-			}
-			if st.OIDC == nil {
-				return errMethodOff()
-			}
+		st, err := loadSettings(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if t.Method == MethodOIDC && st.OIDC == nil || t.Method == MethodTailscale && !st.Tailscale.Enabled {
+			return errMethodOff()
 		}
 		key, err := s.sealer.Open(totpAD(cur.ID), cur.totpCT)
 		if err != nil {
@@ -480,6 +481,16 @@ func (s *Service) FinishTOTPStep(ctx context.Context, r TOTPStepRequest) (LoginR
 				return fmt.Errorf("auth: link OIDC: %w", err)
 			}
 			if n, err := linked.RowsAffected(); err != nil || n != 1 {
+				return errSignInRefused()
+			}
+		}
+		if t.TailnetUserID != "" {
+			pinned, err := tx.ExecContext(ctx, `UPDATE core_users SET tailnet_user_id = ?, updated_at = ?
+				WHERE id = ? AND tailnet_user_id IS NULL`, t.TailnetUserID, now, cur.ID)
+			if err != nil {
+				return fmt.Errorf("auth: pin the tailnet user: %w", err)
+			}
+			if n, err := pinned.RowsAffected(); err != nil || n != 1 {
 				return errSignInRefused()
 			}
 		}

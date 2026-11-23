@@ -136,6 +136,8 @@ func TestRoutes(t *testing.T) {
 		{Method: "GET", Path: "/api/v1/auth/methods", Public: true},
 		{Method: "GET", Path: "/api/v1/auth/oidc/start", Public: true},
 		{Method: "GET", Path: "/api/v1/auth/oidc/callback", Public: true},
+		{Method: "GET", Path: "/api/v1/auth/tailscale", Public: true},
+		{Method: "POST", Path: "/api/v1/auth/tailscale", Public: true},
 		{Method: "POST", Path: "/api/v1/auth/totp", Public: true},
 		{Method: "POST", Path: "/api/v1/auth/logout"},
 		{Method: "GET", Path: "/api/v1/auth/session"},

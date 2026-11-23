@@ -453,6 +453,8 @@ func (e *e2e) denyByDefault(t *testing.T, hostID string) {
 			return method == "POST"
 		case path == "/api/v1/auth/methods", path == "/api/v1/auth/oidc/start", path == "/api/v1/auth/oidc/callback":
 			return get
+		case path == "/api/v1/auth/tailscale":
+			return get || method == "POST"
 		case path == "/healthz":
 			return get
 		case path == "/api" || strings.HasPrefix(path, "/api/"):

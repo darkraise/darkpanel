@@ -23818,6 +23818,32 @@
         "summary": "Describe the calling session or token"
       }
     },
+    "/api/v1/auth/tailscale": {
+      "get": {
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "summary": "Which user this Tailscale node may continue as, from the listener's whois"
+      },
+      "post": {
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "summary": "Continue as the user this Tailscale node's whois matches and sign in"
+      }
+    },
     "/api/v1/auth/totp": {
       "post": {
         "responses": {

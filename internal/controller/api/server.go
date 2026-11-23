@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -45,6 +46,8 @@ type Authenticator interface {
 	StartOIDC(ctx context.Context, origin string) (auth.OIDCStart, error)
 	FinishOIDC(ctx context.Context, c auth.OIDCCallback) (auth.SignInResult, error)
 	FinishTOTPStep(ctx context.Context, r auth.TOTPStepRequest) (auth.LoginResult, error)
+	TailscaleMatchFor(ctx context.Context, r auth.TailscaleRequest) (auth.TailscaleMatch, error)
+	SignInTailscale(ctx context.Context, r auth.TailscaleRequest) (auth.SignInResult, error)
 }
 
 var _ Authenticator = (*auth.Service)(nil)
@@ -71,6 +74,9 @@ type Config struct {
 	HostID string
 	// Dev accepts the service's own non-root uid on the controller socket.
 	Dev bool
+	// Whois runs tailscale.whois.get for addr on the controller host's
+	// agent; nil turns Tailscale identity sign-in away.
+	Whois func(ctx context.Context, addr netip.Addr) (json.RawMessage, error)
 	// UI is the web UI served at /; nil serves none.
 	UI fs.FS
 	// HealthStatus is the status GET /healthz reports, always with HTTP 200;
@@ -94,14 +100,15 @@ type Config struct {
 
 // Server serves the API. Its handlers are safe for concurrent use.
 type Server struct {
-	cfg       Config
-	log       *slog.Logger
-	mux       *http.ServeMux
-	handler   http.Handler
-	socket    http.Handler   // SocketHandler's answer, built once by New
-	streamMux *http.ServeMux // the contributed web stream routes' patterns
-	listeners atomic.Pointer[func() ListenerState]
-	tailscale atomic.Pointer[func() []netip.Addr]
+	cfg        Config
+	log        *slog.Logger
+	mux        *http.ServeMux
+	handler    http.Handler
+	socket     http.Handler   // SocketHandler's answer, built once by New
+	streamMux  *http.ServeMux // the contributed web stream routes' patterns
+	listeners  atomic.Pointer[func() ListenerState]
+	tailscale  atomic.Pointer[func() []netip.Addr]
+	whoisLimit whoisThrottle
 
 	eventsMu     sync.Mutex
 	eventStreams map[string]int // open GET /api/v1/events streams per Principal.Actor
@@ -292,6 +299,8 @@ func routeAccess(method, path string) access {
 	get := method == http.MethodGet || method == http.MethodHead
 	switch {
 	case method == http.MethodPost && (path == loginPath || path == enrollBeginPath || path == enrollFinishPath || path == totpStepPath):
+		return accessPublic
+	case (get || method == http.MethodPost) && path == tailscalePath:
 		return accessPublic
 	case get && (path == oidcStartPath || path == oidcCallbackPath || path == methodsPath):
 		return accessPublic

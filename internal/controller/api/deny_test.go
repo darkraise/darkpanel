@@ -27,6 +27,8 @@ func specPublic(method, path string) bool {
 	switch path {
 	case "/api/v1/auth/login", "/api/v1/enroll/begin", "/api/v1/enroll/finish", "/api/v1/auth/totp":
 		return method == "POST"
+	case "/api/v1/auth/tailscale":
+		return get || method == "POST"
 	case "/healthz", "/", "/hosts/h1/hostinfo", "/assets/app.js", "/api/v1/auth/methods", "/api/v1/auth/oidc/start",
 		"/api/v1/auth/oidc/callback":
 		return get

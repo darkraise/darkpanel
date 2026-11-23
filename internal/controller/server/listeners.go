@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,6 +47,7 @@ func (s *Server) startListeners(ctx context.Context) error {
 			return store.SchemaVersion(ctx, s.controllerDB, store.SideController)
 		},
 		HostID: s.localHostID, Dev: s.opts.Dev, UI: api.EmbeddedUI(), Log: s.log, HealthStatus: s.opts.HealthStatus,
+		Whois:  s.whois,
 		Events: s.events, Clock: s.clock, Extensions: routes,
 	})
 	if err != nil {
@@ -235,4 +237,17 @@ func (s *Server) webOrigins(ctx context.Context) ([]string, error) {
 		out = append(out, "https://"+host)
 	}
 	return out, rows.Err()
+}
+
+// whoisReader is the principal Tailscale identity sign-in runs
+// tailscale.whois.get as, on the controller host's agent.
+var whoisReader = core.Principal{Actor: "system:auth.tailscale", Scope: core.ScopeAdmin}
+
+// whois runs tailscale.whois.get for addr on the controller host's agent.
+func (s *Server) whois(ctx context.Context, addr netip.Addr) (json.RawMessage, error) {
+	in, err := json.Marshal(map[string]string{"addr": addr.String()})
+	if err != nil {
+		return nil, err
+	}
+	return s.dispatcher.ReadInternal(ctx, whoisReader, s.localHostID, core.ActionRef{Name: "tailscale.whois.get", Version: 1}, in)
 }

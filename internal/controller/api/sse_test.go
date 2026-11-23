@@ -69,6 +69,14 @@ func (a *sseAuth) FinishTOTPStep(context.Context, auth.TOTPStepRequest) (auth.Lo
 	return auth.LoginResult{}, errors.New("not used")
 }
 
+func (a *sseAuth) TailscaleMatchFor(context.Context, auth.TailscaleRequest) (auth.TailscaleMatch, error) {
+	return auth.TailscaleMatch{}, errors.New("not used")
+}
+
+func (a *sseAuth) SignInTailscale(context.Context, auth.TailscaleRequest) (auth.SignInResult, error) {
+	return auth.SignInResult{}, errors.New("not used")
+}
+
 // sseIdentity is a token identity of the read scope that ends at expires.
 func sseIdentity(expires time.Time) auth.Identity {
 	// An admin's read token: its access, not its scope, carries the read.
