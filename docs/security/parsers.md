@@ -135,6 +135,8 @@ A cell never contains a pipe character. Several rows may name one `(Package, Tar
 | `auth.parsePHC` | password hashes in Darkpanel's database | written only by Darkpanel |
 | Firewall journal state | the firewall journal rows | written only by Darkpanel |
 | `update.ReadRecord` | update transaction records under the update directory | root-owned state that only Darkpanel writes |
+| `system.(module).failedSources` | the failed-sources file under Darkpanel's state directory | written only by Darkpanel's refresh action |
+| `system.(module).dockerDataRoot` | `/etc/docker/daemon.json` | `encoding/json` decodes into a typed struct; there is no hand-written parser |
 | `ValidateStaged` | the staged update binary and its record | root-owned state that only Darkpanel writes |
 | Release index decoding (`update` source `releases.json`) | the release index of the update mirror | `encoding/json` decodes into typed structs after a size bound, and the format version is checked; there is no hand-written parser |
 | Signature parsing in `update.VerifyChecksums` | the minisign signatures of `checksums.txt` from the update mirror | parsed and verified by the third-party `aead.dev/minisign`; Darkpanel's own code only compares the parsed algorithm and trusted comment |

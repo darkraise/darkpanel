@@ -87,8 +87,8 @@ func FuzzAptOutput(f *testing.F) {
 	})
 }
 
-// FuzzDebVersionCompare checks that the Debian version order is a total
-// order on the inputs: reflexive, antisymmetric, and -1, 0 or 1.
+// FuzzDebVersionCompare checks that the Debian version order is reflexive
+// and antisymmetric, answers -1, 0 or 1, and that splitDebVersion rejoins.
 func FuzzDebVersionCompare(f *testing.F) {
 	f.Add("1:2.3-4", "2.3-4")
 	f.Add("1.0~rc1", "1.0")
