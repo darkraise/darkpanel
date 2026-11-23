@@ -13473,6 +13473,43 @@
         ],
         "type": "object"
       },
+      "notify.channel.test.v1.input": {
+        "$ref": "#/components/schemas/notify.channel.test.v1.input.ChannelIDInput"
+      },
+      "notify.channel.test.v1.input.ChannelIDInput": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The channel's id.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "notify.channel.test.v1.output": {
+        "$ref": "#/components/schemas/notify.channel.test.v1.output.TestResult"
+      },
+      "notify.channel.test.v1.output.TestResult": {
+        "properties": {
+          "code": {
+            "description": "The HTTP status or SMTP reply code the provider answered, or timeout, network, tls or invalid; never the provider's text.",
+            "type": "string"
+          },
+          "delivered": {
+            "description": "Whether the provider accepted the test notification.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "delivered",
+          "code"
+        ],
+        "type": "object"
+      },
       "notify.channel.update.v1.input": {
         "$ref": "#/components/schemas/notify.channel.update.v1.input.ChannelUpdateInput"
       },
@@ -23309,6 +23346,62 @@
           }
         ],
         "summary": "List the notification channels with their routing and last delivery; write-only values are never returned."
+      }
+    },
+    "/api/v1/actions/notify.channel.test/v1/read": {
+      "post": {
+        "operationId": "notify.channel.test.v1.read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/notify.channel.test.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/notify.channel.test.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Send one test notification on a channel, ignoring its routing and the retry schedule; reports the provider's status or reply code."
       }
     },
     "/api/v1/actions/notify.channel.update/v1/apply": {

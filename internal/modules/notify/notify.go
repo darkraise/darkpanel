@@ -34,23 +34,26 @@ type module struct{}
 // Module returns the notify module.
 func Module() core.Module { return module{} }
 
-// Manifest declares the module: its controller-side channel actions and
-// the controller migration that holds the channels, events and deliveries.
+// Manifest declares the module: its controller-side channel actions, the
+// channel test, and the controller migration that holds the channels,
+// events and deliveries.
 func (module) Manifest() core.Manifest {
 	return core.Manifest{
 		ID:             ID,
 		Version:        1,
 		DefaultEnabled: true,
-		Actions:        channelActions(),
+		Actions:        append(channelActions(), testAction()),
 		Migrations:     map[core.Side]fs.FS{core.SideController: controllerMigrations()},
 	}
 }
 
 // Controller registers the channels' group referrer, so core.group.delete
-// refuses a group a channel routes to. It runs only in the controller,
-// whose database holds the module's tables.
-func (module) Controller(ext.Deps) ([]ext.Route, []ext.Service, error) {
+// refuses a group a channel routes to, and hands notify.channel.test the
+// audit log. It runs only in the controller, whose database holds the
+// module's tables.
+func (module) Controller(deps ext.Deps) ([]ext.Route, []ext.Service, error) {
 	coreactions.RegisterGroupReferrer(ID+".channels", channelReferrer)
+	setAudit(deps.Audit)
 	return nil, nil, nil
 }
 

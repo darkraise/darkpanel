@@ -1,0 +1,50 @@
+{
+  "name": "notify.channel.test",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ChannelIDInput",
+    "$defs": {
+      "ChannelIDInput": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The channel's id."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TestResult",
+    "$defs": {
+      "TestResult": {
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "description": "Whether the provider accepted the test notification."
+          },
+          "code": {
+            "type": "string",
+            "description": "The HTTP status or SMTP reply code the provider answered, or timeout, network, tls or invalid; never the provider's text."
+          }
+        },
+        "type": "object",
+        "required": [
+          "delivered",
+          "code"
+        ]
+      }
+    }
+  }
+}

@@ -144,6 +144,33 @@ Returned in the `output` field of the response.
 | `channels[].telegram` | object or null | no |  |
 | `channels[].webhook` | object or null | no |  |
 
+## notify.channel.test v1
+
+Send one test notification on a channel, ignoring its routing and the retry schedule; reports the provider's status or reply code.
+
+| Operation | Request |
+|---|---|
+| read | `POST /api/v1/actions/notify.channel.test/v1/read` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The channel's id. |
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `code` | string | yes | The HTTP status or SMTP reply code the provider answered, or timeout, network, tls or invalid; never the provider's text. |
+| `delivered` | boolean | yes | Whether the provider accepted the test notification. |
+
 ## notify.channel.update v1
 
 Change a notification channel's settings and routing; omitted write-only values are kept while the destination stays.
