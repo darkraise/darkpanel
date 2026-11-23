@@ -357,7 +357,7 @@ func (h userInviteRenew) Plan(ctx context.Context, _ core.Env, in UsernameInput)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	u, err := svc.Invited(ctx, in.Username)
+	u, err := svc.LinkHolder(ctx, in.Username)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -384,7 +384,12 @@ func (h userInviteRenew) Apply(ctx context.Context, _ core.Env, in UsernameInput
 }
 
 func (h userInviteRenew) Verify(ctx context.Context, _ core.Env, in UsernameInput, _ Invitation) error {
-	return wantUserState(ctx, h.m, in.Username, auth.StatePending)
+	svc, err := h.m.authService()
+	if err != nil {
+		return err
+	}
+	_, err = svc.LinkHolder(ctx, in.Username)
+	return err
 }
 
 type userInviteCancel struct{ m module }
@@ -617,7 +622,7 @@ func (h userSetRole) Plan(ctx context.Context, env core.Env, in SetRoleInput) (c
 		}
 	}
 	diff = append(diff, grantDiff...)
-	if _, err := svc.Invited(ctx, in.Username); err == nil {
+	if _, err := svc.LinkHolder(ctx, in.Username); err == nil {
 		diff = append(diff, core.DiffLine{Op: " ", Text: "its enrollment link ends; core.user.renew-invite gives a new one"})
 		state = append(state, "invited")
 	}

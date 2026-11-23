@@ -372,6 +372,20 @@ func TestOIDCActivatesInvite(t *testing.T) {
 		t.Errorf("audits %v; want one ok oidc sign-in that activated mia", audits)
 	}
 
+	// An admin can renew the link, which ends the old one, but not cancel
+	// an active user.
+	if _, err := e.s.CancelInvite(ctx, "mia"); errcode.From(err).Code != errcode.InvalidInput {
+		t.Errorf("cancel of an activated invite: %v; want invalid_input", err)
+	}
+	renewed, err := e.s.RenewInvite(ctx, "mia")
+	if err != nil {
+		t.Fatalf("renew of an activated invite's link: %v", err)
+	}
+	if _, err := e.s.BeginEnrollment(ctx, inv.Token, "192.0.2.8", false); errcode.From(err).Code != errcode.EnrollmentExpired {
+		t.Errorf("the replaced link: %v; want enrollment_expired", err)
+	}
+	inv.Token = renewed.Token
+
 	// The enrollment link still sets the password.
 	begin, err := e.s.BeginEnrollment(ctx, inv.Token, "192.0.2.8", false)
 	if err != nil {
@@ -468,5 +482,16 @@ func TestOIDCCodeStep(t *testing.T) {
 	}
 	if n := count(t, e.s, "core_sessions", "1 = 1"); n != 2 {
 		t.Errorf("%d sessions; want the two code steps'", n)
+	}
+
+	// OIDC turned off between the callback and the code ends the sign-in.
+	res, err = e.signIn(e.claims("s-1", "alice@example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(t, e.s, `UPDATE auth_settings SET oidc_issuer = NULL`)
+	e.clock.Advance(TOTPPeriod)
+	if _, err := e.s.FinishTOTPStep(ctx, TOTPStepRequest{Ticket: res.Ticket, Code: code(t, secret, e.clock), Source: "192.0.2.7"}); errcode.From(err).Code != errcode.MethodOff {
+		t.Errorf("code step after OIDC was turned off: %v; want method_off", err)
 	}
 }

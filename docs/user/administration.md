@@ -54,7 +54,9 @@ action named after it, with the previous value.
   `admin` or a `member` with grants, and returns a one-time enrollment link
   valid 72 hours. Undo it with `core.user.cancel-invite`.
 - `core.user.renew-invite`: gives an invited user that never enrolled a new
-  link; the old one stops working. Undo it with `core.user.renew-invite`.
+  link; the old one stops working. It also renews the unused link of an invite
+  that an OIDC sign-in activated, so a leaked link can be ended. Undo it with
+  `core.user.renew-invite`.
 - `core.user.cancel-invite`: removes an invited user that never enrolled.
   Undo it with `core.user.invite`.
 - `core.user.set-role`: makes a user an `admin` or a `member`, and refuses to

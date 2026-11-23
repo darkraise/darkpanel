@@ -176,7 +176,7 @@ func writeSignInPage(w http.ResponseWriter, s *Server, err error) {
 		status = http.StatusTooManyRequests
 	case errcode.InvalidCredentials:
 	default:
-		s.log.Error("api: OIDC sign-in failed", "code", errcode.From(err).Code)
+		s.log.Error("api: OIDC sign-in failed", "code", errcode.From(err).Code, "err", err)
 	}
 	writeOutcomePage(w, status, outcome)
 }

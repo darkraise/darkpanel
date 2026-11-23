@@ -449,6 +449,15 @@ func (s *Service) FinishTOTPStep(ctx context.Context, r TOTPStepRequest) (LoginR
 		if !cur.usable() {
 			return errSignInRefused()
 		}
+		if t.Method == MethodOIDC {
+			st, err := loadSettings(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if st.OIDC == nil {
+				return errMethodOff()
+			}
+		}
 		key, err := s.sealer.Open(totpAD(cur.ID), cur.totpCT)
 		if err != nil {
 			return fmt.Errorf("auth: open TOTP secret: %w", err)

@@ -613,8 +613,11 @@ func (s *Service) Invite(ctx context.Context, r InviteRequest) (Invitation, erro
 }
 
 // loadInvited reads username for renew and cancel, which apply only to a user
-// that never enrolled: pending, with an enrollment link never used.
-func loadInvited(ctx context.Context, tx querier, username string) (userRecord, error) {
+// that never enrolled: pending, with an enrollment link never used. With
+// active, an active user whose link is unused qualifies too: an OIDC or
+// Tailscale sign-in activated its invite, the link still sets its password,
+// and renewing the link is how an admin ends one that leaked.
+func loadInvited(ctx context.Context, tx querier, username string, active bool) (userRecord, error) {
 	r, err := loadUser(ctx, tx, username)
 	if err != nil {
 		return userRecord{}, err
@@ -624,7 +627,7 @@ func loadInvited(ctx context.Context, tx querier, username string) (userRecord, 
 		r.ID).Scan(&n); err != nil {
 		return userRecord{}, fmt.Errorf("auth: load enrollment: %w", err)
 	}
-	if r.State != StatePending || n == 0 {
+	if (r.State != StatePending && (!active || r.State != StateActive)) || n == 0 {
 		return userRecord{}, invalidField("/username", "the user is not an invite that was never used")
 	}
 	return r, nil
@@ -634,17 +637,25 @@ func loadInvited(ctx context.Context, tx querier, username string) (userRecord, 
 // users core.user.renew-invite and core.user.cancel-invite apply to; any
 // other user is request.invalid_input.
 func (s *Service) Invited(ctx context.Context, username string) (User, error) {
-	r, err := loadInvited(ctx, s.db.Read(), username)
+	r, err := loadInvited(ctx, s.db.Read(), username, false)
 	return r.User, err
 }
 
-// RenewInvite gives an invited user that never enrolled a new enrollment
-// link valid 72 hours; the previous link stops working.
+// LinkHolder returns username when it holds an unused enrollment link: an
+// invite that never enrolled, or one whose invite an OIDC or Tailscale
+// sign-in activated. core.user.renew-invite applies to these users.
+func (s *Service) LinkHolder(ctx context.Context, username string) (User, error) {
+	r, err := loadInvited(ctx, s.db.Read(), username, true)
+	return r.User, err
+}
+
+// RenewInvite gives a user holding an unused enrollment link (LinkHolder) a
+// new link valid 72 hours; the previous link stops working.
 func (s *Service) RenewInvite(ctx context.Context, username string) (Invitation, error) {
 	token, tokenHash := newEnrollToken()
 	var inv Invitation
 	err := s.db.Write(ctx, func(tx *sql.Tx) error {
-		r, err := loadInvited(ctx, tx, username)
+		r, err := loadInvited(ctx, tx, username, true)
 		if err != nil {
 			return err
 		}
@@ -667,7 +678,7 @@ func (s *Service) RenewInvite(ctx context.Context, username string) (Invitation,
 func (s *Service) CancelInvite(ctx context.Context, username string) (User, error) {
 	var u User
 	err := s.db.Write(ctx, func(tx *sql.Tx) error {
-		r, err := loadInvited(ctx, tx, username)
+		r, err := loadInvited(ctx, tx, username, false)
 		if err != nil {
 			return err
 		}
