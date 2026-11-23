@@ -12485,6 +12485,1443 @@
         ],
         "type": "object"
       },
+      "notify.channel.create.v1.input": {
+        "$ref": "#/components/schemas/notify.channel.create.v1.input.ChannelInput"
+      },
+      "notify.channel.create.v1.input.ChannelInput": {
+        "additionalProperties": false,
+        "properties": {
+          "discord": {
+            "$ref": "#/components/schemas/notify.channel.create.v1.input.DiscordInput",
+            "description": "The settings of a Discord channel."
+          },
+          "email": {
+            "$ref": "#/components/schemas/notify.channel.create.v1.input.EmailInput",
+            "description": "The settings of an email channel."
+          },
+          "groupIds": {
+            "description": "The host groups whose hosts' events the channel receives; empty receives every host's and host-less events.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "description": "The channel kind.",
+            "enum": [
+              "ntfy",
+              "telegram",
+              "discord",
+              "email",
+              "webhook"
+            ],
+            "type": "string"
+          },
+          "kinds": {
+            "description": "The event kinds the channel receives; empty receives every kind.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "minSeverity": {
+            "description": "The lowest severity the channel receives.",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "The name: 1 to 48 letters, digits, spaces, dots, underscores or hyphens, starting with a letter or digit.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$",
+            "type": "string"
+          },
+          "ntfy": {
+            "$ref": "#/components/schemas/notify.channel.create.v1.input.NtfyInput",
+            "description": "The settings of an ntfy channel."
+          },
+          "telegram": {
+            "$ref": "#/components/schemas/notify.channel.create.v1.input.TelegramInput",
+            "description": "The settings of a Telegram channel."
+          },
+          "webhook": {
+            "$ref": "#/components/schemas/notify.channel.create.v1.input.WebhookInput",
+            "description": "The settings of a webhook channel."
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "minSeverity"
+        ],
+        "type": "object"
+      },
+      "notify.channel.create.v1.input.DiscordInput": {
+        "additionalProperties": false,
+        "properties": {
+          "webhookUrl": {
+            "description": "The channel's https://discord.com/api/webhooks/... URL; write-only, required on create.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "type": "object"
+      },
+      "notify.channel.create.v1.input.EmailInput": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "description": "The sender address.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "host": {
+            "description": "The SMTP server's host name or address.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "password": {
+            "description": "The SMTP password, with a user name; write-only, and an update keeps a stored one it omits.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "port": {
+            "description": "The SMTP server's port.",
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "recipients": {
+            "description": "1 to 10 recipient addresses.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "type": "array"
+          },
+          "security": {
+            "description": "starttls, tls (implicit TLS) or none; none only to a loopback host.",
+            "enum": [
+              "starttls",
+              "tls",
+              "none"
+            ],
+            "type": "string"
+          },
+          "username": {
+            "description": "The SMTP user name; omitted when the server needs no sign-in.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "security",
+          "from",
+          "recipients"
+        ],
+        "type": "object"
+      },
+      "notify.channel.create.v1.input.NtfyInput": {
+        "additionalProperties": false,
+        "properties": {
+          "server": {
+            "description": "The ntfy server, an http or https URL; https://ntfy.sh when omitted.",
+            "type": "string"
+          },
+          "token": {
+            "description": "An access token sent as a bearer token; optional and write-only.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "topic": {
+            "description": "The topic, 1 to 64 letters, digits, hyphens or underscores; write-only, required on create.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "type": "object"
+      },
+      "notify.channel.create.v1.input.TelegramInput": {
+        "additionalProperties": false,
+        "properties": {
+          "botToken": {
+            "description": "The bot's token from BotFather; write-only, required on create.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "chatId": {
+            "description": "The chat id, a number, or @ and a public channel's name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chatId"
+        ],
+        "type": "object"
+      },
+      "notify.channel.create.v1.input.WebhookInput": {
+        "additionalProperties": false,
+        "properties": {
+          "secret": {
+            "description": "An HMAC-SHA256 key; the body's signature is sent as X-Darkpanel-Signature: sha256=\u003chex\u003e. Optional and write-only.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "url": {
+            "description": "The http or https URL the JSON body is posted to; write-only, required on create.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "type": "object"
+      },
+      "notify.channel.create.v1.output": {
+        "$ref": "#/components/schemas/notify.channel.create.v1.output.Channel"
+      },
+      "notify.channel.create.v1.output.Channel": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "discord": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.create.v1.output.DiscordView",
+                "description": "A Discord channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.create.v1.output.EmailView",
+                "description": "An email channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "description": "Whether the channel receives events.",
+            "type": "boolean"
+          },
+          "groupIds": {
+            "description": "The host groups the channel is limited to; empty is every host.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The channel's id.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "ntfy, telegram, discord, email or webhook.",
+            "type": "string"
+          },
+          "kinds": {
+            "description": "The event kinds the channel receives; empty receives every kind.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "lastDelivery": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.create.v1.output.Delivery",
+                "description": "The latest finished delivery; null before the first."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minSeverity": {
+            "description": "The lowest severity the channel receives.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The channel's name.",
+            "type": "string"
+          },
+          "ntfy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.create.v1.output.NtfyView",
+                "description": "An ntfy channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "telegram": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.create.v1.output.TelegramView",
+                "description": "A Telegram channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "webhook": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.create.v1.output.WebhookView",
+                "description": "A webhook channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "minSeverity",
+          "kinds",
+          "groupIds",
+          "enabled",
+          "createdAt",
+          "lastDelivery"
+        ],
+        "type": "object"
+      },
+      "notify.channel.create.v1.output.Delivery": {
+        "properties": {
+          "at": {
+            "description": "When the delivery finished.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "description": "A failed delivery's reason: an HTTP status, an SMTP reply code or a short code; never a provider's body.",
+            "type": "string"
+          },
+          "state": {
+            "description": "sent or failed.",
+            "enum": [
+              "sent",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "at"
+        ],
+        "type": "object"
+      },
+      "notify.channel.create.v1.output.DiscordView": {
+        "properties": {},
+        "type": "object"
+      },
+      "notify.channel.create.v1.output.EmailView": {
+        "properties": {
+          "from": {
+            "description": "The sender address.",
+            "type": "string"
+          },
+          "host": {
+            "description": "The SMTP server's host.",
+            "type": "string"
+          },
+          "passwordSet": {
+            "description": "Whether a password is stored.",
+            "type": "boolean"
+          },
+          "port": {
+            "description": "The SMTP server's port.",
+            "type": "integer"
+          },
+          "recipients": {
+            "description": "The recipient addresses.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "security": {
+            "description": "starttls, tls or none.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The SMTP user name; empty for none.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "security",
+          "username",
+          "passwordSet",
+          "from",
+          "recipients"
+        ],
+        "type": "object"
+      },
+      "notify.channel.create.v1.output.NtfyView": {
+        "properties": {
+          "server": {
+            "description": "The ntfy server.",
+            "type": "string"
+          },
+          "tokenSet": {
+            "description": "Whether an access token is stored.",
+            "type": "boolean"
+          },
+          "topic": {
+            "description": "The topic's first 4 characters and an ellipsis.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server",
+          "topic",
+          "tokenSet"
+        ],
+        "type": "object"
+      },
+      "notify.channel.create.v1.output.TelegramView": {
+        "properties": {
+          "chatId": {
+            "description": "The chat id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chatId"
+        ],
+        "type": "object"
+      },
+      "notify.channel.create.v1.output.WebhookView": {
+        "properties": {
+          "secretSet": {
+            "description": "Whether an HMAC key is stored.",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "The URL's first 4 characters and an ellipsis.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "secretSet"
+        ],
+        "type": "object"
+      },
+      "notify.channel.delete.v1.input": {
+        "$ref": "#/components/schemas/notify.channel.delete.v1.input.ChannelIDInput"
+      },
+      "notify.channel.delete.v1.input.ChannelIDInput": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The channel's id.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "notify.channel.delete.v1.output": {
+        "$ref": "#/components/schemas/notify.channel.delete.v1.output.Channel"
+      },
+      "notify.channel.delete.v1.output.Channel": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "discord": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.delete.v1.output.DiscordView",
+                "description": "A Discord channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.delete.v1.output.EmailView",
+                "description": "An email channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "description": "Whether the channel receives events.",
+            "type": "boolean"
+          },
+          "groupIds": {
+            "description": "The host groups the channel is limited to; empty is every host.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The channel's id.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "ntfy, telegram, discord, email or webhook.",
+            "type": "string"
+          },
+          "kinds": {
+            "description": "The event kinds the channel receives; empty receives every kind.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "lastDelivery": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.delete.v1.output.Delivery",
+                "description": "The latest finished delivery; null before the first."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minSeverity": {
+            "description": "The lowest severity the channel receives.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The channel's name.",
+            "type": "string"
+          },
+          "ntfy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.delete.v1.output.NtfyView",
+                "description": "An ntfy channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "telegram": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.delete.v1.output.TelegramView",
+                "description": "A Telegram channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "webhook": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.delete.v1.output.WebhookView",
+                "description": "A webhook channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "minSeverity",
+          "kinds",
+          "groupIds",
+          "enabled",
+          "createdAt",
+          "lastDelivery"
+        ],
+        "type": "object"
+      },
+      "notify.channel.delete.v1.output.Delivery": {
+        "properties": {
+          "at": {
+            "description": "When the delivery finished.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "description": "A failed delivery's reason: an HTTP status, an SMTP reply code or a short code; never a provider's body.",
+            "type": "string"
+          },
+          "state": {
+            "description": "sent or failed.",
+            "enum": [
+              "sent",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "at"
+        ],
+        "type": "object"
+      },
+      "notify.channel.delete.v1.output.DiscordView": {
+        "properties": {},
+        "type": "object"
+      },
+      "notify.channel.delete.v1.output.EmailView": {
+        "properties": {
+          "from": {
+            "description": "The sender address.",
+            "type": "string"
+          },
+          "host": {
+            "description": "The SMTP server's host.",
+            "type": "string"
+          },
+          "passwordSet": {
+            "description": "Whether a password is stored.",
+            "type": "boolean"
+          },
+          "port": {
+            "description": "The SMTP server's port.",
+            "type": "integer"
+          },
+          "recipients": {
+            "description": "The recipient addresses.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "security": {
+            "description": "starttls, tls or none.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The SMTP user name; empty for none.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "security",
+          "username",
+          "passwordSet",
+          "from",
+          "recipients"
+        ],
+        "type": "object"
+      },
+      "notify.channel.delete.v1.output.NtfyView": {
+        "properties": {
+          "server": {
+            "description": "The ntfy server.",
+            "type": "string"
+          },
+          "tokenSet": {
+            "description": "Whether an access token is stored.",
+            "type": "boolean"
+          },
+          "topic": {
+            "description": "The topic's first 4 characters and an ellipsis.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server",
+          "topic",
+          "tokenSet"
+        ],
+        "type": "object"
+      },
+      "notify.channel.delete.v1.output.TelegramView": {
+        "properties": {
+          "chatId": {
+            "description": "The chat id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chatId"
+        ],
+        "type": "object"
+      },
+      "notify.channel.delete.v1.output.WebhookView": {
+        "properties": {
+          "secretSet": {
+            "description": "Whether an HMAC key is stored.",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "The URL's first 4 characters and an ellipsis.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "secretSet"
+        ],
+        "type": "object"
+      },
+      "notify.channel.list.v1.input": {
+        "$ref": "#/components/schemas/notify.channel.list.v1.input.NoInput"
+      },
+      "notify.channel.list.v1.input.NoInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "notify.channel.list.v1.output": {
+        "$ref": "#/components/schemas/notify.channel.list.v1.output.ChannelList"
+      },
+      "notify.channel.list.v1.output.Channel": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "discord": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.list.v1.output.DiscordView",
+                "description": "A Discord channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.list.v1.output.EmailView",
+                "description": "An email channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "description": "Whether the channel receives events.",
+            "type": "boolean"
+          },
+          "groupIds": {
+            "description": "The host groups the channel is limited to; empty is every host.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The channel's id.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "ntfy, telegram, discord, email or webhook.",
+            "type": "string"
+          },
+          "kinds": {
+            "description": "The event kinds the channel receives; empty receives every kind.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "lastDelivery": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.list.v1.output.Delivery",
+                "description": "The latest finished delivery; null before the first."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minSeverity": {
+            "description": "The lowest severity the channel receives.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The channel's name.",
+            "type": "string"
+          },
+          "ntfy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.list.v1.output.NtfyView",
+                "description": "An ntfy channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "telegram": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.list.v1.output.TelegramView",
+                "description": "A Telegram channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "webhook": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.list.v1.output.WebhookView",
+                "description": "A webhook channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "minSeverity",
+          "kinds",
+          "groupIds",
+          "enabled",
+          "createdAt",
+          "lastDelivery"
+        ],
+        "type": "object"
+      },
+      "notify.channel.list.v1.output.ChannelList": {
+        "properties": {
+          "channels": {
+            "description": "Every channel, sorted by name.",
+            "items": {
+              "$ref": "#/components/schemas/notify.channel.list.v1.output.Channel"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "channels"
+        ],
+        "type": "object"
+      },
+      "notify.channel.list.v1.output.Delivery": {
+        "properties": {
+          "at": {
+            "description": "When the delivery finished.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "description": "A failed delivery's reason: an HTTP status, an SMTP reply code or a short code; never a provider's body.",
+            "type": "string"
+          },
+          "state": {
+            "description": "sent or failed.",
+            "enum": [
+              "sent",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "at"
+        ],
+        "type": "object"
+      },
+      "notify.channel.list.v1.output.DiscordView": {
+        "properties": {},
+        "type": "object"
+      },
+      "notify.channel.list.v1.output.EmailView": {
+        "properties": {
+          "from": {
+            "description": "The sender address.",
+            "type": "string"
+          },
+          "host": {
+            "description": "The SMTP server's host.",
+            "type": "string"
+          },
+          "passwordSet": {
+            "description": "Whether a password is stored.",
+            "type": "boolean"
+          },
+          "port": {
+            "description": "The SMTP server's port.",
+            "type": "integer"
+          },
+          "recipients": {
+            "description": "The recipient addresses.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "security": {
+            "description": "starttls, tls or none.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The SMTP user name; empty for none.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "security",
+          "username",
+          "passwordSet",
+          "from",
+          "recipients"
+        ],
+        "type": "object"
+      },
+      "notify.channel.list.v1.output.NtfyView": {
+        "properties": {
+          "server": {
+            "description": "The ntfy server.",
+            "type": "string"
+          },
+          "tokenSet": {
+            "description": "Whether an access token is stored.",
+            "type": "boolean"
+          },
+          "topic": {
+            "description": "The topic's first 4 characters and an ellipsis.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server",
+          "topic",
+          "tokenSet"
+        ],
+        "type": "object"
+      },
+      "notify.channel.list.v1.output.TelegramView": {
+        "properties": {
+          "chatId": {
+            "description": "The chat id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chatId"
+        ],
+        "type": "object"
+      },
+      "notify.channel.list.v1.output.WebhookView": {
+        "properties": {
+          "secretSet": {
+            "description": "Whether an HMAC key is stored.",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "The URL's first 4 characters and an ellipsis.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "secretSet"
+        ],
+        "type": "object"
+      },
+      "notify.channel.update.v1.input": {
+        "$ref": "#/components/schemas/notify.channel.update.v1.input.ChannelUpdateInput"
+      },
+      "notify.channel.update.v1.input.ChannelUpdateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "discord": {
+            "$ref": "#/components/schemas/notify.channel.update.v1.input.DiscordInput",
+            "description": "The settings of a Discord channel."
+          },
+          "email": {
+            "$ref": "#/components/schemas/notify.channel.update.v1.input.EmailInput",
+            "description": "The settings of an email channel."
+          },
+          "enabled": {
+            "description": "Whether the channel receives events.",
+            "type": "boolean"
+          },
+          "groupIds": {
+            "description": "The host groups whose hosts' events the channel receives; empty receives every host's and host-less events.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The channel's id.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "kinds": {
+            "description": "The event kinds the channel receives; empty receives every kind.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "minSeverity": {
+            "description": "The lowest severity the channel receives.",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "The name, as notify.channel.create takes it.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$",
+            "type": "string"
+          },
+          "ntfy": {
+            "$ref": "#/components/schemas/notify.channel.update.v1.input.NtfyInput",
+            "description": "The settings of an ntfy channel."
+          },
+          "telegram": {
+            "$ref": "#/components/schemas/notify.channel.update.v1.input.TelegramInput",
+            "description": "The settings of a Telegram channel."
+          },
+          "webhook": {
+            "$ref": "#/components/schemas/notify.channel.update.v1.input.WebhookInput",
+            "description": "The settings of a webhook channel."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "minSeverity",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "notify.channel.update.v1.input.DiscordInput": {
+        "additionalProperties": false,
+        "properties": {
+          "webhookUrl": {
+            "description": "The channel's https://discord.com/api/webhooks/... URL; write-only, required on create.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "type": "object"
+      },
+      "notify.channel.update.v1.input.EmailInput": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "description": "The sender address.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "host": {
+            "description": "The SMTP server's host name or address.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "password": {
+            "description": "The SMTP password, with a user name; write-only, and an update keeps a stored one it omits.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "port": {
+            "description": "The SMTP server's port.",
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "recipients": {
+            "description": "1 to 10 recipient addresses.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "type": "array"
+          },
+          "security": {
+            "description": "starttls, tls (implicit TLS) or none; none only to a loopback host.",
+            "enum": [
+              "starttls",
+              "tls",
+              "none"
+            ],
+            "type": "string"
+          },
+          "username": {
+            "description": "The SMTP user name; omitted when the server needs no sign-in.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "security",
+          "from",
+          "recipients"
+        ],
+        "type": "object"
+      },
+      "notify.channel.update.v1.input.NtfyInput": {
+        "additionalProperties": false,
+        "properties": {
+          "server": {
+            "description": "The ntfy server, an http or https URL; https://ntfy.sh when omitted.",
+            "type": "string"
+          },
+          "token": {
+            "description": "An access token sent as a bearer token; optional and write-only.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "topic": {
+            "description": "The topic, 1 to 64 letters, digits, hyphens or underscores; write-only, required on create.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "type": "object"
+      },
+      "notify.channel.update.v1.input.TelegramInput": {
+        "additionalProperties": false,
+        "properties": {
+          "botToken": {
+            "description": "The bot's token from BotFather; write-only, required on create.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "chatId": {
+            "description": "The chat id, a number, or @ and a public channel's name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chatId"
+        ],
+        "type": "object"
+      },
+      "notify.channel.update.v1.input.WebhookInput": {
+        "additionalProperties": false,
+        "properties": {
+          "secret": {
+            "description": "An HMAC-SHA256 key; the body's signature is sent as X-Darkpanel-Signature: sha256=\u003chex\u003e. Optional and write-only.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "url": {
+            "description": "The http or https URL the JSON body is posted to; write-only, required on create.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "type": "object"
+      },
+      "notify.channel.update.v1.output": {
+        "$ref": "#/components/schemas/notify.channel.update.v1.output.Channel"
+      },
+      "notify.channel.update.v1.output.Channel": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "discord": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.update.v1.output.DiscordView",
+                "description": "A Discord channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.update.v1.output.EmailView",
+                "description": "An email channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "description": "Whether the channel receives events.",
+            "type": "boolean"
+          },
+          "groupIds": {
+            "description": "The host groups the channel is limited to; empty is every host.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The channel's id.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "ntfy, telegram, discord, email or webhook.",
+            "type": "string"
+          },
+          "kinds": {
+            "description": "The event kinds the channel receives; empty receives every kind.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "lastDelivery": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.update.v1.output.Delivery",
+                "description": "The latest finished delivery; null before the first."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minSeverity": {
+            "description": "The lowest severity the channel receives.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The channel's name.",
+            "type": "string"
+          },
+          "ntfy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.update.v1.output.NtfyView",
+                "description": "An ntfy channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "telegram": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.update.v1.output.TelegramView",
+                "description": "A Telegram channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "webhook": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/notify.channel.update.v1.output.WebhookView",
+                "description": "A webhook channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "minSeverity",
+          "kinds",
+          "groupIds",
+          "enabled",
+          "createdAt",
+          "lastDelivery"
+        ],
+        "type": "object"
+      },
+      "notify.channel.update.v1.output.Delivery": {
+        "properties": {
+          "at": {
+            "description": "When the delivery finished.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "description": "A failed delivery's reason: an HTTP status, an SMTP reply code or a short code; never a provider's body.",
+            "type": "string"
+          },
+          "state": {
+            "description": "sent or failed.",
+            "enum": [
+              "sent",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "at"
+        ],
+        "type": "object"
+      },
+      "notify.channel.update.v1.output.DiscordView": {
+        "properties": {},
+        "type": "object"
+      },
+      "notify.channel.update.v1.output.EmailView": {
+        "properties": {
+          "from": {
+            "description": "The sender address.",
+            "type": "string"
+          },
+          "host": {
+            "description": "The SMTP server's host.",
+            "type": "string"
+          },
+          "passwordSet": {
+            "description": "Whether a password is stored.",
+            "type": "boolean"
+          },
+          "port": {
+            "description": "The SMTP server's port.",
+            "type": "integer"
+          },
+          "recipients": {
+            "description": "The recipient addresses.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "security": {
+            "description": "starttls, tls or none.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The SMTP user name; empty for none.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "security",
+          "username",
+          "passwordSet",
+          "from",
+          "recipients"
+        ],
+        "type": "object"
+      },
+      "notify.channel.update.v1.output.NtfyView": {
+        "properties": {
+          "server": {
+            "description": "The ntfy server.",
+            "type": "string"
+          },
+          "tokenSet": {
+            "description": "Whether an access token is stored.",
+            "type": "boolean"
+          },
+          "topic": {
+            "description": "The topic's first 4 characters and an ellipsis.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server",
+          "topic",
+          "tokenSet"
+        ],
+        "type": "object"
+      },
+      "notify.channel.update.v1.output.TelegramView": {
+        "properties": {
+          "chatId": {
+            "description": "The chat id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chatId"
+        ],
+        "type": "object"
+      },
+      "notify.channel.update.v1.output.WebhookView": {
+        "properties": {
+          "secretSet": {
+            "description": "Whether an HMAC key is stored.",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "The URL's first 4 characters and an ellipsis.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "secretSet"
+        ],
+        "type": "object"
+      },
       "npm.accesslist.add.v1.input": {
         "$ref": "#/components/schemas/npm.accesslist.add.v1.input.AccessListInput"
       },
@@ -21642,6 +23079,323 @@
           }
         ],
         "summary": "Pin tailscaled, then replace derper; between the two steps the versions differ and the region may refuse clients."
+      }
+    },
+    "/api/v1/actions/notify.channel.create/v1/apply": {
+      "post": {
+        "operationId": "notify.channel.create.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Add a notification channel: ntfy, Telegram, Discord, email or a webhook."
+      }
+    },
+    "/api/v1/actions/notify.channel.create/v1/plan": {
+      "post": {
+        "operationId": "notify.channel.create.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/notify.channel.create.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Add a notification channel: ntfy, Telegram, Discord, email or a webhook."
+      }
+    },
+    "/api/v1/actions/notify.channel.delete/v1/apply": {
+      "post": {
+        "operationId": "notify.channel.delete.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a notification channel with its pending deliveries; the confirmation phrase is its name."
+      }
+    },
+    "/api/v1/actions/notify.channel.delete/v1/plan": {
+      "post": {
+        "operationId": "notify.channel.delete.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/notify.channel.delete.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a notification channel with its pending deliveries; the confirmation phrase is its name."
+      }
+    },
+    "/api/v1/actions/notify.channel.list/v1/read": {
+      "post": {
+        "operationId": "notify.channel.list.v1.read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/notify.channel.list.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/notify.channel.list.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the notification channels with their routing and last delivery; write-only values are never returned."
+      }
+    },
+    "/api/v1/actions/notify.channel.update/v1/apply": {
+      "post": {
+        "operationId": "notify.channel.update.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a notification channel's settings and routing; omitted write-only values are kept."
+      }
+    },
+    "/api/v1/actions/notify.channel.update/v1/plan": {
+      "post": {
+        "operationId": "notify.channel.update.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/notify.channel.update.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a notification channel's settings and routing; omitted write-only values are kept."
       }
     },
     "/api/v1/actions/npm.admin.expose/v1/apply": {

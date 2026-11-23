@@ -1,0 +1,279 @@
+{
+  "name": "notify.channel.delete",
+  "version": 1,
+  "class": "irreversible",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ChannelIDInput",
+    "$defs": {
+      "ChannelIDInput": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The channel's id."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Channel",
+    "$defs": {
+      "Channel": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The channel's id."
+          },
+          "kind": {
+            "type": "string",
+            "description": "ntfy, telegram, discord, email or webhook."
+          },
+          "name": {
+            "type": "string",
+            "description": "The channel's name."
+          },
+          "minSeverity": {
+            "type": "string",
+            "description": "The lowest severity the channel receives."
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The event kinds the channel receives; empty receives every kind."
+          },
+          "groupIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The host groups the channel is limited to; empty is every host."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the channel receives events."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ntfy": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/NtfyView",
+                "description": "An ntfy channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "telegram": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TelegramView",
+                "description": "A Telegram channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discord": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/DiscordView",
+                "description": "A Discord channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/EmailView",
+                "description": "An email channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "webhook": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/WebhookView",
+                "description": "A webhook channel's settings; absent for another kind."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastDelivery": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Delivery",
+                "description": "The latest finished delivery; null before the first."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "minSeverity",
+          "kinds",
+          "groupIds",
+          "enabled",
+          "createdAt",
+          "lastDelivery"
+        ]
+      },
+      "Delivery": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "failed"
+            ],
+            "description": "sent or failed."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the delivery finished."
+          },
+          "error": {
+            "type": "string",
+            "description": "A failed delivery's reason: an HTTP status, an SMTP reply code or a short code; never a provider's body."
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "at"
+        ]
+      },
+      "DiscordView": {
+        "properties": {},
+        "type": "object"
+      },
+      "EmailView": {
+        "properties": {
+          "host": {
+            "type": "string",
+            "description": "The SMTP server's host."
+          },
+          "port": {
+            "type": "integer",
+            "description": "The SMTP server's port."
+          },
+          "security": {
+            "type": "string",
+            "description": "starttls, tls or none."
+          },
+          "username": {
+            "type": "string",
+            "description": "The SMTP user name; empty for none."
+          },
+          "passwordSet": {
+            "type": "boolean",
+            "description": "Whether a password is stored."
+          },
+          "from": {
+            "type": "string",
+            "description": "The sender address."
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The recipient addresses."
+          }
+        },
+        "type": "object",
+        "required": [
+          "host",
+          "port",
+          "security",
+          "username",
+          "passwordSet",
+          "from",
+          "recipients"
+        ]
+      },
+      "NtfyView": {
+        "properties": {
+          "server": {
+            "type": "string",
+            "description": "The ntfy server."
+          },
+          "topic": {
+            "type": "string",
+            "description": "The topic's first 4 characters and an ellipsis."
+          },
+          "tokenSet": {
+            "type": "boolean",
+            "description": "Whether an access token is stored."
+          }
+        },
+        "type": "object",
+        "required": [
+          "server",
+          "topic",
+          "tokenSet"
+        ]
+      },
+      "TelegramView": {
+        "properties": {
+          "chatId": {
+            "type": "string",
+            "description": "The chat id."
+          }
+        },
+        "type": "object",
+        "required": [
+          "chatId"
+        ]
+      },
+      "WebhookView": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The URL's first 4 characters and an ellipsis."
+          },
+          "secretSet": {
+            "type": "boolean",
+            "description": "Whether an HMAC key is stored."
+          }
+        },
+        "type": "object",
+        "required": [
+          "url",
+          "secretSet"
+        ]
+      }
+    }
+  }
+}

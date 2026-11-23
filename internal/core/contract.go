@@ -794,6 +794,60 @@ type Audit interface {
 	List(ctx context.Context, q AuditQuery) (entries []AuditEntry, nextBefore string, err error)
 }
 
+// The severities of a NotifyEvent, lowest first.
+const (
+	SeverityInfo     = "info"
+	SeverityWarning  = "warning"
+	SeverityCritical = "critical"
+)
+
+// The kinds of a NotifyEvent (M10 spec section 4).
+const (
+	NotifyAlertFiring        = "alert.firing"
+	NotifyAlertResolved      = "alert.resolved"
+	NotifyChangeFailed       = "change.failed"
+	NotifyChangeAutoReverted = "change.auto_reverted"
+	NotifyRolloutFailed      = "rollout.failed"
+	NotifyUpdateRolledBack   = "update.rolled_back"
+	NotifyTest               = "notify.test"
+	NotifyDeliveryFailed     = "notify.delivery_failed"
+)
+
+// NotifyKinds lists every NotifyEvent kind.
+func NotifyKinds() []string {
+	return []string{NotifyAlertFiring, NotifyAlertResolved, NotifyChangeFailed, NotifyChangeAutoReverted,
+		NotifyRolloutFailed, NotifyUpdateRolledBack, NotifyTest, NotifyDeliveryFailed}
+}
+
+// NotifyEvent is one notification. Title and Body leave for third parties,
+// so they are fixed templates and never carry an error cause, an action
+// input or an output. HostID is empty for a host-less event.
+type NotifyEvent struct {
+	Kind, Severity, HostID, Title, Body, DedupeKey string
+}
+
+// Notifier records a notification in the transaction that writes its fact,
+// so the event is stored exactly when the fact is. The notify module
+// implements it and server wiring injects it; core and controller packages
+// never import a module.
+type Notifier interface {
+	Emit(ctx context.Context, tx *sql.Tx, e NotifyEvent) error
+}
+
+// NopNotifier is the default Notifier: it records nothing.
+type NopNotifier struct{}
+
+// Emit records nothing.
+func (NopNotifier) Emit(context.Context, *sql.Tx, NotifyEvent) error { return nil }
+
+// NotifierOrNop is n, or NopNotifier when n is nil.
+func NotifierOrNop(n Notifier) Notifier {
+	if n == nil {
+		return NopNotifier{}
+	}
+	return n
+}
+
 // PlanView is a stored plan as callers see it.
 type PlanView struct {
 	PlanID, HostID, Action, InputHash, Confirmation string
