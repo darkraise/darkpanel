@@ -168,6 +168,18 @@ func TestEnrollmentLink(t *testing.T) {
 		t.Errorf("begin with a link renewed after enable: %d %s", rec.Code, rec.Body)
 	}
 
+	// A link never used dies once its user is activated another way, so a
+	// later TOTP reset, which returns the user to pending, cannot revive it.
+	unused := h.invite("rae")
+	raeSecret := h.beginSecret(unused)
+	if _, err := h.auth.ActivateUser(ctx, "rae", mustCode(t, raeSecret, h.clock.Now())); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.auth.ResetTOTP(ctx, "rae"); err != nil {
+		t.Fatal(err)
+	}
+	decodeProblem(t, h.begin(unused), http.StatusGone, errcode.EnrollmentExpired)
+
 	var ok, failed int
 	entries, _, err := h.audit.List(ctx, core.AuditQuery{Limit: 500})
 	if err != nil {

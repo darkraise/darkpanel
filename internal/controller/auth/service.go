@@ -238,11 +238,26 @@ func (s *Service) ActivateUser(ctx context.Context, username, code string) (User
 			StateActive, step, formatTime(s.now()), r.ID); err != nil {
 			return fmt.Errorf("auth: activate user: %w", err)
 		}
+		if err := endEnrollmentLinks(ctx, tx, r.ID); err != nil {
+			return err
+		}
 		r.State = StateActive
 		u = r.User
 		return nil
 	})
 	return u, err
+}
+
+// endEnrollmentLinks ends userID's unused enrollment link for good: no token
+// hashes to "". Every path that activates a user other than the link itself,
+// or resets its credentials, calls it, so a link an admin handed out earlier
+// cannot take the account over once the user is pending again.
+func endEnrollmentLinks(ctx context.Context, tx *sql.Tx, userID string) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE core_user_enrollments SET token_hash = '' WHERE user_id = ? AND used_at IS NULL`,
+		userID); err != nil {
+		return fmt.Errorf("auth: end enrollment link: %w", err)
+	}
+	return nil
 }
 
 // endSessions deletes every session of userID inside tx.
@@ -274,6 +289,9 @@ func (s *Service) ResetTOTP(ctx context.Context, username string) (User, string,
 		}
 		r.State = StatePending
 		u = r.User
+		if err := endEnrollmentLinks(ctx, tx, r.ID); err != nil {
+			return err
+		}
 		return endSessions(ctx, tx, r.ID)
 	})
 	if err != nil {
@@ -313,6 +331,9 @@ func (s *Service) ResetPassword(ctx context.Context, username, password string) 
 			return fmt.Errorf("auth: revoke tokens: %w", err)
 		}
 		u = r.User
+		if err := endEnrollmentLinks(ctx, tx, r.ID); err != nil {
+			return err
+		}
 		return endSessions(ctx, tx, r.ID)
 	})
 	return u, err
@@ -658,9 +679,8 @@ func (s *Service) SetDisabled(ctx context.Context, username string, disabled boo
 			return fmt.Errorf("auth: set disabled: %w", err)
 		}
 		if disabled {
-			if _, err := tx.ExecContext(ctx, `UPDATE core_user_enrollments SET token_hash = '' WHERE user_id = ? AND used_at IS NULL`,
-				r.ID); err != nil {
-				return fmt.Errorf("auth: end enrollment link: %w", err)
+			if err := endEnrollmentLinks(ctx, tx, r.ID); err != nil {
+				return err
 			}
 		}
 		r.Disabled = disabled
