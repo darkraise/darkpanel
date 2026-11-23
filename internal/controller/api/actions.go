@@ -338,10 +338,6 @@ func changeFilter(q url.Values) (core.ChangeFilter, error) {
 // handleChanges lists the changes the caller may see.
 func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
-	if err := authorizeReader(c.principal); err != nil {
-		writeProblem(w, s.log, err)
-		return
-	}
 	f, err := changeFilter(r.URL.Query())
 	if err != nil {
 		writeProblem(w, s.log, err)

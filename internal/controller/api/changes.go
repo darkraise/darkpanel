@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
 // maxReleaseReason is the longest release reason, in characters (spec 1.3).
@@ -73,13 +74,18 @@ func (b repairRequest) request() (core.RepairRequest, error) {
 // visibleChange reads the route's change as the caller, first refusing a
 // caller without admin access when need is admin; a change the network
 // hides, or whose host the caller cannot see, is answered as missing. A
-// visible change's host grants read, so need read is met once it is read.
+// visible change's host grants read, so need read is met once it is read;
+// any other need is a caller's bug, refused rather than left unchecked.
 func (s *Server) visibleChange(r *http.Request, need core.Scope) (core.Principal, core.ChangeView, error) {
 	c, _ := callerFrom(r.Context())
-	if need == core.ScopeAdmin {
+	switch need {
+	case core.ScopeRead:
+	case core.ScopeAdmin:
 		if err := authorizeAdmin(c.principal); err != nil {
 			return c.principal, core.ChangeView{}, err
 		}
+	default:
+		return c.principal, core.ChangeView{}, errcode.New(errcode.Internal, "a change route checked an unsupported scope "+string(need))
 	}
 	id := r.PathValue("id")
 	v, err := s.cfg.Dispatcher.Change(r.Context(), c.principal, id)

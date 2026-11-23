@@ -232,7 +232,9 @@ func TestChokePoints(t *testing.T) {
 		{"reveal", "POST", hostAction(accHostG, "arv.key.reveal", "reveal"), in,
 			[8]int{200, 403, 403, 403, 403, 403, 403, 403}},
 		{"change list", "GET", "/api/v1/changes", "",
-			[8]int{200, 200, 200, 200, 200, 403, 200, 200}},
+			[8]int{200, 200, 200, 200, 200, 200, 200, 200}},
+		{"change list of a G host", "GET", "/api/v1/changes?hostId=" + accHostG, "",
+			[8]int{200, 200, 200, 200, 200, 200, 200, 200}},
 		{"change show on a G host", "GET", "/api/v1/changes/c-g", "",
 			[8]int{200, 200, 200, 200, 200, 404, 404, 200}},
 		{"change confirm on a G host", "POST", "/api/v1/changes/c-g/confirm", "",
@@ -285,6 +287,47 @@ func TestChokePoints(t *testing.T) {
 	}
 	if body := h.serve(principals[3].cred(request("GET", "/api/v1/changes", ""))).Body.String(); strings.Contains(body, "c-x") {
 		t.Errorf("change list of operator on G: %s, want no c-x", body)
+	}
+	// A member with no grants sees an empty list, never a refusal.
+	for _, path := range []string{"/api/v1/changes", "/api/v1/changes?hostId=" + accHostG} {
+		if body := h.serve(principals[5].cred(request("GET", path, ""))).Body.String(); strings.Contains(body, "c-g") || strings.Contains(body, "c-x") {
+			t.Errorf("%s of a member with no grants: %s, want no changes", path, body)
+		}
+	}
+}
+
+func TestEventsServeAMemberWithNoGrants(t *testing.T) {
+	h := accHarness(t)
+	bus := events.NewBus(nil)
+	h.cfg.Events, h.cfg.Clock = bus, h.clock
+	srv, err := New(h.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	id, _ := accMember(t, h, "none")
+	_, token, err := h.auth.CreateToken(context.Background(), id, "events", core.ScopeRead, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, rd := sseOpen(t, ts.URL, token, "stale")
+	defer func() { _ = resp.Body.Close() }()
+	if got := sseNext(t, rd); !strings.Contains(got, "event: reset") {
+		t.Fatalf("first frame %q, want a reset", got)
+	}
+	for _, host := range []string{accHostG, accHostX, ""} {
+		bus.Publish(events.TypeHost, events.HostEvent{HostID: host, Online: true})
+	}
+	got := make(chan string, 1)
+	go func() {
+		line, _ := rd.ReadString('\n')
+		got <- line
+	}()
+	select {
+	case line := <-got:
+		t.Fatalf("a member with no grants received %q, want no events", line)
+	case <-time.After(300 * time.Millisecond):
 	}
 }
 
@@ -350,8 +393,10 @@ func TestStreamsReResolveAccess(t *testing.T) {
 	hostFrame := func(seq uint64, host string) string {
 		return fmt.Sprintf("id: %s\nevent: host\ndata: {\"hostId\":%q,\"online\":true}", events.FormatID(bus.Epoch(), seq), host)
 	}
+	// A composite's step on h-g is not shown: the composite is tied to no host.
+	bus.Publish(events.TypeCompositeStep, map[string]string{"changeId": "c-comp", "stepId": "s1", "hostId": accHostG})
 	publish()
-	for _, want := range []string{hostFrame(1, accHostG), hostFrame(2, accHostX)} {
+	for _, want := range []string{hostFrame(2, accHostG), hostFrame(3, accHostX)} {
 		if got := sseNext(t, rd); got != want {
 			t.Fatalf("frame %q, want %q", got, want)
 		}
@@ -380,7 +425,7 @@ func TestStreamsReResolveAccess(t *testing.T) {
 		t.Fatalf("frame after the recheck %q, want one reset", got)
 	}
 	publish()
-	if got, want := sseNext(t, rd), hostFrame(5, accHostX); got != want {
+	if got, want := sseNext(t, rd), hostFrame(6, accHostX); got != want {
 		t.Fatalf("frame %q, want %q", got, want)
 	}
 
@@ -403,6 +448,26 @@ func TestStreamsReResolveAccess(t *testing.T) {
 		case <-time.After(5 * time.Millisecond):
 			h.clock.Advance(SSERecheck)
 		}
+	}
+}
+
+func TestVisibleChangeRefusesOtherScopes(t *testing.T) {
+	h := accHarness(t)
+	h.disp.ChangeFunc = func(context.Context, core.Principal, string) (core.ChangeView, error) {
+		return core.ChangeView{ID: "c1", HostID: accHostG}, nil
+	}
+	srv, err := New(h.cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := request("GET", "/api/v1/changes/c1", "")
+	r = r.WithContext(withCaller(r.Context(), caller{principal: core.Principal{Actor: "system:test", Scope: core.ScopeAdmin}}))
+	if _, _, err := srv.visibleChange(r, core.ScopeRead); err != nil {
+		t.Fatalf("visibleChange(read) as admin = %v, want the change", err)
+	}
+	_, _, err = srv.visibleChange(r, core.ScopeOperate)
+	if got := errcode.From(err).Code; err == nil || got != errcode.Internal {
+		t.Fatalf("visibleChange(operate) = %v, want an internal error", err)
 	}
 }
 

@@ -22,10 +22,6 @@ import (
 // filter that changed sends one reset.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
-	if err := authorizeReader(c.principal); err != nil {
-		writeProblem(w, s.log, err)
-		return
-	}
 	bus := s.cfg.Events
 	if bus == nil {
 		writeProblem(w, s.log, errcode.New(errcode.NotFound, "this controller publishes no events"))
@@ -48,11 +44,12 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer close(frames)
 		send := func(ev events.Event) bool {
-			if !eventShown(*access.Load(), ev) {
+			shown := func() bool { return eventShown(*access.Load(), ev) }
+			if !shown() {
 				return true
 			}
 			select {
-			case frames <- sseFrame{ID: events.FormatID(bus.Epoch(), ev.Seq), Event: ev.Type, Data: ev.Data}:
+			case frames <- sseFrame{ID: events.FormatID(bus.Epoch(), ev.Seq), Event: ev.Type, Data: ev.Data, keep: shown}:
 				return true
 			case <-ctx.Done():
 				return false
@@ -81,9 +78,14 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 // eventShown reports whether an event goes to a caller with access: a reset
 // always, any other event when its hostId is visible, "" meaning fleet only.
+// A composite step's hostId is its step's host, but the composite itself is
+// tied to no host, so its steps go to fleet principals only.
 func eventShown(access core.Access, ev events.Event) bool {
-	if ev.Type == events.TypeReset {
+	switch ev.Type {
+	case events.TypeReset:
 		return true
+	case events.TypeCompositeStep:
+		return access.Sees("")
 	}
 	var d struct {
 		HostID string `json:"hostId"`

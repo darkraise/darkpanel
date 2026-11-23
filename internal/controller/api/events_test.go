@@ -57,12 +57,6 @@ func sseChangeFrame(epoch string, seq uint64, id string) string {
 func TestEventsRoute(t *testing.T) {
 	h, bus, base := sseHarness(t)
 
-	r := request("GET", "/api/v1/events", "")
-	r = r.WithContext(withCaller(r.Context(), caller{principal: core.Principal{Actor: "token:T0"}}))
-	rec := httptest.NewRecorder()
-	h.srv.handleEvents(rec, r)
-	decodeProblem(t, rec, 403, errcode.Forbidden)
-
 	plain := newHarness(t)
 	decodeProblem(t, plain.serve(withToken(request("GET", "/api/v1/events", ""), plain.token(core.ScopeRead))), 404, errcode.NotFound)
 

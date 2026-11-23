@@ -225,6 +225,19 @@ func TestSSEFrames(t *testing.T) {
 	}
 }
 
+func TestSSEDropsAFrameNoLongerKept(t *testing.T) {
+	e := sseStart(t)
+	e.src <- sseFrame{Event: "data", Data: []byte(`{"n":1}`), keep: func() bool { return false }}
+	e.send(sseFrame{Event: "data", Data: []byte(`{"n":2}`), keep: func() bool { return true }})
+	close(e.src)
+	if reason := e.end(); reason != "done" {
+		t.Fatalf("end reason = %s, want done", reason)
+	}
+	if got, want := e.rec.text(), "event: data\ndata: {\"n\":2}\n\n"; got != want {
+		t.Fatalf("body = %q, want %q", got, want)
+	}
+}
+
 func TestSSEHeartbeat(t *testing.T) {
 	e := sseStart(t)
 	e.clock.Advance(SSEHeartbeat - time.Second)

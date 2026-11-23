@@ -23,10 +23,14 @@ const (
 	MaxEventStreams = 4 // GET /api/v1/events per principal
 )
 
-// sseFrame is one SSE message; an empty ID writes no id line.
+// sseFrame is one SSE message; an empty ID writes no id line. A frame
+// with keep is written only while keep holds when the stream takes it: a
+// recheck that changes a stream's filter runs in the same loop, so a frame
+// its sender judged under the old filter is judged again.
 type sseFrame struct {
 	ID, Event string
 	Data      json.RawMessage
+	keep      func() bool
 }
 
 // sseEncode renders f as id, event and data lines and a blank line. The
@@ -139,6 +143,9 @@ func (s *Server) sseStreamChecked(w http.ResponseWriter, r *http.Request, src <-
 		case f, ok := <-src:
 			if !ok {
 				return "done"
+			}
+			if f.keep != nil && !f.keep() {
+				continue
 			}
 			b, err := sseEncode(f)
 			if err != nil {

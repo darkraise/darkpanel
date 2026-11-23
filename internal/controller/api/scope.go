@@ -28,15 +28,6 @@ func authorizeAdmin(p core.Principal) error {
 	return nil
 }
 
-// authorizeReader refuses p unless it may read the fleet or at least one
-// host: the lists and streams that filter their rows by host.
-func authorizeReader(p core.Principal) error {
-	if a := p.HostAccess(); a.Fleet || readsAnyHost(a) {
-		return nil
-	}
-	return errcode.New(errcode.Forbidden, "this request needs read access to a host")
-}
-
 // authorizeAction refuses p def on its route: an agent-side action needs its
 // scope on hostID, a controller-side one the rules of authorizeController.
 func authorizeAction(p core.Principal, def core.ActionDef, hostID string) error {
