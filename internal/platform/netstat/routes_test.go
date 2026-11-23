@@ -309,8 +309,10 @@ func TestRouteRequest(t *testing.T) {
 }
 
 // The live tests ask the running kernel about loopback, which every Linux
-// host and container has.
+// host and container has up; a fresh network namespace (unshare -n) has it
+// down and without addresses, so they skip there.
 func TestRouteGetLive(t *testing.T) {
+	lrNeedLoopbackUp(t)
 	r, err := RouteGet(RouteQuery{Dst: netip.MustParseAddr("127.0.0.1")})
 	if err != nil {
 		t.Fatal(err)
@@ -336,6 +338,21 @@ func TestRouteGetLive(t *testing.T) {
 // interface's own address is delivered locally. It uses the default route's
 // interface so reverse-path filtering accepts the source.
 func TestRouteGetIncomingLive(t *testing.T) {
+	routes, err := Routes(IPv4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The kernel answers a lookup through a blackhole or prohibit default
+	// route with an error, so only a unicast one can carry the flow.
+	i := slices.IndexFunc(routes, func(r Route) bool {
+		return r.Table == unix.RT_TABLE_MAIN && r.Dst == netip.MustParsePrefix("0.0.0.0/0")
+	})
+	if i < 0 {
+		t.Skip("no IPv4 default route")
+	}
+	if routes[i].Type != "unicast" {
+		t.Skipf("the IPv4 default route is %s, not unicast", routes[i].Type)
+	}
 	remote := netip.MustParseAddr("192.0.2.10")
 	out, err := RouteGet(RouteQuery{Dst: remote})
 	if errors.Is(err, ErrNoRoute) {
@@ -367,6 +384,7 @@ func TestRouteGetIncomingLive(t *testing.T) {
 }
 
 func TestRoutesAndInterfacesLive(t *testing.T) {
+	lrNeedLoopbackUp(t)
 	routes, err := Routes(IPv4)
 	if err != nil {
 		t.Fatal(err)
@@ -396,6 +414,28 @@ func TestRoutesAndInterfacesLive(t *testing.T) {
 		}
 	}
 	t.Fatalf("no lo in %+v", ifs)
+}
+
+// lrNeedLoopbackUp skips unless lo is up in this network namespace. It asks
+// through an ioctl, not the netlink code under test, so a fault there cannot
+// turn the live tests into skips.
+func lrNeedLoopbackUp(t *testing.T) {
+	t.Helper()
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(fd) //nolint:errcheck // a datagram socket that sent nothing
+	ifr, err := unix.NewIfreq("lo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.IoctlIfreq(fd, unix.SIOCGIFFLAGS, ifr); err != nil {
+		t.Fatalf("read the flags of lo: %v", err)
+	}
+	if ifr.Uint16()&unix.IFF_UP == 0 {
+		t.Skip("lo is down in this network namespace, as in a fresh one")
+	}
 }
 
 func lrHasIPv6Loopback(t *testing.T) bool {
