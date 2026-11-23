@@ -22,18 +22,18 @@ var settingsAdmin = core.Principal{Actor: "user:u1", UserID: "u1", Scope: core.S
 const testClientSecret = "client-secret-value-42"
 
 type settingsEnv struct {
-	t   *testing.T
-	s   *Service
-	reg *core.Registry
-	eng *lifecycle.Engine
+	t       *testing.T
+	origins []string
+	s       *Service
+	reg     *core.Registry
+	eng     *lifecycle.Engine
 }
 
 func newSettingsEnv(t *testing.T) *settingsEnv {
 	t.Helper()
 	s, clock, _ := newTestService(t)
-	origins := func(context.Context) ([]string, error) {
-		return []string{"https://100.64.0.1:8443", "https://panel.example.com"}, nil
-	}
+	e := &settingsEnv{t: t, s: s, origins: []string{"https://100.64.0.1:8443", "https://panel.example.com"}}
+	origins := func(context.Context) ([]string, error) { return e.origins, nil }
 	reg, err := core.NewRegistry(Module(origins))
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +46,8 @@ func newSettingsEnv(t *testing.T) *settingsEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(eng.Close)
-	return &settingsEnv{t: t, s: s, reg: reg, eng: eng}
+	e.reg, e.eng = reg, eng
+	return e
 }
 
 // run plans and applies name with input as an admin.
@@ -241,5 +242,34 @@ func TestTailscaleSettings(t *testing.T) {
 	e.undo(cv.ID)
 	if got, _ := e.get(); got.Tailscale != (TailscaleSettings{Enabled: true, RequireTOTP: true}) {
 		t.Errorf("after undoing the second set = %+v, want the first set's settings", got.Tailscale)
+	}
+}
+
+func TestOIDCUndoRechecksTheRedirectBase(t *testing.T) {
+	e := newSettingsEnv(t)
+	e.mustRun("auth.oidc.set", oidcInput("https://idp.example", "Sign in", "https://panel.example.com", testClientSecret))
+	cleared := e.mustRun("auth.oidc.clear", `{}`)
+	// The runtime listener of panel.example.com is gone: restoring the
+	// provider would send the provider's redirect to an origin the panel
+	// no longer serves.
+	e.origins = []string{"https://100.64.0.1:8443"}
+	ctx := context.Background()
+	_, _ = e.eng.Undo(ctx, settingsAdmin, cleared.ID, nil)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		v, err := e.eng.Change(ctx, cleared.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v.State != core.StateUndoing {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the undo did not end")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got, _ := e.get(); got.OIDC != nil {
+		t.Errorf("OIDC after undoing the clear with its origin gone = %+v, want it still off", got.OIDC)
 	}
 }

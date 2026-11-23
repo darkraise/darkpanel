@@ -92,17 +92,17 @@ func SettingsActions(origins Origins) []core.ActionDef {
 			Name: "auth.oidc.set", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
 			MinScope: core.ScopeAdmin, LockKeys: []string{"auth.settings"},
 			Summary: "Set up OIDC sign-in with one provider; changing the issuer keeps the users' links to the old one.",
-		}, oidcSet{origins: origins}),
+		}, oidcSet{settingsEffects: settingsEffects{origins}, origins: origins}),
 		core.DefineMutating[NoSettingsInput, SignInSettings](core.ActionSpec{
 			Name: "auth.oidc.clear", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
 			MinScope: core.ScopeAdmin, LockKeys: []string{"auth.settings"},
 			Summary: "Turn OIDC sign-in off; the users' links to the provider are kept.",
-		}, oidcClear{}),
+		}, oidcClear{settingsEffects{origins}}),
 		core.DefineMutating[TailscaleSetInput, SignInSettings](core.ActionSpec{
 			Name: "auth.tailscale.set", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
 			MinScope: core.ScopeAdmin, LockKeys: []string{"auth.settings"},
 			Summary: "Turn Tailscale sign-in on or off.",
-		}, tailscaleSet{}),
+		}, tailscaleSet{settingsEffects{origins}}),
 		core.DefineRead[NoSettingsInput, SignInSettings](core.ActionSpec{
 			Name: "auth.settings.get", Version: 1, Side: core.SideController, HostData: core.HostDataFleet,
 			Summary: "Read the sign-in method settings; the OIDC client secret is never returned.",
@@ -282,10 +282,11 @@ func sectionState(s storedSettings, resource string) core.StateDoc {
 	return stateDoc(s.Tailscale)
 }
 
-// settingsEffects is the observe and undo half the three settings actions share.
-type settingsEffects struct{}
+// settingsEffects is the observe and undo half the three settings actions
+// share; origins checks a restored redirect base again.
+type settingsEffects struct{ origins Origins }
 
-func (settingsEffects) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
+func (h settingsEffects) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Observation, error) {
 	if e.Resource != oidcResource && e.Resource != tailscaleResource {
 		return core.Observation{}, fmt.Errorf("auth: %q is not a sign-in settings resource", e.Resource)
 	}
@@ -297,8 +298,9 @@ func (settingsEffects) Observe(ctx context.Context, env core.Env, e core.Effect)
 }
 
 // Inverse writes back the settings the effect found, the OIDC client secret
-// from the journal.
-func (settingsEffects) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
+// from the journal. A restored provider is checked again: its redirect base
+// may no longer be one of the panel's origins.
+func (h settingsEffects) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	to := e.Before
 	if e.UndoTo != nil {
 		to = *e.UndoTo
@@ -309,6 +311,12 @@ func (settingsEffects) Inverse(ctx context.Context, env core.Env, e core.Effect)
 		var o *OIDCSettings
 		if err := json.Unmarshal(to.State, &o); err != nil {
 			return core.InverseResult{}, fmt.Errorf("auth: read the OIDC settings to restore: %w", err)
+		}
+		if o != nil {
+			if err := checkOIDC(ctx, OIDCSetInput{Issuer: o.Issuer, ClientID: o.ClientID, DisplayName: o.DisplayName,
+				RedirectBase: o.RedirectBase}, h.origins); err != nil {
+				return core.InverseResult{}, err
+			}
 		}
 		var ct []byte
 		if o != nil && o.ClientSecretSet {
