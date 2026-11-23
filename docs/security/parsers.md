@@ -91,6 +91,28 @@ A cell never contains a pipe character. Several rows may name one `(Package, Tar
 | `hostinfo.parseMemInfo` | `/proc/meminfo` | `./internal/modules/hostinfo` | `FuzzParseMemInfo` | - |
 | `hostinfo.parseLoadAvg` | `/proc/loadavg` | `./internal/modules/hostinfo` | `FuzzParseLoadAvg` | - |
 | `hostinfo.parseUptime` | `/proc/uptime` | `./internal/modules/hostinfo` | `FuzzParseUptime` | - |
+| `system.ParseSim` | `apt-get -s` simulation output | `./internal/modules/system` | `FuzzParseSim` | - |
+| `system.parseSimOp` | an action line of `apt-get -s` output | `./internal/modules/system` | `FuzzParseSim` | - |
+| `system.simOrigins` | the archives of an `apt-get -s` action line | `./internal/modules/system` | `FuzzParseSim` | - |
+| `system.failedSourcesOf` | `apt-get update` output | `./internal/modules/system` | `FuzzAptOutput` | - |
+| `system.strictRefresh` | `apt-get update` output of the Docker source | `./internal/modules/system` | `FuzzAptOutput` | - |
+| `system.fetchOrSignature` | a `W:` or `E:` line of `apt-get update` output | `./internal/modules/system` | `FuzzAptOutput` | - |
+| `system.failureDetail` | the output of a failed apt or dpkg run | `./internal/modules/system` | `FuzzAptOutput` | - |
+| `system.classifyApt` | the output of a failed apt or dpkg run | `./internal/modules/system` | `FuzzAptOutput` | - |
+| `system.splitDebVersion` | a Debian package version | `./internal/modules/system` | `FuzzDebVersionCompare` | - |
+| `system.debVersionCompare` | two Debian package versions | `./internal/modules/system` | `FuzzDebVersionCompare` | - |
+| `system.parseDpkgQuery` | `dpkg-query -W` output | `./internal/modules/system` | `FuzzParseDpkgQuery` | - |
+| `system.parseAptPolicy` | `apt-cache policy` output | `./internal/modules/system` | `FuzzParseAptPolicy` | - |
+| `system.readOSRelease` | `/etc/os-release` | `./internal/modules/system` | `FuzzHostFiles` | - |
+| `system.parseUptime` | `/proc/uptime` | `./internal/modules/system` | `FuzzHostFiles` | - |
+| `system.parseRebootPkgs` | `/run/reboot-required.pkgs` | `./internal/modules/system` | `FuzzHostFiles` | - |
+| `system.debianRunningKernel` | `/proc/version` | `./internal/modules/system` | `FuzzHostFiles` | - |
+| `system.mentionsDockerRepo` | an apt source file | `./internal/modules/system` | `FuzzHostFiles` | - |
+| `system.parseShowhold` | `apt-mark showhold` output | `./internal/modules/system` | `FuzzCommandLists` | - |
+| `system.parseNeedrestart` | `needrestart -b` output | `./internal/modules/system` | `FuzzCommandLists` | - |
+| `system.parsePkgnames` | `apt-cache pkgnames` output | `./internal/modules/system` | `FuzzCommandLists` | - |
+| `system.parseAptConfigDump` | `apt-config dump` output | `./internal/modules/system` | `FuzzCommandLists` | - |
+| `system.auditLines` | `dpkg --audit` output | `./internal/modules/system` | `FuzzCommandLists` | - |
 | `backup.formatReadHeader` | the header of a `.dpbk` backup file | `./internal/controller/backup` | `FuzzReadHeader` | - |
 | `backup.formatEncodeHeader` | the header of a `.dpbk` backup file | `./internal/controller/backup` | `FuzzReadHeader` | - |
 | `backup.frameNewReader` | the frames of a `.dpbk` backup file | `./internal/controller/backup` | `FuzzFrames` | - |
