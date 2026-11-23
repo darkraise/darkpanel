@@ -215,14 +215,22 @@ func checkOIDC(ctx context.Context, in OIDCSetInput, origins Origins) error {
 }
 
 // redirectOrigin is s as a lower-case https origin, when it is one: no
-// path beyond "/", no query, fragment or user.
+// path beyond "/", no query, fragment or user. An explicit port 443 is
+// dropped, as a browser's Origin header drops it.
 func redirectOrigin(s string) (string, bool) {
 	u, err := url.Parse(s)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
 		(u.Path != "" && u.Path != "/") {
 		return "", false
 	}
-	return "https://" + strings.ToLower(u.Host), true
+	host := u.Host
+	if u.Port() == "443" {
+		host = u.Hostname()
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+	}
+	return "https://" + strings.ToLower(host), true
 }
 
 func allowedOrigins(ctx context.Context, origins Origins) ([]string, error) {

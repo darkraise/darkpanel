@@ -273,3 +273,18 @@ func TestOIDCUndoRechecksTheRedirectBase(t *testing.T) {
 		t.Errorf("OIDC after undoing the clear with its origin gone = %+v, want it still off", got.OIDC)
 	}
 }
+
+func TestOIDCRedirectBaseDropsTheDefaultPort(t *testing.T) {
+	e := newSettingsEnv(t)
+	e.origins = []string{"https://192.0.2.10:443", "https://[2001:db8::1]:443"}
+	for _, c := range []struct{ input, want string }{
+		{"https://192.0.2.10", "https://192.0.2.10"},
+		{"https://192.0.2.10:443", "https://192.0.2.10"},
+		{"https://[2001:db8::1]:443", "https://[2001:db8::1]"},
+	} {
+		e.mustRun("auth.oidc.set", oidcInput("https://idp.example", "Sign in", c.input, testClientSecret))
+		if got, _ := e.get(); got.OIDC == nil || got.OIDC.RedirectBase != c.want {
+			t.Errorf("redirect base %s: stored %+v, want %s", c.input, got.OIDC, c.want)
+		}
+	}
+}
