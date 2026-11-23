@@ -83,7 +83,11 @@ This reference is generated from the action schemas. `openapi.json` is the OpenA
 |---|---|---|---|
 | POST | `/api/v1/auth/login` | none | Log in with username, password and TOTP code |
 | POST | `/api/v1/auth/logout` | session or token | Log out and clear the session cookie |
+| GET | `/api/v1/auth/methods` | none | Which sign-in buttons the login page shows on this origin and listener |
+| GET | `/api/v1/auth/oidc/callback` | none | Finish an OIDC sign-in: a page that navigates to /?signin=\<outcome\> |
+| GET | `/api/v1/auth/oidc/start` | none | Start an OIDC sign-in: redirect to the provider with a state cookie |
 | GET | `/api/v1/auth/session` | session or token | Describe the calling session or token |
+| POST | `/api/v1/auth/totp` | none | Enter the authenticator code a sign-in method asks for and sign in |
 | GET | `/api/v1/changes` | session or token | List changes, newest first |
 | GET | `/api/v1/changes/{id}` | session or token | Show a change |
 | POST | `/api/v1/changes/{id}/confirm` | session or token | Confirm a pending change |

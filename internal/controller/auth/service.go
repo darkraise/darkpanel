@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -66,6 +67,9 @@ type Options struct {
 	// Params are the argon2id parameters of new hashes; the zero value means
 	// DefaultParams.
 	Params Params
+	// OIDCTransport carries the requests to the OIDC provider; nil means
+	// http.DefaultTransport.
+	OIDCTransport http.RoundTripper
 }
 
 // Service is the controller's identity over the core_users, core_sessions
@@ -78,6 +82,7 @@ type Service struct {
 	hasher  *hasher
 	limiter *limiter
 	csrfKey []byte
+	oidc    *oidcFlow
 
 	idMu    sync.Mutex
 	entropy *ulid.MonotonicEntropy
@@ -93,6 +98,7 @@ func New(db *store.DB, sealer core.Sealer, clock core.Clock, audit core.Audit, o
 	return &Service{
 		db: db, sealer: sealer, clock: clock, audit: audit,
 		hasher: newHasher(p), limiter: newLimiter(clock), csrfKey: sealer.Derive(secret.CSRFLabel),
+		oidc:    newOIDCFlow(opts.OIDCTransport),
 		entropy: ulid.Monotonic(rand.Reader, 0),
 	}
 }
@@ -153,9 +159,14 @@ const userColumns = `id, username, role, state, created_at, password_hash, totp_
 
 // loadUser reads username's row; an absent user is errcode.NotFound.
 func loadUser(ctx context.Context, q querier, username string) (userRecord, error) {
+	return loadUserBy(ctx, q, `username = ?`, username)
+}
+
+// loadUserBy reads the one row matching where; none is errcode.NotFound.
+func loadUserBy(ctx context.Context, q querier, where string, args ...any) (userRecord, error) {
 	var r userRecord
 	var created string
-	err := q.QueryRowContext(ctx, `SELECT `+userColumns+` FROM core_users WHERE username = ?`, username).
+	err := q.QueryRowContext(ctx, `SELECT `+userColumns+` FROM core_users WHERE `+where, args...).
 		Scan(&r.ID, &r.Username, &r.Role, &r.State, &created, &r.passwordHash, &r.totpCT, &r.lastStep, &r.Disabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return userRecord{}, errUserNotFound()
@@ -1021,7 +1032,9 @@ func (s *Service) loadEnrollment(ctx context.Context, q querier, tokenHash strin
 	if err != nil {
 		return enrollment{}, err
 	}
-	if used.Valid || !s.now().Before(exp) || r.State != StatePending || r.Disabled {
+	// An active user keeps an unused link only when an OIDC or Tailscale
+	// sign-in activated its invite; the link still sets its password.
+	if used.Valid || !s.now().Before(exp) || (r.State != StatePending && r.State != StateActive) || r.Disabled {
 		return enrollment{}, errEnrollmentExpired()
 	}
 	return enrollment{user: r, expires: exp}, nil

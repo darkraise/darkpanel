@@ -53,6 +53,22 @@ func (a *sseAuth) FinishEnrollment(context.Context, auth.EnrollRequest) (auth.Lo
 	return auth.LoginResult{}, errors.New("not used")
 }
 
+func (a *sseAuth) SignInMethods(context.Context) (auth.SignInSettings, error) {
+	return auth.SignInSettings{}, errors.New("not used")
+}
+
+func (a *sseAuth) StartOIDC(context.Context, string) (auth.OIDCStart, error) {
+	return auth.OIDCStart{}, errors.New("not used")
+}
+
+func (a *sseAuth) FinishOIDC(context.Context, auth.OIDCCallback) (auth.SignInResult, error) {
+	return auth.SignInResult{}, errors.New("not used")
+}
+
+func (a *sseAuth) FinishTOTPStep(context.Context, auth.TOTPStepRequest) (auth.LoginResult, error) {
+	return auth.LoginResult{}, errors.New("not used")
+}
+
 // sseIdentity is a token identity of the read scope that ends at expires.
 func sseIdentity(expires time.Time) auth.Identity {
 	// An admin's read token: its access, not its scope, carries the read.

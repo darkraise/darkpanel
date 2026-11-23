@@ -206,11 +206,20 @@ func (s *Service) recordLogin(ctx context.Context, r LoginRequest, userID string
 // recordSignIn audits a sign-in by method; a password login records no
 // method, as it always has. username is "" when the attempt named no user.
 func (s *Service) recordSignIn(ctx context.Context, method, username, source, userID string, code errcode.Code) error {
+	return s.recordSignInWith(ctx, method, username, source, userID, code, nil)
+}
+
+// recordSignInWith is recordSignIn with extra input fields, such as an
+// invite the sign-in activated.
+func (s *Service) recordSignInWith(ctx context.Context, method, username, source, userID string, code errcode.Code, extra map[string]string) error {
 	actor := ActorAnonymous
 	if userID != "" {
 		actor = "user:" + userID
 	}
 	fields := map[string]string{}
+	for k, v := range extra {
+		fields[k] = v
+	}
 	if username != "" || method == "" {
 		fields["username"] = username
 	}

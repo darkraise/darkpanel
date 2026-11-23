@@ -23755,6 +23755,48 @@
         "summary": "Log out and clear the session cookie"
       }
     },
+    "/api/v1/auth/methods": {
+      "get": {
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "summary": "Which sign-in buttons the login page shows on this origin and listener"
+      }
+    },
+    "/api/v1/auth/oidc/callback": {
+      "get": {
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "summary": "Finish an OIDC sign-in: a page that navigates to /?signin=\u003coutcome\u003e"
+      }
+    },
+    "/api/v1/auth/oidc/start": {
+      "get": {
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "summary": "Start an OIDC sign-in: redirect to the provider with a state cookie"
+      }
+    },
     "/api/v1/auth/session": {
       "get": {
         "responses": {
@@ -23774,6 +23816,20 @@
           }
         ],
         "summary": "Describe the calling session or token"
+      }
+    },
+    "/api/v1/auth/totp": {
+      "post": {
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "summary": "Enter the authenticator code a sign-in method asks for and sign in"
       }
     },
     "/api/v1/changes": {

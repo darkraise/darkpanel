@@ -20,6 +20,8 @@ func TestStatus(t *testing.T) {
 		{InvalidCredentials, 401},
 		{RateLimited, 429},
 		{EnrollmentExpired, 410},
+		{NoLinkedUser, 403},
+		{MethodOff, 403},
 		{CSRF, 403},
 		{Forbidden, 403},
 		{NotFound, 404},

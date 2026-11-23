@@ -22,6 +22,8 @@ const (
 	InvalidCredentials     Code = "auth.invalid_credentials" //nolint:gosec // G101: an error code, not a credential
 	RateLimited            Code = "auth.rate_limited"
 	EnrollmentExpired      Code = "auth.enrollment_expired"
+	NoLinkedUser           Code = "auth.no_linked_user"
+	MethodOff              Code = "auth.method_off"
 	CSRF                   Code = "auth.csrf"
 	Forbidden              Code = "auth.forbidden"
 	NotFound               Code = "not_found"
@@ -179,6 +181,8 @@ var registry = map[Code]info{
 	InvalidCredentials:     {http.StatusUnauthorized, "Invalid credentials"},
 	RateLimited:            {http.StatusTooManyRequests, "Too many attempts"},
 	EnrollmentExpired:      {http.StatusGone, "Enrollment link expired"},
+	NoLinkedUser:           {http.StatusForbidden, "No linked user"},
+	MethodOff:              {http.StatusForbidden, "Sign-in method off"},
 	CSRF:                   {http.StatusForbidden, "CSRF token missing or invalid"},
 	Forbidden:              {http.StatusForbidden, "Forbidden"},
 	NotFound:               {http.StatusNotFound, "Not found"},

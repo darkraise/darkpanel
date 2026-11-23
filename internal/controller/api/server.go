@@ -41,6 +41,10 @@ type Authenticator interface {
 	VerifyCSRF(sessionID, token string) bool
 	BeginEnrollment(ctx context.Context, token, source string, trusted bool) (auth.EnrollmentStart, error)
 	FinishEnrollment(ctx context.Context, r auth.EnrollRequest) (auth.LoginResult, error)
+	SignInMethods(ctx context.Context) (auth.SignInSettings, error)
+	StartOIDC(ctx context.Context, origin string) (auth.OIDCStart, error)
+	FinishOIDC(ctx context.Context, c auth.OIDCCallback) (auth.SignInResult, error)
+	FinishTOTPStep(ctx context.Context, r auth.TOTPStepRequest) (auth.LoginResult, error)
 }
 
 var _ Authenticator = (*auth.Service)(nil)
@@ -280,13 +284,16 @@ const (
 )
 
 // routeAccess is the public list of spec section 12: login, the enrollment
-// link's routes (M10 spec section 1.5), /healthz, and GET or HEAD of the UI's
+// link's routes (M10 spec section 1.5), the sign-in method routes (C8),
+// /healthz, and GET or HEAD of the UI's
 // files and index fallback. Everything else, on any
 // method and any path, needs credentials.
 func routeAccess(method, path string) access {
 	get := method == http.MethodGet || method == http.MethodHead
 	switch {
-	case method == http.MethodPost && (path == loginPath || path == enrollBeginPath || path == enrollFinishPath):
+	case method == http.MethodPost && (path == loginPath || path == enrollBeginPath || path == enrollFinishPath || path == totpStepPath):
+		return accessPublic
+	case get && (path == oidcStartPath || path == oidcCallbackPath || path == methodsPath):
 		return accessPublic
 	case get && path == healthzPath:
 		return accessOptional
