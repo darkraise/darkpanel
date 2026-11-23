@@ -77,14 +77,15 @@ func (m module) auditActions() []core.ActionDef {
 	return []core.ActionDef{
 		core.DefineRead[AuditListInput, AuditList](core.ActionSpec{
 			Name: "core.audit.list", Version: 1, Side: core.SideController,
-			Summary: "List audit log entries, newest first, filtered by actor, host or action.",
+			HostData: core.HostDataFiltered,
+			Summary:  "List audit log entries, newest first, filtered by actor, host or action.",
 		}, auditList{m}),
 	}
 }
 
 type auditList struct{ m module }
 
-func (h auditList) Read(ctx context.Context, _ core.Env, in AuditListInput) (AuditList, error) {
+func (h auditList) Read(ctx context.Context, env core.Env, in AuditListInput) (AuditList, error) {
 	if h.m.d.Audit == nil {
 		return AuditList{}, errUnset("Deps.Audit")
 	}
@@ -100,6 +101,9 @@ func (h auditList) Read(ctx context.Context, _ core.Env, in AuditListInput) (Aud
 	}
 	out := AuditList{Entries: make([]AuditEntry, 0, len(entries))}
 	for _, e := range entries {
+		if !env.Principal.HostAccess().Sees(e.HostID) {
+			continue
+		}
 		out.Entries = append(out.Entries, AuditEntry{
 			ID: e.ID, At: e.At, Actor: e.Actor, HostID: nonEmpty(e.HostID), Action: e.Action, Version: e.Version,
 			Phase: e.Phase, ChangeID: nonEmpty(e.ChangeID), Input: AuditInput(e.Input), Result: e.Result,

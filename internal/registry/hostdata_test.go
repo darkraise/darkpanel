@@ -7,7 +7,6 @@ import (
 )
 
 func TestEveryControllerReadDeclaresHostData(t *testing.T) {
-	t.Skip("Task 3 classifies the reads")
 	r, err := Build()
 	if err != nil {
 		t.Fatal(err)

@@ -285,6 +285,7 @@ func (h accountDisconnectHandler) Verify(ctx context.Context, env core.Env, _ Di
 func (t tn) accountGet() core.ActionDef {
 	return core.DefineRead[AccountGetInput, AccountStatus](core.ActionSpec{
 		Name: ID + ".account.get", Summary: "Show the connected tailnet account.", Version: 1, Side: core.SideController,
+		HostData: core.HostDataFleet,
 	}, accountGetHandler{t: t})
 }
 

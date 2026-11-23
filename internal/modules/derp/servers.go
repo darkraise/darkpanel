@@ -2,6 +2,7 @@ package derp
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -26,10 +27,11 @@ var serversPrincipal = core.Principal{Actor: "system:" + serversService, Scope: 
 // serverList declares derp.server.list: the DERP servers the derp.servers service found, with their health.
 func (d dp) serverList() core.ActionDef {
 	return core.DefineRead[ServerListInput, Servers](core.ActionSpec{
-		Name:    ID + ".server.list",
-		Summary: "List the DERP servers the controller found, with their health.",
-		Version: 1,
-		Side:    core.SideController,
+		Name:     ID + ".server.list",
+		HostData: core.HostDataFiltered,
+		Summary:  "List the DERP servers the controller found, with their health.",
+		Version:  1,
+		Side:     core.SideController,
 	}, serverListReader{})
 }
 
@@ -69,6 +71,8 @@ func (serverListReader) Read(ctx context.Context, env core.Env, _ ServerListInpu
 		}
 		views = append(views, v)
 	}
+	access := env.Principal.HostAccess()
+	views = slices.DeleteFunc(views, func(v ServerView) bool { return !access.Sees(v.HostID) })
 	return Servers{Servers: views, AvailableVersion: artifact.DerperVersion}, nil
 }
 

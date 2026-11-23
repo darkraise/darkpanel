@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,7 +54,8 @@ func Actions(cfg ActionsConfig) []core.ActionDef {
 		}, cancelAction{}),
 		core.DefineRead[core.RolloutsInput, core.RolloutList](core.ActionSpec{
 			Name: ActionRollouts, Version: 1, Side: core.SideController,
-			Summary: "List rollouts with their hosts, newest first.",
+			HostData: core.HostDataFiltered,
+			Summary:  "List rollouts with their hosts, newest first.",
 		}, listAction{}),
 	}
 }
@@ -348,8 +350,14 @@ func (listAction) Read(ctx context.Context, env core.Env, in core.RolloutsInput)
 		return core.RolloutList{}, err
 	}
 	out := core.RolloutList{Rollouts: make([]core.Rollout, 0, len(records))}
+	access := env.Principal.HostAccess()
 	for _, r := range records {
-		out.Rollouts = append(out.Rollouts, r.view())
+		v := r.view()
+		v.Hosts = slices.DeleteFunc(v.Hosts, func(h core.RolloutHost) bool { return !access.Sees(h.HostID) })
+		if len(v.Hosts) == 0 && !access.Fleet {
+			continue
+		}
+		out.Rollouts = append(out.Rollouts, v)
 	}
 	return out, nil
 }

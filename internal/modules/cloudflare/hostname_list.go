@@ -13,7 +13,8 @@ import (
 func (c cf) hostnameList() core.ActionDef {
 	return core.DefineRead[HostnameListInput, HostnameList](core.ActionSpec{
 		Name: ID + ".hostname.list", Summary: "List the public hostnames of the managed Cloudflare tunnels.", Version: 1,
-		Side: core.SideController,
+		HostData: core.HostDataFiltered,
+		Side:     core.SideController,
 	}, hostnameReader{})
 }
 
@@ -23,6 +24,10 @@ type hostnameReader struct{}
 
 // Read answers every hostname row sorted by hostname.
 func (hostnameReader) Read(ctx context.Context, env core.Env, _ HostnameListInput) (HostnameList, error) {
+	// The rows are tied to no host, so only fleet principals see them.
+	if !env.Principal.HostAccess().Fleet {
+		return HostnameList{Hostnames: []HostnameView{}}, nil
+	}
 	rows, err := listHostnames(ctx, env.DB.Read())
 	if err != nil {
 		return HostnameList{}, err

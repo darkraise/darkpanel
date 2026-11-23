@@ -185,6 +185,7 @@ func (h authkeyHandler) Verify(ctx context.Context, env core.Env, _ AuthKeyInput
 func (t tn) authkeyList() core.ActionDef {
 	return core.DefineRead[AuthKeyListInput, AuthKeyList](core.ActionSpec{
 		Name: ID + ".authkey.list", Summary: "List the auth keys Darkpanel requested.", Version: 1, Side: core.SideController,
+		HostData: core.HostDataFleet,
 	}, authkeyLister{})
 }
 

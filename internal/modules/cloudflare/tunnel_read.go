@@ -14,6 +14,7 @@ import (
 func (c cf) tunnelList() core.ActionDef {
 	return core.DefineRead[TunnelListInput, TunnelList](core.ActionSpec{
 		Name: ID + ".tunnel.list", Summary: "List the managed Cloudflare tunnels.", Version: 1, Side: core.SideController,
+		HostData: core.HostDataFiltered,
 	}, tunnelReader{c})
 }
 
@@ -26,6 +27,10 @@ type tunnelReader struct{ c cf }
 // and the connections null. Without an account every part is unknown. A
 // read whose context ends fails as a whole.
 func (r tunnelReader) Read(ctx context.Context, env core.Env, _ TunnelListInput) (TunnelList, error) {
+	// The rows are tied to no host, so only fleet principals see them.
+	if !env.Principal.HostAccess().Fleet {
+		return TunnelList{Tunnels: []TunnelView{}}, nil
+	}
 	rows, err := listTunnels(ctx, env.DB.Read())
 	if err != nil {
 		return TunnelList{}, err

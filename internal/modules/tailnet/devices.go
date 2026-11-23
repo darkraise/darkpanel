@@ -81,6 +81,7 @@ func observedDevice(e core.Effect, d Device, err error, state func(Device) (json
 func (t tn) deviceList() core.ActionDef {
 	return core.DefineRead[DeviceListInput, DeviceList](core.ActionSpec{
 		Name: ID + ".device.list", Summary: "List the tailnet's devices.", Version: 1, Side: core.SideController,
+		HostData: core.HostDataFiltered,
 	}, deviceListHandler{t: t})
 }
 
@@ -88,6 +89,10 @@ func (t tn) deviceList() core.ActionDef {
 type deviceListHandler struct{ t tn }
 
 func (h deviceListHandler) Read(ctx context.Context, env core.Env, _ DeviceListInput) (DeviceList, error) {
+	// The rows are tied to no host, so only fleet principals see them.
+	if !env.Principal.HostAccess().Fleet {
+		return DeviceList{Devices: []Device{}}, nil
+	}
 	devices, err := h.t.listDevices(ctx, env)
 	if err != nil {
 		return DeviceList{}, err

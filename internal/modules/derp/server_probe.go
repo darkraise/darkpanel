@@ -66,7 +66,8 @@ func serverProbeBounded(ctx context.Context, env core.Env) (context.Context, fun
 // shows which nodes see and use its region.
 func (d dp) serverProbe() core.ActionDef {
 	return core.DefineRead[ServerProbeInput, ServerProbe](core.ActionSpec{
-		Name:    ID + ".server.probe",
+		Name:     ID + ".server.probe",
+		HostData: core.HostDataInput, HostPointers: []string{"/hostId", "/agents"},
 		Summary: "Probe a DERP server's TLS and STUN reachability from the controller and chosen agents, and show which nodes use its region.",
 		Version: 1,
 		Side:    core.SideController,
@@ -91,6 +92,9 @@ func (d dp) probeServer(ctx context.Context, env core.Env, in ServerProbeInput) 
 	if err != nil {
 		return ServerProbe{}, err
 	}
+	// A principal without fleet access probes from, and sees, only its hosts.
+	access := env.Principal.HostAccess()
+	hosts = slices.DeleteFunc(hosts, func(h probeHost) bool { return !access.Sees(h.ID) })
 	i := slices.IndexFunc(hosts, func(h probeHost) bool { return h.ID == in.HostID })
 	if i < 0 {
 		return ServerProbe{}, core.Definite(errcode.New(errcode.NotFound, "host "+in.HostID+" not found"))
@@ -125,6 +129,7 @@ func (d dp) probeServer(ctx context.Context, env core.Env, in ServerProbeInput) 
 	}
 	probeFillNodes(nodes, status, selves, rec.RegionCode)
 	out := ServerProbe{HostID: in.HostID, RegionID: rec.RegionID, RegionCode: rec.RegionCode, Server: status, Nodes: nodes}
+	out.Nodes = slices.DeleteFunc(out.Nodes, func(n NodeUse) bool { return !access.Sees(n.HostID) })
 	ctl, err := d.probeFromController(ctx, env, status)
 	if err != nil {
 		return ServerProbe{}, err

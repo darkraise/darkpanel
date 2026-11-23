@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -15,10 +16,11 @@ const ctlListParallel = 8
 // instanceList declares npm.instance.list: the NPM instance status of every host.
 func (n nm) instanceList() core.ActionDef {
 	return core.DefineRead[InstanceListInput, InstancesOutput](core.ActionSpec{
-		Name:    ID + ".instance.list",
-		Summary: "List the Nginx Proxy Manager instance status of every host.",
-		Version: 1,
-		Side:    core.SideController,
+		Name:     ID + ".instance.list",
+		HostData: core.HostDataFiltered,
+		Summary:  "List the Nginx Proxy Manager instance status of every host.",
+		Version:  1,
+		Side:     core.SideController,
 	}, ctlInstanceListReader{})
 }
 
@@ -36,6 +38,8 @@ func (ctlInstanceListReader) Read(ctx context.Context, env core.Env, _ InstanceL
 	if err != nil {
 		return InstancesOutput{}, err
 	}
+	access := env.Principal.HostAccess()
+	hosts = slices.DeleteFunc(hosts, func(h ctlHost) bool { return !access.Sees(h.ID) })
 	statuses := make([]InstanceStatus, len(hosts))
 	read := make([]bool, len(hosts))
 	sem := make(chan struct{}, ctlListParallel)

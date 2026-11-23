@@ -14,6 +14,7 @@ import (
 func (t tn) policyGet() core.ActionDef {
 	return core.DefineRead[PolicyGetInput, Policy](core.ActionSpec{
 		Name: ID + ".policy.get", Summary: "Read the tailnet policy file with its comments.", Version: 1, Side: core.SideController,
+		HostData: core.HostDataFleet,
 	}, policyGetHandler{t: t})
 }
 

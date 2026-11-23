@@ -102,6 +102,7 @@ func cleanupDetail(pending []string) string {
 func (c cf) accountGet() core.ActionDef {
 	return core.DefineRead[AccountGetInput, AccountStatus](core.ActionSpec{
 		Name: ID + ".account.get", Summary: "Show the connected Cloudflare account.", Version: 1, Side: core.SideController,
+		HostData: core.HostDataFleet,
 	}, accountGetHandler{})
 }
 

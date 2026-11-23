@@ -39,7 +39,8 @@ func (m module) userActions() []core.ActionDef {
 	return []core.ActionDef{
 		core.DefineRead[NoInput, UserList](core.ActionSpec{
 			Name: "core.user.list", Version: 1, Side: core.SideController, BreakGlass: true,
-			Summary: "List the users; served only on the controller socket.",
+			HostData: core.HostDataFleet,
+			Summary:  "List the users; served only on the controller socket.",
 		}, userList{m}),
 		core.DefineMutating[UsernameInput, Enrollment](core.ActionSpec{
 			Name: "core.user.reset-totp", Version: 1, Class: core.ClassIrreversible, Side: core.SideController, BreakGlass: true,

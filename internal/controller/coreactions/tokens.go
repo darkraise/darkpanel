@@ -38,7 +38,8 @@ func (m module) tokenActions() []core.ActionDef {
 	return []core.ActionDef{
 		core.DefineRead[NoInput, TokenList](core.ActionSpec{
 			Name: "core.token.list", Version: 1, Side: core.SideController,
-			Summary: "List the calling user's API tokens.",
+			HostData: core.HostDataNone,
+			Summary:  "List the calling user's API tokens.",
 		}, tokenList{m}),
 		core.DefineMutating[TokenCreateInput, NewToken](core.ActionSpec{
 			Name: "core.token.create", Version: 1, Class: core.ClassCompensable, Side: core.SideController,

@@ -27,6 +27,7 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
 - [ADR 0016: System module](0016-system-module.md); narrows ADR 0011's
   reserved names and ADR 0012's reservation of `system`
 - [ADR 0017: Design language](0017-design-language.md)
+- [ADR 0018: Roles, host groups and sign-in methods](0018-roles-host-groups-sign-in.md)
 
 ## Format
 

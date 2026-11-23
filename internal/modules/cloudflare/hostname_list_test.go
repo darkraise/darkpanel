@@ -16,7 +16,8 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/cloudflare/fake"
 )
 
-var hsReader = core.Principal{Actor: "user:u2", UserID: "u2", Scope: core.ScopeRead, Source: "203.0.113.8"}
+var hsReader = core.Principal{Actor: "user:u2", UserID: "u2", Scope: core.ScopeRead, Source: "203.0.113.8",
+	Access: core.Access{Fleet: true, All: core.ScopeRead}}
 
 // hsModule serves the hostname list action under the cloudflare module id.
 type hsModule struct{ c cf }

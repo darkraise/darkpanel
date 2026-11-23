@@ -207,7 +207,11 @@ func (s *Server) actionHandler(side core.Side, op string) http.HandlerFunc {
 			err = errcode.New(errcode.Forbidden, "break-glass actions are served only on the controller socket")
 		}
 		if err == nil {
-			err = authorize(c.principal, core.RequiredScope(def.Spec))
+			if side == core.SideController && def.Spec.Class == core.ClassRead && !def.Spec.Internal {
+				err = authorizeController(c.principal, def)
+			} else {
+				err = authorize(c.principal, core.RequiredScope(def.Spec))
+			}
 		}
 		if err != nil {
 			writeProblem(w, s.log, err)
@@ -256,6 +260,10 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request, p core.Princi
 		return
 	}
 	if op == opRead {
+		if err := authorizeInputHosts(p, def, in.Input); err != nil {
+			writeProblem(w, s.log, err)
+			return
+		}
 		out, err := s.cfg.Dispatcher.Read(ctx, p, hostID, def.Ref(), in.Input)
 		if err != nil {
 			writeProblem(w, s.log, err)

@@ -10,6 +10,7 @@ import (
 func statusAction() core.ActionDef {
 	return core.DefineRead[StatusInput, StatusOutput](core.ActionSpec{
 		Name:     ActionStatus,
+		HostData: core.HostDataFleet,
 		Summary:  "Show whether the panel is exposed and how.",
 		Version:  1,
 		Side:     core.SideController,

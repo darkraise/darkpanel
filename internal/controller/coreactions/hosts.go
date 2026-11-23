@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -29,10 +30,12 @@ func (m module) hostActions() []core.ActionDef {
 	return []core.ActionDef{
 		core.DefineRead[NoInput, core.HostList](core.ActionSpec{
 			Name: "core.host.list", Version: 1, Side: core.SideController,
-			Summary: "List the managed hosts with the state of every module on each.",
+			HostData: core.HostDataFiltered,
+			Summary:  "List the managed hosts with the state of every module on each.",
 		}, hostList{m}),
 		core.DefineRead[ModuleListInput, ModuleList](core.ActionSpec{
 			Name: "core.module.list", Version: 1, Side: core.SideController,
+			HostData: core.HostDataInput, HostPointers: []string{"/hostId"},
 			Summary: "List the state of every compiled-in module on one host.",
 		}, moduleList{m}),
 	}
@@ -58,6 +61,7 @@ func (h hostList) Read(ctx context.Context, env core.Env, _ NoInput) (core.HostL
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return core.HostList{}, fmt.Errorf("coreactions: list hosts: %w", err)
 	}
+	out.Hosts = slices.DeleteFunc(out.Hosts, func(host core.Host) bool { return !env.Principal.HostAccess().Sees(host.ID) })
 	for i := range out.Hosts {
 		if err := h.m.complete(ctx, env, q, &out.Hosts[i]); err != nil {
 			return core.HostList{}, err

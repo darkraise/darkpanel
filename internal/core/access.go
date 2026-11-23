@@ -42,3 +42,23 @@ func (a Access) AllHosts(need Scope) bool {
 	}
 	return true
 }
+
+// Sees reports whether a row tied to hostID may be shown: the host is inside
+// the grants, or, for a row tied to no host (""), the principal has fleet
+// access.
+func (a Access) Sees(hostID string) bool {
+	if hostID == "" {
+		return a.Fleet || a.Admin
+	}
+	return a.On(hostID) != ""
+}
+
+// HostAccess is the access a check applies to p. System, local break-glass
+// and admin principals carry ScopeAdmin without resolved grants; they act as
+// admins everywhere.
+func (p Principal) HostAccess() Access {
+	if p.Scope == ScopeAdmin {
+		return Access{Admin: true, Fleet: true}
+	}
+	return p.Access
+}
