@@ -298,7 +298,9 @@ func TestDeleteUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := s.DeleteUser(ctx, "alice")
-	wantField(t, err, "/username")
+	if errcode.From(err).Code != errcode.UserLastAdmin {
+		t.Errorf("delete the last active admin: %v, want user.last_admin", err)
+	}
 	if err := s.DeleteUser(ctx, "pending"); err != nil {
 		t.Errorf("delete a pending user beside the last admin: %v", err)
 	}

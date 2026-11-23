@@ -15,12 +15,27 @@ type UserActivateInput struct {
 	Code     string `json:"code" secret:"true" jsonschema:"pattern=^[0-9]{6}$" jsonschema_description:"The six-digit code the authenticator shows for the user's new TOTP secret."`
 }
 
+// UserCreateInput is the input of core.user.create/v1.
+type UserCreateInput struct {
+	Username string `json:"username" jsonschema:"pattern=^[a-z0-9][a-z0-9._-]{0\\,63}$" jsonschema_description:"The user's name: lower-case letters, digits, dot, underscore and hyphen, starting with a letter or digit, at most 64 characters."`
+	Password string `json:"password" secret:"true" jsonschema:"minLength=12,maxLength=128" jsonschema_description:"The password, 12 to 128 characters."`
+	Role     string `json:"role,omitempty" jsonschema:"enum=admin,enum=member" jsonschema_description:"admin, the default, has every scope on every host; member starts with no grants."`
+}
+
+// role is the role the input asks for, admin when it names none.
+func (in UserCreateInput) role() string {
+	if in.Role == "" {
+		return auth.RoleAdmin
+	}
+	return in.Role
+}
+
 func (m module) enrollActions() []core.ActionDef {
 	return []core.ActionDef{
-		core.DefineMutating[UserPasswordInput, Enrollment](core.ActionSpec{
+		core.DefineMutating[UserCreateInput, Enrollment](core.ActionSpec{
 			Name: "core.user.create", Version: 1, Class: core.ClassCompensable, Side: core.SideController, BreakGlass: true,
 			CompensatedBy: "core.user.delete",
-			Summary:       "Create a pending admin user and return its TOTP secret, shown only once.",
+			Summary:       "Create a pending user, an admin unless the role says member, and return its TOTP secret, shown only once.",
 		}, userCreate{m}),
 		core.DefineMutating[UserActivateInput, auth.User](core.ActionSpec{
 			Name: "core.user.activate", Version: 1, Class: core.ClassCompensable, Side: core.SideController, BreakGlass: true,
@@ -32,7 +47,7 @@ func (m module) enrollActions() []core.ActionDef {
 
 type userCreate struct{ m module }
 
-func (h userCreate) Plan(ctx context.Context, _ core.Env, in UserPasswordInput) (core.PlanOutcome, error) {
+func (h userCreate) Plan(ctx context.Context, _ core.Env, in UserCreateInput) (core.PlanOutcome, error) {
 	svc, err := h.m.authService()
 	if err != nil {
 		return core.PlanOutcome{}, err
@@ -49,30 +64,33 @@ func (h userCreate) Plan(ctx context.Context, _ core.Env, in UserPasswordInput) 
 	if taken {
 		guard.Message = "a user named " + in.Username + " already exists"
 	}
+	diff := []core.DiffLine{{Op: "+", Text: fmt.Sprintf("user %s: pending %s, with a new TOTP secret shown once", in.Username, in.role())}}
+	if in.role() == auth.RoleMember {
+		diff = append(diff, core.DiffLine{Op: " ", Text: "no grants: the member sees no host until it is given some"})
+	}
+	diff = append(diff,
+		core.DiffLine{Op: " ", Text: "core.user.activate with a code from the secret makes the user active"},
+		core.DiffLine{Op: " ", Text: "compensated by core.user.delete"})
 	return core.PlanOutcome{
-		Diff: []core.DiffLine{
-			{Op: "+", Text: fmt.Sprintf("user %s: pending admin, with a new TOTP secret shown once", in.Username)},
-			{Op: " ", Text: "core.user.activate with a code from the secret makes the user active"},
-			{Op: " ", Text: "compensated by core.user.delete"},
-		},
+		Diff:      diff,
 		Guards:    []core.Guard{guard},
 		StateHash: stateHash(in.Username, strconv.FormatBool(taken)),
 	}, nil
 }
 
-func (h userCreate) Apply(ctx context.Context, _ core.Env, in UserPasswordInput) (Enrollment, error) {
+func (h userCreate) Apply(ctx context.Context, _ core.Env, in UserCreateInput) (Enrollment, error) {
 	svc, err := h.m.authService()
 	if err != nil {
 		return Enrollment{}, err
 	}
-	u, secret, err := svc.CreateUser(ctx, in.Username, in.Password)
+	u, secret, err := svc.CreateUserWithRole(ctx, in.Username, in.Password, in.role())
 	if err != nil {
 		return Enrollment{}, err
 	}
 	return Enrollment{User: u, TOTPSecret: secret}, nil
 }
 
-func (h userCreate) Verify(ctx context.Context, _ core.Env, in UserPasswordInput, _ Enrollment) error {
+func (h userCreate) Verify(ctx context.Context, _ core.Env, in UserCreateInput, _ Enrollment) error {
 	return wantUserState(ctx, h.m, in.Username, "")
 }
 

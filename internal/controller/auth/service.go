@@ -174,8 +174,17 @@ func loadUser(ctx context.Context, q querier, username string) (userRecord, erro
 // shown. A taken or invalid username or an invalid password is
 // request.invalid_input.
 func (s *Service) CreateUser(ctx context.Context, username, password string) (User, string, error) {
+	return s.CreateUserWithRole(ctx, username, password, RoleAdmin)
+}
+
+// CreateUserWithRole is CreateUser for a user of role admin or member; a
+// member starts with no grants, so it sees no host.
+func (s *Service) CreateUserWithRole(ctx context.Context, username, password, role string) (User, string, error) {
 	if err := checkUsername(username); err != nil {
 		return User{}, "", err
+	}
+	if role != RoleAdmin && role != RoleMember {
+		return User{}, "", invalidField("/role", "must be admin or member")
 	}
 	if err := checkPassword(password); err != nil {
 		return User{}, "", err
@@ -185,7 +194,7 @@ func (s *Service) CreateUser(ctx context.Context, username, password string) (Us
 		return User{}, "", err
 	}
 	key := newTOTPSecret()
-	u := User{ID: s.newID(), Username: username, Role: RoleAdmin, State: StatePending, CreatedAt: s.now()}
+	u := User{ID: s.newID(), Username: username, Role: role, State: StatePending, CreatedAt: s.now()}
 	ct, err := s.sealer.Seal(totpAD(u.ID), key)
 	if err != nil {
 		return User{}, "", fmt.Errorf("auth: seal TOTP secret: %w", err)
@@ -303,7 +312,9 @@ func (s *Service) ResetTOTP(ctx context.Context, username string) (User, string,
 // ResetPassword sets username's password, ends its sessions and revokes its
 // API tokens, since a token may have leaked with the password (owner
 // decision). A token already revoked keeps its first revocation time. An
-// invalid password is request.invalid_input.
+// invite never enrolled stops being one: its link is removed, since the user
+// now has a password of its own. An invalid password is
+// request.invalid_input.
 func (s *Service) ResetPassword(ctx context.Context, username, password string) (User, error) {
 	if err := checkPassword(password); err != nil {
 		return User{}, err
@@ -331,8 +342,9 @@ func (s *Service) ResetPassword(ctx context.Context, username, password string) 
 			return fmt.Errorf("auth: revoke tokens: %w", err)
 		}
 		u = r.User
-		if err := endEnrollmentLinks(ctx, tx, r.ID); err != nil {
-			return err
+		if _, err := tx.ExecContext(ctx, `DELETE FROM core_user_enrollments WHERE user_id = ? AND used_at IS NULL`,
+			r.ID); err != nil {
+			return fmt.Errorf("auth: end enrollment link: %w", err)
 		}
 		return endSessions(ctx, tx, r.ID)
 	})
@@ -340,7 +352,7 @@ func (s *Service) ResetPassword(ctx context.Context, username, password string) 
 }
 
 // DeleteUser deletes username with its sessions and tokens. Deleting the last
-// active admin is request.invalid_input.
+// active admin is user.last_admin.
 func (s *Service) DeleteUser(ctx context.Context, username string) error {
 	return s.db.Write(ctx, func(tx *sql.Tx) error {
 		r, err := loadUser(ctx, tx, username)
@@ -396,8 +408,10 @@ func (s *Service) GetUser(ctx context.Context, username string) (User, error) {
 	return r.User, err
 }
 
-// refuseLastAdmin fails when u is the last active admin that is not
-// disabled, the one user that must keep signing in.
+// refuseLastAdmin fails with user.last_admin when u is the last active
+// admin that is not disabled, the one user that must keep signing in. It
+// counts inside the caller's write transaction, so two changes cannot each
+// remove one of the last two admins.
 func refuseLastAdmin(ctx context.Context, tx *sql.Tx, u User) error {
 	if !u.usable() || u.Role != RoleAdmin {
 		return nil
@@ -408,9 +422,15 @@ func refuseLastAdmin(ctx context.Context, tx *sql.Tx, u User) error {
 		return fmt.Errorf("auth: count active admins: %w", err)
 	}
 	if n <= 1 {
-		return invalidField("/username", "the user is the last active admin")
+		return LastAdminError(u.Username)
 	}
 	return nil
+}
+
+// LastAdminError is the user.last_admin refusal of a change that would leave
+// no active admin.
+func LastAdminError(username string) error {
+	return errcode.New(errcode.UserLastAdmin, username+" is the last active admin; activate another admin first")
 }
 
 // Invitations and enrollment links (M10 spec section 1.5).
@@ -488,14 +508,15 @@ func nullable(v string) any {
 	return v
 }
 
-// identityTaken fails when another user already has value in column, which
-// compares without case.
-func identityTaken(ctx context.Context, tx *sql.Tx, column, path, value string) error {
+// identityTaken fails when a user other than userID already has value in
+// column, which compares without case.
+func identityTaken(ctx context.Context, q querier, column, path, value, userID string) error {
 	if value == "" {
 		return nil
 	}
 	var n int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM core_users WHERE `+column+` = ? COLLATE NOCASE`, value).Scan(&n); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM core_users WHERE `+column+` = ? COLLATE NOCASE AND id <> ?`,
+		value, userID).Scan(&n); err != nil {
 		return fmt.Errorf("auth: check %s: %w", column, err)
 	}
 	if n > 0 {
@@ -506,10 +527,9 @@ func identityTaken(ctx context.Context, tx *sql.Tx, column, path, value string) 
 
 // Invite adds a pending user that cannot sign in by password: its password
 // hash is the argon2id hash of a random password nobody sees, and its TOTP
-// secret a sealed random one, until its enrollment link sets both. It stores
-// the grants as given; the caller has checked their targets. A taken
-// username or identity, an unknown role, or grants for an admin is
-// request.invalid_input.
+// secret a sealed random one, until its enrollment link sets both. A taken
+// username or identity, an unknown role, a grant CheckGrants refuses, or
+// grants for an admin is request.invalid_input.
 func (s *Service) Invite(ctx context.Context, r InviteRequest) (Invitation, error) {
 	if err := checkUsername(r.Username); err != nil {
 		return Invitation{}, err
@@ -547,10 +567,13 @@ func (s *Service) Invite(ctx context.Context, r InviteRequest) (Invitation, erro
 		if n > 0 {
 			return invalidField("/username", "a user with this name already exists")
 		}
-		if err := identityTaken(ctx, tx, "email", "/email", r.Email); err != nil {
+		if err := identityTaken(ctx, tx, "email", "/email", r.Email, u.ID); err != nil {
 			return err
 		}
-		if err := identityTaken(ctx, tx, "tailnet_login", "/tailnetLogin", r.TailnetLogin); err != nil {
+		if err := identityTaken(ctx, tx, "tailnet_login", "/tailnetLogin", r.TailnetLogin, u.ID); err != nil {
+			return err
+		}
+		if _, err := CheckGrants(ctx, tx, r.Grants); err != nil {
 			return err
 		}
 		at := formatTime(u.CreatedAt)
@@ -688,6 +711,266 @@ func (s *Service) SetDisabled(ctx context.Context, username string, disabled boo
 		return nil
 	})
 	return u, err
+}
+
+// CheckGrants checks a member's grants: each target is "*" or an existing
+// host group id, named once, and each role viewer or operator. It returns
+// the name of each group a grant targets. Every write that stores grants
+// runs it inside its transaction, so a group deleted meanwhile is refused.
+func CheckGrants(ctx context.Context, q querier, grants []Grant) (map[string]string, error) {
+	names := map[string]string{}
+	seen := map[string]bool{}
+	for i, g := range grants {
+		at := fmt.Sprintf("/grants/%d", i)
+		if _, ok := grantScope[g.Role]; !ok {
+			return nil, invalidField(at+"/role", "must be viewer or operator")
+		}
+		if seen[g.Target] {
+			return nil, invalidField(at+"/target", "names a target another grant names")
+		}
+		seen[g.Target] = true
+		if g.Target == "*" {
+			continue
+		}
+		var name string
+		err := q.QueryRowContext(ctx, `SELECT name FROM core_host_groups WHERE id = ?`, g.Target).Scan(&name)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, invalidField(at+"/target", "is not * or an existing host group")
+		}
+		if err != nil {
+			return nil, fmt.Errorf("auth: check grants: %w", err)
+		}
+		names[g.Target] = name
+	}
+	return names, nil
+}
+
+// Sign-in methods a directory entry lists.
+const (
+	SignInPassword  = "password"
+	SignInOIDC      = "oidc"
+	SignInTailscale = "tailscale"
+)
+
+// DirectoryUser is a user as the web Users page shows it: its role, grants,
+// sign-in identities and the sign-in methods it has.
+type DirectoryUser struct {
+	User
+	Grants       []Grant  `json:"grants" jsonschema_description:"The user's grants, sorted by target; they apply only while the user is a member."`
+	Email        string   `json:"email" jsonschema_description:"The email an OIDC sign-in matches; empty when unset."`
+	TailnetLogin string   `json:"tailnetLogin" jsonschema_description:"The tailnet login a Tailscale sign-in matches; empty when unset."`
+	SignIn       []string `json:"signIn" jsonschema:"enum=password,enum=oidc,enum=tailscale" jsonschema_description:"The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account."`
+}
+
+// directory reads every user, or only username when it is not "".
+func directory(ctx context.Context, q accessQuerier, username string) ([]DirectoryUser, error) {
+	query := `SELECT u.id, u.username, u.role, u.state, u.created_at, u.disabled_at IS NOT NULL,
+		coalesce(u.email, ''), coalesce(u.tailnet_login, ''),
+		NOT EXISTS (SELECT 1 FROM core_user_enrollments e WHERE e.user_id = u.id AND e.used_at IS NULL),
+		u.oidc_subject IS NOT NULL, u.tailnet_user_id IS NOT NULL
+		FROM core_users u`
+	args := []any{}
+	if username != "" {
+		query += ` WHERE u.username = ?`
+		args = append(args, username)
+	}
+	rows, err := q.QueryContext(ctx, query+` ORDER BY u.username`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("auth: read the directory: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	users := []DirectoryUser{}
+	byID := map[string]int{}
+	for rows.Next() {
+		var d DirectoryUser
+		var created string
+		var password, oidc, tailscale bool
+		if err := rows.Scan(&d.ID, &d.Username, &d.Role, &d.State, &created, &d.Disabled, &d.Email, &d.TailnetLogin,
+			&password, &oidc, &tailscale); err != nil {
+			return nil, fmt.Errorf("auth: read the directory: %w", err)
+		}
+		if d.CreatedAt, err = parseTime(created); err != nil {
+			return nil, err
+		}
+		d.Grants, d.SignIn = []Grant{}, []string{}
+		for _, m := range []struct {
+			has  bool
+			name string
+		}{{password, SignInPassword}, {oidc, SignInOIDC}, {tailscale, SignInTailscale}} {
+			if m.has {
+				d.SignIn = append(d.SignIn, m.name)
+			}
+		}
+		byID[d.ID] = len(users)
+		users = append(users, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("auth: read the directory: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("auth: read the directory: %w", err)
+	}
+	grants, err := q.QueryContext(ctx, `SELECT user_id, target, role FROM core_user_grants ORDER BY user_id, target`)
+	if err != nil {
+		return nil, fmt.Errorf("auth: read the directory's grants: %w", err)
+	}
+	defer func() { _ = grants.Close() }()
+	for grants.Next() {
+		var userID string
+		var g Grant
+		if err := grants.Scan(&userID, &g.Target, &g.Role); err != nil {
+			return nil, fmt.Errorf("auth: read the directory's grants: %w", err)
+		}
+		if i, ok := byID[userID]; ok {
+			users[i].Grants = append(users[i].Grants, g)
+		}
+	}
+	if err := grants.Err(); err != nil {
+		return nil, fmt.Errorf("auth: read the directory's grants: %w", err)
+	}
+	return users, nil
+}
+
+// Directory returns every user as the web Users page shows it, sorted by
+// username.
+func (s *Service) Directory(ctx context.Context) ([]DirectoryUser, error) {
+	return directory(ctx, s.db.Read(), "")
+}
+
+// Profile returns username's directory entry; an unknown user is
+// errcode.NotFound.
+func (s *Service) Profile(ctx context.Context, username string) (DirectoryUser, error) {
+	return profile(ctx, s.db.Read(), username)
+}
+
+func profile(ctx context.Context, q accessQuerier, username string) (DirectoryUser, error) {
+	users, err := directory(ctx, q, username)
+	if err != nil {
+		return DirectoryUser{}, err
+	}
+	if len(users) == 0 {
+		return DirectoryUser{}, errUserNotFound()
+	}
+	return users[0], nil
+}
+
+// SetRole makes username an admin or a member. A member's stored grants
+// give its access; an admin keeps its grants unused, so making it a member
+// again restores them. Demoting the last active admin is user.last_admin. A
+// change of role ends an unused enrollment link: the link was handed out for
+// the old role.
+func (s *Service) SetRole(ctx context.Context, username, role string) (DirectoryUser, error) {
+	if role != RoleAdmin && role != RoleMember {
+		return DirectoryUser{}, invalidField("/role", "must be admin or member")
+	}
+	var d DirectoryUser
+	err := s.db.Write(ctx, func(tx *sql.Tx) error {
+		r, err := loadUser(ctx, tx, username)
+		if err != nil {
+			return err
+		}
+		if r.Role != role {
+			if err := refuseLastAdmin(ctx, tx, r.User); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE core_users SET role = ?, updated_at = ? WHERE id = ?`,
+				role, formatTime(s.now()), r.ID); err != nil {
+				return fmt.Errorf("auth: set role: %w", err)
+			}
+			if err := endEnrollmentLinks(ctx, tx, r.ID); err != nil {
+				return err
+			}
+		}
+		d, err = profile(ctx, tx, username)
+		return err
+	})
+	return d, err
+}
+
+// SetGrants replaces a member's grants, checked by CheckGrants. An admin
+// has every host, so setting its grants is request.invalid_input.
+func (s *Service) SetGrants(ctx context.Context, username string, grants []Grant) (DirectoryUser, error) {
+	var d DirectoryUser
+	err := s.db.Write(ctx, func(tx *sql.Tx) error {
+		r, err := loadUser(ctx, tx, username)
+		if err != nil {
+			return err
+		}
+		if r.Role != RoleMember {
+			return invalidField("/grants", "an admin has every host; grants are for members")
+		}
+		if _, err := CheckGrants(ctx, tx, grants); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM core_user_grants WHERE user_id = ?`, r.ID); err != nil {
+			return fmt.Errorf("auth: set grants: %w", err)
+		}
+		for _, g := range grants {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO core_user_grants (user_id, target, role) VALUES (?, ?, ?)`,
+				r.ID, g.Target, g.Role); err != nil {
+				return fmt.Errorf("auth: set grants: %w", err)
+			}
+		}
+		d, err = profile(ctx, tx, username)
+		return err
+	})
+	return d, err
+}
+
+// CheckIdentity checks email and tailnetLogin as SetIdentity would set them
+// on username: their form, and that no other user has either in any case.
+func (s *Service) CheckIdentity(ctx context.Context, username, email, tailnetLogin string) error {
+	r, err := loadUser(ctx, s.db.Read(), username)
+	if err != nil {
+		return err
+	}
+	return checkIdentities(ctx, s.db.Read(), r.ID, email, tailnetLogin)
+}
+
+func checkIdentities(ctx context.Context, q querier, userID, email, tailnetLogin string) error {
+	if err := checkIdentity("/email", email, true); err != nil {
+		return err
+	}
+	if err := checkIdentity("/tailnetLogin", tailnetLogin, false); err != nil {
+		return err
+	}
+	if err := identityTaken(ctx, q, "email", "/email", email, userID); err != nil {
+		return err
+	}
+	return identityTaken(ctx, q, "tailnet_login", "/tailnetLogin", tailnetLogin, userID)
+}
+
+// SetIdentity sets username's email and tailnet login, "" clearing one. An
+// email that changes other than in case clears the OIDC pin (issuer and
+// subject), and a tailnet login that does clears the Tailscale pin, so the
+// next sign-in by that method links the account again by the new identity.
+// A malformed identity, or one another user has in any case, is
+// request.invalid_input.
+func (s *Service) SetIdentity(ctx context.Context, username, email, tailnetLogin string) (DirectoryUser, error) {
+	var d DirectoryUser
+	err := s.db.Write(ctx, func(tx *sql.Tx) error {
+		cur, err := profile(ctx, tx, username)
+		if err != nil {
+			return err
+		}
+		if err := checkIdentities(ctx, tx, cur.ID, email, tailnetLogin); err != nil {
+			return err
+		}
+		q := `UPDATE core_users SET email = ?, tailnet_login = ?, updated_at = ?`
+		if !strings.EqualFold(cur.Email, email) {
+			q += `, oidc_issuer = NULL, oidc_subject = NULL`
+		}
+		if !strings.EqualFold(cur.TailnetLogin, tailnetLogin) {
+			q += `, tailnet_user_id = NULL`
+		}
+		if _, err := tx.ExecContext(ctx, q+` WHERE id = ?`, nullable(email), nullable(tailnetLogin),
+			formatTime(s.now()), cur.ID); err != nil {
+			return fmt.Errorf("auth: set identity: %w", err)
+		}
+		d, err = profile(ctx, tx, username)
+		return err
+	})
+	return d, err
 }
 
 // EnrollmentStart is what POST /api/v1/enroll/begin returns: the user's new

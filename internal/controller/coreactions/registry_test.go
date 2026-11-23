@@ -56,6 +56,10 @@ var declarations = map[string]declaration{
 	"core.user.cancel-invite":  {class: core.ClassCompensable, compensatedBy: "core.user.invite"},
 	"core.user.disable":        {class: core.ClassCompensable, compensatedBy: "core.user.enable"},
 	"core.user.enable":         {class: core.ClassCompensable, compensatedBy: "core.user.disable"},
+	"core.user.set-role":       {class: core.ClassCompensable, compensatedBy: "core.user.set-role"},
+	"core.user.set-grants":     {class: core.ClassCompensable, compensatedBy: "core.user.set-grants"},
+	"core.user.set-identity":   {class: core.ClassCompensable, compensatedBy: "core.user.set-identity"},
+	"core.user.directory":      {class: core.ClassRead},
 
 	"core.update.apply":          {class: core.ClassCompensable, compensatedBy: "core.update.rollback", agent: true},
 	"core.update.rollback":       {class: core.ClassIrreversible, agent: true},

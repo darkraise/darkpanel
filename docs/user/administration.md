@@ -31,7 +31,8 @@ list, which needs `read`.
 
 - `core.user.create`: `sudo darkpanel user create --username <name>` creates a
   pending admin user, asks for its password, and shows its TOTP secret once.
-  Undo it with `core.user.delete`.
+  Add `--role member` for a member, which starts with no grants. Undo it with
+  `core.user.delete`.
 - `core.user.activate`: `sudo darkpanel user activate --username <name>`
   activates a pending user with a code from its authenticator. Undo it with
   `core.user.reset-totp`.
@@ -44,7 +45,36 @@ list, which needs `read`.
   sessions. It cannot be undone.
 - `core.user.delete`: `sudo darkpanel user delete --username <name>` deletes a
   user with its sessions and API tokens, and refuses to delete the last active
-  admin. It cannot be undone.
+  admin (`user.last_admin`). It cannot be undone.
+
+These actions work over the API and need an admin. Each one is undone by the
+action named after it, with the previous value.
+
+- `core.user.invite`: `darkpanel user invite` creates a pending user, an
+  `admin` or a `member` with grants, and returns a one-time enrollment link
+  valid 72 hours. Undo it with `core.user.cancel-invite`.
+- `core.user.renew-invite`: gives an invited user that never enrolled a new
+  link; the old one stops working. Undo it with `core.user.renew-invite`.
+- `core.user.cancel-invite`: removes an invited user that never enrolled.
+  Undo it with `core.user.invite`.
+- `core.user.set-role`: makes a user an `admin` or a `member`, and refuses to
+  demote the last active admin. A member keeps its grants while it is an
+  admin. Undo it with `core.user.set-role`.
+- `core.user.set-grants`: replaces a member's grants, each `viewer` or
+  `operator` on every host (`*`) or on a host group. Undo it with
+  `core.user.set-grants`.
+- `core.user.set-identity`: sets the email an OIDC sign-in matches and the
+  tailnet login a Tailscale sign-in matches. Changing one ends that method's
+  link, so the next sign-in links the account again. Undo it with
+  `core.user.set-identity`.
+- `core.user.disable`: refuses a user's sessions, tokens and sign-ins until
+  `core.user.enable`, and refuses the last active admin. Undo it with
+  `core.user.enable`.
+- `core.user.enable`: lets a disabled user sign in again. Undo it with
+  `core.user.disable`.
+- `core.user.directory`: `darkpanel user directory` lists every user with its
+  role, grants, email, tailnet login, whether it is disabled and the sign-in
+  methods it has. An admin's `read` token can run it.
 
 [Recover from a lockout](lockout-recovery.md) uses these commands when nobody
 can sign in.

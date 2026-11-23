@@ -783,6 +783,42 @@ Returned in the `output` field of the change that apply returns.
 | `state` | string | yes |  |
 | `username` | string | yes |  |
 
+## core.user.directory v1
+
+List every user with its role, grants, sign-in identities and sign-in methods.
+
+| Operation | Request |
+|---|---|
+| read | `POST /api/v1/actions/core.user.directory/v1/read` |
+
+Minimum scope: `read`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `users` | array of object | yes | Every user, sorted by username. |
+| `users[].createdAt` | string (date-time) | yes |  |
+| `users[].disabled` | boolean | no | True while core.user.disable keeps the user from signing in. |
+| `users[].email` | string | yes | The email an OIDC sign-in matches; empty when unset. |
+| `users[].grants` | array of object | yes | The user's grants, sorted by target; they apply only while the user is a member. |
+| `users[].grants[].role` | string | yes | viewer gives read, operator gives operate. Values: viewer, operator. |
+| `users[].grants[].target` | string | yes | A host group id, or * for every host, including hosts enrolled later. |
+| `users[].id` | string | yes |  |
+| `users[].role` | string | yes |  |
+| `users[].signIn` | array of string | yes | The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account. |
+| `users[].state` | string | yes |  |
+| `users[].tailnetLogin` | string | yes | The tailnet login a Tailscale sign-in matches; empty when unset. |
+| `users[].username` | string | yes |  |
+
 ## core.user.disable v1
 
 Disable a user: its sessions, tokens and sign-ins are refused until core.user.enable; ends an unused enrollment link.
@@ -922,3 +958,123 @@ Returned in the `output` field of the change that apply returns.
 | `user.role` | string | yes |  |
 | `user.state` | string | yes |  |
 | `user.username` | string | yes |  |
+
+## core.user.set-grants v1
+
+Replace a member's grants: viewer or operator on every host or on a host group.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.user.set-grants/v1/plan` |
+| apply | `POST /api/v1/actions/core.user.set-grants/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `grants` | array of object | yes | The member's grants, one per target, replacing every grant it has; empty leaves it no host. |
+| `grants[].role` | string | yes | viewer gives read, operator gives operate. Values: viewer, operator. |
+| `grants[].target` | string | yes | A host group id, or * for every host, including hosts enrolled later. |
+| `username` | string | yes | The member's name. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `disabled` | boolean | no | True while core.user.disable keeps the user from signing in. |
+| `email` | string | yes | The email an OIDC sign-in matches; empty when unset. |
+| `grants` | array of object | yes | The user's grants, sorted by target; they apply only while the user is a member. |
+| `grants[].role` | string | yes | viewer gives read, operator gives operate. Values: viewer, operator. |
+| `grants[].target` | string | yes | A host group id, or * for every host, including hosts enrolled later. |
+| `id` | string | yes |  |
+| `role` | string | yes |  |
+| `signIn` | array of string | yes | The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account. |
+| `state` | string | yes |  |
+| `tailnetLogin` | string | yes | The tailnet login a Tailscale sign-in matches; empty when unset. |
+| `username` | string | yes |  |
+
+## core.user.set-identity v1
+
+Set the email and tailnet login a user's OIDC and Tailscale sign-ins match; a changed one ends that method's link.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.user.set-identity/v1/plan` |
+| apply | `POST /api/v1/actions/core.user.set-identity/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | string | yes | The email an OIDC sign-in matches; empty clears it. |
+| `tailnetLogin` | string | yes | The tailnet login a Tailscale sign-in matches; empty clears it. |
+| `username` | string | yes | The user's name. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `disabled` | boolean | no | True while core.user.disable keeps the user from signing in. |
+| `email` | string | yes | The email an OIDC sign-in matches; empty when unset. |
+| `grants` | array of object | yes | The user's grants, sorted by target; they apply only while the user is a member. |
+| `grants[].role` | string | yes | viewer gives read, operator gives operate. Values: viewer, operator. |
+| `grants[].target` | string | yes | A host group id, or * for every host, including hosts enrolled later. |
+| `id` | string | yes |  |
+| `role` | string | yes |  |
+| `signIn` | array of string | yes | The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account. |
+| `state` | string | yes |  |
+| `tailnetLogin` | string | yes | The tailnet login a Tailscale sign-in matches; empty when unset. |
+| `username` | string | yes |  |
+
+## core.user.set-role v1
+
+Make a user an admin or a member, refusing to demote the last active admin; ends an unused enrollment link.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.user.set-role/v1/plan` |
+| apply | `POST /api/v1/actions/core.user.set-role/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `role` | string | yes | admin has every scope on every host; member has only what its grants give. Values: admin, member. |
+| `username` | string | yes | The user's name. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `disabled` | boolean | no | True while core.user.disable keeps the user from signing in. |
+| `email` | string | yes | The email an OIDC sign-in matches; empty when unset. |
+| `grants` | array of object | yes | The user's grants, sorted by target; they apply only while the user is a member. |
+| `grants[].role` | string | yes | viewer gives read, operator gives operate. Values: viewer, operator. |
+| `grants[].target` | string | yes | A host group id, or * for every host, including hosts enrolled later. |
+| `id` | string | yes |  |
+| `role` | string | yes |  |
+| `signIn` | array of string | yes | The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account. |
+| `state` | string | yes |  |
+| `tailnetLogin` | string | yes | The tailnet login a Tailscale sign-in matches; empty when unset. |
+| `username` | string | yes |  |

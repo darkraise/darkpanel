@@ -272,13 +272,9 @@ func TestDisabledUserIsRefusedEverywhere(t *testing.T) {
 	if guardOK(t, pv, "not-last-admin") {
 		t.Error("with the other admin disabled, deleting root: guard not-last-admin OK")
 	}
-	if pv, err = e.plan(root, "core.user.disable", `{"username":"root"}`); err != nil {
-		t.Fatal(err)
-	}
-	if guardOK(t, pv, "not-last-admin") {
-		t.Error("disabling the last active admin: guard not-last-admin OK")
-	}
-	if _, err := e.auth.SetDisabled(ctx, "root", true); errcode.From(err).Code != errcode.InvalidInput {
+	_, err = e.plan(root, "core.user.disable", `{"username":"root"}`)
+	wantErrCode(t, "disabling the last active admin", err, errcode.UserLastAdmin)
+	if _, err := e.auth.SetDisabled(ctx, "root", true); errcode.From(err).Code != errcode.UserLastAdmin {
 		t.Errorf("SetDisabled(root) = %v; want the last active admin refused", err)
 	}
 

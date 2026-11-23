@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
@@ -23,8 +25,7 @@ type UsernameInput struct {
 	Username string `json:"username" jsonschema:"pattern=^[a-z0-9][a-z0-9._-]{0\\,63}$" jsonschema_description:"The user's name."`
 }
 
-// UserPasswordInput is the input of core.user.create/v1 and
-// core.user.reset-password/v1.
+// UserPasswordInput is the input of core.user.reset-password/v1.
 type UserPasswordInput struct {
 	Username string `json:"username" jsonschema:"pattern=^[a-z0-9][a-z0-9._-]{0\\,63}$" jsonschema_description:"The user's name: lower-case letters, digits, dot, underscore and hyphen, starting with a letter or digit, at most 64 characters."`
 	Password string `json:"password" secret:"true" jsonschema:"minLength=12,maxLength=128" jsonschema_description:"The password, 12 to 128 characters."`
@@ -285,48 +286,6 @@ func (m module) inviteActions() []core.ActionDef {
 	}
 }
 
-// grantQuerier reads the host groups grants name.
-type grantQuerier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-func grantRefusal(path, message string) error {
-	return &errcode.Error{Code: errcode.InvalidInput, Detail: "invalid input",
-		Fields: []errcode.FieldError{{Path: path, Message: message}}}
-}
-
-// checkGrants checks a member's grants: each target is "*" or an existing
-// host group id, named once, and each role viewer or operator. It returns
-// the name of each group a grant targets. Every action that stores grants
-// checks them here.
-func checkGrants(ctx context.Context, q grantQuerier, grants []auth.Grant) (map[string]string, error) {
-	names := map[string]string{}
-	seen := map[string]bool{}
-	for i, g := range grants {
-		at := fmt.Sprintf("/grants/%d", i)
-		if g.Role != auth.GrantViewer && g.Role != auth.GrantOperator {
-			return nil, grantRefusal(at+"/role", "must be viewer or operator")
-		}
-		if seen[g.Target] {
-			return nil, grantRefusal(at+"/target", "names a target another grant names")
-		}
-		seen[g.Target] = true
-		if g.Target == "*" {
-			continue
-		}
-		var name string
-		err := q.QueryRowContext(ctx, `SELECT name FROM core_host_groups WHERE id = ?`, g.Target).Scan(&name)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, grantRefusal(at+"/target", "is not * or an existing host group")
-		}
-		if err != nil {
-			return nil, fmt.Errorf("coreactions: check grants: %w", err)
-		}
-		names[g.Target] = name
-	}
-	return names, nil
-}
-
 // grantText renders a grant for a diff line.
 func grantText(g auth.Grant, names map[string]string) string {
 	if g.Target == "*" {
@@ -343,9 +302,9 @@ func (h userInvite) Plan(ctx context.Context, env core.Env, in InviteInput) (cor
 		return core.PlanOutcome{}, err
 	}
 	if in.Role == auth.RoleAdmin && len(in.Grants) > 0 {
-		return core.PlanOutcome{}, grantRefusal("/grants", "an admin has every host; grants are for members")
+		return core.PlanOutcome{}, fieldRefusal("/grants", "an admin has every host; grants are for members")
 	}
-	names, err := checkGrants(ctx, env.DB.Read(), in.Grants)
+	names, err := auth.CheckGrants(ctx, env.DB.Read(), in.Grants)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -374,12 +333,9 @@ func (h userInvite) Plan(ctx context.Context, env core.Env, in InviteInput) (cor
 	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{guard}, StateHash: stateHash(state...)}, nil
 }
 
-func (h userInvite) Apply(ctx context.Context, env core.Env, in InviteInput) (Invitation, error) {
+func (h userInvite) Apply(ctx context.Context, _ core.Env, in InviteInput) (Invitation, error) {
 	svc, err := h.m.authService()
 	if err != nil {
-		return Invitation{}, err
-	}
-	if _, err := checkGrants(ctx, env.DB.Read(), in.Grants); err != nil {
 		return Invitation{}, err
 	}
 	inv, err := svc.Invite(ctx, auth.InviteRequest{Username: in.Username, Role: in.Role, Grants: in.Grants,
@@ -474,17 +430,13 @@ func (h userSetDisabled) Plan(ctx context.Context, _ core.Env, in UsernameInput)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	guards := []core.Guard{}
 	var diff []core.DiffLine
 	switch {
 	case u.Disabled == h.disabled:
 		diff = []core.DiffLine{{Op: " ", Text: fmt.Sprintf("user %s is already %s; nothing changes", u.Username, disabledWord(h.disabled))}}
+	case h.disabled && last:
+		return core.PlanOutcome{}, auth.LastAdminError(u.Username)
 	case h.disabled:
-		guard := core.Guard{ID: "not-last-admin", OK: !last, Message: u.Username + " is not the last active admin"}
-		if last {
-			guard.Message = u.Username + " is the last active admin; activate another admin first"
-		}
-		guards = append(guards, guard)
 		diff = []core.DiffLine{
 			{Op: "-", Text: fmt.Sprintf("user %s: enabled", u.Username)},
 			{Op: "+", Text: fmt.Sprintf("user %s: disabled; its sessions, tokens and sign-ins are refused, and an unused enrollment link ends", u.Username)},
@@ -498,7 +450,7 @@ func (h userSetDisabled) Plan(ctx context.Context, _ core.Env, in UsernameInput)
 		}
 	}
 	return core.PlanOutcome{
-		Diff: diff, Guards: guards,
+		Diff: diff, Guards: []core.Guard{},
 		StateHash: stateHash(u.ID, u.State, strconv.FormatBool(u.Disabled), strconv.FormatBool(last)),
 	}, nil
 }
@@ -531,4 +483,340 @@ func (h userSetDisabled) Verify(ctx context.Context, _ core.Env, in UsernameInpu
 		return fmt.Errorf("coreactions: user %s is not %s", in.Username, disabledWord(h.disabled))
 	}
 	return nil
+}
+
+// fieldRefusal is a request.invalid_input refusal naming one field.
+func fieldRefusal(path, message string) error {
+	return &errcode.Error{Code: errcode.InvalidInput, Detail: "invalid input",
+		Fields: []errcode.FieldError{{Path: path, Message: message}}}
+}
+
+// SetRoleInput is the input of core.user.set-role/v1.
+type SetRoleInput struct {
+	Username string `json:"username" jsonschema:"pattern=^[a-z0-9][a-z0-9._-]{0\\,63}$" jsonschema_description:"The user's name."`
+	Role     string `json:"role" jsonschema:"enum=admin,enum=member" jsonschema_description:"admin has every scope on every host; member has only what its grants give."`
+}
+
+// SetGrantsInput is the input of core.user.set-grants/v1.
+type SetGrantsInput struct {
+	Username string       `json:"username" jsonschema:"pattern=^[a-z0-9][a-z0-9._-]{0\\,63}$" jsonschema_description:"The member's name."`
+	Grants   []auth.Grant `json:"grants" jsonschema_description:"The member's grants, one per target, replacing every grant it has; empty leaves it no host."`
+}
+
+// IdentityInput is the input of core.user.set-identity/v1.
+type IdentityInput struct {
+	Username     string `json:"username" jsonschema:"pattern=^[a-z0-9][a-z0-9._-]{0\\,63}$" jsonschema_description:"The user's name."`
+	Email        string `json:"email" jsonschema:"maxLength=254" jsonschema_description:"The email an OIDC sign-in matches; empty clears it."`
+	TailnetLogin string `json:"tailnetLogin" jsonschema:"maxLength=254" jsonschema_description:"The tailnet login a Tailscale sign-in matches; empty clears it."`
+}
+
+// Directory is the output of core.user.directory/v1.
+type Directory struct {
+	Users []auth.DirectoryUser `json:"users" jsonschema_description:"Every user, sorted by username."`
+}
+
+func (m module) roleActions() []core.ActionDef {
+	return []core.ActionDef{
+		core.DefineMutating[SetRoleInput, auth.DirectoryUser](core.ActionSpec{
+			Name: "core.user.set-role", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
+			MinScope: core.ScopeAdmin, CompensatedBy: "core.user.set-role",
+			Summary: "Make a user an admin or a member, refusing to demote the last active admin; ends an unused enrollment link.",
+		}, userSetRole{m}),
+		core.DefineMutating[SetGrantsInput, auth.DirectoryUser](core.ActionSpec{
+			Name: "core.user.set-grants", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
+			MinScope: core.ScopeAdmin, CompensatedBy: "core.user.set-grants",
+			Summary: "Replace a member's grants: viewer or operator on every host or on a host group.",
+		}, userSetGrants{m}),
+		core.DefineMutating[IdentityInput, auth.DirectoryUser](core.ActionSpec{
+			Name: "core.user.set-identity", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
+			MinScope: core.ScopeAdmin, CompensatedBy: "core.user.set-identity",
+			Summary: "Set the email and tailnet login a user's OIDC and Tailscale sign-ins match; a changed one ends that method's link.",
+		}, userSetIdentity{m}),
+		core.DefineRead[NoInput, Directory](core.ActionSpec{
+			Name: "core.user.directory", Version: 1, Side: core.SideController, HostData: core.HostDataFleet,
+			Summary: "List every user with its role, grants, sign-in identities and sign-in methods.",
+		}, userDirectory{m}),
+	}
+}
+
+// grantNames returns the name of each group grants target; a group that no
+// longer exists is named by its id.
+func grantNames(ctx context.Context, q *sql.DB, grants []auth.Grant) (map[string]string, error) {
+	names := map[string]string{}
+	for _, g := range grants {
+		if g.Target == "*" {
+			continue
+		}
+		var name string
+		err := q.QueryRowContext(ctx, `SELECT name FROM core_host_groups WHERE id = ?`, g.Target).Scan(&name)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			name = g.Target
+		case err != nil:
+			return nil, fmt.Errorf("coreactions: read group names: %w", err)
+		}
+		names[g.Target] = name
+	}
+	return names, nil
+}
+
+// grantLines renders grants as diff lines with op, and their state for a
+// plan's hash.
+func grantLines(op string, grants []auth.Grant, names map[string]string) ([]core.DiffLine, []string) {
+	var diff []core.DiffLine
+	var state []string
+	for _, g := range grants {
+		diff = append(diff, core.DiffLine{Op: op, Text: "grant: " + grantText(g, names)})
+		state = append(state, g.Target, g.Role, names[g.Target])
+	}
+	return diff, state
+}
+
+func sortedGrants(grants []auth.Grant) []auth.Grant {
+	out := slices.Clone(grants)
+	slices.SortFunc(out, func(a, b auth.Grant) int { return strings.Compare(a.Target, b.Target) })
+	return out
+}
+
+type userSetRole struct{ m module }
+
+func (h userSetRole) Plan(ctx context.Context, env core.Env, in SetRoleInput) (core.PlanOutcome, error) {
+	svc, u, last, err := h.m.userState(ctx, in.Username)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	p, err := svc.Profile(ctx, in.Username)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	names, err := grantNames(ctx, env.DB.Read(), p.Grants)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	grantDiff, grantState := grantLines(" ", p.Grants, names)
+	state := append([]string{u.ID, u.Role, u.State, strconv.FormatBool(last)}, grantState...)
+	if u.Role == in.Role {
+		return core.PlanOutcome{
+			Diff:   []core.DiffLine{{Op: " ", Text: fmt.Sprintf("user %s is already %s; nothing changes", u.Username, roleWord(u.Role))}},
+			Guards: []core.Guard{}, StateHash: stateHash(state...),
+		}, nil
+	}
+	if last {
+		return core.PlanOutcome{}, auth.LastAdminError(u.Username)
+	}
+	diff := []core.DiffLine{{Op: "-", Text: fmt.Sprintf("user %s: %s", u.Username, u.Role)}}
+	if in.Role == auth.RoleMember {
+		diff = append(diff, core.DiffLine{Op: "+", Text: fmt.Sprintf("user %s: member, with only the access its grants give", u.Username)})
+		if len(p.Grants) == 0 {
+			grantDiff = []core.DiffLine{{Op: " ", Text: "no grants: the member sees no host until it is given some"}}
+		}
+	} else {
+		diff = append(diff, core.DiffLine{Op: "+", Text: fmt.Sprintf("user %s: admin, with every scope on every host", u.Username)})
+		if len(p.Grants) > 0 {
+			grantDiff = append([]core.DiffLine{{Op: " ", Text: "its grants stay stored and apply again if it is made a member"}}, grantDiff...)
+		}
+	}
+	diff = append(diff, grantDiff...)
+	if _, err := svc.Invited(ctx, in.Username); err == nil {
+		diff = append(diff, core.DiffLine{Op: " ", Text: "its enrollment link ends; core.user.renew-invite gives a new one"})
+		state = append(state, "invited")
+	}
+	diff = append(diff, core.DiffLine{Op: " ", Text: "compensated by core.user.set-role with role " + u.Role})
+	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{}, StateHash: stateHash(state...)}, nil
+}
+
+func roleWord(role string) string {
+	if role == auth.RoleAdmin {
+		return "an admin"
+	}
+	return "a member"
+}
+
+func (h userSetRole) Apply(ctx context.Context, _ core.Env, in SetRoleInput) (auth.DirectoryUser, error) {
+	svc, err := h.m.authService()
+	if err != nil {
+		return auth.DirectoryUser{}, err
+	}
+	return svc.SetRole(ctx, in.Username, in.Role)
+}
+
+func (h userSetRole) Verify(ctx context.Context, _ core.Env, in SetRoleInput, _ auth.DirectoryUser) error {
+	svc, err := h.m.authService()
+	if err != nil {
+		return err
+	}
+	u, err := svc.GetUser(ctx, in.Username)
+	if err != nil {
+		return err
+	}
+	if u.Role != in.Role {
+		return fmt.Errorf("coreactions: user %s is %s, want %s", in.Username, u.Role, in.Role)
+	}
+	return nil
+}
+
+type userSetGrants struct{ m module }
+
+func (h userSetGrants) Plan(ctx context.Context, env core.Env, in SetGrantsInput) (core.PlanOutcome, error) {
+	svc, err := h.m.authService()
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	p, err := svc.Profile(ctx, in.Username)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	if p.Role != auth.RoleMember {
+		return core.PlanOutcome{}, fieldRefusal("/grants", "an admin has every host; grants are for members")
+	}
+	names, err := auth.CheckGrants(ctx, env.DB.Read(), in.Grants)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	oldNames, err := grantNames(ctx, env.DB.Read(), p.Grants)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	want := sortedGrants(in.Grants)
+	var gone, added []auth.Grant
+	for _, g := range p.Grants {
+		if !slices.Contains(want, g) {
+			gone = append(gone, g)
+		}
+	}
+	for _, g := range want {
+		if !slices.Contains(p.Grants, g) {
+			added = append(added, g)
+		}
+	}
+	goneDiff, oldState := grantLines("-", gone, oldNames)
+	addedDiff, newState := grantLines("+", added, names)
+	_, keptState := grantLines(" ", p.Grants, oldNames)
+	diff := append(goneDiff, addedDiff...)
+	switch {
+	case len(diff) == 0:
+		diff = []core.DiffLine{{Op: " ", Text: fmt.Sprintf("user %s's grants are unchanged; nothing changes", p.Username)}}
+	case len(want) == 0:
+		diff = append(diff, core.DiffLine{Op: " ", Text: "no grants: the member sees no host until it is given some"})
+	}
+	diff = append(diff, core.DiffLine{Op: " ", Text: "compensated by core.user.set-grants with the previous grants"})
+	state := append([]string{p.ID, p.Role}, keptState...)
+	state = append(append(state, oldState...), newState...)
+	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{}, StateHash: stateHash(state...)}, nil
+}
+
+func (h userSetGrants) Apply(ctx context.Context, _ core.Env, in SetGrantsInput) (auth.DirectoryUser, error) {
+	svc, err := h.m.authService()
+	if err != nil {
+		return auth.DirectoryUser{}, err
+	}
+	return svc.SetGrants(ctx, in.Username, in.Grants)
+}
+
+func (h userSetGrants) Verify(ctx context.Context, _ core.Env, in SetGrantsInput, _ auth.DirectoryUser) error {
+	svc, err := h.m.authService()
+	if err != nil {
+		return err
+	}
+	p, err := svc.Profile(ctx, in.Username)
+	if err != nil {
+		return err
+	}
+	if want := sortedGrants(in.Grants); !slices.Equal(p.Grants, want) {
+		return fmt.Errorf("coreactions: user %s has grants %v, want %v", in.Username, p.Grants, want)
+	}
+	return nil
+}
+
+type userSetIdentity struct{ m module }
+
+func identityWord(v string) string {
+	if v == "" {
+		return "none"
+	}
+	return v
+}
+
+func (h userSetIdentity) Plan(ctx context.Context, _ core.Env, in IdentityInput) (core.PlanOutcome, error) {
+	svc, err := h.m.authService()
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	p, err := svc.Profile(ctx, in.Username)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	if err := svc.CheckIdentity(ctx, in.Username, in.Email, in.TailnetLogin); err != nil {
+		return core.PlanOutcome{}, err
+	}
+	var diff []core.DiffLine
+	for _, f := range []struct {
+		label, old, new, method, link string
+		pinned                        bool
+	}{
+		{"email", p.Email, in.Email, "OIDC", "email", slices.Contains(p.SignIn, auth.SignInOIDC)},
+		{"tailnet login", p.TailnetLogin, in.TailnetLogin, "Tailscale", "tailnet login", slices.Contains(p.SignIn, auth.SignInTailscale)},
+	} {
+		if f.old == f.new {
+			continue
+		}
+		diff = append(diff,
+			core.DiffLine{Op: "-", Text: fmt.Sprintf("user %s: %s %s", p.Username, f.label, identityWord(f.old))},
+			core.DiffLine{Op: "+", Text: fmt.Sprintf("user %s: %s %s", p.Username, f.label, identityWord(f.new))})
+		if f.pinned && !strings.EqualFold(f.old, f.new) {
+			diff = append(diff, core.DiffLine{Op: " ", Text: fmt.Sprintf("its %s link ends; the next %s sign-in links the account by the new %s",
+				f.method, f.method, f.link)})
+		}
+	}
+	if len(diff) == 0 {
+		diff = []core.DiffLine{{Op: " ", Text: fmt.Sprintf("user %s's email and tailnet login are unchanged; nothing changes", p.Username)}}
+	}
+	diff = append(diff, core.DiffLine{Op: " ", Text: "compensated by core.user.set-identity with the previous email and tailnet login"})
+	return core.PlanOutcome{
+		Diff: diff, Guards: []core.Guard{},
+		StateHash: stateHash(append([]string{p.ID, p.Email, p.TailnetLogin}, p.SignIn...)...),
+	}, nil
+}
+
+func (h userSetIdentity) Apply(ctx context.Context, _ core.Env, in IdentityInput) (auth.DirectoryUser, error) {
+	svc, err := h.m.authService()
+	if err != nil {
+		return auth.DirectoryUser{}, err
+	}
+	return svc.SetIdentity(ctx, in.Username, in.Email, in.TailnetLogin)
+}
+
+func (h userSetIdentity) Verify(ctx context.Context, _ core.Env, in IdentityInput, _ auth.DirectoryUser) error {
+	svc, err := h.m.authService()
+	if err != nil {
+		return err
+	}
+	p, err := svc.Profile(ctx, in.Username)
+	if err != nil {
+		return err
+	}
+	if p.Email != in.Email || p.TailnetLogin != in.TailnetLogin {
+		return fmt.Errorf("coreactions: user %s has email %q and tailnet login %q, want %q and %q",
+			in.Username, p.Email, p.TailnetLogin, in.Email, in.TailnetLogin)
+	}
+	return nil
+}
+
+type userDirectory struct{ m module }
+
+// Read refuses a principal without fleet access itself, as the API does,
+// since the directory names every user's sign-in identities.
+func (h userDirectory) Read(ctx context.Context, env core.Env, _ NoInput) (Directory, error) {
+	if !env.Principal.HostAccess().Fleet {
+		return Directory{}, errcode.New(errcode.Forbidden, "this request needs access to the whole fleet")
+	}
+	svc, err := h.m.authService()
+	if err != nil {
+		return Directory{}, err
+	}
+	users, err := svc.Directory(ctx)
+	if err != nil {
+		return Directory{}, err
+	}
+	return Directory{Users: users}, nil
 }

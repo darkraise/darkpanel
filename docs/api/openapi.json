@@ -4788,6 +4788,117 @@
         ],
         "type": "object"
       },
+      "core.user.directory.v1.input": {
+        "$ref": "#/components/schemas/core.user.directory.v1.input.NoInput"
+      },
+      "core.user.directory.v1.input.NoInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "core.user.directory.v1.output": {
+        "$ref": "#/components/schemas/core.user.directory.v1.output.Directory"
+      },
+      "core.user.directory.v1.output.Directory": {
+        "properties": {
+          "users": {
+            "description": "Every user, sorted by username.",
+            "items": {
+              "$ref": "#/components/schemas/core.user.directory.v1.output.DirectoryUser"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "users"
+        ],
+        "type": "object"
+      },
+      "core.user.directory.v1.output.DirectoryUser": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "disabled": {
+            "description": "True while core.user.disable keeps the user from signing in.",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "The email an OIDC sign-in matches; empty when unset.",
+            "type": "string"
+          },
+          "grants": {
+            "description": "The user's grants, sorted by target; they apply only while the user is a member.",
+            "items": {
+              "$ref": "#/components/schemas/core.user.directory.v1.output.Grant"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "signIn": {
+            "description": "The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account.",
+            "items": {
+              "enum": [
+                "password",
+                "oidc",
+                "tailscale"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "state": {
+            "type": "string"
+          },
+          "tailnetLogin": {
+            "description": "The tailnet login a Tailscale sign-in matches; empty when unset.",
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt",
+          "grants",
+          "email",
+          "tailnetLogin",
+          "signIn"
+        ],
+        "type": "object"
+      },
+      "core.user.directory.v1.output.Grant": {
+        "properties": {
+          "role": {
+            "description": "viewer gives read, operator gives operate.",
+            "enum": [
+              "viewer",
+              "operator"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "A host group id, or * for every host, including hosts enrolled later.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "role"
+        ],
+        "type": "object"
+      },
       "core.user.disable.v1.input": {
         "$ref": "#/components/schemas/core.user.disable.v1.input.UsernameInput"
       },
@@ -5090,6 +5201,373 @@
           "role",
           "state",
           "createdAt"
+        ],
+        "type": "object"
+      },
+      "core.user.set-grants.v1.input": {
+        "$ref": "#/components/schemas/core.user.set-grants.v1.input.SetGrantsInput"
+      },
+      "core.user.set-grants.v1.input.Grant": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "description": "viewer gives read, operator gives operate.",
+            "enum": [
+              "viewer",
+              "operator"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "A host group id, or * for every host, including hosts enrolled later.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "role"
+        ],
+        "type": "object"
+      },
+      "core.user.set-grants.v1.input.SetGrantsInput": {
+        "additionalProperties": false,
+        "properties": {
+          "grants": {
+            "description": "The member's grants, one per target, replacing every grant it has; empty leaves it no host.",
+            "items": {
+              "$ref": "#/components/schemas/core.user.set-grants.v1.input.Grant"
+            },
+            "type": "array"
+          },
+          "username": {
+            "description": "The member's name.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "grants"
+        ],
+        "type": "object"
+      },
+      "core.user.set-grants.v1.output": {
+        "$ref": "#/components/schemas/core.user.set-grants.v1.output.DirectoryUser"
+      },
+      "core.user.set-grants.v1.output.DirectoryUser": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "disabled": {
+            "description": "True while core.user.disable keeps the user from signing in.",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "The email an OIDC sign-in matches; empty when unset.",
+            "type": "string"
+          },
+          "grants": {
+            "description": "The user's grants, sorted by target; they apply only while the user is a member.",
+            "items": {
+              "$ref": "#/components/schemas/core.user.set-grants.v1.output.Grant"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "signIn": {
+            "description": "The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account.",
+            "items": {
+              "enum": [
+                "password",
+                "oidc",
+                "tailscale"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "state": {
+            "type": "string"
+          },
+          "tailnetLogin": {
+            "description": "The tailnet login a Tailscale sign-in matches; empty when unset.",
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt",
+          "grants",
+          "email",
+          "tailnetLogin",
+          "signIn"
+        ],
+        "type": "object"
+      },
+      "core.user.set-grants.v1.output.Grant": {
+        "properties": {
+          "role": {
+            "description": "viewer gives read, operator gives operate.",
+            "enum": [
+              "viewer",
+              "operator"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "A host group id, or * for every host, including hosts enrolled later.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "role"
+        ],
+        "type": "object"
+      },
+      "core.user.set-identity.v1.input": {
+        "$ref": "#/components/schemas/core.user.set-identity.v1.input.IdentityInput"
+      },
+      "core.user.set-identity.v1.input.IdentityInput": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "The email an OIDC sign-in matches; empty clears it.",
+            "maxLength": 254,
+            "type": "string"
+          },
+          "tailnetLogin": {
+            "description": "The tailnet login a Tailscale sign-in matches; empty clears it.",
+            "maxLength": 254,
+            "type": "string"
+          },
+          "username": {
+            "description": "The user's name.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "email",
+          "tailnetLogin"
+        ],
+        "type": "object"
+      },
+      "core.user.set-identity.v1.output": {
+        "$ref": "#/components/schemas/core.user.set-identity.v1.output.DirectoryUser"
+      },
+      "core.user.set-identity.v1.output.DirectoryUser": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "disabled": {
+            "description": "True while core.user.disable keeps the user from signing in.",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "The email an OIDC sign-in matches; empty when unset.",
+            "type": "string"
+          },
+          "grants": {
+            "description": "The user's grants, sorted by target; they apply only while the user is a member.",
+            "items": {
+              "$ref": "#/components/schemas/core.user.set-identity.v1.output.Grant"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "signIn": {
+            "description": "The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account.",
+            "items": {
+              "enum": [
+                "password",
+                "oidc",
+                "tailscale"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "state": {
+            "type": "string"
+          },
+          "tailnetLogin": {
+            "description": "The tailnet login a Tailscale sign-in matches; empty when unset.",
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt",
+          "grants",
+          "email",
+          "tailnetLogin",
+          "signIn"
+        ],
+        "type": "object"
+      },
+      "core.user.set-identity.v1.output.Grant": {
+        "properties": {
+          "role": {
+            "description": "viewer gives read, operator gives operate.",
+            "enum": [
+              "viewer",
+              "operator"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "A host group id, or * for every host, including hosts enrolled later.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "role"
+        ],
+        "type": "object"
+      },
+      "core.user.set-role.v1.input": {
+        "$ref": "#/components/schemas/core.user.set-role.v1.input.SetRoleInput"
+      },
+      "core.user.set-role.v1.input.SetRoleInput": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "description": "admin has every scope on every host; member has only what its grants give.",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "type": "string"
+          },
+          "username": {
+            "description": "The user's name.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "role"
+        ],
+        "type": "object"
+      },
+      "core.user.set-role.v1.output": {
+        "$ref": "#/components/schemas/core.user.set-role.v1.output.DirectoryUser"
+      },
+      "core.user.set-role.v1.output.DirectoryUser": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "disabled": {
+            "description": "True while core.user.disable keeps the user from signing in.",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "The email an OIDC sign-in matches; empty when unset.",
+            "type": "string"
+          },
+          "grants": {
+            "description": "The user's grants, sorted by target; they apply only while the user is a member.",
+            "items": {
+              "$ref": "#/components/schemas/core.user.set-role.v1.output.Grant"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "signIn": {
+            "description": "The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account.",
+            "items": {
+              "enum": [
+                "password",
+                "oidc",
+                "tailscale"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "state": {
+            "type": "string"
+          },
+          "tailnetLogin": {
+            "description": "The tailnet login a Tailscale sign-in matches; empty when unset.",
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt",
+          "grants",
+          "email",
+          "tailnetLogin",
+          "signIn"
+        ],
+        "type": "object"
+      },
+      "core.user.set-role.v1.output.Grant": {
+        "properties": {
+          "role": {
+            "description": "viewer gives read, operator gives operate.",
+            "enum": [
+              "viewer",
+              "operator"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "A host group id, or * for every host, including hosts enrolled later.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "role"
         ],
         "type": "object"
       },
@@ -19143,6 +19621,62 @@
         "summary": "Remove an invited user that never enrolled, with its grants and its enrollment link; returns the removed user."
       }
     },
+    "/api/v1/actions/core.user.directory/v1/read": {
+      "post": {
+        "operationId": "core.user.directory.v1.read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.directory.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/core.user.directory.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List every user with its role, grants, sign-in identities and sign-in methods."
+      }
+    },
     "/api/v1/actions/core.user.disable/v1/apply": {
       "post": {
         "operationId": "core.user.disable.v1.apply",
@@ -19489,6 +20023,267 @@
           }
         ],
         "summary": "Give an invited user that never enrolled a new enrollment link; the previous link stops working."
+      }
+    },
+    "/api/v1/actions/core.user.set-grants/v1/apply": {
+      "post": {
+        "operationId": "core.user.set-grants.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Replace a member's grants: viewer or operator on every host or on a host group."
+      }
+    },
+    "/api/v1/actions/core.user.set-grants/v1/plan": {
+      "post": {
+        "operationId": "core.user.set-grants.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.set-grants.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Replace a member's grants: viewer or operator on every host or on a host group."
+      }
+    },
+    "/api/v1/actions/core.user.set-identity/v1/apply": {
+      "post": {
+        "operationId": "core.user.set-identity.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Set the email and tailnet login a user's OIDC and Tailscale sign-ins match; a changed one ends that method's link."
+      }
+    },
+    "/api/v1/actions/core.user.set-identity/v1/plan": {
+      "post": {
+        "operationId": "core.user.set-identity.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.set-identity.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Set the email and tailnet login a user's OIDC and Tailscale sign-ins match; a changed one ends that method's link."
+      }
+    },
+    "/api/v1/actions/core.user.set-role/v1/apply": {
+      "post": {
+        "operationId": "core.user.set-role.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Make a user an admin or a member, refusing to demote the last active admin; ends an unused enrollment link."
+      }
+    },
+    "/api/v1/actions/core.user.set-role/v1/plan": {
+      "post": {
+        "operationId": "core.user.set-role.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.set-role.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Make a user an admin or a member, refusing to demote the last active admin; ends an unused enrollment link."
       }
     },
     "/api/v1/actions/derp.cert.rotate/v1/apply": {

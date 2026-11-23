@@ -86,6 +86,27 @@ func TestUserCreateWithoutTerminal(t *testing.T) {
 	}
 }
 
+// TestUserCreateMember: the interactive create sends --role, so a member is
+// never created as an admin.
+func TestUserCreateMember(t *testing.T) {
+	code, err := auth.TOTPCode(testTOTPSecret, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock := newFakeSocket(t, append([]exchange{
+		{method: "POST", path: "/api/v1/actions/core.user.create/v1/plan",
+			body:  `{"input":{"username":"ann","password":"` + testUserPassword + `","role":"member"}}`,
+			reply: planJSON("pc", "core.user.create", "", "", `[]`)},
+		{method: "POST", path: "/api/v1/actions/core.user.create/v1/apply", body: `{"planId":"pc"}`,
+			reply: enrollmentChange("cc", "core.user.create")},
+	}, activation(code, "completed")...)...)
+	out, errOut, exit := cliEnv{stdin: testUserPassword + "\n" + code + "\n"}.run(t, "user", "create", "--username", "ann",
+		"--role", "member", "--yes", "--socket", sock)
+	if exit != 0 || !strings.Contains(out, "User ann is active") {
+		t.Errorf("exit %d, out %q, err %q", exit, out, errOut)
+	}
+}
+
 func TestUserCreateRefusals(t *testing.T) {
 	sock := newFakeSocket(t)
 	cases := []struct {

@@ -76,6 +76,9 @@ func (a *app) runEnrollment(cmd *cobra.Command, def, activate core.ActionDef) er
 			return err
 		}
 		input["password"] = password
+		if f := cmd.Flags().Lookup("role"); f != nil && f.Changed {
+			input["role"] = f.Value.String()
+		}
 	}
 	c, err := a.connect(cmd)
 	if err != nil {

@@ -6,9 +6,9 @@
   "breakGlass": true,
   "input": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$ref": "#/$defs/UserPasswordInput",
+    "$ref": "#/$defs/UserCreateInput",
     "$defs": {
-      "UserPasswordInput": {
+      "UserCreateInput": {
         "properties": {
           "username": {
             "type": "string",
@@ -22,6 +22,14 @@
             "description": "The password, 12 to 128 characters.",
             "writeOnly": true,
             "x-secret": true
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "description": "admin, the default, has every scope on every host; member starts with no grants."
           }
         },
         "additionalProperties": false,
