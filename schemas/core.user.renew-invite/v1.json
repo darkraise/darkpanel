@@ -1,0 +1,89 @@
+{
+  "name": "core.user.renew-invite",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UsernameInput",
+    "$defs": {
+      "UsernameInput": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "description": "The user's name."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Invitation",
+    "$defs": {
+      "Invitation": {
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "The user, pending until it uses its enrollment link."
+          },
+          "token": {
+            "type": "string",
+            "description": "The enrollment link's token; the link is /enroll#\u003ctoken\u003e on the panel's origin. Shown only once.",
+            "x-secret": true
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the link stops working, 72 hours after it was made."
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "token",
+          "expiresAt"
+        ]
+      },
+      "User": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "True while core.user.disable keeps the user from signing in."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt"
+        ]
+      }
+    }
+  }
+}

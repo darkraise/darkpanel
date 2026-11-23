@@ -39,6 +39,8 @@ type Authenticator interface {
 	Authenticate(ctx context.Context, c auth.Credentials) (auth.Identity, error)
 	CSRFToken(sessionID string) string
 	VerifyCSRF(sessionID, token string) bool
+	BeginEnrollment(ctx context.Context, token, source string, trusted bool) (auth.EnrollmentStart, error)
+	FinishEnrollment(ctx context.Context, r auth.EnrollRequest) (auth.LoginResult, error)
 }
 
 var _ Authenticator = (*auth.Service)(nil)
@@ -277,13 +279,14 @@ const (
 	accessOptional                    // valid credentials used, invalid ones ignored
 )
 
-// routeAccess is the public list of spec section 12: login, /healthz, and
-// GET or HEAD of the UI's files and index fallback. Everything else, on any
+// routeAccess is the public list of spec section 12: login, the enrollment
+// link's routes (M10 spec section 1.5), /healthz, and GET or HEAD of the UI's
+// files and index fallback. Everything else, on any
 // method and any path, needs credentials.
 func routeAccess(method, path string) access {
 	get := method == http.MethodGet || method == http.MethodHead
 	switch {
-	case method == http.MethodPost && path == loginPath:
+	case method == http.MethodPost && (path == loginPath || path == enrollBeginPath || path == enrollFinishPath):
 		return accessPublic
 	case get && path == healthzPath:
 		return accessOptional

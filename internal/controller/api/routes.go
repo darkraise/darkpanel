@@ -24,6 +24,10 @@ func (s *Server) networkRoutes() []route {
 	const hostActions, controllerActions = "/api/v1/hosts/{host}/actions/{name}/{version}/", "/api/v1/actions/{name}/{version}/"
 	return []route{
 		{method: http.MethodPost, path: loginPath, summary: "Log in with username, password and TOTP code", public: true, handler: s.handleLogin},
+		{method: http.MethodPost, path: enrollBeginPath, summary: "Start an enrollment link's use: a new TOTP secret and its otpauth URI",
+			public: true, handler: s.handleEnrollBegin},
+		{method: http.MethodPost, path: enrollFinishPath, summary: "Finish an enrollment link: set the password, confirm a code and sign in",
+			public: true, handler: s.handleEnrollFinish},
 		{method: http.MethodPost, path: "/api/v1/auth/logout", summary: "Log out and clear the session cookie", handler: s.handleLogout},
 		{method: http.MethodGet, path: "/api/v1/auth/session", summary: "Describe the calling session or token", handler: s.handleSession},
 		{method: http.MethodGet, path: "/api/v1/hosts/{host}/resources/{module}/{resource}", perAction: true, handler: s.handleResource},

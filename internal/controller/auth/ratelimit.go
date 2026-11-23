@@ -132,6 +132,37 @@ func (l *limiter) blockedFor(username, source string, trusted bool) time.Duratio
 	return wait
 }
 
+// sourceBlockedFor is blockedFor for an attempt that names no username, an
+// enrollment link's: only the source key counts.
+func (l *limiter) sourceBlockedFor(source string, trusted bool) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.clock.Now()
+	if len(l.keys) >= l.max {
+		l.prune(now)
+	}
+	c, ok := l.keys[sourceKey(source)]
+	switch {
+	case ok && c.locked(now):
+		return c.lockedUntil.Sub(now)
+	case !ok && !trusted && len(l.keys) >= l.max:
+		if first, full := l.allLocked(now); full {
+			return first
+		}
+	}
+	return 0
+}
+
+// failSourceFor records one failed attempt that names no username against
+// source alone.
+func (l *limiter) failSourceFor(source string, trusted bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.clock.Now()
+	l.prune(now)
+	l.record(sourceKey(source), SourceFailureLimit, now, "", trusted)
+}
+
 // allLocked reports whether every key is locked and, if so, the shortest
 // remaining lock.
 func (l *limiter) allLocked(now time.Time) (time.Duration, bool) {

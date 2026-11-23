@@ -45,6 +45,14 @@ func (a *sseAuth) Logout(context.Context, string, string) error { return errors.
 func (a *sseAuth) CSRFToken(string) string                      { return "" }
 func (a *sseAuth) VerifyCSRF(string, string) bool               { return false }
 
+func (a *sseAuth) BeginEnrollment(context.Context, string, string, bool) (auth.EnrollmentStart, error) {
+	return auth.EnrollmentStart{}, errors.New("not used")
+}
+
+func (a *sseAuth) FinishEnrollment(context.Context, auth.EnrollRequest) (auth.LoginResult, error) {
+	return auth.LoginResult{}, errors.New("not used")
+}
+
 // sseIdentity is a token identity of the read scope that ends at expires.
 func sseIdentity(expires time.Time) auth.Identity {
 	// An admin's read token: its access, not its scope, carries the read.

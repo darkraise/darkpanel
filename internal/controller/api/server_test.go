@@ -331,6 +331,10 @@ func TestRouteAccess(t *testing.T) {
 	}{
 		{"POST", "/api/v1/auth/login", accessPublic},
 		{"GET", "/api/v1/auth/login", accessAuthenticated},
+		{"POST", "/api/v1/enroll/begin", accessPublic},
+		{"POST", "/api/v1/enroll/finish", accessPublic},
+		{"GET", "/api/v1/enroll/begin", accessAuthenticated},
+		{"POST", "/api/v1/enroll/finish/", accessAuthenticated},
 		{"GET", "/healthz", accessOptional},
 		{"HEAD", "/healthz", accessOptional},
 		{"POST", "/healthz", accessAuthenticated},

@@ -155,7 +155,7 @@ func (s *Service) attempt(ctx context.Context, r LoginRequest) (LoginResult, str
 	if err != nil {
 		return LoginResult{}, rec.ID, false, err
 	}
-	if !ok || rec.State != StateActive {
+	if !ok || !rec.usable() {
 		return LoginResult{}, rec.ID, ok, errInvalidCredentials()
 	}
 	var res LoginResult
@@ -169,7 +169,7 @@ func (s *Service) attempt(ctx context.Context, r LoginRequest) (LoginResult, str
 			}
 			return err
 		}
-		if cur.ID != rec.ID || cur.passwordHash != rec.passwordHash || cur.State != StateActive {
+		if cur.ID != rec.ID || cur.passwordHash != rec.passwordHash || !cur.usable() {
 			return errInvalidCredentials()
 		}
 		key, err := s.sealer.Open(totpAD(cur.ID), cur.totpCT)
@@ -200,16 +200,29 @@ func (s *Service) attempt(ctx context.Context, r LoginRequest) (LoginResult, str
 // recordLogin audits a login; code is "" for a success. The row is written
 // even if the request was cancelled, so a session never exists unaudited.
 func (s *Service) recordLogin(ctx context.Context, r LoginRequest, userID string, code errcode.Code) error {
+	return s.recordSignIn(ctx, "", r.Username, r.Source, userID, code)
+}
+
+// recordSignIn audits a sign-in by method; a password login records no
+// method, as it always has. username is "" when the attempt named no user.
+func (s *Service) recordSignIn(ctx context.Context, method, username, source, userID string, code errcode.Code) error {
 	actor := ActorAnonymous
 	if userID != "" {
 		actor = "user:" + userID
 	}
-	input, err := json.Marshal(map[string]string{"username": r.Username})
+	fields := map[string]string{}
+	if username != "" || method == "" {
+		fields["username"] = username
+	}
+	if method != "" {
+		fields["method"] = method
+	}
+	input, err := json.Marshal(fields)
 	if err != nil {
 		return fmt.Errorf("auth: audit login: %w", err)
 	}
 	e := core.AuditEntry{ID: s.newID(), Actor: actor, Action: AuditLoginAction, Version: 1, Phase: "login",
-		Result: "ok", Source: r.Source, At: s.now(), Input: input}
+		Result: "ok", Source: source, At: s.now(), Input: input}
 	if code != "" {
 		e.Result, e.ErrorCode = "error", string(code)
 	}

@@ -104,9 +104,9 @@ func (s *Service) checkSession(ctx context.Context, id, source string, touch boo
 	key := sessionHash(raw)
 	var u User
 	var seenText, expText, createdText string
-	err := s.db.Read().QueryRowContext(ctx, `SELECT s.last_seen_at, s.expires_at, u.id, u.username, u.role, u.state, u.created_at
-		FROM core_sessions s JOIN core_users u ON u.id = s.user_id WHERE s.id_hash = ?`, key).
-		Scan(&seenText, &expText, &u.ID, &u.Username, &u.Role, &u.State, &createdText)
+	err := s.db.Read().QueryRowContext(ctx, `SELECT s.last_seen_at, s.expires_at, u.id, u.username, u.role, u.state, u.created_at,
+		u.disabled_at IS NOT NULL FROM core_sessions s JOIN core_users u ON u.id = s.user_id WHERE s.id_hash = ?`, key).
+		Scan(&seenText, &expText, &u.ID, &u.Username, &u.Role, &u.State, &createdText, &u.Disabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Identity{}, errAuthRequired()
 	}
@@ -126,7 +126,7 @@ func (s *Service) checkSession(ctx context.Context, id, source string, touch boo
 	}
 	now := s.now()
 	scope, ok := roleScope(u.Role)
-	if !now.Before(exp) || !now.Before(seen.Add(SessionIdle)) || u.State != StateActive || !ok {
+	if !now.Before(exp) || !now.Before(seen.Add(SessionIdle)) || !u.usable() || !ok {
 		return Identity{}, errAuthRequired()
 	}
 	if touch && now.Sub(seen) >= LastSeenInterval {

@@ -96,6 +96,8 @@ This reference is generated from the action schemas. `openapi.json` is the OpenA
 | GET | `/api/v1/changes/{id}/steps` | session or token | List a composite change's steps |
 | POST | `/api/v1/changes/{id}/undo` | session or token | Undo a change while no later change took its locks |
 | GET | `/api/v1/controller/listeners` | session or token | Listener state for the UI footer: Tailscale bound, and a message |
+| POST | `/api/v1/enroll/begin` | none | Start an enrollment link's use: a new TOTP secret and its otpauth URI |
+| POST | `/api/v1/enroll/finish` | none | Finish an enrollment link: set the password, confirm a code and sign in |
 | GET | `/api/v1/events` | session or token | Stream the controller's change, step, host and module events (server-sent events) |
 | GET | `/api/v1/hosts/{host}/modules/{module}/availability` | session or token | Which actions of a module are available on a host |
 | GET | `/api/v1/hosts/{host}/streams/{module}/{name}` | session or token | Follow a module stream of a host as server-sent events |

@@ -4736,6 +4736,363 @@
         ],
         "type": "object"
       },
+      "core.user.cancel-invite.v1.input": {
+        "$ref": "#/components/schemas/core.user.cancel-invite.v1.input.UsernameInput"
+      },
+      "core.user.cancel-invite.v1.input.UsernameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "username": {
+            "description": "The user's name.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "type": "object"
+      },
+      "core.user.cancel-invite.v1.output": {
+        "$ref": "#/components/schemas/core.user.cancel-invite.v1.output.User"
+      },
+      "core.user.cancel-invite.v1.output.User": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "disabled": {
+            "description": "True while core.user.disable keeps the user from signing in.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "core.user.disable.v1.input": {
+        "$ref": "#/components/schemas/core.user.disable.v1.input.UsernameInput"
+      },
+      "core.user.disable.v1.input.UsernameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "username": {
+            "description": "The user's name.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "type": "object"
+      },
+      "core.user.disable.v1.output": {
+        "$ref": "#/components/schemas/core.user.disable.v1.output.User"
+      },
+      "core.user.disable.v1.output.User": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "disabled": {
+            "description": "True while core.user.disable keeps the user from signing in.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "core.user.enable.v1.input": {
+        "$ref": "#/components/schemas/core.user.enable.v1.input.UsernameInput"
+      },
+      "core.user.enable.v1.input.UsernameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "username": {
+            "description": "The user's name.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "type": "object"
+      },
+      "core.user.enable.v1.output": {
+        "$ref": "#/components/schemas/core.user.enable.v1.output.User"
+      },
+      "core.user.enable.v1.output.User": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "disabled": {
+            "description": "True while core.user.disable keeps the user from signing in.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "core.user.invite.v1.input": {
+        "$ref": "#/components/schemas/core.user.invite.v1.input.InviteInput"
+      },
+      "core.user.invite.v1.input.Grant": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "description": "viewer gives read, operator gives operate.",
+            "enum": [
+              "viewer",
+              "operator"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "A host group id, or * for every host, including hosts enrolled later.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "role"
+        ],
+        "type": "object"
+      },
+      "core.user.invite.v1.input.InviteInput": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "The email an OIDC sign-in matches; optional.",
+            "maxLength": 254,
+            "type": "string"
+          },
+          "grants": {
+            "description": "A member's grants, one per target; none for an admin.",
+            "items": {
+              "$ref": "#/components/schemas/core.user.invite.v1.input.Grant"
+            },
+            "type": "array"
+          },
+          "role": {
+            "description": "admin has every scope on every host; member has only what its grants give.",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "type": "string"
+          },
+          "tailnetLogin": {
+            "description": "The tailnet login a Tailscale sign-in matches; optional.",
+            "maxLength": 254,
+            "type": "string"
+          },
+          "username": {
+            "description": "The new user's name: lower-case letters, digits, dot, underscore and hyphen, starting with a letter or digit, at most 64 characters.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "role"
+        ],
+        "type": "object"
+      },
+      "core.user.invite.v1.output": {
+        "$ref": "#/components/schemas/core.user.invite.v1.output.Invitation"
+      },
+      "core.user.invite.v1.output.Invitation": {
+        "properties": {
+          "expiresAt": {
+            "description": "When the link stops working, 72 hours after it was made.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "token": {
+            "description": "The enrollment link's token; the link is /enroll#\u003ctoken\u003e on the panel's origin. Shown only once.",
+            "type": "string",
+            "x-secret": true
+          },
+          "user": {
+            "$ref": "#/components/schemas/core.user.invite.v1.output.User",
+            "description": "The user, pending until it uses its enrollment link."
+          }
+        },
+        "required": [
+          "user",
+          "token",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "core.user.invite.v1.output.User": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "disabled": {
+            "description": "True while core.user.disable keeps the user from signing in.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "core.user.renew-invite.v1.input": {
+        "$ref": "#/components/schemas/core.user.renew-invite.v1.input.UsernameInput"
+      },
+      "core.user.renew-invite.v1.input.UsernameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "username": {
+            "description": "The user's name.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "type": "object"
+      },
+      "core.user.renew-invite.v1.output": {
+        "$ref": "#/components/schemas/core.user.renew-invite.v1.output.Invitation"
+      },
+      "core.user.renew-invite.v1.output.Invitation": {
+        "properties": {
+          "expiresAt": {
+            "description": "When the link stops working, 72 hours after it was made.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "token": {
+            "description": "The enrollment link's token; the link is /enroll#\u003ctoken\u003e on the panel's origin. Shown only once.",
+            "type": "string",
+            "x-secret": true
+          },
+          "user": {
+            "$ref": "#/components/schemas/core.user.renew-invite.v1.output.User",
+            "description": "The user, pending until it uses its enrollment link."
+          }
+        },
+        "required": [
+          "user",
+          "token",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "core.user.renew-invite.v1.output.User": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "disabled": {
+            "description": "True while core.user.disable keeps the user from signing in.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt"
+        ],
+        "type": "object"
+      },
       "derp.binary.update.v1.input": {
         "$ref": "#/components/schemas/derp.binary.update.v1.input.BinaryUpdateInput"
       },
@@ -18699,6 +19056,441 @@
         "summary": "List rollouts with their hosts, newest first."
       }
     },
+    "/api/v1/actions/core.user.cancel-invite/v1/apply": {
+      "post": {
+        "operationId": "core.user.cancel-invite.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove an invited user that never enrolled, with its grants and its enrollment link; returns the removed user."
+      }
+    },
+    "/api/v1/actions/core.user.cancel-invite/v1/plan": {
+      "post": {
+        "operationId": "core.user.cancel-invite.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.cancel-invite.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove an invited user that never enrolled, with its grants and its enrollment link; returns the removed user."
+      }
+    },
+    "/api/v1/actions/core.user.disable/v1/apply": {
+      "post": {
+        "operationId": "core.user.disable.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Disable a user: its sessions, tokens and sign-ins are refused until core.user.enable; ends an unused enrollment link."
+      }
+    },
+    "/api/v1/actions/core.user.disable/v1/plan": {
+      "post": {
+        "operationId": "core.user.disable.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.disable.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Disable a user: its sessions, tokens and sign-ins are refused until core.user.enable; ends an unused enrollment link."
+      }
+    },
+    "/api/v1/actions/core.user.enable/v1/apply": {
+      "post": {
+        "operationId": "core.user.enable.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Enable a disabled user, restoring its sessions and tokens."
+      }
+    },
+    "/api/v1/actions/core.user.enable/v1/plan": {
+      "post": {
+        "operationId": "core.user.enable.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.enable.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Enable a disabled user, restoring its sessions and tokens."
+      }
+    },
+    "/api/v1/actions/core.user.invite/v1/apply": {
+      "post": {
+        "operationId": "core.user.invite.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Invite a user: a pending user with no usable credentials and a one-time enrollment link valid 72 hours."
+      }
+    },
+    "/api/v1/actions/core.user.invite/v1/plan": {
+      "post": {
+        "operationId": "core.user.invite.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.invite.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Invite a user: a pending user with no usable credentials and a one-time enrollment link valid 72 hours."
+      }
+    },
+    "/api/v1/actions/core.user.renew-invite/v1/apply": {
+      "post": {
+        "operationId": "core.user.renew-invite.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Give an invited user that never enrolled a new enrollment link; the previous link stops working."
+      }
+    },
+    "/api/v1/actions/core.user.renew-invite/v1/plan": {
+      "post": {
+        "operationId": "core.user.renew-invite.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.renew-invite.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Give an invited user that never enrolled a new enrollment link; the previous link stops working."
+      }
+    },
     "/api/v1/actions/derp.cert.rotate/v1/apply": {
       "post": {
         "operationId": "derp.cert.rotate.v1.apply",
@@ -21831,6 +22623,34 @@
           }
         ],
         "summary": "Listener state for the UI footer: Tailscale bound, and a message"
+      }
+    },
+    "/api/v1/enroll/begin": {
+      "post": {
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "summary": "Start an enrollment link's use: a new TOTP secret and its otpauth URI"
+      }
+    },
+    "/api/v1/enroll/finish": {
+      "post": {
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [],
+        "summary": "Finish an enrollment link: set the password, confirm a code and sign in"
       }
     },
     "/api/v1/events": {

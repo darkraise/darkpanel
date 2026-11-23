@@ -449,7 +449,7 @@ func (e *e2e) denyByDefault(t *testing.T, hostID string) {
 	public := func(method, path string) bool {
 		get := method == "GET"
 		switch {
-		case path == "/api/v1/auth/login":
+		case path == "/api/v1/auth/login", path == "/api/v1/enroll/begin", path == "/api/v1/enroll/finish":
 			return method == "POST"
 		case path == "/healthz":
 			return get

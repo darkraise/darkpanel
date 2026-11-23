@@ -80,6 +80,7 @@ func (m module) Manifest() core.Manifest {
 		m.tokenActions(),
 		m.auditActions(),
 		m.userActions(),
+		m.inviteActions(),
 		m.enrollActions(),
 		m.hostRevokeActions(),
 		m.hostEnrollActions(),

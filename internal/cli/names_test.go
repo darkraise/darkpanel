@@ -46,7 +46,8 @@ func TestEntries(t *testing.T) {
 		"host create", "host delete", "host enroll-local", "host list", "host revoke", "host token", "host update-policy",
 		"module disable", "module enable", "module list",
 		"token create", "token list", "token revoke",
-		"user activate", "user create", "user delete", "user list", "user reset-password", "user reset-totp",
+		"user activate", "user cancel-invite", "user create", "user delete", "user disable", "user enable", "user invite",
+		"user list", "user renew-invite", "user reset-password", "user reset-totp",
 	}
 	if !slices.Equal(paths, want) {
 		t.Errorf("paths\n%q\nwant\n%q", paths, want)

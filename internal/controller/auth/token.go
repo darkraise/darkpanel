@@ -123,8 +123,9 @@ func (s *Service) CreateToken(ctx context.Context, userID, name string, scope co
 		ExpiresAt: now.Add(time.Duration(days) * 24 * time.Hour)}
 	err := s.db.Write(ctx, func(tx *sql.Tx) error {
 		var state string
-		err := tx.QueryRowContext(ctx, `SELECT state FROM core_users WHERE id = ?`, userID).Scan(&state)
-		if errors.Is(err, sql.ErrNoRows) || (err == nil && state != StateActive) {
+		var disabled bool
+		err := tx.QueryRowContext(ctx, `SELECT state, disabled_at IS NOT NULL FROM core_users WHERE id = ?`, userID).Scan(&state, &disabled)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && (state != StateActive || disabled)) {
 			return errUserNotFound()
 		}
 		if err != nil {
@@ -218,8 +219,8 @@ func (s *Service) authenticateToken(ctx context.Context, token, source string) (
 	var hash, createdText string
 	var u User
 	info, err := scanToken(s.db.Read().QueryRowContext(ctx, `SELECT `+tokenColumns+`, t.secret_hash,
-		u.id, u.username, u.role, u.state, u.created_at FROM core_tokens t JOIN core_users u ON u.id = t.user_id
-		WHERE t.id = ?`, id), &hash, &u.ID, &u.Username, &u.Role, &u.State, &createdText)
+		u.id, u.username, u.role, u.state, u.created_at, u.disabled_at IS NOT NULL FROM core_tokens t
+		JOIN core_users u ON u.id = t.user_id WHERE t.id = ?`, id), &hash, &u.ID, &u.Username, &u.Role, &u.State, &createdText, &u.Disabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Identity{}, errAuthRequired()
 	}
@@ -232,7 +233,7 @@ func (s *Service) authenticateToken(ctx context.Context, token, source string) (
 	now := s.now()
 	_, knownRole := roleScope(u.Role)
 	if subtle.ConstantTimeCompare([]byte(secretHash(raw)), []byte(hash)) != 1 ||
-		info.RevokedAt != nil || !now.Before(info.ExpiresAt) || u.State != StateActive || !knownRole {
+		info.RevokedAt != nil || !now.Before(info.ExpiresAt) || !u.usable() || !knownRole {
 		return Identity{}, errAuthRequired()
 	}
 	if info.LastUsedAt == nil || now.Sub(*info.LastUsedAt) >= LastUsedInterval {

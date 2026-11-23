@@ -21,6 +21,7 @@ const (
 	AuthRequired           Code = "auth.required"
 	InvalidCredentials     Code = "auth.invalid_credentials" //nolint:gosec // G101: an error code, not a credential
 	RateLimited            Code = "auth.rate_limited"
+	EnrollmentExpired      Code = "auth.enrollment_expired"
 	CSRF                   Code = "auth.csrf"
 	Forbidden              Code = "auth.forbidden"
 	NotFound               Code = "not_found"
@@ -175,6 +176,7 @@ var registry = map[Code]info{
 	AuthRequired:           {http.StatusUnauthorized, "Authentication required"},
 	InvalidCredentials:     {http.StatusUnauthorized, "Invalid credentials"},
 	RateLimited:            {http.StatusTooManyRequests, "Too many attempts"},
+	EnrollmentExpired:      {http.StatusGone, "Enrollment link expired"},
 	CSRF:                   {http.StatusForbidden, "CSRF token missing or invalid"},
 	Forbidden:              {http.StatusForbidden, "Forbidden"},
 	NotFound:               {http.StatusNotFound, "Not found"},

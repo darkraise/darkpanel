@@ -51,6 +51,11 @@ var declarations = map[string]declaration{
 	"core.user.reset-totp":     {class: core.ClassIrreversible, breakGlass: true},
 	"core.user.reset-password": {class: core.ClassIrreversible, breakGlass: true},
 	"core.user.delete":         {class: core.ClassIrreversible, breakGlass: true},
+	"core.user.invite":         {class: core.ClassCompensable, compensatedBy: "core.user.cancel-invite"},
+	"core.user.renew-invite":   {class: core.ClassCompensable, compensatedBy: "core.user.renew-invite"},
+	"core.user.cancel-invite":  {class: core.ClassCompensable, compensatedBy: "core.user.invite"},
+	"core.user.disable":        {class: core.ClassCompensable, compensatedBy: "core.user.enable"},
+	"core.user.enable":         {class: core.ClassCompensable, compensatedBy: "core.user.disable"},
 
 	"core.update.apply":          {class: core.ClassCompensable, compensatedBy: "core.update.rollback", agent: true},
 	"core.update.rollback":       {class: core.ClassIrreversible, agent: true},
@@ -150,6 +155,8 @@ func TestCoreActionSecrets(t *testing.T) {
 		"core.host.enroll-local": {"token": false, "bundle": false},
 		"core.user.create":       {"totpSecret": false},
 		"core.user.reset-totp":   {"totpSecret": false},
+		"core.user.invite":       {"token": false},
+		"core.user.renew-invite": {"token": false},
 	}
 	for _, a := range coreActions(t) {
 		snap, err := schema.ActionSnapshot(a)

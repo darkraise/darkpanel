@@ -1,0 +1,138 @@
+{
+  "name": "core.user.invite",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/InviteInput",
+    "$defs": {
+      "Grant": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A host group id, or * for every host, including hosts enrolled later."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "operator"
+            ],
+            "description": "viewer gives read, operator gives operate."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "role"
+        ]
+      },
+      "InviteInput": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "description": "The new user's name: lower-case letters, digits, dot, underscore and hyphen, starting with a letter or digit, at most 64 characters."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "description": "admin has every scope on every host; member has only what its grants give."
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/$defs/Grant"
+            },
+            "type": "array",
+            "description": "A member's grants, one per target; none for an admin."
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "description": "The email an OIDC sign-in matches; optional."
+          },
+          "tailnetLogin": {
+            "type": "string",
+            "maxLength": 254,
+            "description": "The tailnet login a Tailscale sign-in matches; optional."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "role"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Invitation",
+    "$defs": {
+      "Invitation": {
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "The user, pending until it uses its enrollment link."
+          },
+          "token": {
+            "type": "string",
+            "description": "The enrollment link's token; the link is /enroll#\u003ctoken\u003e on the panel's origin. Shown only once.",
+            "x-secret": true
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the link stops working, 72 hours after it was made."
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "token",
+          "expiresAt"
+        ]
+      },
+      "User": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "True while core.user.disable keeps the user from signing in."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "role",
+          "state",
+          "createdAt"
+        ]
+      }
+    }
+  }
+}

@@ -131,6 +131,8 @@ func TestOpenAPIRoute(t *testing.T) {
 func TestRoutes(t *testing.T) {
 	want := []schema.Route{
 		{Method: "POST", Path: "/api/v1/auth/login", Public: true},
+		{Method: "POST", Path: "/api/v1/enroll/begin", Public: true},
+		{Method: "POST", Path: "/api/v1/enroll/finish", Public: true},
 		{Method: "POST", Path: "/api/v1/auth/logout"},
 		{Method: "GET", Path: "/api/v1/auth/session"},
 		{Method: "GET", Path: "/api/v1/hosts/{host}/modules/{module}/availability"},

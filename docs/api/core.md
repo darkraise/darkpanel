@@ -750,3 +750,175 @@ Returned in the `output` field of the response.
 | `transactions[].targetVersion` | string | yes | Version the whole operation ends on. |
 | `transactions[].toVersion` | string | yes | Version this step installs. |
 | `transactions[].updatedAt` | string (date-time) | yes | When the step last changed state. |
+
+## core.user.cancel-invite v1
+
+Remove an invited user that never enrolled, with its grants and its enrollment link; returns the removed user.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.user.cancel-invite/v1/plan` |
+| apply | `POST /api/v1/actions/core.user.cancel-invite/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `username` | string | yes | The user's name. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `disabled` | boolean | no | True while core.user.disable keeps the user from signing in. |
+| `id` | string | yes |  |
+| `role` | string | yes |  |
+| `state` | string | yes |  |
+| `username` | string | yes |  |
+
+## core.user.disable v1
+
+Disable a user: its sessions, tokens and sign-ins are refused until core.user.enable; ends an unused enrollment link.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.user.disable/v1/plan` |
+| apply | `POST /api/v1/actions/core.user.disable/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `username` | string | yes | The user's name. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `disabled` | boolean | no | True while core.user.disable keeps the user from signing in. |
+| `id` | string | yes |  |
+| `role` | string | yes |  |
+| `state` | string | yes |  |
+| `username` | string | yes |  |
+
+## core.user.enable v1
+
+Enable a disabled user, restoring its sessions and tokens.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.user.enable/v1/plan` |
+| apply | `POST /api/v1/actions/core.user.enable/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `username` | string | yes | The user's name. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `disabled` | boolean | no | True while core.user.disable keeps the user from signing in. |
+| `id` | string | yes |  |
+| `role` | string | yes |  |
+| `state` | string | yes |  |
+| `username` | string | yes |  |
+
+## core.user.invite v1
+
+Invite a user: a pending user with no usable credentials and a one-time enrollment link valid 72 hours.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.user.invite/v1/plan` |
+| apply | `POST /api/v1/actions/core.user.invite/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | string | no | The email an OIDC sign-in matches; optional. |
+| `grants` | array of object | no | A member's grants, one per target; none for an admin. |
+| `grants[].role` | string | yes | viewer gives read, operator gives operate. Values: viewer, operator. |
+| `grants[].target` | string | yes | A host group id, or * for every host, including hosts enrolled later. |
+| `role` | string | yes | admin has every scope on every host; member has only what its grants give. Values: admin, member. |
+| `tailnetLogin` | string | no | The tailnet login a Tailscale sign-in matches; optional. |
+| `username` | string | yes | The new user's name: lower-case letters, digits, dot, underscore and hyphen, starting with a letter or digit, at most 64 characters. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `expiresAt` | string (date-time) | yes | When the link stops working, 72 hours after it was made. |
+| `token` | string | yes | The enrollment link's token; the link is /enroll#\<token\> on the panel's origin. Shown only once. Secret. |
+| `user` | object | yes | The user, pending until it uses its enrollment link. |
+| `user.createdAt` | string (date-time) | yes |  |
+| `user.disabled` | boolean | no | True while core.user.disable keeps the user from signing in. |
+| `user.id` | string | yes |  |
+| `user.role` | string | yes |  |
+| `user.state` | string | yes |  |
+| `user.username` | string | yes |  |
+
+## core.user.renew-invite v1
+
+Give an invited user that never enrolled a new enrollment link; the previous link stops working.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.user.renew-invite/v1/plan` |
+| apply | `POST /api/v1/actions/core.user.renew-invite/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `username` | string | yes | The user's name. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `expiresAt` | string (date-time) | yes | When the link stops working, 72 hours after it was made. |
+| `token` | string | yes | The enrollment link's token; the link is /enroll#\<token\> on the panel's origin. Shown only once. Secret. |
+| `user` | object | yes | The user, pending until it uses its enrollment link. |
+| `user.createdAt` | string (date-time) | yes |  |
+| `user.disabled` | boolean | no | True while core.user.disable keeps the user from signing in. |
+| `user.id` | string | yes |  |
+| `user.role` | string | yes |  |
+| `user.state` | string | yes |  |
+| `user.username` | string | yes |  |

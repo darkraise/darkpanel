@@ -25,7 +25,7 @@ var unknownPaths = []string{"/api", "/api/", "/api/v1/nope", "/api/v2/changes", 
 func specPublic(method, path string) bool {
 	get := method == "GET" || method == "HEAD"
 	switch path {
-	case "/api/v1/auth/login":
+	case "/api/v1/auth/login", "/api/v1/enroll/begin", "/api/v1/enroll/finish":
 		return method == "POST"
 	case "/healthz", "/", "/hosts/h1/hostinfo", "/assets/app.js":
 		return get
