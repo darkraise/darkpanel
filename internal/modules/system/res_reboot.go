@@ -72,12 +72,7 @@ func (m module) reboot(ctx context.Context, env core.Env) (RebootState, error) {
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return RebootState{}, fmt.Errorf("system: read %s: %w", rebootRequiredPkgs, err)
 		}
-		for line := range strings.Lines(string(pkgs)) {
-			if p := strings.TrimSpace(line); p != "" && !slices.Contains(out.Packages, p) {
-				out.Packages = append(out.Packages, p)
-			}
-		}
-		slices.Sort(out.Packages)
+		out.Packages = parseRebootPkgs(pkgs)
 	case errors.Is(err, fs.ErrNotExist):
 		k, err := m.kernelCheck(ctx, env)
 		if err != nil {
@@ -93,6 +88,29 @@ func (m module) reboot(ctx context.Context, env core.Env) (RebootState, error) {
 		return RebootState{}, err
 	}
 	return out, nil
+}
+
+// parseRebootPkgs reads the package names of /run/reboot-required.pkgs,
+// sorted and each once; [] when there are none.
+func parseRebootPkgs(b []byte) []string {
+	pkgs := []string{}
+	for line := range strings.Lines(string(b)) {
+		if p := strings.TrimSpace(line); p != "" && !slices.Contains(pkgs, p) {
+			pkgs = append(pkgs, p)
+		}
+	}
+	slices.Sort(pkgs)
+	return pkgs
+}
+
+// debianRunningKernel reads the running kernel's package version from
+// /proc/version; "" when it names none. The compiler's "(Debian 12.2.0-14)"
+// comes first; the kernel's package version is the last "Debian <version>".
+func debianRunningKernel(procVersion []byte) string {
+	if mt := debianKernelVersion.FindAllSubmatch(procVersion, -1); len(mt) > 0 {
+		return string(mt[len(mt)-1][1])
+	}
+	return ""
 }
 
 // kernelCheck compares the running kernel's package version with the newest
@@ -113,11 +131,7 @@ func (m module) kernelCheck(ctx context.Context, env core.Env) (*KernelState, er
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("system: read %s: %w", procVersion, err)
 		}
-		// The compiler's "(Debian 12.2.0-14)" comes first; the kernel's
-		// package version is the last "Debian <version>".
-		if mt := debianKernelVersion.FindAllSubmatch(b, -1); len(mt) > 0 {
-			running = string(mt[len(mt)-1][1])
-		}
+		running = debianRunningKernel(b)
 	} else {
 		release, err := m.d.kernelRelease()
 		if err != nil {
@@ -156,8 +170,14 @@ func restartServices(ctx context.Context, env core.Env) ([]string, error) {
 	if res.ExitCode != 0 {
 		return nil, fmt.Errorf("system: needrestart exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
 	}
+	return parseNeedrestart(res.Stdout), nil
+}
+
+// parseNeedrestart reads the NEEDRESTART-SVC lines of needrestart -b, sorted
+// and each once; [] when there are none.
+func parseNeedrestart(out []byte) []string {
 	services := []string{}
-	for line := range strings.Lines(string(res.Stdout)) {
+	for line := range strings.Lines(string(out)) {
 		if s, ok := strings.CutPrefix(strings.TrimSpace(line), "NEEDRESTART-SVC:"); ok {
 			if s = strings.TrimSpace(s); s != "" {
 				services = append(services, s)
@@ -165,7 +185,7 @@ func restartServices(ctx context.Context, env core.Env) ([]string, error) {
 		}
 	}
 	slices.Sort(services)
-	return slices.Compact(services), nil
+	return slices.Compact(services)
 }
 
 // autoupdates reports whether unattended-upgrades is installed and both
@@ -179,6 +199,16 @@ func (m module) autoupdates(ctx context.Context, env core.Env) (AutoUpdates, err
 	if err != nil {
 		return AutoUpdates{}, err
 	}
+	conf := parseAptConfigDump(dump)
+	_, installed := versions["unattended-upgrades"]
+	return AutoUpdates{
+		Installed: installed,
+		Enabled:   conf["APT::Periodic::Update-Package-Lists"] == "1" && conf["APT::Periodic::Unattended-Upgrade"] == "1",
+	}, nil
+}
+
+// parseAptConfigDump reads the `Key "value";` lines of apt-config dump.
+func parseAptConfigDump(dump []byte) map[string]string {
 	conf := map[string]string{}
 	for line := range strings.Lines(string(dump)) {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), " ")
@@ -186,9 +216,5 @@ func (m module) autoupdates(ctx context.Context, env core.Env) (AutoUpdates, err
 			conf[key] = strings.Trim(strings.TrimSuffix(value, ";"), `"`)
 		}
 	}
-	_, installed := versions["unattended-upgrades"]
-	return AutoUpdates{
-		Installed: installed,
-		Enabled:   conf["APT::Periodic::Update-Package-Lists"] == "1" && conf["APT::Periodic::Unattended-Upgrade"] == "1",
-	}, nil
+	return conf
 }

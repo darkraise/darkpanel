@@ -40,10 +40,8 @@ func (h repairHandler) Plan(ctx context.Context, env core.Env, _ RepairInput) (c
 		return core.PlanOutcome{}, err
 	}
 	var diff []core.DiffLine
-	for line := range strings.Lines(string(audit)) {
-		if l := strings.TrimSpace(line); l != "" {
-			diff = append(diff, core.DiffLine{Op: " ", Text: l})
-		}
+	for _, l := range auditLines(audit) {
+		diff = append(diff, core.DiffLine{Op: " ", Text: l})
 	}
 	if len(diff) == 0 {
 		diff = append(diff, core.DiffLine{Op: " ", Text: "dpkg reports no interrupted package"})
@@ -108,4 +106,15 @@ func (h repairHandler) Verify(ctx context.Context, env core.Env, _ RepairInput, 
 		return errors.New("system: dpkg still reports interrupted packages: " + s)
 	}
 	return nil
+}
+
+// auditLines reads the non-blank lines of dpkg --audit, trimmed.
+func auditLines(out []byte) []string {
+	var lines []string
+	for line := range strings.Lines(string(out)) {
+		if l := strings.TrimSpace(line); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
 }

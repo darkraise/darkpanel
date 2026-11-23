@@ -81,11 +81,16 @@ func aptPackageNames(ctx context.Context, env core.Env) (map[string]bool, error)
 	if res.ExitCode != 0 {
 		return nil, fmt.Errorf("system: apt-cache pkgnames exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
 	}
+	return parsePkgnames(res.Stdout), nil
+}
+
+// parsePkgnames reads the package names of apt-cache pkgnames.
+func parsePkgnames(out []byte) map[string]bool {
 	names := map[string]bool{}
-	for line := range strings.Lines(string(res.Stdout)) {
+	for line := range strings.Lines(string(out)) {
 		if n := strings.TrimSpace(line); n != "" {
 			names[n] = true
 		}
 	}
-	return names, nil
+	return names
 }

@@ -122,8 +122,13 @@ func dpkgPackages(ctx context.Context, env core.Env) ([]installedPackage, error)
 	if res.ExitCode != 0 {
 		return nil, fmt.Errorf("system: dpkg-query exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
 	}
+	return parseDpkgQuery(res.Stdout)
+}
+
+// parseDpkgQuery reads the lines of platform.DpkgQueryFormat.
+func parseDpkgQuery(out []byte) ([]installedPackage, error) {
 	var pkgs []installedPackage
-	for line := range strings.Lines(string(res.Stdout)) {
+	for line := range strings.Lines(string(out)) {
 		f := strings.SplitN(strings.TrimRight(line, "\n"), "\t", 7)
 		if len(f) != 7 {
 			return nil, fmt.Errorf("system: dpkg-query printed a line of %d fields", len(f))

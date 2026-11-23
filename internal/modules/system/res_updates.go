@@ -182,12 +182,7 @@ func heldPackages(ctx context.Context, env core.Env) ([]Held, error) {
 	if err != nil {
 		return nil, err
 	}
-	var names []string
-	for line := range strings.Lines(string(b)) {
-		if n := strings.TrimSpace(line); n != "" && namePattern.MatchString(n) {
-			names = append(names, n)
-		}
-	}
+	names := parseShowhold(b)
 	if len(names) == 0 {
 		return nil, nil
 	}
@@ -205,6 +200,18 @@ func heldPackages(ctx context.Context, env core.Env) ([]Held, error) {
 	return held, nil
 }
 
+// parseShowhold reads the package names of apt-mark showhold, skipping a line
+// that is not a valid package name.
+func parseShowhold(out []byte) []string {
+	var names []string
+	for line := range strings.Lines(string(out)) {
+		if n := strings.TrimSpace(line); n != "" && namePattern.MatchString(n) {
+			names = append(names, n)
+		}
+	}
+	return names
+}
+
 type policyEntry struct{ installed, candidate string }
 
 // aptPolicy reads the installed and candidate versions of names from
@@ -214,6 +221,12 @@ func aptPolicy(ctx context.Context, env core.Env, names []string) (map[string]po
 	if err != nil {
 		return nil, err
 	}
+	return parseAptPolicy(b), nil
+}
+
+// parseAptPolicy reads the Installed and Candidate lines of each package
+// section of apt-cache policy.
+func parseAptPolicy(b []byte) map[string]policyEntry {
 	out := map[string]policyEntry{}
 	var cur string
 	for line := range strings.Lines(string(b)) {
@@ -238,7 +251,7 @@ func aptPolicy(ctx context.Context, env core.Env, names []string) (map[string]po
 		}
 		out[cur] = e
 	}
-	return out, nil
+	return out
 }
 
 // refreshedAt is when apt last refreshed its lists: the update-success stamp,

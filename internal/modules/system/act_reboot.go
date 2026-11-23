@@ -121,13 +121,22 @@ func (m module) bootTime(now time.Time) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, fmt.Errorf("system: read %s: %w", procUptime, err)
 	}
+	s, err := parseUptime(b)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return now.Add(-time.Duration(s) * time.Second).Truncate(time.Second), nil
+}
+
+// parseUptime reads the whole seconds of /proc/uptime's first field.
+func parseUptime(b []byte) (int64, error) {
 	f := strings.Fields(string(b))
 	if len(f) == 0 {
-		return time.Time{}, errors.New("system: /proc/uptime is empty")
+		return 0, errors.New("system: /proc/uptime is empty")
 	}
 	s, err := strconv.ParseFloat(f[0], 64)
 	if err != nil || math.IsNaN(s) || s < 0 || s >= 1<<53 {
-		return time.Time{}, errors.New("system: /proc/uptime's first field is not a non-negative number of seconds")
+		return 0, errors.New("system: /proc/uptime's first field is not a non-negative number of seconds")
 	}
-	return now.Add(-time.Duration(int64(s)) * time.Second).Truncate(time.Second), nil
+	return int64(s), nil
 }

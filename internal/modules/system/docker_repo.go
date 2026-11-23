@@ -132,14 +132,22 @@ func (m module) otherDockerSources() ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("system: read %s: %w", p, err)
 		}
-		for line := range strings.Lines(string(b)) {
-			if l := strings.TrimSpace(line); !strings.HasPrefix(l, "#") && strings.Contains(l, dockerRepoHost) {
-				found = append(found, p)
-				break
-			}
+		if mentionsDockerRepo(b) {
+			found = append(found, p)
 		}
 	}
 	return found, nil
+}
+
+// mentionsDockerRepo reports whether an apt source file has an uncommented
+// line naming download.docker.com.
+func mentionsDockerRepo(b []byte) bool {
+	for line := range strings.Lines(string(b)) {
+		if l := strings.TrimSpace(line); !strings.HasPrefix(l, "#") && strings.Contains(l, dockerRepoHost) {
+			return true
+		}
+	}
+	return false
 }
 
 // writeDockerRepo writes the absent files of files, each journaled as a create effect, so the undo removes only
