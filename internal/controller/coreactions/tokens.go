@@ -73,6 +73,24 @@ func (m module) tokenOwner(p core.Principal) (*auth.Service, string, error) {
 	return svc, p.UserID, nil
 }
 
+// tokenManager is tokenOwner for creating or revoking a token with scope
+// ("" for a revoke). A principal without admin access needs a session, so a
+// member's token cannot mint or revoke another, and cannot create an admin
+// token; its tokens are capped at its grants when used.
+func (m module) tokenManager(p core.Principal, scope core.Scope) (*auth.Service, string, error) {
+	svc, userID, err := m.tokenOwner(p)
+	if err != nil || p.HostAccess().Admin {
+		return svc, userID, err
+	}
+	if p.TokenID != "" {
+		return nil, "", errcode.New(errcode.Forbidden, "managing tokens needs a signed-in session")
+	}
+	if scope == core.ScopeAdmin {
+		return nil, "", errcode.New(errcode.Forbidden, "only an admin can create a token with the admin scope")
+	}
+	return svc, userID, nil
+}
+
 type tokenList struct{ m module }
 
 func (h tokenList) Read(ctx context.Context, env core.Env, _ NoInput) (TokenList, error) {
@@ -90,7 +108,7 @@ func (h tokenList) Read(ctx context.Context, env core.Env, _ NoInput) (TokenList
 type tokenCreate struct{ m module }
 
 func (h tokenCreate) Plan(ctx context.Context, env core.Env, in TokenCreateInput) (core.PlanOutcome, error) {
-	svc, userID, err := h.m.tokenOwner(env.Principal)
+	svc, userID, err := h.m.tokenManager(env.Principal, in.Scope)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -111,18 +129,21 @@ func (h tokenCreate) Plan(ctx context.Context, env core.Env, in TokenCreateInput
 	if days == 0 {
 		days = auth.DefaultTokenDays
 	}
+	diff := []core.DiffLine{
+		{Op: "+", Text: fmt.Sprintf("token %q with scope %s for user %s, expiring in %d days", in.Name, in.Scope, owner.Username, days)},
+	}
+	if owner.Role == auth.RoleMember {
+		diff = append(diff, core.DiffLine{Op: " ", Text: fmt.Sprintf("it can do no more than %s's grants allow", owner.Username)})
+	}
 	return core.PlanOutcome{
-		Diff: []core.DiffLine{
-			{Op: "+", Text: fmt.Sprintf("token %q with scope %s for user %s, expiring in %d days", in.Name, in.Scope, owner.Username, days)},
-			{Op: " ", Text: "compensated by core.token.revoke with the new token's id"},
-		},
+		Diff:      append(diff, core.DiffLine{Op: " ", Text: "compensated by core.token.revoke with the new token's id"}),
 		Guards:    []core.Guard{},
 		StateHash: stateHash(owner.ID, owner.State),
 	}, nil
 }
 
 func (h tokenCreate) Apply(ctx context.Context, env core.Env, in TokenCreateInput) (NewToken, error) {
-	svc, userID, err := h.m.tokenOwner(env.Principal)
+	svc, userID, err := h.m.tokenManager(env.Principal, in.Scope)
 	if err != nil {
 		return NewToken{}, err
 	}
@@ -154,7 +175,7 @@ func (h tokenCreate) Verify(ctx context.Context, env core.Env, _ TokenCreateInpu
 type tokenRevoke struct{ m module }
 
 func (h tokenRevoke) Plan(ctx context.Context, env core.Env, in TokenRevokeInput) (core.PlanOutcome, error) {
-	svc, userID, err := h.m.tokenOwner(env.Principal)
+	svc, userID, err := h.m.tokenManager(env.Principal, "")
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -183,7 +204,7 @@ func (h tokenRevoke) Plan(ctx context.Context, env core.Env, in TokenRevokeInput
 }
 
 func (h tokenRevoke) Apply(ctx context.Context, env core.Env, in TokenRevokeInput) (auth.TokenInfo, error) {
-	svc, userID, err := h.m.tokenOwner(env.Principal)
+	svc, userID, err := h.m.tokenManager(env.Principal, "")
 	if err != nil {
 		return auth.TokenInfo{}, err
 	}

@@ -55,12 +55,19 @@ func authorizeHost(p core.Principal, hostID string, need core.Scope) error {
 
 // authorizeController refuses p a controller-side action. A mutating one
 // needs fleet access and its scope on every host, whatever hosts its input
-// names, so members are refused. A read is served by its HostData class
-// (ADR 0018); an input read's hosts are checked once its input is decoded
+// names, so members are refused, except for their own tokens
+// (ownTokenActions). A read is served by its HostData class (ADR 0018); an
+// input read's hosts are checked once its input is decoded
 // (authorizeInputHosts).
 func authorizeController(p core.Principal, def core.ActionDef) error {
 	need := core.RequiredScope(def.Spec)
 	access := p.HostAccess()
+	if ownTokenActions[def.Ref()] && !access.Fleet {
+		if p.UserID == "" || p.TokenID != "" {
+			return errcode.New(errcode.Forbidden, "managing tokens needs a signed-in session")
+		}
+		return nil
+	}
 	if def.Spec.Class != core.ClassRead {
 		if access.Fleet && access.AllHosts(need) {
 			return nil
@@ -83,6 +90,15 @@ func authorizeController(p core.Principal, def core.ActionDef) error {
 		}
 	}
 	return errcode.New(errcode.Forbidden, "this request needs access to the whole fleet")
+}
+
+// ownTokenActions act only on the calling user's own tokens, so a principal
+// without fleet access may run them from a session (A47). A token is refused,
+// so a member's token cannot mint or revoke another; the handlers refuse a
+// member the admin scope.
+var ownTokenActions = map[core.ActionRef]bool{
+	{Name: "core.token.create", Version: 1}: true,
+	{Name: "core.token.revoke", Version: 1}: true,
 }
 
 // readsAnyHost reports whether a grants read on at least one host.

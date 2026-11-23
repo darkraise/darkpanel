@@ -232,3 +232,44 @@ func TestAuthorizeInputHosts(t *testing.T) {
 		}
 	}
 }
+
+// TestOwnTokenActions: a principal without fleet access runs the token
+// actions of C7 v1 only from a user's session; fleet principals keep the
+// admin rule.
+func TestOwnTokenActions(t *testing.T) {
+	def := func(name string, version int) core.ActionDef {
+		return core.ActionDef{Spec: core.ActionSpec{Name: name, Version: version, Class: core.ClassCompensable, Side: core.SideController}}
+	}
+	member := core.Access{Hosts: map[string]core.Scope{"h1": core.ScopeRead}}
+	session := core.Principal{Actor: "user:u1", UserID: "u1", Access: member}
+	token := core.Principal{Actor: "token:t1", UserID: "u1", TokenID: "t1", Access: member}
+	userless := core.Principal{Actor: "system:x", Access: member}
+	adminRead := core.Principal{Actor: "token:t2", UserID: "u2", TokenID: "t2", Access: core.Access{Fleet: true, All: core.ScopeRead}}
+	adminSession := core.Principal{Actor: "user:u2", UserID: "u2", Scope: core.ScopeAdmin}
+	cases := []struct {
+		name string
+		p    core.Principal
+		def  core.ActionDef
+		ok   bool
+	}{
+		{"member session creates", session, def("core.token.create", 1), true},
+		{"member session revokes", session, def("core.token.revoke", 1), true},
+		{"member token creates", token, def("core.token.create", 1), false},
+		{"member token revokes", token, def("core.token.revoke", 1), false},
+		{"no user", userless, def("core.token.create", 1), false},
+		{"another version", session, def("core.token.create", 2), false},
+		{"another action", session, def("core.user.set-role", 1), false},
+		{"admin read token", adminRead, def("core.token.create", 1), false},
+		{"admin session", adminSession, def("core.token.create", 1), true},
+		{"admin without a user", core.Principal{Actor: "local:root@h1", Scope: core.ScopeAdmin}, def("core.token.create", 1), true},
+	}
+	for _, c := range cases {
+		err := authorizeController(c.p, c.def)
+		if c.ok && err != nil {
+			t.Errorf("%s: %v; want it allowed", c.name, err)
+		}
+		if !c.ok && errcode.From(err).Code != errcode.Forbidden {
+			t.Errorf("%s: %v; want auth.forbidden", c.name, err)
+		}
+	}
+}

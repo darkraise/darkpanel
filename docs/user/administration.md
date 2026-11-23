@@ -104,6 +104,11 @@ A token belongs to the user who created it. Its scope is `read`, `operate` or
 `admin`, and it expires after 90 days unless you set `expiresInDays`, from 1 to
 365. The CLI reads a token from `DARKPANEL_TOKEN`.
 
+A token never does more than its user: a member's `operate` token reads, but
+cannot change, a host the member only views. A member creates and revokes its
+own tokens from a signed-in session, with the `read` or `operate` scope; its
+tokens cannot create or revoke tokens.
+
 - `core.token.create`: `darkpanel token create --name <name> --scope <scope>`
   needs `admin`. It creates a token and shows it once. Undo it with
   `core.token.revoke`.
