@@ -104,7 +104,7 @@ func (s *Server) startServices(ctx context.Context) error {
 		// would not read as "no sessions".
 		deps.Sessions = s.sessions
 	}
-	reg, err := registry.BuildWith(coreactions.Module(deps))
+	reg, err := registry.BuildWith(coreactions.Module(deps), s.webOrigins)
 	if err != nil {
 		return fmt.Errorf("server: registry: %w", err)
 	}

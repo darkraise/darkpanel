@@ -35,6 +35,17 @@ func (t *topology) setWeb(f func() []listen.Bound) {
 	t.web = f
 }
 
+// webBound is the bound web listeners, none before they start.
+func (t *topology) webBound() []listen.Bound {
+	t.mu.Lock()
+	web := t.web
+	t.mu.Unlock()
+	if web == nil {
+		return nil
+	}
+	return web()
+}
+
 // setRuntime registers the runtime listeners' source: their bound addresses,
 // the addresses it could not read, and the number of open listeners that are
 // not bound yet. The source is registered once the listeners have started,

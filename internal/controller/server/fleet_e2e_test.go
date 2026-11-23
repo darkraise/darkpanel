@@ -104,7 +104,7 @@ func (a *fleetAgent) run() {
 	a.t.Helper()
 	reg, err := registry.BuildWith(coreactions.Module(coreactions.Deps{
 		Extra: registry.CoreActions(nil, ""), OwnedPaths: install.CoreOwnedPaths(),
-	}))
+	}), nil)
 	if err != nil {
 		a.t.Fatal(err)
 	}

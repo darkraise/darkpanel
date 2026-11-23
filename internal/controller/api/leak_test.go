@@ -114,7 +114,7 @@ func TestNoControllerReadLeaksAnotherHost(t *testing.T) {
 	}
 
 	reg, err := registry.BuildWith(coreactions.Module(coreactions.Deps{Auth: authSvc, Audit: audit,
-		Modules: modules.All(), Extra: registry.CoreActions(nil, ""), OwnedPaths: install.CoreOwnedPaths()}))
+		Modules: modules.All(), Extra: registry.CoreActions(nil, ""), OwnedPaths: install.CoreOwnedPaths()}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

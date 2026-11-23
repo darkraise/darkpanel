@@ -120,7 +120,7 @@ func newListsEnv(t *testing.T, hosts int) *listsEnv {
 	}
 
 	reg, err := registry.BuildWith(coreactions.Module(coreactions.Deps{Auth: authSvc, Audit: e.audit,
-		Modules: modules.All(), Extra: registry.CoreActions(nil, ""), OwnedPaths: install.CoreOwnedPaths()}))
+		Modules: modules.All(), Extra: registry.CoreActions(nil, ""), OwnedPaths: install.CoreOwnedPaths()}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

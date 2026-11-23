@@ -105,6 +105,7 @@ This reference is generated from the action schemas. `openapi.json` is the OpenA
 ## Modules
 
 - [core](core.md)
+- [auth](auth.md)
 - [hostinfo](hostinfo.md)
 - [firewall](firewall.md)
 - [docker](docker.md)

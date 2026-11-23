@@ -39,8 +39,8 @@ func TestBuild(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	mods := r.Modules()
-	if len(mods) != 1+len(modules.All()) || mods[0].ID != core.ModuleIDCore {
-		t.Fatalf("modules = %d, first %q; want core first, then modules.All()", len(mods), mods[0].ID)
+	if len(mods) != 2+len(modules.All()) || mods[0].ID != core.ModuleIDCore {
+		t.Fatalf("modules = %d, first %q; want core first, then auth and modules.All()", len(mods), mods[0].ID)
 	}
 	var names []string
 	for _, a := range mods[0].Actions {
@@ -68,7 +68,7 @@ func TestCoreActions(t *testing.T) {
 
 func TestBuildWith(t *testing.T) {
 	read := core.DefineRead[struct{}, hostListOut](core.ActionSpec{Name: "core.host.list", Version: 1, Side: core.SideController}, hostList{})
-	r, err := BuildWith(fakeCore{ID: core.ModuleIDCore, Version: 1, Actions: []core.ActionDef{read}})
+	r, err := BuildWith(fakeCore{ID: core.ModuleIDCore, Version: 1, Actions: []core.ActionDef{read}}, nil)
 	if err != nil {
 		t.Fatalf("BuildWith: %v", err)
 	}
@@ -76,11 +76,33 @@ func TestBuildWith(t *testing.T) {
 		t.Error("core.host.list/v1 not registered")
 	}
 
-	if _, err := BuildWith(fakeCore{ID: "demo", Version: 1}); err == nil || !strings.Contains(err.Error(), "want \"core\"") {
+	if _, err := BuildWith(fakeCore{ID: "demo", Version: 1}, nil); err == nil || !strings.Contains(err.Error(), "want \"core\"") {
 		t.Errorf("non-core module: err = %v", err)
 	}
 	foreign := core.DefineRead[struct{}, hostListOut](core.ActionSpec{Name: "demo.host.list", Version: 1, Side: core.SideController}, hostList{})
-	if _, err := BuildWith(fakeCore{ID: core.ModuleIDCore, Version: 1, Actions: []core.ActionDef{foreign}}); err == nil {
+	if _, err := BuildWith(fakeCore{ID: core.ModuleIDCore, Version: 1, Actions: []core.ActionDef{foreign}}, nil); err == nil {
 		t.Error("BuildWith accepted a core module with a foreign action name")
+	}
+}
+
+func TestBuildRegistersAuthModule(t *testing.T) {
+	r, err := Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mods := r.Modules()
+	if len(mods) < 2 || mods[0].ID != core.ModuleIDCore || mods[1].ID != "auth" {
+		t.Fatalf("first modules %v, want core then auth", mods[:min(2, len(mods))])
+	}
+	for _, name := range []string{"auth.oidc.set", "auth.oidc.clear", "auth.tailscale.set", "auth.settings.get"} {
+		def, ok := r.Action(core.ActionRef{Name: name, Version: 1})
+		if !ok || def.Spec.Side != core.SideController {
+			t.Errorf("%s/v1: registered %v, side %q; want a controller-side action", name, ok, def.Spec.Side)
+		}
+	}
+	for _, m := range modules.All() {
+		if m.Manifest().ID == "auth" {
+			t.Error("modules.All() holds the auth module, which must not be listed per host")
+		}
 	}
 }

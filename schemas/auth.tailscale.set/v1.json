@@ -1,0 +1,114 @@
+{
+  "name": "auth.tailscale.set",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TailscaleSetInput",
+    "$defs": {
+      "TailscaleSetInput": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Offer Tailscale sign-in on the Tailscale listener."
+          },
+          "requireTotp": {
+            "type": "boolean",
+            "description": "Ask for the user's authenticator code after the whois match; false when omitted."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SignInSettings",
+    "$defs": {
+      "OIDCSettings": {
+        "properties": {
+          "issuer": {
+            "type": "string",
+            "description": "The provider's issuer."
+          },
+          "clientId": {
+            "type": "string",
+            "description": "The client id."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "The sign-in button's text."
+          },
+          "redirectBase": {
+            "type": "string",
+            "description": "The origin the provider redirects back to."
+          },
+          "requireTotp": {
+            "type": "boolean",
+            "description": "Whether the authenticator code is asked after the provider."
+          },
+          "clientSecretSet": {
+            "type": "boolean",
+            "description": "Whether a client secret is stored; the secret itself is never returned."
+          }
+        },
+        "type": "object",
+        "required": [
+          "issuer",
+          "clientId",
+          "displayName",
+          "redirectBase",
+          "requireTotp",
+          "clientSecretSet"
+        ]
+      },
+      "SignInSettings": {
+        "properties": {
+          "oidc": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/OIDCSettings",
+                "description": "The OIDC provider; null when OIDC sign-in is off."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tailscale": {
+            "$ref": "#/$defs/TailscaleSettings",
+            "description": "Tailscale sign-in."
+          }
+        },
+        "type": "object",
+        "required": [
+          "oidc",
+          "tailscale"
+        ]
+      },
+      "TailscaleSettings": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether Tailscale sign-in is offered."
+          },
+          "requireTotp": {
+            "type": "boolean",
+            "description": "Whether the authenticator code is asked after the whois match."
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "requireTotp"
+        ]
+      }
+    }
+  }
+}

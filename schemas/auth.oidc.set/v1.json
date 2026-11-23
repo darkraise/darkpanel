@@ -1,0 +1,140 @@
+{
+  "name": "auth.oidc.set",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/OIDCSetInput",
+    "$defs": {
+      "OIDCSetInput": {
+        "properties": {
+          "issuer": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The provider's issuer, an https URL; discovery reads \u003cissuer\u003e/.well-known/openid-configuration."
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The client id the provider issued to Darkpanel."
+          },
+          "clientSecret": {
+            "type": "string",
+            "description": "The client secret; write-only. Omit it to keep the stored one.",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "displayName": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "description": "The sign-in button's text, 1 to 32 characters."
+          },
+          "redirectBase": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The https origin the provider redirects back to: one of the panel's HTTPS listeners or runtime listener public hosts."
+          },
+          "requireTotp": {
+            "type": "boolean",
+            "description": "Ask for the user's authenticator code after the provider; false when omitted."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "issuer",
+          "clientId",
+          "displayName",
+          "redirectBase"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SignInSettings",
+    "$defs": {
+      "OIDCSettings": {
+        "properties": {
+          "issuer": {
+            "type": "string",
+            "description": "The provider's issuer."
+          },
+          "clientId": {
+            "type": "string",
+            "description": "The client id."
+          },
+          "displayName": {
+            "type": "string",
+            "description": "The sign-in button's text."
+          },
+          "redirectBase": {
+            "type": "string",
+            "description": "The origin the provider redirects back to."
+          },
+          "requireTotp": {
+            "type": "boolean",
+            "description": "Whether the authenticator code is asked after the provider."
+          },
+          "clientSecretSet": {
+            "type": "boolean",
+            "description": "Whether a client secret is stored; the secret itself is never returned."
+          }
+        },
+        "type": "object",
+        "required": [
+          "issuer",
+          "clientId",
+          "displayName",
+          "redirectBase",
+          "requireTotp",
+          "clientSecretSet"
+        ]
+      },
+      "SignInSettings": {
+        "properties": {
+          "oidc": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/OIDCSettings",
+                "description": "The OIDC provider; null when OIDC sign-in is off."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tailscale": {
+            "$ref": "#/$defs/TailscaleSettings",
+            "description": "Tailscale sign-in."
+          }
+        },
+        "type": "object",
+        "required": [
+          "oidc",
+          "tailscale"
+        ]
+      },
+      "TailscaleSettings": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether Tailscale sign-in is offered."
+          },
+          "requireTotp": {
+            "type": "boolean",
+            "description": "Whether the authenticator code is asked after the whois match."
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "requireTotp"
+        ]
+      }
+    }
+  }
+}

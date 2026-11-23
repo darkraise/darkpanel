@@ -187,7 +187,7 @@ func openAgent(ctx context.Context, p paths.Paths, log *slog.Logger) (*agentHost
 	}
 	reg, err := registry.BuildWith(coreactions.Module(coreactions.Deps{
 		Extra: registry.CoreActions(upd, ""), OwnedPaths: install.CoreOwnedPaths(),
-	}))
+	}), nil)
 	if err != nil {
 		_ = closeAll()
 		return nil, err

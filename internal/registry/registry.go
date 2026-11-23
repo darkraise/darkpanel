@@ -1,10 +1,11 @@
 // Package registry builds the one module registry every component uses: the
-// core module first, then modules.All() (spec section 2).
+// core module first, then the auth module, then modules.All() (spec section 2).
 package registry
 
 import (
 	"fmt"
 
+	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/controller/rollout"
 	"github.com/darkraise/darkpanel/internal/core"
@@ -27,14 +28,16 @@ func CoreActions(u *update.Updater, controllerVersion string) []core.ActionDef {
 // registry's shape: the CLI, the schema generator and tests. Its core
 // handlers must not be called.
 func Build() (*core.Registry, error) {
-	return BuildWith(coreactions.Module(coreactions.Deps{Extra: CoreActions(nil, ""), OwnedPaths: install.CoreOwnedPaths()}))
+	return BuildWith(coreactions.Module(coreactions.Deps{Extra: CoreActions(nil, ""), OwnedPaths: install.CoreOwnedPaths()}), nil)
 }
 
 // BuildWith returns the registry with the given core module, which must have
-// module id "core"; the server passes one built with its stores.
-func BuildWith(coreModule core.Module) (*core.Registry, error) {
+// module id "core", then the auth module with origins, then modules.All();
+// the server passes a core module built with its stores and its origins,
+// every other caller nil origins, so every process holds the same modules.
+func BuildWith(coreModule core.Module, origins auth.Origins) (*core.Registry, error) {
 	if id := coreModule.Manifest().ID; id != core.ModuleIDCore {
 		return nil, fmt.Errorf("registry: core module id %q, want %q", id, core.ModuleIDCore)
 	}
-	return core.NewRegistry(append([]core.Module{coreModule}, modules.All()...)...)
+	return core.NewRegistry(append([]core.Module{coreModule, auth.Module(origins)}, modules.All()...)...)
 }

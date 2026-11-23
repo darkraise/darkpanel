@@ -12,6 +12,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/controller/api"
 	"github.com/darkraise/darkpanel/internal/controller/listen"
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
@@ -207,4 +208,31 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	return errors.Join(failed, err)
+}
+
+// webOrigins are the https origins the panel is served at: each bound
+// HTTPS listener's and each open runtime listener's public host. The
+// listeners start after the services, so before then only the runtime
+// hosts are known.
+func (s *Server) webOrigins(ctx context.Context) ([]string, error) {
+	var out []string
+	for _, b := range s.topo.webBound() {
+		if b.Endpoint.TLS {
+			out = append(out, b.Endpoint.URL())
+		}
+	}
+	rows, err := s.controllerDB.Read().QueryContext(ctx,
+		"SELECT public_host FROM core_listeners WHERE state = ? ORDER BY public_host", core.ListenerOpen)
+	if err != nil {
+		return nil, fmt.Errorf("server: list runtime listener hosts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var host string
+		if err := rows.Scan(&host); err != nil {
+			return nil, fmt.Errorf("server: list runtime listener hosts: %w", err)
+		}
+		out = append(out, "https://"+host)
+	}
+	return out, rows.Err()
 }

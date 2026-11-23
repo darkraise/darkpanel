@@ -354,6 +354,412 @@
         ],
         "type": "object"
       },
+      "auth.oidc.clear.v1.input": {
+        "$ref": "#/components/schemas/auth.oidc.clear.v1.input.NoSettingsInput"
+      },
+      "auth.oidc.clear.v1.input.NoSettingsInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "auth.oidc.clear.v1.output": {
+        "$ref": "#/components/schemas/auth.oidc.clear.v1.output.SignInSettings"
+      },
+      "auth.oidc.clear.v1.output.OIDCSettings": {
+        "properties": {
+          "clientId": {
+            "description": "The client id.",
+            "type": "string"
+          },
+          "clientSecretSet": {
+            "description": "Whether a client secret is stored; the secret itself is never returned.",
+            "type": "boolean"
+          },
+          "displayName": {
+            "description": "The sign-in button's text.",
+            "type": "string"
+          },
+          "issuer": {
+            "description": "The provider's issuer.",
+            "type": "string"
+          },
+          "redirectBase": {
+            "description": "The origin the provider redirects back to.",
+            "type": "string"
+          },
+          "requireTotp": {
+            "description": "Whether the authenticator code is asked after the provider.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issuer",
+          "clientId",
+          "displayName",
+          "redirectBase",
+          "requireTotp",
+          "clientSecretSet"
+        ],
+        "type": "object"
+      },
+      "auth.oidc.clear.v1.output.SignInSettings": {
+        "properties": {
+          "oidc": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/auth.oidc.clear.v1.output.OIDCSettings",
+                "description": "The OIDC provider; null when OIDC sign-in is off."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tailscale": {
+            "$ref": "#/components/schemas/auth.oidc.clear.v1.output.TailscaleSettings",
+            "description": "Tailscale sign-in."
+          }
+        },
+        "required": [
+          "oidc",
+          "tailscale"
+        ],
+        "type": "object"
+      },
+      "auth.oidc.clear.v1.output.TailscaleSettings": {
+        "properties": {
+          "enabled": {
+            "description": "Whether Tailscale sign-in is offered.",
+            "type": "boolean"
+          },
+          "requireTotp": {
+            "description": "Whether the authenticator code is asked after the whois match.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "requireTotp"
+        ],
+        "type": "object"
+      },
+      "auth.oidc.set.v1.input": {
+        "$ref": "#/components/schemas/auth.oidc.set.v1.input.OIDCSetInput"
+      },
+      "auth.oidc.set.v1.input.OIDCSetInput": {
+        "additionalProperties": false,
+        "properties": {
+          "clientId": {
+            "description": "The client id the provider issued to Darkpanel.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "clientSecret": {
+            "description": "The client secret; write-only. Omit it to keep the stored one.",
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "displayName": {
+            "description": "The sign-in button's text, 1 to 32 characters.",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "issuer": {
+            "description": "The provider's issuer, an https URL; discovery reads \u003cissuer\u003e/.well-known/openid-configuration.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "redirectBase": {
+            "description": "The https origin the provider redirects back to: one of the panel's HTTPS listeners or runtime listener public hosts.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "requireTotp": {
+            "description": "Ask for the user's authenticator code after the provider; false when omitted.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issuer",
+          "clientId",
+          "displayName",
+          "redirectBase"
+        ],
+        "type": "object"
+      },
+      "auth.oidc.set.v1.output": {
+        "$ref": "#/components/schemas/auth.oidc.set.v1.output.SignInSettings"
+      },
+      "auth.oidc.set.v1.output.OIDCSettings": {
+        "properties": {
+          "clientId": {
+            "description": "The client id.",
+            "type": "string"
+          },
+          "clientSecretSet": {
+            "description": "Whether a client secret is stored; the secret itself is never returned.",
+            "type": "boolean"
+          },
+          "displayName": {
+            "description": "The sign-in button's text.",
+            "type": "string"
+          },
+          "issuer": {
+            "description": "The provider's issuer.",
+            "type": "string"
+          },
+          "redirectBase": {
+            "description": "The origin the provider redirects back to.",
+            "type": "string"
+          },
+          "requireTotp": {
+            "description": "Whether the authenticator code is asked after the provider.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issuer",
+          "clientId",
+          "displayName",
+          "redirectBase",
+          "requireTotp",
+          "clientSecretSet"
+        ],
+        "type": "object"
+      },
+      "auth.oidc.set.v1.output.SignInSettings": {
+        "properties": {
+          "oidc": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/auth.oidc.set.v1.output.OIDCSettings",
+                "description": "The OIDC provider; null when OIDC sign-in is off."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tailscale": {
+            "$ref": "#/components/schemas/auth.oidc.set.v1.output.TailscaleSettings",
+            "description": "Tailscale sign-in."
+          }
+        },
+        "required": [
+          "oidc",
+          "tailscale"
+        ],
+        "type": "object"
+      },
+      "auth.oidc.set.v1.output.TailscaleSettings": {
+        "properties": {
+          "enabled": {
+            "description": "Whether Tailscale sign-in is offered.",
+            "type": "boolean"
+          },
+          "requireTotp": {
+            "description": "Whether the authenticator code is asked after the whois match.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "requireTotp"
+        ],
+        "type": "object"
+      },
+      "auth.settings.get.v1.input": {
+        "$ref": "#/components/schemas/auth.settings.get.v1.input.NoSettingsInput"
+      },
+      "auth.settings.get.v1.input.NoSettingsInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "auth.settings.get.v1.output": {
+        "$ref": "#/components/schemas/auth.settings.get.v1.output.SignInSettings"
+      },
+      "auth.settings.get.v1.output.OIDCSettings": {
+        "properties": {
+          "clientId": {
+            "description": "The client id.",
+            "type": "string"
+          },
+          "clientSecretSet": {
+            "description": "Whether a client secret is stored; the secret itself is never returned.",
+            "type": "boolean"
+          },
+          "displayName": {
+            "description": "The sign-in button's text.",
+            "type": "string"
+          },
+          "issuer": {
+            "description": "The provider's issuer.",
+            "type": "string"
+          },
+          "redirectBase": {
+            "description": "The origin the provider redirects back to.",
+            "type": "string"
+          },
+          "requireTotp": {
+            "description": "Whether the authenticator code is asked after the provider.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issuer",
+          "clientId",
+          "displayName",
+          "redirectBase",
+          "requireTotp",
+          "clientSecretSet"
+        ],
+        "type": "object"
+      },
+      "auth.settings.get.v1.output.SignInSettings": {
+        "properties": {
+          "oidc": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/auth.settings.get.v1.output.OIDCSettings",
+                "description": "The OIDC provider; null when OIDC sign-in is off."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tailscale": {
+            "$ref": "#/components/schemas/auth.settings.get.v1.output.TailscaleSettings",
+            "description": "Tailscale sign-in."
+          }
+        },
+        "required": [
+          "oidc",
+          "tailscale"
+        ],
+        "type": "object"
+      },
+      "auth.settings.get.v1.output.TailscaleSettings": {
+        "properties": {
+          "enabled": {
+            "description": "Whether Tailscale sign-in is offered.",
+            "type": "boolean"
+          },
+          "requireTotp": {
+            "description": "Whether the authenticator code is asked after the whois match.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "requireTotp"
+        ],
+        "type": "object"
+      },
+      "auth.tailscale.set.v1.input": {
+        "$ref": "#/components/schemas/auth.tailscale.set.v1.input.TailscaleSetInput"
+      },
+      "auth.tailscale.set.v1.input.TailscaleSetInput": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "description": "Offer Tailscale sign-in on the Tailscale listener.",
+            "type": "boolean"
+          },
+          "requireTotp": {
+            "description": "Ask for the user's authenticator code after the whois match; false when omitted.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "auth.tailscale.set.v1.output": {
+        "$ref": "#/components/schemas/auth.tailscale.set.v1.output.SignInSettings"
+      },
+      "auth.tailscale.set.v1.output.OIDCSettings": {
+        "properties": {
+          "clientId": {
+            "description": "The client id.",
+            "type": "string"
+          },
+          "clientSecretSet": {
+            "description": "Whether a client secret is stored; the secret itself is never returned.",
+            "type": "boolean"
+          },
+          "displayName": {
+            "description": "The sign-in button's text.",
+            "type": "string"
+          },
+          "issuer": {
+            "description": "The provider's issuer.",
+            "type": "string"
+          },
+          "redirectBase": {
+            "description": "The origin the provider redirects back to.",
+            "type": "string"
+          },
+          "requireTotp": {
+            "description": "Whether the authenticator code is asked after the provider.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issuer",
+          "clientId",
+          "displayName",
+          "redirectBase",
+          "requireTotp",
+          "clientSecretSet"
+        ],
+        "type": "object"
+      },
+      "auth.tailscale.set.v1.output.SignInSettings": {
+        "properties": {
+          "oidc": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/auth.tailscale.set.v1.output.OIDCSettings",
+                "description": "The OIDC provider; null when OIDC sign-in is off."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tailscale": {
+            "$ref": "#/components/schemas/auth.tailscale.set.v1.output.TailscaleSettings",
+            "description": "Tailscale sign-in."
+          }
+        },
+        "required": [
+          "oidc",
+          "tailscale"
+        ],
+        "type": "object"
+      },
+      "auth.tailscale.set.v1.output.TailscaleSettings": {
+        "properties": {
+          "enabled": {
+            "description": "Whether Tailscale sign-in is offered.",
+            "type": "boolean"
+          },
+          "requireTotp": {
+            "description": "Whether the authenticator code is asked after the whois match.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "requireTotp"
+        ],
+        "type": "object"
+      },
       "cloudflare.account.connect.v1.input": {
         "$ref": "#/components/schemas/cloudflare.account.connect.v1.input.ConnectInput"
       },
@@ -15701,6 +16107,323 @@
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/actions/auth.oidc.clear/v1/apply": {
+      "post": {
+        "operationId": "auth.oidc.clear.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn OIDC sign-in off; the users' links to the provider are kept."
+      }
+    },
+    "/api/v1/actions/auth.oidc.clear/v1/plan": {
+      "post": {
+        "operationId": "auth.oidc.clear.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/auth.oidc.clear.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn OIDC sign-in off; the users' links to the provider are kept."
+      }
+    },
+    "/api/v1/actions/auth.oidc.set/v1/apply": {
+      "post": {
+        "operationId": "auth.oidc.set.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Set up OIDC sign-in with one provider; changing the issuer keeps the users' links to the old one."
+      }
+    },
+    "/api/v1/actions/auth.oidc.set/v1/plan": {
+      "post": {
+        "operationId": "auth.oidc.set.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/auth.oidc.set.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Set up OIDC sign-in with one provider; changing the issuer keeps the users' links to the old one."
+      }
+    },
+    "/api/v1/actions/auth.settings.get/v1/read": {
+      "post": {
+        "operationId": "auth.settings.get.v1.read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/auth.settings.get.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/auth.settings.get.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read the sign-in method settings; the OIDC client secret is never returned."
+      }
+    },
+    "/api/v1/actions/auth.tailscale.set/v1/apply": {
+      "post": {
+        "operationId": "auth.tailscale.set.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn Tailscale sign-in on or off."
+      }
+    },
+    "/api/v1/actions/auth.tailscale.set/v1/plan": {
+      "post": {
+        "operationId": "auth.tailscale.set.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/auth.tailscale.set.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn Tailscale sign-in on or off."
+      }
+    },
     "/api/v1/actions/cloudflare.account.connect/v1/apply": {
       "post": {
         "operationId": "cloudflare.account.connect.v1.apply",

@@ -116,7 +116,7 @@ func TestServerRegistryHasTheSameShape(t *testing.T) {
 	server, err := registry.BuildWith(coreactions.Module(coreactions.Deps{
 		Auth: new(auth.Service), Audit: &coretest.MemAudit{}, Modules: modules.All(),
 		Extra: registry.CoreActions(nil, buildinfo.Version), OwnedPaths: install.CoreOwnedPaths(),
-	}))
+	}), nil)
 	if err != nil {
 		t.Fatalf("registry.BuildWith: %v", err)
 	}

@@ -563,3 +563,68 @@ func TestMigration0017KeepsUsersAdmin(t *testing.T) {
 		t.Errorf("user, session and token after 0017 = %q, want %q unchanged", after, before)
 	}
 }
+
+func TestMigration0018AddsSignInColumns(t *testing.T) {
+	ctx := context.Background()
+	db := openTemp(t)
+	opts := migrateOpts(t, "v1", time.Date(2026, 11, 23, 1, 0, 0, 0, time.UTC))
+	if _, err := Migrate(ctx, db, opts, coreMigrationsBefore(t, 18), nil); err != nil {
+		t.Fatalf("Migrate to 0017: %v", err)
+	}
+	const at = "2026-11-23T01:00:00.000000000Z"
+	user := func(id, name string) string {
+		return `INSERT INTO core_users (id, username, role, state, password_hash, totp_secret_ct, totp_last_step, created_at, updated_at)
+			VALUES ('` + id + `', '` + name + `', 'admin', 'active', 'hash', x'00', 0, '` + at + `', '` + at + `')`
+	}
+	if _, err := db.Writer().Exec(user("u1", "alice")); err != nil {
+		t.Fatal(err)
+	}
+	set, err := CoreMigrations(SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.BinaryVersion = "v2"
+	if _, err := Migrate(ctx, db, opts, set, nil); err != nil {
+		t.Fatalf("Migrate to 0018: %v", err)
+	}
+	for _, table := range []string{"auth_settings", "core_host_tailnet"} {
+		if !tableExists(t, db, table) {
+			t.Errorf("table %s missing after 0018", table)
+		}
+	}
+	var kept string
+	if err := db.Read().QueryRow(`SELECT username || '|' || role || '|' || state || '|' || coalesce(email, '-') || '|' ||
+		coalesce(oidc_issuer, '-') || '|' || coalesce(oidc_subject, '-') || '|' || coalesce(tailnet_login, '-') || '|' ||
+		coalesce(tailnet_user_id, '-') || '|' || coalesce(disabled_at, '-') FROM core_users WHERE id = 'u1'`).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if kept != "alice|admin|active|-|-|-|-|-|-" {
+		t.Errorf("user after 0018 = %q, want alice unchanged with every new column null", kept)
+	}
+
+	exec := func(q string) error { _, err := db.Writer().Exec(q); return err }
+	for _, q := range []string{user("u2", "bob"), user("u3", "carol"), user("u4", "dave"),
+		`UPDATE core_users SET email = 'Alice@Example.com', tailnet_login = 'Alice@GitHub', oidc_issuer = 'https://idp', oidc_subject = 's1' WHERE id = 'u1'`,
+	} {
+		if err := exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	for name, q := range map[string]string{
+		"email, another case":         `UPDATE core_users SET email = 'alice@example.COM' WHERE id = 'u2'`,
+		"tailnet login, another case": `UPDATE core_users SET tailnet_login = 'alice@github' WHERE id = 'u2'`,
+		"issuer and subject":          `UPDATE core_users SET oidc_issuer = 'https://idp', oidc_subject = 's1' WHERE id = 'u2'`,
+	} {
+		if err := exec(q); err == nil || !strings.Contains(err.Error(), "UNIQUE") {
+			t.Errorf("%s: %v, want a unique constraint failure", name, err)
+		}
+	}
+	for _, q := range []string{
+		`UPDATE core_users SET oidc_issuer = 'https://other', oidc_subject = 's1' WHERE id = 'u2'`,
+		`UPDATE core_users SET oidc_issuer = 'https://idp', oidc_subject = 's2' WHERE id = 'u3'`,
+	} {
+		if err := exec(q); err != nil {
+			t.Errorf("%s: %v, want the pair unique only together", q, err)
+		}
+	}
+}
