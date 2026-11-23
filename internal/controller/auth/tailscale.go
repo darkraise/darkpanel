@@ -189,3 +189,13 @@ func (s *Service) SignInTailscale(ctx context.Context, r TailscaleRequest) (Sign
 	}
 	return res, nil
 }
+
+// RefuseTailscale audits a Continue-as sign-in refused because the whois
+// failed or its answer did not decode, and returns err; an audit failure
+// is returned instead.
+func (s *Service) RefuseTailscale(ctx context.Context, source string, err error) error {
+	if aerr := s.recordSignInWith(ctx, MethodTailscale, "", source, "", errcode.From(err).Code, map[string]string{"step": "whois"}); aerr != nil {
+		return aerr
+	}
+	return err
+}

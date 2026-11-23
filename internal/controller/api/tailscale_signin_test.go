@@ -447,3 +447,53 @@ func TestTailscaleRequireTotp(t *testing.T) {
 		t.Errorf("invited user with the code step on: %d %s; want 401 and no ticket", rec.Code, rec.Body)
 	}
 }
+
+// TestTailscaleWhoisRefusalAudited checks that a Continue-as POST refused
+// at the whois is audited with method tailscale and the request's source,
+// and that a POST refused by the lookup budget is not.
+func TestTailscaleWhoisRefusalAudited(t *testing.T) {
+	h := newTSHarness(t, false)
+	audited := func() []core.AuditEntry {
+		t.Helper()
+		entries, _, err := h.audit.List(context.Background(), core.AuditQuery{Limit: 1000})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []core.AuditEntry
+		for _, e := range entries {
+			if strings.Contains(string(e.Input), `"method":"tailscale"`) {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	for i, a := range []any{errors.New("tailscaled is down"), "not json"} {
+		h.answer(tsPeer, a)
+		if rec := h.do(post(tsPeer)); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("POST %d: %d %s", i, rec.Code, rec.Body)
+		}
+		got := audited()
+		if len(got) != i+1 {
+			t.Fatalf("after POST %d: %d tailscale audit rows; want %d", i, len(got), i+1)
+		}
+		e := got[len(got)-1]
+		for _, g := range got {
+			if g.ID > e.ID {
+				e = g
+			}
+		}
+		if e.Source != tsPeer || e.ErrorCode != "auth.invalid_credentials" {
+			t.Errorf("POST %d audit: source %q, code %q; want %s, auth.invalid_credentials", i, e.Source, e.ErrorCode, tsPeer)
+		}
+	}
+	for range 4 {
+		h.do(post(tsPeer))
+	}
+	before := len(audited())
+	if rec := h.do(post(tsPeer)); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("seventh POST: %d %s; want 429", rec.Code, rec.Body)
+	}
+	if n := len(audited()); n != before {
+		t.Errorf("a 429 added %d audit rows; want none", n-before)
+	}
+}

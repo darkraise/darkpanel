@@ -77,6 +77,10 @@ func (a *sseAuth) SignInTailscale(context.Context, auth.TailscaleRequest) (auth.
 	return auth.SignInResult{}, errors.New("not used")
 }
 
+func (a *sseAuth) RefuseTailscale(context.Context, string, error) error {
+	return errors.New("not used")
+}
+
 // sseIdentity is a token identity of the read scope that ends at expires.
 func sseIdentity(expires time.Time) auth.Identity {
 	// An admin's read token: its access, not its scope, carries the read.

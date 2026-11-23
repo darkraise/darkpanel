@@ -202,6 +202,9 @@ func (s *Server) handleTailscaleSignIn(w http.ResponseWriter, r *http.Request) {
 	}
 	who, err := s.whois(r.Context(), addr)
 	if err != nil {
+		if errcode.From(err).Code != errcode.RateLimited {
+			err = s.cfg.Auth.RefuseTailscale(r.Context(), clientAddr(r), err)
+		}
 		writeProblem(w, s.log, err)
 		return
 	}

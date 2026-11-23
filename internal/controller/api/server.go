@@ -48,6 +48,7 @@ type Authenticator interface {
 	FinishTOTPStep(ctx context.Context, r auth.TOTPStepRequest) (auth.LoginResult, error)
 	TailscaleMatchFor(ctx context.Context, r auth.TailscaleRequest) (auth.TailscaleMatch, error)
 	SignInTailscale(ctx context.Context, r auth.TailscaleRequest) (auth.SignInResult, error)
+	RefuseTailscale(ctx context.Context, source string, err error) error
 }
 
 var _ Authenticator = (*auth.Service)(nil)
