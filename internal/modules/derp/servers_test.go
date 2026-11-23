@@ -435,7 +435,7 @@ func TestSrPassReadsAsTheServiceActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := core.Principal{Actor: "system:derp.servers", Scope: core.ScopeAdmin}
-	if len(principals) != 1 || principals[0] != want || refs[0] != (core.ActionRef{Name: "derp.server.status", Version: 1}) {
+	if len(principals) != 1 || !reflect.DeepEqual(principals[0], want) || refs[0] != (core.ActionRef{Name: "derp.server.status", Version: 1}) {
 		t.Errorf("reads as %+v of %+v, want one derp.server.status/v1 as %+v", principals, refs, want)
 	}
 }

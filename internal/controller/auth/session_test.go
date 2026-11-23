@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +87,7 @@ func TestAuthenticateSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := core.Principal{Actor: "user:" + u.ID, UserID: u.ID, Scope: core.ScopeAdmin, Source: "10.0.0.2"}
-	if got.Principal != want || !got.FromSession || got.Token != nil || got.User.ID != u.ID {
+	if !reflect.DeepEqual(got.Principal, want) || !got.FromSession || got.Token != nil || got.User.ID != u.ID {
 		t.Errorf("identity = %+v, want principal %+v from a session", got, want)
 	}
 	if exp := clock.Now().Add(SessionIdle); !got.ExpiresAt.Equal(exp) {

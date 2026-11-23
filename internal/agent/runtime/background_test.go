@@ -512,7 +512,7 @@ func TestTaskContextApply(t *testing.T) {
 	h.mu.Lock()
 	tc := h.tc
 	h.mu.Unlock()
-	if want := (core.Principal{Actor: "system:bg.sync", Scope: core.ScopeAdmin}); tc.Env.Principal != want {
+	if want := (core.Principal{Actor: "system:bg.sync", Scope: core.ScopeAdmin}); !reflect.DeepEqual(tc.Env.Principal, want) {
 		t.Errorf("task principal = %+v, want %+v", tc.Env.Principal, want)
 	}
 

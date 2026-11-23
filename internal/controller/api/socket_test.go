@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -65,7 +66,7 @@ func TestSocketPeers(t *testing.T) {
 			continue
 		}
 		want := core.Principal{Actor: tc.actor, Scope: core.ScopeAdmin, Source: SocketSource}
-		if rec.Code != 200 || last.principal != want {
+		if rec.Code != 200 || !reflect.DeepEqual(last.principal, want) {
 			t.Errorf("uid %d dev %v: %d %s, principal %+v, want %+v", tc.uid, tc.dev, rec.Code, rec.Body, last.principal, want)
 		}
 	}

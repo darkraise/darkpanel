@@ -68,10 +68,33 @@ const (
 
 // Allows reports whether s includes need.
 func (s Scope) Allows(need Scope) bool {
-	rank := map[Scope]int{ScopeRead: 1, ScopeOperate: 2, ScopeAdmin: 3}
 	// An unknown scope on either side denies: a mistyped required scope must fail closed.
-	return rank[s] > 0 && rank[need] > 0 && rank[s] >= rank[need]
+	return s.rank() > 0 && need.rank() > 0 && s.rank() >= need.rank()
 }
+
+// rank orders the scopes; an empty or unknown scope ranks 0.
+func (s Scope) rank() int {
+	switch s {
+	case ScopeRead:
+		return 1
+	case ScopeOperate:
+		return 2
+	case ScopeAdmin:
+		return 3
+	}
+	return 0
+}
+
+// HostData is how a controller-side read relates to host data (ADR 0018).
+type HostData string
+
+// The four host data classes.
+const (
+	HostDataNone     HostData = "none"     // returns no host data; served to any principal its scope allows
+	HostDataFleet    HostData = "fleet"    // returns data across hosts unfiltered; fleet principals only
+	HostDataInput    HostData = "input"    // names its hosts in the input, at ActionSpec.HostPointers
+	HostDataFiltered HostData = "filtered" // filters its rows to the hosts the caller may read
+)
 
 // ActionRef names one version of an action.
 type ActionRef struct {
@@ -111,8 +134,9 @@ type Principal struct {
 	Actor   string // shared-contract actor, e.g. "user:<id>", "token:<id>", "local:root@<host id>", "system:recovery"
 	UserID  string // empty for local and system actors
 	TokenID string // set only for token principals
-	Scope   Scope  // local break-glass and system actors carry ScopeAdmin
+	Scope   Scope  // local break-glass and system actors carry ScopeAdmin; members and capped tokens carry ""
 	Source  string // client address, or "socket"
+	Access  Access // the hosts the principal may act on, resolved per request
 }
 
 // Env is what a handler may use. HostID is empty for controller-side actions;
@@ -233,6 +257,13 @@ type ActionSpec struct {
 	MinScope  Scope // raises the scope the class and side require; "" keeps it
 	Internal  bool  // dispatched only by the controller itself; read actions only
 	Reveal    bool  // returns one stored secret once; read actions only, with MinScope admin
+	// HostData classifies a controller-side read. A controller-side read
+	// without it is served only to fleet principals; internal reads are
+	// exempt.
+	HostData HostData
+	// HostPointers are the JSON pointers into the input that name the hosts
+	// a HostDataInput read returns data for.
+	HostPointers []string
 	// Rechecks lists the modules whose availability a change of this action
 	// can change; the controller rechecks them when the change ends.
 	Rechecks []string

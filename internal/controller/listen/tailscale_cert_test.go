@@ -14,6 +14,7 @@ import (
 	"errors"
 	"log/slog"
 	"math/big"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -147,7 +148,7 @@ func TestTcNamesReadsThePairAsTheListenPrincipal(t *testing.T) {
 		t.Fatalf("%d reads; want 1", r.count())
 	}
 	call := r.calls[0]
-	if call.principal != (core.Principal{Actor: "system:listen.cert", Scope: core.ScopeAdmin}) || call.host != "H1" ||
+	if !reflect.DeepEqual(call.principal, core.Principal{Actor: "system:listen.cert", Scope: core.ScopeAdmin}) || call.host != "H1" ||
 		call.ref != (core.ActionRef{Name: "tailscale.cert.get", Version: 1}) || call.input != "{}" {
 		t.Errorf("read = %+v", call)
 	}

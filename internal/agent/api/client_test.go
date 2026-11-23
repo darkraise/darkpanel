@@ -191,7 +191,7 @@ func TestClientRoundTrip(t *testing.T) {
 			strings.HasSuffix(route, "/confirm") || strings.HasSuffix(route, "/revert") {
 			want = testPrincipal
 		}
-		if got := p.Core(); got != want {
+		if got := p.Core(); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: Darkpanel-Principal = %+v, want %+v", route, got, want)
 		}
 	}

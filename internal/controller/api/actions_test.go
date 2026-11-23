@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -133,7 +134,7 @@ func TestActionRoutesDispatch(t *testing.T) {
 		}
 		want := strings.Replace(tc.response, "ACTOR", last.principal.Actor, 1)
 		tc.want.principal = last.principal
-		if last != tc.want {
+		if !reflect.DeepEqual(last, tc.want) {
 			t.Errorf("%s: dispatched %+v, want %+v", tc.path, last, tc.want)
 		}
 		if rec.Body.String() != want {
