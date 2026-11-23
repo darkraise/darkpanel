@@ -88,10 +88,13 @@ func (t *whoisThrottle) spend(addr netip.Addr, now time.Time) bool {
 }
 
 // tailscaleRemote is the request's tailnet address once the request may use
-// the method: on a Tailscale listener, not proxied, with the method on, and
+// the method: over TLS on a Tailscale listener, not proxied, with the method on, and
 // from an address inside Tailscale's ranges. No agent call happens before.
 func (s *Server) tailscaleRemote(r *http.Request) (netip.Addr, error) {
-	if !s.onTailscaleListener(r) {
+	// TLS binds the request's Host, and so the Origin the POST is checked
+	// against, to a name the listener's certificate holds: a plain-HTTP
+	// listener on a tailnet address never serves this method.
+	if r.TLS == nil || !s.onTailscaleListener(r) {
 		return netip.Addr{}, errcode.New(errcode.MethodOff, "Tailscale sign-in is offered only on the Tailscale listener")
 	}
 	set, err := s.cfg.Auth.SignInMethods(r.Context())
@@ -218,10 +221,6 @@ func (s *Server) handleTailscaleSignIn(w http.ResponseWriter, r *http.Request) {
 		CSRFToken: &res.CSRFToken, ExpiresAt: &res.ExpiresAt})
 }
 
-// ownOrigin is the origin r arrived on.
-func ownOrigin(r *http.Request) string {
-	if r.TLS != nil {
-		return "https://" + r.Host
-	}
-	return "http://" + r.Host
-}
+// ownOrigin is the origin r arrived on; tailscaleRemote has refused any
+// request without TLS.
+func ownOrigin(r *http.Request) string { return "https://" + r.Host }

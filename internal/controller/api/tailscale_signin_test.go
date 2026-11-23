@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"net"
@@ -22,7 +23,7 @@ import (
 var (
 	tsListener = netip.MustParseAddr("100.64.0.1")
 	tsPeer     = "100.101.0.5"
-	tsHost     = "http://panel.tail1234.ts.net"
+	tsHost     = "https://panel.tail1234.ts.net"
 )
 
 // tsHarness is an API server whose Tailscale method is on and whose whois
@@ -106,6 +107,7 @@ type tsRequest struct {
 	method, remote, origin, contentType string
 	local                               netip.Addr
 	proxied                             bool
+	plain                               bool // no TLS
 }
 
 func (h *tsHarness) do(q tsRequest) *httptest.ResponseRecorder {
@@ -122,6 +124,10 @@ func (h *tsHarness) do(q tsRequest) *httptest.ResponseRecorder {
 		r.Header.Set("Origin", q.origin)
 	}
 	r.RemoteAddr = net.JoinHostPort(q.remote, "41000")
+	r.TLS = &tls.ConnectionState{}
+	if q.plain {
+		r.TLS = nil
+	}
 	local := q.local
 	if !local.IsValid() {
 		local = tsListener
@@ -231,6 +237,8 @@ func TestTailscaleRefusals(t *testing.T) {
 		{"method off", func(h *tsHarness) { h.exec(`UPDATE auth_settings SET tailscale_enabled = 0`) }, post(tsPeer), 403, "auth.method_off", 0},
 		{"another listener", nil, tsRequest{method: http.MethodPost, remote: tsPeer, origin: tsHost, local: netip.MustParseAddr("127.0.0.1")},
 			403, "auth.method_off", 0},
+		{"plain HTTP on the Tailscale listener", nil, tsRequest{method: http.MethodPost, remote: tsPeer, origin: "http://panel.tail1234.ts.net",
+			plain: true}, 403, "auth.method_off", 0},
 		{"a proxied request", nil, tsRequest{method: http.MethodPost, remote: tsPeer, origin: "https://panel.example", proxied: true}, 403,
 			"auth.method_off", 0},
 		{"outside the tailnet ranges", nil, post("192.168.1.5"), 401, "auth.invalid_credentials", 0},
@@ -247,6 +255,9 @@ func TestTailscaleRefusals(t *testing.T) {
 			h.answer(tsPeer, tsAnswer(func(w *auth.TailnetWhois) { w.Sharer = 7 }))
 		}, post(tsPeer), 401, "auth.invalid_credentials", 1},
 		{"no node", func(h *tsHarness) { h.answer(tsPeer, nil) }, post(tsPeer), 401, "auth.invalid_credentials", 1},
+		{"a user profile with no node", func(h *tsHarness) {
+			h.answer(tsPeer, `{"loginName":"alice@example.com","userId":4242,"nodeName":"","stableId":"","tags":[],"sharer":0,"addresses":[]}`)
+		}, post(tsPeer), 401, "auth.invalid_credentials", 1},
 		{"a zero user id", func(h *tsHarness) {
 			h.answer(tsPeer, tsAnswer(func(w *auth.TailnetWhois) { w.UserID = 0 }))
 		}, post(tsPeer), 401, "auth.invalid_credentials", 1},
@@ -259,7 +270,17 @@ func TestTailscaleRefusals(t *testing.T) {
 		}, post(tsPeer), 401, "auth.invalid_credentials", 1},
 		{"an answer that does not decode", func(h *tsHarness) { h.answer(tsPeer, "not json") }, post(tsPeer), 401, "auth.invalid_credentials", 1},
 		{"a whois error", func(h *tsHarness) { h.answer(tsPeer, errors.New("tailscaled is down")) }, post(tsPeer), 401, "auth.invalid_credentials", 1},
-		{"the request address is a host's", func(h *tsHarness) { h.managed(tsPeer, "nOther") }, post(tsPeer), 401, "auth.invalid_credentials", 1},
+		{"the request address is an offline host's", func(h *tsHarness) { h.managed(tsPeer, "nOther") }, post(tsPeer), 401,
+			"auth.invalid_credentials", 1},
+		{"the request address is an online host's", func(h *tsHarness) {
+			h.managed(tsPeer, "nOther")
+			h.exec(`UPDATE core_hosts SET last_seen_at = ? WHERE id = 'H9'`, h.clock.Now().UTC().Format(time.RFC3339Nano))
+		}, post(tsPeer), 401, "auth.invalid_credentials", 1},
+		{"the request address is a host's with tailscale disabled", func(h *tsHarness) {
+			h.managed(tsPeer, "nOther")
+			h.exec(`INSERT INTO core_module_state (host_id, module_id, enabled, available, reason, checked_at)
+				VALUES ('H9', 'tailscale', 0, 0, 'disabled', '2026-11-24T00:00:00Z')`)
+		}, post(tsPeer), 401, "auth.invalid_credentials", 1},
 		{"another node address is a host's", func(h *tsHarness) { h.managed("fd7a:115c:a1e0::5", "nOther") }, post(tsPeer), 401,
 			"auth.invalid_credentials", 1},
 		{"the node's stable id is a host's", func(h *tsHarness) { h.managed("100.100.9.9", "nLaptop") }, post(tsPeer), 401,
@@ -279,7 +300,7 @@ func TestTailscaleRefusals(t *testing.T) {
 			if tc.setup != nil {
 				tc.setup(h)
 			}
-			for _, q := range []tsRequest{tc.req, {method: http.MethodGet, remote: tc.req.remote, local: tc.req.local, proxied: tc.req.proxied}} {
+			for _, q := range []tsRequest{tc.req, {method: http.MethodGet, remote: tc.req.remote, local: tc.req.local, proxied: tc.req.proxied, plain: tc.req.plain}} {
 				if q.method == http.MethodGet && tc.status != 401 && tc.code != "auth.method_off" && tc.code != "auth.no_linked_user" {
 					continue // Origin and body rules are the POST's own
 				}

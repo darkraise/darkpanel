@@ -49,7 +49,8 @@ type TailscaleMatch struct {
 // checkTailnetNode refuses every whois answer but a node owned by a user
 // of this tailnet, and any node that is a Darkpanel host or the controller.
 func (s *Service) checkTailnetNode(ctx context.Context, remote netip.Addr, w TailnetWhois) error {
-	if len(w.Tags) > 0 || w.Sharer != 0 || w.UserID == 0 || w.LoginName == "" || strings.EqualFold(w.LoginName, taggedDevices) {
+	// A whois answer with no node has no stable id.
+	if w.StableID == "" || len(w.Tags) > 0 || w.Sharer != 0 || w.UserID == 0 || w.LoginName == "" || strings.EqualFold(w.LoginName, taggedDevices) {
 		return errSignInRefused()
 	}
 	addrs := []netip.Addr{remote.Unmap()}
