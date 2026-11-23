@@ -1,0 +1,30 @@
+{
+  "//": "Recorded fixture, not captured live: written by hand from the apitype.WhoIsResponse, tailcfg.Node and tailcfg.UserProfile definitions of tailscale.com v1.84 (Go field names, encoding/json defaults). A node owned by a user: Tags absent, Sharer absent (0), UserProfile the owner. TestWhoisAnswerShapes (test/harness/whois_test.go) checks the live shape.",
+  "Node": {
+    "ID": 31337,
+    "StableID": "nUserLaptopCNTRL",
+    "Name": "laptop.tail1234.ts.net.",
+    "User": 4242,
+    "Key": "nodekey:0000000000000000000000000000000000000000000000000000000000000001",
+    "KeyExpiry": "2027-05-01T00:00:00Z",
+    "Machine": "mkey:0000000000000000000000000000000000000000000000000000000000000002",
+    "DiscoKey": "discokey:0000000000000000000000000000000000000000000000000000000000000003",
+    "Addresses": ["100.101.102.103/32", "fd7a:115c:a1e0::6601:6667/128"],
+    "AllowedIPs": ["100.101.102.103/32", "fd7a:115c:a1e0::6601:6667/128"],
+    "Endpoints": ["192.0.2.10:41641"],
+    "HomeDERP": 1,
+    "Hostinfo": {"OS": "macOS", "Hostname": "laptop"},
+    "Created": "2026-01-10T09:00:00Z",
+    "Cap": 113,
+    "MachineAuthorized": true,
+    "ComputedName": "laptop",
+    "ComputedNameWithHost": "laptop"
+  },
+  "UserProfile": {
+    "ID": 4242,
+    "LoginName": "alice@example.com",
+    "DisplayName": "Alice Example",
+    "ProfilePicURL": ""
+  },
+  "CapMap": {}
+}

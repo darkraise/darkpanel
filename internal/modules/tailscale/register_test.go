@@ -37,6 +37,7 @@ var regActions = []regAction{
 	{name: "tailscale.package.pin", class: core.ClassCompensable, task: true, apply: 20 * time.Minute, available: true, undoer: true, recoverer: true},
 	{name: "tailscale.package.unpin", class: core.ClassCompensable, task: true, apply: 5 * time.Minute, available: true, undoer: true, converges: true},
 	{name: "tailscale.cert.get", class: core.ClassRead},
+	{name: "tailscale.whois.get", class: core.ClassRead},
 }
 
 func regModule(t *testing.T) module {
@@ -80,7 +81,7 @@ func TestRegManifestDeclaresTheActions(t *testing.T) {
 		if want.class == core.ClassRead {
 			wantLocks = nil
 		}
-		internal := want.name == "tailscale.cert.get"
+		internal := want.name == "tailscale.cert.get" || want.name == "tailscale.whois.get"
 		if s.Version != 1 || s.Class != want.class || s.Side != core.SideAgent || !slices.Equal(s.LockKeys, wantLocks) ||
 			s.MinScope != "" || s.LongRunning != want.task || s.Task != want.task || timeout != wantTimeout ||
 			s.Internal != internal || s.Reveal || s.Converges != want.converges || s.RepairedBy != want.repairedBy ||

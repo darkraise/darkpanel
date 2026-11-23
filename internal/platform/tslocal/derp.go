@@ -93,6 +93,9 @@ type WhoIsNode struct {
 	Name      string // MagicDNS name with a trailing dot
 	Addresses []netip.Prefix
 	Tags      []string
+	// Sharer is the id of the user who shared the node into this tailnet;
+	// 0 for a node of the tailnet itself.
+	Sharer int64
 }
 
 // UserProfile is a tailnet user.

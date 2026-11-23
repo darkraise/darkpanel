@@ -74,6 +74,8 @@ type localAPI interface {
 	Logout(ctx context.Context) error
 	DERPMap(ctx context.Context) (*tslocal.DERPMap, error)
 	CertPair(ctx context.Context, domain string) (certPEM, keyPEM []byte, err error)
+	// WhoIs answers tslocal.ErrPeerNotFound for an address no node holds.
+	WhoIs(ctx context.Context, addr netip.Addr) (*tslocal.WhoIs, error)
 }
 
 // linkHost is the host's socket table, interfaces and routing table, and this process's id.

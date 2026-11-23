@@ -1,0 +1,31 @@
+{
+  "//": "Recorded fixture, not captured live: written by hand from the apitype.WhoIsResponse, tailcfg.Node and tailcfg.UserProfile definitions of tailscale.com v1.84 (Go field names, encoding/json defaults). A tagged node: Tags set, User and UserProfile the tailnet's tagged-devices pseudo-user. TestWhoisAnswerShapes (test/harness/whois_test.go) checks the live shape.",
+  "Node": {
+    "ID": 31338,
+    "StableID": "nTaggedSrvCNTRL",
+    "Name": "build-server.tail1234.ts.net.",
+    "User": 9001,
+    "Key": "nodekey:0000000000000000000000000000000000000000000000000000000000000004",
+    "KeyExpiry": "0001-01-01T00:00:00Z",
+    "Machine": "mkey:0000000000000000000000000000000000000000000000000000000000000005",
+    "DiscoKey": "discokey:0000000000000000000000000000000000000000000000000000000000000006",
+    "Addresses": ["100.90.80.70/32", "fd7a:115c:a1e0::5a01:5046/128"],
+    "AllowedIPs": ["100.90.80.70/32", "fd7a:115c:a1e0::5a01:5046/128"],
+    "Endpoints": ["198.51.100.20:41641"],
+    "HomeDERP": 2,
+    "Hostinfo": {"OS": "linux", "Hostname": "build-server"},
+    "Created": "2026-02-01T09:00:00Z",
+    "Cap": 113,
+    "Tags": ["tag:server", "tag:ci"],
+    "MachineAuthorized": true,
+    "ComputedName": "build-server",
+    "ComputedNameWithHost": "build-server"
+  },
+  "UserProfile": {
+    "ID": 9001,
+    "LoginName": "tagged-devices",
+    "DisplayName": "Tagged Devices",
+    "ProfilePicURL": ""
+  },
+  "CapMap": {}
+}

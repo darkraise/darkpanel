@@ -39,7 +39,7 @@ func (t ts) actions() []core.ActionDef {
 	return []core.ActionDef{
 		t.prefsSet(), t.prefsRepair(), t.nodeLogin(), t.nodeLogout(),
 		t.packageInstall(), t.packageUpdate(), t.packagePin(), t.packageUnpin(),
-		t.certGet(),
+		t.certGet(), t.whois(),
 	}
 }
 

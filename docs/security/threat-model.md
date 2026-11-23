@@ -92,6 +92,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The web listeners accept TLS 1.2 for browsers; the agent transport requires TLS 1.3.
 - An admin whose session and CSRF token are both stolen acts as that admin until the session ends. The accepted risk of a request without an Origin header is listed in Known residual risks.
 - A lock on the pair of user name and source gives each source its own attempts against a user name, so an attacker who uses many sources, many IPv6 /64 networks included, makes more guesses than one who uses few. A correct password is still not enough to sign in without a TOTP code.
+- Tailscale identity sign-in reads the Tailscale local API's whois answer and the remote address of a request on the Tailscale listener. The whois shape of a tagged and a shared-in node, and that the remote address is the peer's tailnet address, are verified only against recorded fixtures (`internal/modules/tailscale/testdata/whois-*.json`) until the owner runs `TestWhoisAnswerShapes` (`test/harness/whois_test.go`) against a logged-in tailnet. Each host's tailnet addresses and node id are recorded at every agent connect and never dropped while the host exists, so sign-in from a host fails closed whether it is online or not (`internal/controller/fleet`, `internal/controller/auth`).
 
 ### Agent protocol
 

@@ -169,3 +169,20 @@ type CertPair struct {
 	KeyPEM   string    `json:"keyPem" secret:"true" jsonschema_description:"The certificate's private key, PEM-encoded."`
 	NotAfter time.Time `json:"notAfter" jsonschema_description:"When the certificate expires."`
 }
+
+// WhoisInput is the input of tailscale.whois.get.
+type WhoisInput struct {
+	Addr string `json:"addr" jsonschema_description:"The tailnet address to look up."`
+}
+
+// Whois is the node holding a tailnet address and its owner, the output of tailscale.whois.get; every field is
+// empty when no node holds the address.
+type Whois struct {
+	LoginName string   `json:"loginName" jsonschema_description:"The login name of the node's user; tagged-devices for a tagged node."`
+	UserID    int64    `json:"userId" jsonschema_description:"The id of the node's user; 0 when unknown."`
+	NodeName  string   `json:"nodeName" jsonschema_description:"The node's MagicDNS name, without the trailing dot."`
+	StableID  string   `json:"stableId" jsonschema_description:"The node's stable id."`
+	Tags      []string `json:"tags" jsonschema_description:"The node's ACL tags; a tagged node has no owning user."`
+	Sharer    int64    `json:"sharer" jsonschema_description:"The id of the user who shared the node into this tailnet; 0 for the tailnet's own node."`
+	Addresses []string `json:"addresses" jsonschema_description:"The node's tailnet addresses."`
+}

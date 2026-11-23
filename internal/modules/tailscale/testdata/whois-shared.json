@@ -1,0 +1,31 @@
+{
+  "//": "Recorded fixture, not captured live: written by hand from the apitype.WhoIsResponse, tailcfg.Node and tailcfg.UserProfile definitions of tailscale.com v1.84 (Go field names, encoding/json defaults). A node shared into this tailnet: Sharer is the id of the user who shared it, User and UserProfile its owner in the other tailnet. TestWhoisAnswerShapes (test/harness/whois_test.go) checks the live shape.",
+  "Node": {
+    "ID": 31339,
+    "StableID": "nSharedInCNTRL",
+    "Name": "friends-pc.example.ts.net.",
+    "User": 5555,
+    "Sharer": 7777,
+    "Key": "nodekey:0000000000000000000000000000000000000000000000000000000000000007",
+    "KeyExpiry": "2027-06-01T00:00:00Z",
+    "Machine": "mkey:0000000000000000000000000000000000000000000000000000000000000008",
+    "DiscoKey": "discokey:0000000000000000000000000000000000000000000000000000000000000009",
+    "Addresses": ["100.70.60.50/32", "fd7a:115c:a1e0::4601:3c32/128"],
+    "AllowedIPs": ["100.70.60.50/32", "fd7a:115c:a1e0::4601:3c32/128"],
+    "Endpoints": ["203.0.113.30:41641"],
+    "HomeDERP": 1,
+    "Hostinfo": {"OS": "windows", "Hostname": "friends-pc"},
+    "Created": "2026-03-01T09:00:00Z",
+    "Cap": 113,
+    "MachineAuthorized": true,
+    "ComputedName": "friends-pc",
+    "ComputedNameWithHost": "friends-pc"
+  },
+  "UserProfile": {
+    "ID": 5555,
+    "LoginName": "bob@example.org",
+    "DisplayName": "Bob Example",
+    "ProfilePicURL": ""
+  },
+  "CapMap": {}
+}

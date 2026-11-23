@@ -32,6 +32,10 @@ type tsLocal struct {
 	CertCalls []string
 	// LoginInteractives counts the LoginInteractive calls.
 	LoginInteractives int
+	// Whois answers WhoIs by address; a missing address is tslocal.ErrPeerNotFound. WhoisCalls lists the
+	// addresses asked for.
+	Whois      map[netip.Addr]*tslocal.WhoIs
+	WhoisCalls []netip.Addr
 
 	mu sync.Mutex
 }
@@ -157,6 +161,22 @@ func (l *tsLocal) CertPair(_ context.Context, domain string) (certPEM, keyPEM []
 		return nil, nil, err
 	}
 	return slices.Clone(l.Cert[0]), slices.Clone(l.Cert[1]), nil
+}
+
+// WhoIs records the address and answers Whois.
+func (l *tsLocal) WhoIs(_ context.Context, addr netip.Addr) (*tslocal.WhoIs, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.WhoisCalls = append(l.WhoisCalls, addr)
+	if err := l.failure("WhoIs"); err != nil {
+		return nil, err
+	}
+	w, ok := l.Whois[addr]
+	if !ok {
+		return nil, tslocal.ErrPeerNotFound
+	}
+	c := *w
+	return &c, nil
 }
 
 // tsLink is the fake socket table, interface list and routing table. Its Sockets field shares a name with

@@ -1,0 +1,80 @@
+{
+  "name": "tailscale.whois.get",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/WhoisInput",
+    "$defs": {
+      "WhoisInput": {
+        "properties": {
+          "addr": {
+            "type": "string",
+            "description": "The tailnet address to look up."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "addr"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Whois",
+    "$defs": {
+      "Whois": {
+        "properties": {
+          "loginName": {
+            "type": "string",
+            "description": "The login name of the node's user; tagged-devices for a tagged node."
+          },
+          "userId": {
+            "type": "integer",
+            "description": "The id of the node's user; 0 when unknown."
+          },
+          "nodeName": {
+            "type": "string",
+            "description": "The node's MagicDNS name, without the trailing dot."
+          },
+          "stableId": {
+            "type": "string",
+            "description": "The node's stable id."
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The node's ACL tags; a tagged node has no owning user."
+          },
+          "sharer": {
+            "type": "integer",
+            "description": "The id of the user who shared the node into this tailnet; 0 for the tailnet's own node."
+          },
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The node's tailnet addresses."
+          }
+        },
+        "type": "object",
+        "required": [
+          "loginName",
+          "userId",
+          "nodeName",
+          "stableId",
+          "tags",
+          "sharer",
+          "addresses"
+        ]
+      }
+    }
+  }
+}
