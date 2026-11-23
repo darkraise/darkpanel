@@ -83,10 +83,13 @@ func (s *Service) createSession(ctx context.Context, tx *sql.Tx, userID, source,
 }
 
 // roleScope is the scope a session of a user with role carries (spec section
-// 10).
+// 10); a member's is "", its access coming only from its grants.
 func roleScope(role string) (core.Scope, bool) {
-	if role == RoleAdmin {
+	switch role {
+	case RoleAdmin:
 		return core.ScopeAdmin, true
+	case RoleMember:
+		return "", true
 	}
 	return "", false
 }
@@ -147,8 +150,12 @@ func (s *Service) checkSession(ctx context.Context, id, source string, touch boo
 	if idle := seen.Add(SessionIdle); idle.Before(exp) {
 		exp = idle
 	}
+	access, err := resolveAccess(ctx, s.db.Read(), u, "")
+	if err != nil {
+		return Identity{}, err
+	}
 	return Identity{
-		Principal:   core.Principal{Actor: "user:" + u.ID, UserID: u.ID, Scope: scope, Source: source},
+		Principal:   core.Principal{Actor: "user:" + u.ID, UserID: u.ID, Scope: scope, Source: source, Access: access},
 		FromSession: true, User: u, ExpiresAt: exp,
 	}, nil
 }

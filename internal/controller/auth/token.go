@@ -230,8 +230,9 @@ func (s *Service) authenticateToken(ctx context.Context, token, source string) (
 		return Identity{}, err
 	}
 	now := s.now()
+	_, knownRole := roleScope(u.Role)
 	if subtle.ConstantTimeCompare([]byte(secretHash(raw)), []byte(hash)) != 1 ||
-		info.RevokedAt != nil || !now.Before(info.ExpiresAt) || u.State != StateActive {
+		info.RevokedAt != nil || !now.Before(info.ExpiresAt) || u.State != StateActive || !knownRole {
 		return Identity{}, errAuthRequired()
 	}
 	if info.LastUsedAt == nil || now.Sub(*info.LastUsedAt) >= LastUsedInterval {
@@ -252,8 +253,18 @@ func (s *Service) authenticateToken(ctx context.Context, token, source string) (
 			info.LastUsedAt = &now
 		}
 	}
+	access, err := resolveAccess(ctx, s.db.Read(), u, info.Scope)
+	if err != nil {
+		return Identity{}, err
+	}
+	// An admin user's token keeps its stored scope while routes still check
+	// Principal.Scope; a member's carries "", its access only in Access.
+	scope := info.Scope
+	if u.Role != RoleAdmin {
+		scope = ""
+	}
 	return Identity{
-		Principal: core.Principal{Actor: "token:" + id, UserID: u.ID, TokenID: id, Scope: info.Scope, Source: source},
+		Principal: core.Principal{Actor: "token:" + id, UserID: u.ID, TokenID: id, Scope: scope, Source: source, Access: access},
 		User:      u, ExpiresAt: info.ExpiresAt, Token: &info,
 	}, nil
 }

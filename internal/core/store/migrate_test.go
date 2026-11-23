@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -474,5 +475,91 @@ func TestMigrateKeepsTheUpgradeBackupAfterAClockStepBack(t *testing.T) {
 	}
 	if got := len(entryNames(t, opts.BackupRoot)); got != 5 {
 		t.Errorf("%d backups kept, want 5", got)
+	}
+}
+
+// coreMigrationsBefore returns the controller's core migrations numbered
+// below n.
+func coreMigrationsBefore(t *testing.T, n int) MigrationSet {
+	t.Helper()
+	set, err := CoreMigrations(SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := fs.ReadDir(set.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := fstest.MapFS{}
+	for _, f := range files {
+		var num int
+		if _, err := fmt.Sscanf(f.Name(), "%04d_", &num); err != nil {
+			t.Fatalf("migration %s: %v", f.Name(), err)
+		}
+		if num >= n {
+			continue
+		}
+		data, err := fs.ReadFile(set.FS, f.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[f.Name()] = &fstest.MapFile{Data: data}
+	}
+	return MigrationSet{Module: "core", FS: before}
+}
+
+func TestMigration0017KeepsUsersAdmin(t *testing.T) {
+	ctx := context.Background()
+	db := openTemp(t)
+	opts := migrateOpts(t, "v1", time.Date(2026, 11, 23, 1, 0, 0, 0, time.UTC))
+	if _, err := Migrate(ctx, db, opts, coreMigrationsBefore(t, 17), nil); err != nil {
+		t.Fatalf("Migrate to 0016: %v", err)
+	}
+	if tableExists(t, db, "core_user_grants") {
+		t.Fatal("core_user_grants exists before 0017")
+	}
+	const at = "2026-11-23T01:00:00.000000000Z"
+	seed := []string{
+		`INSERT INTO core_users (id, username, role, state, password_hash, totp_secret_ct, totp_last_step, created_at, updated_at)
+			VALUES ('u1', 'alice', 'admin', 'active', 'hash', x'00', 0, '` + at + `', '` + at + `')`,
+		`INSERT INTO core_sessions (id_hash, user_id, created_at, last_seen_at, expires_at, source_ip, user_agent)
+			VALUES ('s1', 'u1', '` + at + `', '` + at + `', '2026-11-24T01:00:00.000000000Z', '10.0.0.1', 'test')`,
+		`INSERT INTO core_tokens (id, user_id, name, scope, secret_hash, created_at, expires_at)
+			VALUES ('t1', 'u1', 'ci', 'read', 'h', '` + at + `', '2027-01-01T00:00:00.000000000Z')`,
+	}
+	for _, q := range seed {
+		if _, err := db.Writer().Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot := func() string {
+		var s string
+		err := db.Read().QueryRow(`SELECT u.role || '|' || u.state || '|' || s.id_hash || '|' || s.expires_at || '|' ||
+			t.id || '|' || t.scope || '|' || t.expires_at || '|' || coalesce(t.revoked_at, '-')
+			FROM core_users u JOIN core_sessions s ON s.user_id = u.id JOIN core_tokens t ON t.user_id = u.id`).Scan(&s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	before := snapshot()
+	set, err := CoreMigrations(SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.BinaryVersion = "v2"
+	if _, err := Migrate(ctx, db, opts, set, nil); err != nil {
+		t.Fatalf("Migrate to 0017: %v", err)
+	}
+	if v, err := SchemaVersion(ctx, db, SideController); err != nil || v < 17 {
+		t.Fatalf("schema version = %d, %v; want at least 17", v, err)
+	}
+	for _, table := range []string{"core_host_groups", "core_host_group_members", "core_user_grants", "core_user_enrollments"} {
+		if !tableExists(t, db, table) {
+			t.Errorf("table %s missing after 0017", table)
+		}
+	}
+	if after := snapshot(); after != before || !strings.HasPrefix(after, "admin|active|") {
+		t.Errorf("user, session and token after 0017 = %q, want %q unchanged", after, before)
 	}
 }

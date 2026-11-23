@@ -92,7 +92,8 @@ func TestAuthenticateToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := core.Principal{Actor: "token:" + info.ID, UserID: u.ID, TokenID: info.ID, Scope: core.ScopeOperate, Source: "10.0.0.5"}
+	want := core.Principal{Actor: "token:" + info.ID, UserID: u.ID, TokenID: info.ID, Scope: core.ScopeOperate, Source: "10.0.0.5",
+		Access: core.Access{Fleet: true, All: core.ScopeOperate}}
 	if !reflect.DeepEqual(got.Principal, want) || got.FromSession || got.Token == nil || got.Token.ID != info.ID ||
 		got.User.ID != u.ID || !got.ExpiresAt.Equal(info.ExpiresAt) {
 		t.Errorf("identity = %+v, want principal %+v from a token", got, want)

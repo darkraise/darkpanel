@@ -86,7 +86,8 @@ func TestAuthenticateSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := core.Principal{Actor: "user:" + u.ID, UserID: u.ID, Scope: core.ScopeAdmin, Source: "10.0.0.2"}
+	want := core.Principal{Actor: "user:" + u.ID, UserID: u.ID, Scope: core.ScopeAdmin, Source: "10.0.0.2",
+		Access: core.Access{Admin: true, Fleet: true}}
 	if !reflect.DeepEqual(got.Principal, want) || !got.FromSession || got.Token != nil || got.User.ID != u.ID {
 		t.Errorf("identity = %+v, want principal %+v from a session", got, want)
 	}

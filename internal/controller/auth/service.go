@@ -17,11 +17,15 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
-// The only role (R19) and the two user states (spec section 8).
+// The two user roles, the two grant roles (M10 spec section 1.1) and the two
+// user states (spec section 8).
 const (
-	RoleAdmin    = "admin"
-	StatePending = "pending"
-	StateActive  = "active"
+	RoleAdmin     = "admin"
+	RoleMember    = "member"
+	GrantViewer   = "viewer"
+	GrantOperator = "operator"
+	StatePending  = "pending"
+	StateActive   = "active"
 )
 
 // User is a user as the API and the CLI show it (spec section 12).
