@@ -262,7 +262,9 @@ type ActionSpec struct {
 	// exempt.
 	HostData HostData
 	// HostPointers are the JSON pointers into the input that name the hosts
-	// a HostDataInput read returns data for.
+	// a HostDataInput read returns data for: a string or an array of
+	// strings. A pointer the input leaves out is not checked, so a read
+	// whose omitted field selects hosts filters them itself.
 	HostPointers []string
 	// Rechecks lists the modules whose availability a change of this action
 	// can change; the controller rechecks them when the change ends.

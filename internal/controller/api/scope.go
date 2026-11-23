@@ -69,8 +69,10 @@ func readsAnyHost(a core.Access) bool {
 }
 
 // authorizeInputHosts checks read on every host an input read's
-// HostPointers name. A pointer to an array names each of its elements. An
-// absent pointer refuses a principal without fleet access as not found.
+// HostPointers name. A pointer to an array names each of its elements. A
+// pointer the input leaves out names no host; one holding anything but a
+// string or an array of strings refuses a principal without fleet access
+// as not found.
 func authorizeInputHosts(p core.Principal, def core.ActionDef, input json.RawMessage) error {
 	if def.Spec.HostData != core.HostDataInput {
 		return nil
@@ -80,21 +82,28 @@ func authorizeInputHosts(p core.Principal, def core.ActionDef, input json.RawMes
 		return invalidField("/input", "must be a JSON value")
 	}
 	for _, ptr := range def.Spec.HostPointers {
-		v, ok := jsonPointer(doc, ptr)
+		v, present := jsonPointer(doc, ptr)
+		if !present {
+			continue
+		}
 		var hosts []string
+		named := true
 		switch v := v.(type) {
 		case string:
 			hosts = []string{v}
 		case []any:
 			for _, e := range v {
-				if s, isString := e.(string); isString {
-					hosts = append(hosts, s)
+				s, isString := e.(string)
+				if !isString {
+					named = false
+					continue
 				}
+				hosts = append(hosts, s)
 			}
 		default:
-			ok = false
+			named = false
 		}
-		if !ok && !p.HostAccess().Fleet {
+		if !named && !p.HostAccess().Fleet {
 			return errcode.New(errcode.NotFound, "no host named by "+ptr)
 		}
 		for _, h := range hosts {

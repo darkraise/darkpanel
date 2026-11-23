@@ -108,7 +108,7 @@ func (d dp) probeServer(ctx context.Context, env core.Env, in ServerProbeInput) 
 	if err != nil {
 		return ServerProbe{}, err
 	}
-	nodes, capWarnings, err := d.probeNodes(ctx, env, hosts, selves)
+	nodes, capWarnings, err := d.probeNodes(ctx, env, access, hosts, selves)
 	if err != nil {
 		return ServerProbe{}, err
 	}
@@ -129,7 +129,6 @@ func (d dp) probeServer(ctx context.Context, env core.Env, in ServerProbeInput) 
 	}
 	probeFillNodes(nodes, status, selves, rec.RegionCode)
 	out := ServerProbe{HostID: in.HostID, RegionID: rec.RegionID, RegionCode: rec.RegionCode, Server: status, Nodes: nodes}
-	out.Nodes = slices.DeleteFunc(out.Nodes, func(n NodeUse) bool { return !access.Sees(n.HostID) })
 	ctl, err := d.probeFromController(ctx, env, status)
 	if err != nil {
 		return ServerProbe{}, err
@@ -304,8 +303,9 @@ func probeSelf(ctx context.Context, env core.Env, hostID string) (tailscale.Stat
 
 // probeNodes are the nodes whose visibility and use the probe reports: the tailnet's devices when an account is
 // connected, else the hosts' own nodes; at most serverStatusMaxWhois, since one status read looks up no more. The
-// warnings say when nodes were cut.
-func (d dp) probeNodes(ctx context.Context, env core.Env, hosts []probeHost, selves map[string]tailscale.Status) ([]NodeUse, []string, error) {
+// warnings say when nodes were cut. Only nodes access sees are kept, before the whois list and the cap are built from
+// them, so neither the status's visibility answers nor the warning reveal other devices.
+func (d dp) probeNodes(ctx context.Context, env core.Env, access core.Access, hosts []probeHost, selves map[string]tailscale.Status) ([]NodeUse, []string, error) {
 	connected, err := d.d.connected(ctx, env.DB)
 	if err != nil {
 		return nil, nil, err
@@ -330,6 +330,7 @@ func (d dp) probeNodes(ctx context.Context, env core.Env, hosts []probeHost, sel
 			}
 		}
 	}
+	nodes = slices.DeleteFunc(nodes, func(n NodeUse) bool { return !access.Sees(n.HostID) })
 	warnings := []string{}
 	if len(nodes) > serverStatusMaxWhois {
 		warnings = append(warnings, fmt.Sprintf("the tailnet has %d devices; only the first %d were checked for visibility",

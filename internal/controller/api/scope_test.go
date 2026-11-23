@@ -203,3 +203,32 @@ func TestMinScopeOnRepair(t *testing.T) {
 		t.Errorf("the dispatcher saw %v, want only the admin's repair", reached)
 	}
 }
+
+func TestAuthorizeInputHosts(t *testing.T) {
+	def := core.ActionDef{Spec: core.ActionSpec{Name: "demo.probe", HostData: core.HostDataInput,
+		HostPointers: []string{"/hostId", "/agents"}}}
+	member := core.Principal{Actor: "user:m", Access: core.Access{Hosts: map[string]core.Scope{"h-in": core.ScopeRead}}}
+	fleet := core.Principal{Actor: "user:a", Scope: core.ScopeRead, Access: core.Access{Fleet: true, All: core.ScopeRead}}
+	cases := []struct {
+		name  string
+		p     core.Principal
+		input string
+		want  errcode.Code
+	}{
+		{"named host, /agents left out", member, `{"hostId": "h-in"}`, ""},
+		{"named hosts", member, `{"hostId": "h-in", "agents": ["h-in"]}`, ""},
+		{"outside host", member, `{"hostId": "h-out"}`, errcode.NotFound},
+		{"outside host in an array", member, `{"hostId": "h-in", "agents": ["h-in", "h-out"]}`, errcode.NotFound},
+		{"not a string", member, `{"hostId": 7}`, errcode.NotFound},
+		{"not a string in an array", member, `{"hostId": "h-in", "agents": [7]}`, errcode.NotFound},
+		{"null", member, `{"hostId": "h-in", "agents": null}`, errcode.NotFound},
+		{"fleet, not a string", fleet, `{"hostId": 7}`, ""},
+		{"fleet, outside host", fleet, `{"hostId": "h-out"}`, ""},
+	}
+	for _, c := range cases {
+		err := authorizeInputHosts(c.p, def, json.RawMessage(c.input))
+		if got := errcode.From(err).Code; err != nil && got != c.want || err == nil && c.want != "" {
+			t.Errorf("%s: %v, want code %q", c.name, err, c.want)
+		}
+	}
+}

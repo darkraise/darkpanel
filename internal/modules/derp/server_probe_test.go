@@ -307,6 +307,58 @@ func TestPbProbeNodes(t *testing.T) {
 	}
 }
 
+// TestProbeShowsAMemberOnlyItsHosts: a principal granted h1 and h2 alone neither probes from h3 nor sees the
+// nodes of h3 or of host-less devices, and the whois request and the device-count warning leave them out too.
+func TestProbeShowsAMemberOnlyItsHosts(t *testing.T) {
+	h := pbWorld(t)
+	h.devices = []tailnet.Device{
+		{ID: "d1", Name: "alpha-node", Addresses: []string{"100.64.0.10"}},
+		{ID: "d2", Name: "bravo-node", Addresses: []string{"100.64.0.20"}},
+		{ID: "d3", Name: "charlie-node", Addresses: []string{"100.64.0.30"}},
+	}
+	for i := range 300 {
+		h.devices = append(h.devices, tailnet.Device{
+			ID: fmt.Sprintf("p%d", i), Name: fmt.Sprintf("phone%03d", i), Addresses: []string{fmt.Sprintf("100.65.%d.%d", i/200, i%200+1)},
+		})
+	}
+	pbNodeWorld(h)
+	env := h.ctlEnv("")
+	env.Principal = core.Principal{Actor: "user:member", Access: core.Access{
+		Hosts: map[string]core.Scope{"h1": core.ScopeRead, "h2": core.ScopeRead}}}
+	got, err := h.dp().probeServer(context.Background(), env, ServerProbeInput{HostID: "h1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []NodeUse{
+		{Name: "alpha-node", Address: "100.64.0.10", HostID: "h1", Visible: true, Preferred: "eu-derp"},
+		{Name: "bravo-node", Address: "100.64.0.20", HostID: "h2", Visible: true, Preferred: "nyc", Observed: true},
+	}
+	if !reflect.DeepEqual(got.Nodes, want) {
+		t.Errorf("nodes %+v, want %+v", got.Nodes, want)
+	}
+	calls := pbCalls[ServerStatusInput](t, h.agent("h1"), "derp.server.status/v1")
+	if len(calls) != 1 || !slices.Equal(calls[0].Whois, []string{"100.64.0.10", "100.64.0.20"}) {
+		t.Errorf("status requests %+v, want one whois list of h1's and h2's addresses", calls)
+	}
+	var visible []string
+	for _, v := range got.Server.Visible {
+		visible = append(visible, v.Address)
+	}
+	if !slices.Equal(visible, []string{"100.64.0.10", "100.64.0.20"}) {
+		t.Errorf("server.visible %q, want h1's and h2's addresses only", visible)
+	}
+	if !slices.Equal(pbNames(got), []string{"controller=controller", "h2=bravo"}) {
+		t.Errorf("sources %q, want the controller and h2", pbNames(got))
+	}
+	if body, _ := json.Marshal(got); strings.Contains(string(body), "charlie") || strings.Contains(string(body), "phone") ||
+		strings.Contains(string(body), "303") {
+		t.Errorf("probe leaks another host or device: %s", body)
+	}
+	if n := len(pbCalls[NodeProbeInput](t, h.agent("h3"), "derp.node.probe/v1")); n != 0 {
+		t.Errorf("h3 probed %d times, want 0", n)
+	}
+}
+
 // TestPbProbeNodesWithoutATailnet: without a tailnet account the nodes are the hosts' own nodes, named after the
 // host and ordered by host id; a host whose tailscale.status cannot be read is not a node.
 func TestPbProbeNodesWithoutATailnet(t *testing.T) {

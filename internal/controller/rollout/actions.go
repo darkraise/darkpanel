@@ -75,6 +75,10 @@ func stateHash(parts ...string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// hiddenHostFailed replaces a rollout error that names a host the caller
+// cannot see.
+const hiddenHostFailed = "the rollout stopped on a host outside your access"
+
 // errForced is the error of a host whose update a forced cancel stopped
 // following.
 var errForced = &core.ErrorDetail{
@@ -353,9 +357,21 @@ func (listAction) Read(ctx context.Context, env core.Env, in core.RolloutsInput)
 	access := env.Principal.HostAccess()
 	for _, r := range records {
 		v := r.view()
-		v.Hosts = slices.DeleteFunc(v.Hosts, func(h core.RolloutHost) bool { return !access.Sees(h.HostID) })
+		var cut []string
+		v.Hosts = slices.DeleteFunc(v.Hosts, func(h core.RolloutHost) bool {
+			if access.Sees(h.HostID) {
+				return false
+			}
+			cut = append(cut, h.HostID)
+			return true
+		})
 		if len(v.Hosts) == 0 && !access.Fleet {
 			continue
+		}
+		// The driver writes a host's failure into the rollout's own error
+		// as "host <id>: ...", which would name a host the caller cannot see.
+		if v.Error != nil && slices.ContainsFunc(cut, func(id string) bool { return strings.Contains(v.Error.Message, id) }) {
+			v.Error = &core.ErrorDetail{Code: v.Error.Code, Message: hiddenHostFailed}
 		}
 		out.Rollouts = append(out.Rollouts, v)
 	}
