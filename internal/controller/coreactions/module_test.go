@@ -208,11 +208,11 @@ func TestHostList(t *testing.T) {
 		{ID: "h1", Name: "alpha", IsLocal: true, State: core.HostPending, Online: true, Modules: []core.ModuleState{
 			{ID: "demo", Version: 3, Enabled: true, Available: true, CheckedAt: ptr(t0)},
 			{ID: "extra", Version: 2, Enabled: true, Reason: ptr("tool missing"), CheckedAt: ptr(t0)},
-		}},
+		}, Scope: core.ScopeAdmin},
 		{ID: "h2", Name: "beta", State: core.HostPending, Modules: []core.ModuleState{
 			{ID: "demo", Version: 3, Reason: ptr(ReasonNotReported)},
 			{ID: "extra", Version: 2, Reason: ptr(ReasonNotReported)},
-		}},
+		}, Scope: core.ScopeAdmin},
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("hosts = %+v\nwant    %+v", got, want)
@@ -243,12 +243,12 @@ func TestHostListReportsAgents(t *testing.T) {
 	reported := func(id, name, state, version, arch string, local, online, supported bool) core.Host {
 		return core.Host{ID: id, Name: name, IsLocal: local, State: state, Online: online, LastSeenAt: ptr(seen),
 			AgentVersion: ptr(version), ProtocolVersion: ptr(1), OS: ptr("linux"), Arch: ptr(arch),
-			Supported: supported, Modules: []core.ModuleState{}}
+			Supported: supported, Modules: []core.ModuleState{}, Scope: core.ScopeAdmin}
 	}
 	want := []core.Host{
 		reported("h1", "alpha", core.HostEnrolled, "1.3.0", "amd64", true, true, true),
 		reported("h2", "beta", core.HostEnrolled, "1.2.4", "arm64", false, false, true),
-		{ID: "h4", Name: "delta", State: core.HostPending, Modules: []core.ModuleState{}},
+		{ID: "h4", Name: "delta", State: core.HostPending, Modules: []core.ModuleState{}, Scope: core.ScopeAdmin},
 		reported("h3", "gamma", core.HostRevoked, "1.4.0", "amd64", false, false, false),
 	}
 	if !reflect.DeepEqual(got.Hosts, want) {
@@ -333,7 +333,7 @@ func TestHostListJSON(t *testing.T) {
 	want := `{"hosts":[{"id":"h1","name":"alpha","isLocal":true,"state":"pending","online":true,"lastSeenAt":null,` +
 		`"agentVersion":null,"protocolVersion":null,"os":null,"arch":null,"supported":false,"modules":[` +
 		`{"id":"demo","version":1,"enabled":true,"available":true,"reason":null,"checkedAt":"2026-10-17T00:00:00Z"}],` +
-		`"ingestion":null}]}`
+		`"ingestion":null,"scope":"admin"}]}`
 	if !jsonEqual(t, raw, want) {
 		t.Errorf("output = %s\nwant     %s", raw, want)
 	}

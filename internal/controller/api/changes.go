@@ -89,7 +89,7 @@ func (s *Server) visibleChange(r *http.Request, need core.Scope) (core.Principal
 	}
 	id := r.PathValue("id")
 	v, err := s.cfg.Dispatcher.Change(r.Context(), c.principal, id)
-	if err == nil && !s.changeVisible(c.principal, v) {
+	if err == nil && !s.changeVisible(r.Context(), c.principal, v) {
 		err = errHiddenChange(id)
 	}
 	return c.principal, v, err

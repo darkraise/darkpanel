@@ -1,5 +1,7 @@
 package core
 
+import "sort"
+
 // Access is what a principal may do on each host, resolved per request.
 type Access struct {
 	Admin bool             // every scope on every host and on the controller
@@ -61,4 +63,62 @@ func (p Principal) HostAccess() Access {
 		return Access{Admin: true, Fleet: true}
 	}
 	return p.Access
+}
+
+// Everywhere is the scope a holds on every host: admin for an admin, else
+// All lowered to its lowest Ceil entry, "" without a "*" grant.
+func (a Access) Everywhere() Scope {
+	if a.Admin {
+		return ScopeAdmin
+	}
+	s := a.All
+	for _, c := range a.Ceil {
+		if s.rank() > c.rank() {
+			s = c
+		}
+	}
+	return s
+}
+
+// RowScope limits a list to the rows a principal without fleet access may
+// see: rows on HostIDs, on every host when HostIDs is nil, and, in a list
+// that keeps any, host-less rows whose actor is one of Actors.
+type RowScope struct {
+	HostIDs []string
+	Actors  []string
+}
+
+// RowScope is the scope of a's lists, nil when a sees every row. A "*" grant
+// sees every host, so its HostIDs is nil; otherwise HostIDs holds the hosts
+// of a's group grants, empty when there are none.
+func (a Access) RowScope(actors ...string) *RowScope {
+	if a.Admin || a.Fleet {
+		return nil
+	}
+	r := &RowScope{Actors: actors}
+	if a.All == "" {
+		r.HostIDs = []string{}
+		for id := range a.Hosts {
+			if a.On(id) != "" {
+				r.HostIDs = append(r.HostIDs, id)
+			}
+		}
+		sort.Strings(r.HostIDs)
+	}
+	return r
+}
+
+// Shows reports whether r keeps a row on hostID; a nil r keeps every row.
+func (r *RowScope) Shows(hostID string) bool {
+	if r == nil {
+		return true
+	}
+	if hostID == "" {
+		return false
+	}
+	if r.HostIDs == nil {
+		return true
+	}
+	i := sort.SearchStrings(r.HostIDs, hostID)
+	return i < len(r.HostIDs) && r.HostIDs[i] == hostID
 }

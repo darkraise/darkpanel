@@ -349,12 +349,12 @@ func (listAction) Read(ctx context.Context, env core.Env, in core.RolloutsInput)
 	if limit <= 0 {
 		limit = DefaultListLimit
 	}
-	records, err := list(ctx, db.Read(), limit)
+	access := env.Principal.HostAccess()
+	records, err := list(ctx, db.Read(), limit, access.RowScope())
 	if err != nil {
 		return core.RolloutList{}, err
 	}
 	out := core.RolloutList{Rollouts: make([]core.Rollout, 0, len(records))}
-	access := env.Principal.HostAccess()
 	for _, r := range records {
 		v := r.view()
 		var cut []string
@@ -378,10 +378,22 @@ func (listAction) Read(ctx context.Context, env core.Env, in core.RolloutsInput)
 	return out, nil
 }
 
-// list reads the newest limit rollouts with their hosts, newest first.
-func list(ctx context.Context, q querier, limit int) ([]record, error) {
+// list reads the newest limit rollouts with their hosts, newest first; with
+// rows, only rollouts over at least one of its hosts.
+func list(ctx context.Context, q querier, limit int, scope *core.RowScope) ([]record, error) {
+	where, args := "", []any{}
+	if scope != nil {
+		where = " WHERE EXISTS (SELECT 1 FROM core_rollout_hosts rh WHERE rh.rollout_id = core_rollouts.id"
+		if scope.HostIDs != nil {
+			where += " AND rh.host_id IN (" + strings.TrimSuffix(strings.Repeat("?, ", len(scope.HostIDs)), ", ") + ")"
+			for _, id := range scope.HostIDs {
+				args = append(args, id)
+			}
+		}
+		where += ")"
+	}
 	rows, err := q.QueryContext(ctx,
-		"SELECT "+rolloutColumns+" FROM core_rollouts ORDER BY created_at DESC, id DESC LIMIT ?", limit)
+		"SELECT "+rolloutColumns+" FROM core_rollouts"+where+" ORDER BY created_at DESC, id DESC LIMIT ?", append(args, limit)...)
 	if err != nil {
 		return nil, fmt.Errorf("rollout: list rollouts: %w", err)
 	}

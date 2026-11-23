@@ -781,6 +781,9 @@ type AuditEntry struct {
 type AuditQuery struct {
 	Limit                         int
 	Before, Actor, HostID, Action string
+	// Rows, when not nil, keeps only entries on its hosts, before Limit;
+	// host-less entries go to fleet principals alone.
+	Rows *RowScope
 }
 
 // Audit is the controller's audit log.
@@ -1005,6 +1008,10 @@ type StepView struct {
 type ChangeFilter struct {
 	State, HostID, Before string
 	Limit                 int
+	// Rows, when not nil, keeps changes on its hosts, host-less changes by
+	// its actors, and composites whose every step is on one of its hosts.
+	// It is applied before Limit, so a page is never short of visible rows.
+	Rows *RowScope
 }
 
 // ModuleStatus is one module's availability on a host.

@@ -346,6 +346,7 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 	if f.Limit == 0 {
 		f.Limit = defaultChangeLimit
 	}
+	f.Rows = changeRows(c.principal)
 	want := f.Limit
 	out := changesResponse{Changes: make([]changeResponse, 0, want)}
 	for range 1 + maxExtraChangeFetches {
@@ -358,7 +359,7 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 			if len(out.Changes) == want {
 				break
 			}
-			if s.changeVisible(c.principal, v) {
+			if s.changeVisible(r.Context(), c.principal, v) {
 				out.Changes = append(out.Changes, toChange(v))
 			}
 		}
@@ -374,7 +375,7 @@ func (s *Server) handleChange(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
 	id := r.PathValue("id")
 	v, err := s.cfg.Dispatcher.Change(r.Context(), c.principal, id)
-	if err == nil && !s.changeVisible(c.principal, v) {
+	if err == nil && !s.changeVisible(r.Context(), c.principal, v) {
 		err = errHiddenChange(id)
 	}
 	if err != nil {
@@ -430,7 +431,7 @@ func (s *Server) changeOp(confirm bool) http.HandlerFunc {
 		c, _ := callerFrom(r.Context())
 		id := r.PathValue("id")
 		v, err := s.cfg.Dispatcher.Change(r.Context(), c.principal, id)
-		if err == nil && !s.changeVisible(c.principal, v) {
+		if err == nil && !s.changeVisible(r.Context(), c.principal, v) {
 			err = errHiddenChange(id)
 		}
 		if err == nil {

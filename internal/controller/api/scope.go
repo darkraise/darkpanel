@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -162,8 +164,43 @@ func jsonPointer(doc any, ptr string) (any, bool) {
 }
 
 // changeVisible reports whether p may see change v: the network shows it,
-// and its host is visible to p; a host-less change, a composite's included,
-// only to a fleet principal.
-func (s *Server) changeVisible(p core.Principal, v core.ChangeView) bool {
-	return s.networkVisible(v) && p.HostAccess().Sees(v.HostID)
+// and its host is visible to p. A host-less change is visible to a fleet
+// principal, and to any other when it is p's own or a composite whose every
+// step is on a host p sees; core.ChangeFilter.Rows is the same rule as a
+// query.
+func (s *Server) changeVisible(ctx context.Context, p core.Principal, v core.ChangeView) bool {
+	if !s.networkVisible(v) {
+		return false
+	}
+	a := p.HostAccess()
+	if v.HostID != "" || a.Sees("") {
+		return a.Sees(v.HostID)
+	}
+	if v.Class != core.ClassComposite {
+		return slices.Contains(ownActors(p), v.Actor)
+	}
+	steps, err := s.cfg.Dispatcher.Steps(ctx, p, v.ID)
+	if err != nil || len(steps) == 0 {
+		return false
+	}
+	for _, st := range steps {
+		if st.Host == "" || !a.Sees(st.Host) {
+			return false
+		}
+	}
+	return true
+}
+
+// ownActors are the actors of p's own changes: its own and its user's.
+func ownActors(p core.Principal) []string {
+	out := []string{p.Actor}
+	if p.UserID != "" && p.Actor != "user:"+p.UserID {
+		out = append(out, "user:"+p.UserID)
+	}
+	return out
+}
+
+// changeRows is the row scope of p's change lists.
+func changeRows(p core.Principal) *core.RowScope {
+	return p.HostAccess().RowScope(ownActors(p)...)
 }

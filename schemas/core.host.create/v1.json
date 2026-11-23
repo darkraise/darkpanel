@@ -180,6 +180,15 @@
                 "type": "null"
               }
             ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "read",
+              "operate",
+              "admin"
+            ],
+            "description": "The caller's scope on the host: read, operate or admin."
           }
         },
         "type": "object",

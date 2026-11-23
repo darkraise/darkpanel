@@ -93,6 +93,7 @@ Returned in the `output` field of the change that apply returns.
 | `host.online` | boolean | yes | Whether the host's agent has a live session with the controller. |
 | `host.os` | string or null | yes |  |
 | `host.protocolVersion` | integer or null | yes |  |
+| `host.scope` | string | no | The caller's scope on the host: read, operate or admin. Values: read, operate, admin. |
 | `host.state` | string | yes | Enrollment state: pending until the agent enrolls, revoked after core.host.revoke. Values: pending, enrolled, revoked. |
 | `host.supported` | boolean | yes | Whether the agent's version is inside the controller's support window; an unsupported agent accepts only update actions. |
 | `token` | string | yes | Single-use enrollment token for darkpanel agent enroll; shown only once. Secret. |
@@ -139,6 +140,7 @@ Returned in the `output` field of the change that apply returns.
 | `online` | boolean | yes | Whether the host's agent has a live session with the controller. |
 | `os` | string or null | yes |  |
 | `protocolVersion` | integer or null | yes |  |
+| `scope` | string | no | The caller's scope on the host: read, operate or admin. Values: read, operate, admin. |
 | `state` | string | yes | Enrollment state: pending until the agent enrolls, revoked after core.host.revoke. Values: pending, enrolled, revoked. |
 | `supported` | boolean | yes | Whether the agent's version is inside the controller's support window; an unsupported agent accepts only update actions. |
 
@@ -182,6 +184,7 @@ Returned in the `output` field of the response.
 | `hosts[].online` | boolean | yes | Whether the host's agent has a live session with the controller. |
 | `hosts[].os` | string or null | yes |  |
 | `hosts[].protocolVersion` | integer or null | yes |  |
+| `hosts[].scope` | string | no | The caller's scope on the host: read, operate or admin. Values: read, operate, admin. |
 | `hosts[].state` | string | yes | Enrollment state: pending until the agent enrolls, revoked after core.host.revoke. Values: pending, enrolled, revoked. |
 | `hosts[].supported` | boolean | yes | Whether the agent's version is inside the controller's support window; an unsupported agent accepts only update actions. |
 
@@ -227,6 +230,7 @@ Returned in the `output` field of the change that apply returns.
 | `online` | boolean | yes | Whether the host's agent has a live session with the controller. |
 | `os` | string or null | yes |  |
 | `protocolVersion` | integer or null | yes |  |
+| `scope` | string | no | The caller's scope on the host: read, operate or admin. Values: read, operate, admin. |
 | `state` | string | yes | Enrollment state: pending until the agent enrolls, revoked after core.host.revoke. Values: pending, enrolled, revoked. |
 | `supported` | boolean | yes | Whether the agent's version is inside the controller's support window; an unsupported agent accepts only update actions. |
 
@@ -276,6 +280,7 @@ Returned in the `output` field of the change that apply returns.
 | `host.online` | boolean | yes | Whether the host's agent has a live session with the controller. |
 | `host.os` | string or null | yes |  |
 | `host.protocolVersion` | integer or null | yes |  |
+| `host.scope` | string | no | The caller's scope on the host: read, operate or admin. Values: read, operate, admin. |
 | `host.state` | string | yes | Enrollment state: pending until the agent enrolls, revoked after core.host.revoke. Values: pending, enrolled, revoked. |
 | `host.supported` | boolean | yes | Whether the agent's version is inside the controller's support window; an unsupported agent accepts only update actions. |
 | `token` | string | yes | Single-use enrollment token for darkpanel agent enroll; shown only once. Secret. |

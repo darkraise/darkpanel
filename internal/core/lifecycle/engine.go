@@ -614,6 +614,11 @@ func (e *Engine) Changes(ctx context.Context, f core.ChangeFilter) ([]core.Chang
 		query += " AND id < ?"
 		args = append(args, f.Before)
 	}
+	if f.Rows != nil {
+		q, a := rowScopeWhere(f.Rows)
+		query += " AND " + q
+		args = append(args, a...)
+	}
 	limit := f.Limit
 	if limit <= 0 {
 		limit = defaultChangeLimit
@@ -634,4 +639,38 @@ func (e *Engine) Changes(ctx context.Context, f core.ChangeFilter) ([]core.Chang
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// rowScopeWhere is the core_changes condition of r: a change on one of r's
+// hosts, a host-less change by one of r's actors, or a composite with steps
+// all on r's hosts. A controller-side step has no host and hides its
+// composite, as the change itself would be hidden.
+func rowScopeWhere(r *core.RowScope) (string, []any) {
+	var args []any
+	onHost, stepHidden := "host_id != ''", "s.host_id = ''"
+	if r.HostIDs != nil {
+		in := sqlIn(len(r.HostIDs))
+		onHost = "host_id IN " + in
+		stepHidden = "(s.host_id = '' OR s.host_id NOT IN " + in + ")"
+		for _, id := range r.HostIDs {
+			args = append(args, id)
+		}
+	}
+	actorIn := sqlIn(len(r.Actors))
+	for _, a := range r.Actors {
+		args = append(args, a)
+	}
+	for _, id := range r.HostIDs {
+		args = append(args, id)
+	}
+	return "(" + onHost + " OR (host_id = '' AND (" +
+		"(class != '" + string(core.ClassComposite) + "' AND actor IN " + actorIn + ") OR " +
+		"(class = '" + string(core.ClassComposite) + "'" +
+		" AND EXISTS (SELECT 1 FROM core_composite_steps s WHERE s.change_id = core_changes.id)" +
+		" AND NOT EXISTS (SELECT 1 FROM core_composite_steps s WHERE s.change_id = core_changes.id AND " + stepHidden + ")))))", args
+}
+
+// sqlIn is a parenthesised list of n placeholders; SQLite takes an empty one.
+func sqlIn(n int) string {
+	return "(" + strings.TrimSuffix(strings.Repeat("?, ", n), ", ") + ")"
 }

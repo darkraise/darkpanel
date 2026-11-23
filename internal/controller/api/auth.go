@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
+	"github.com/darkraise/darkpanel/internal/core"
 )
 
 type loginRequest struct {
@@ -17,10 +18,17 @@ type loginRequest struct {
 // (spec section 12). A field that does not apply is null: csrfToken for a
 // token, token for a session.
 type sessionResponse struct {
-	User      *auth.User      `json:"user"`
+	User      *sessionUser    `json:"user"`
 	CSRFToken *string         `json:"csrfToken"`
 	ExpiresAt *time.Time      `json:"expiresAt"`
 	Token     *auth.TokenInfo `json:"token"`
+}
+
+// sessionUser is the response's user with its role and its scope on every
+// host (core.Access.Everywhere); the web shell gates its pages on both.
+type sessionUser struct {
+	auth.User
+	AllHosts core.Scope `json:"allHosts"`
 }
 
 // sessionCookie is the session cookie of r's listener (spec section 9):
@@ -58,7 +66,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, sessionCookie(r, res.SessionID, 0))
-	writeJSON(w, s.log, http.StatusOK, sessionResponse{User: &res.User, CSRFToken: &res.CSRFToken, ExpiresAt: &res.ExpiresAt})
+	writeJSON(w, s.log, http.StatusOK, sessionResponse{User: &sessionUser{User: res.User, AllHosts: res.Access.Everywhere()}, CSRFToken: &res.CSRFToken, ExpiresAt: &res.ExpiresAt})
 }
 
 // handleLogout ends the caller's session, when it is one, and clears the
@@ -78,7 +86,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
 	id := c.identity
-	resp := sessionResponse{User: &id.User, ExpiresAt: &id.ExpiresAt, Token: id.Token}
+	resp := sessionResponse{User: &sessionUser{User: id.User, AllHosts: c.principal.HostAccess().Everywhere()}, ExpiresAt: &id.ExpiresAt, Token: id.Token}
 	if id.FromSession {
 		csrf := s.cfg.Auth.CSRFToken(c.session)
 		resp.CSRFToken = &csrf

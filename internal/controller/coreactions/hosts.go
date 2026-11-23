@@ -61,8 +61,10 @@ func (h hostList) Read(ctx context.Context, env core.Env, _ NoInput) (core.HostL
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return core.HostList{}, fmt.Errorf("coreactions: list hosts: %w", err)
 	}
-	out.Hosts = slices.DeleteFunc(out.Hosts, func(host core.Host) bool { return !env.Principal.HostAccess().Sees(host.ID) })
+	access := env.Principal.HostAccess()
+	out.Hosts = slices.DeleteFunc(out.Hosts, func(host core.Host) bool { return !access.Sees(host.ID) })
 	for i := range out.Hosts {
+		out.Hosts[i].Scope = access.On(out.Hosts[i].ID)
 		if err := h.m.complete(ctx, env, q, &out.Hosts[i]); err != nil {
 			return core.HostList{}, err
 		}

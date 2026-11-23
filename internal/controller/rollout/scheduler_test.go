@@ -129,7 +129,7 @@ func (e *schedEnv) claim(t *testing.T, host string) (window, rolloutID string) {
 // rollouts lists every rollout, newest first.
 func (e *schedEnv) rollouts(t *testing.T) []record {
 	t.Helper()
-	rs, err := list(context.Background(), e.db.Read(), 100)
+	rs, err := list(context.Background(), e.db.Read(), 100, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

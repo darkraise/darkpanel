@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -171,6 +172,15 @@ func (s *Store) List(ctx context.Context, q core.AuditQuery) ([]core.AuditEntry,
 	if q.Before != "" {
 		query += " AND id < ?"
 		args = append(args, q.Before)
+	}
+	if r := q.Rows; r != nil {
+		query += " AND host_id IS NOT NULL AND host_id != ''"
+		if r.HostIDs != nil {
+			query += " AND host_id IN (" + strings.TrimSuffix(strings.Repeat("?, ", len(r.HostIDs)), ", ") + ")"
+			for _, id := range r.HostIDs {
+				args = append(args, id)
+			}
+		}
 	}
 	limit := q.Limit
 	if limit <= 0 {

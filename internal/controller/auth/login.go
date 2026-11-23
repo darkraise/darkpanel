@@ -34,6 +34,7 @@ type LoginResult struct {
 	CSRFToken string
 	ExpiresAt time.Time
 	User      User
+	Access    core.Access // the new session's access
 }
 
 // Credentials are what a request presents. Authorization holds every value
@@ -186,7 +187,11 @@ func (s *Service) attempt(ctx context.Context, r LoginRequest) (LoginResult, str
 		if err != nil {
 			return err
 		}
-		res = LoginResult{SessionID: id, CSRFToken: s.CSRFToken(id), ExpiresAt: exp, User: cur.User}
+		access, err := resolveAccess(ctx, tx, cur.User, "")
+		if err != nil {
+			return err
+		}
+		res = LoginResult{SessionID: id, CSRFToken: s.CSRFToken(id), ExpiresAt: exp, User: cur.User, Access: access}
 		return nil
 	})
 	return res, rec.ID, true, err

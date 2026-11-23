@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -166,12 +167,17 @@ func (d *Dispatcher) settle(ctx context.Context, changeID string, onController f
 // agent does not hide every other change; any other failure fails the call,
 // because a silently short page would end a caller's paging early. With
 // f.HostID only that host's agent is listed, and an offline host fails.
+// With f.Rows only its hosts' agents are listed, and a f.HostID outside it
+// lists nothing.
 func (d *Dispatcher) Changes(ctx context.Context, _ core.Principal, f core.ChangeFilter) ([]core.ChangeView, error) {
 	if f.Limit <= 0 {
 		f.Limit = DefaultChangeLimit
 	}
 	f.Limit = min(f.Limit, MaxChangeLimit)
 	all := []core.ChangeView{}
+	if f.HostID != "" && !f.Rows.Shows(f.HostID) {
+		return all, nil
+	}
 	hosts := []string{f.HostID}
 	if f.HostID == "" {
 		vs, err := d.cfg.Engine.Changes(ctx, f)
@@ -182,6 +188,7 @@ func (d *Dispatcher) Changes(ctx context.Context, _ core.Principal, f core.Chang
 		if hosts, err = d.hostIDs(ctx); err != nil {
 			return nil, err
 		}
+		hosts = slices.DeleteFunc(hosts, func(id string) bool { return !f.Rows.Shows(id) })
 	}
 	for _, hostID := range hosts {
 		c, err := d.cfg.Hosts.Agent(ctx, hostID)
@@ -193,7 +200,7 @@ func (d *Dispatcher) Changes(ctx context.Context, _ core.Principal, f core.Chang
 			return nil, err
 		}
 		hf := f
-		hf.HostID = hostID
+		hf.HostID, hf.Rows = hostID, nil
 		vs, err := c.Changes(ctx, hf)
 		if err != nil {
 			return nil, err

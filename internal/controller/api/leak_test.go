@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,7 +16,6 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/schema"
-	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/install"
 	"github.com/darkraise/darkpanel/internal/modules"
 	"github.com/darkraise/darkpanel/internal/modules/derp"
@@ -38,28 +36,7 @@ func (d engineDispatcher) Read(ctx context.Context, p core.Principal, _ string, 
 
 func TestNoControllerReadLeaksAnotherHost(t *testing.T) {
 	ctx := context.Background()
-	dir := t.TempDir()
-	db, err := store.Open(ctx, filepath.Join(dir, "controller.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	coreSet, err := store.CoreMigrations(store.SideController)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sets []store.MigrationSet
-	for _, m := range modules.All() {
-		man := m.Manifest()
-		if fsys, ok := man.Migrations[core.SideController]; ok && fsys != nil {
-			sets = append(sets, store.MigrationSet{Module: man.ID, FS: fsys})
-		}
-	}
-	opts := store.MigrateOptions{Side: store.SideController, BinaryVersion: "test",
-		BackupRoot: filepath.Join(dir, "backups"), Keep: 5, Now: testStart}
-	if res, err := store.Migrate(ctx, db, opts, coreSet, sets); err != nil || len(res.Failed) != 0 {
-		t.Fatalf("migrate: %+v, %v", res, err)
-	}
+	db := controllerDB(t)
 	clock := coretest.NewFakeClock(testStart)
 	audit := &coretest.MemAudit{}
 	authSvc := auth.New(db, coretest.Sealer{}, clock, audit, auth.Options{Params: testParams})

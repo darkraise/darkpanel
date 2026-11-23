@@ -90,6 +90,7 @@ type Host struct {
 	Supported       bool             `json:"supported" jsonschema_description:"Whether the agent's version is inside the controller's support window; an unsupported agent accepts only update actions."`
 	Modules         []ModuleState    `json:"modules" jsonschema_description:"Every compiled-in module's state on the host."`
 	Ingestion       *IngestionStatus `json:"ingestion" jsonschema:"nullable" jsonschema_description:"Journal ingestion health; null until the controller first ingests the host's journal."`
+	Scope           Scope            `json:"scope,omitempty" jsonschema:"enum=read,enum=operate,enum=admin" jsonschema_description:"The caller's scope on the host: read, operate or admin."`
 }
 
 // IngestionStatus is a host's journal ingestion health.

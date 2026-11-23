@@ -1628,6 +1628,15 @@
               }
             ]
           },
+          "scope": {
+            "description": "The caller's scope on the host: read, operate or admin.",
+            "enum": [
+              "read",
+              "operate",
+              "admin"
+            ],
+            "type": "string"
+          },
           "state": {
             "description": "Enrollment state: pending until the agent enrolls, revoked after core.host.revoke.",
             "enum": [
@@ -1853,6 +1862,15 @@
               }
             ]
           },
+          "scope": {
+            "description": "The caller's scope on the host: read, operate or admin.",
+            "enum": [
+              "read",
+              "operate",
+              "admin"
+            ],
+            "type": "string"
+          },
           "state": {
             "description": "Enrollment state: pending until the agent enrolls, revoked after core.host.revoke.",
             "enum": [
@@ -2068,6 +2086,15 @@
                 "type": "null"
               }
             ]
+          },
+          "scope": {
+            "description": "The caller's scope on the host: read, operate or admin.",
+            "enum": [
+              "read",
+              "operate",
+              "admin"
+            ],
+            "type": "string"
           },
           "state": {
             "description": "Enrollment state: pending until the agent enrolls, revoked after core.host.revoke.",
@@ -2308,6 +2335,15 @@
                 "type": "null"
               }
             ]
+          },
+          "scope": {
+            "description": "The caller's scope on the host: read, operate or admin.",
+            "enum": [
+              "read",
+              "operate",
+              "admin"
+            ],
+            "type": "string"
           },
           "state": {
             "description": "Enrollment state: pending until the agent enrolls, revoked after core.host.revoke.",
@@ -2567,6 +2603,15 @@
                 "type": "null"
               }
             ]
+          },
+          "scope": {
+            "description": "The caller's scope on the host: read, operate or admin.",
+            "enum": [
+              "read",
+              "operate",
+              "admin"
+            ],
+            "type": "string"
           },
           "state": {
             "description": "Enrollment state: pending until the agent enrolls, revoked after core.host.revoke.",

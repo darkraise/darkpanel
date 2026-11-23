@@ -95,6 +95,7 @@ func (h auditList) Read(ctx context.Context, env core.Env, in AuditListInput) (A
 	}
 	entries, next, err := h.m.d.Audit.List(ctx, core.AuditQuery{
 		Limit: min(limit, MaxAuditLimit), Before: in.Before, Actor: in.Actor, HostID: in.HostID, Action: in.Action,
+		Rows: env.Principal.HostAccess().RowScope(),
 	})
 	if err != nil {
 		return AuditList{}, err
