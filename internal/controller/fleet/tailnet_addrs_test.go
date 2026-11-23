@@ -205,11 +205,12 @@ func TestAddressesPersistAtConnect(t *testing.T) {
 	want["fd7a:115c:a1e0::99"] = " " + t3
 	e.waitRows(t, want)
 
-	// Outside 100.64.0.0/10 and fd7a:115c:a1e0::/48 a session address is not
-	// recorded, and addresses that do not parse are skipped. Each connect
+	// Outside 100.64.0.0/10 and fd7a:115c:a1e0::/48 neither a session address
+	// nor a status address is recorded, and addresses that do not parse are
+	// skipped. Each connect
 	// records 100.64.0.7 at a new time in the same transaction, so the rows
 	// show when its write is done.
-	e.answer(`{"backendState":"Running","self":{"id":"nH1","addresses":["bogus","100.64.0.7"]}}`, nil)
+	e.answer(`{"backendState":"Running","self":{"id":"nH1","addresses":["bogus","192.168.5.5","8.8.8.8","fd7a:115c:a1e1::5","100.64.0.7"]}}`, nil)
 	for _, remote := range []string{"100.128.0.1:41000", "100.63.255.255:41000", "[fd7a:115c:a1e1::1]:41000"} {
 		e.env.clock.Advance(time.Minute)
 		_ = s.Close()

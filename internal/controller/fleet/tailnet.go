@@ -28,6 +28,11 @@ var (
 	tailnetV6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
 )
 
+// isTailnet reports whether a lies in one of Tailscale's address ranges.
+// Only such addresses are recorded: sign-in sees no other, and a host's
+// answer must not fill the table with addresses that are not its tailnet's.
+func isTailnet(a netip.Addr) bool { return tailnetV4.Contains(a) || tailnetV6.Contains(a) }
+
 // tailnetStatus is the part of tailscale.status the registry records.
 type tailnetStatus struct {
 	Self *struct {
@@ -37,7 +42,7 @@ type tailnetStatus struct {
 }
 
 // recordTailnet upserts hostID's tailnet addresses in core_host_tailnet: the
-// addresses and stable id of its tailscale.status, and the session's remote
+// tailnet addresses and stable id of its tailscale.status, and the session's remote
 // address when it is a tailnet address. Rows are never removed here: a
 // failed read, a disabled module or an offline host leaves them, so sign-in
 // keeps refusing every address a host has held (spec section 3).
@@ -58,14 +63,14 @@ func (r *Registry) recordTailnet(hostID string, remote net.Addr) {
 		case st.Self != nil:
 			stableID = st.Self.ID
 			for _, s := range st.Self.Addresses {
-				if a, err := netip.ParseAddr(s); err == nil && len(addrs) < maxTailnetAddrs {
+				if a, err := netip.ParseAddr(s); err == nil && isTailnet(a.Unmap()) && len(addrs) < maxTailnetAddrs {
 					addrs = append(addrs, a.Unmap())
 				}
 			}
 		}
 	}
 	if tcp, ok := remote.(*net.TCPAddr); ok {
-		if a := tcp.AddrPort().Addr().Unmap(); tailnetV4.Contains(a) || tailnetV6.Contains(a) {
+		if a := tcp.AddrPort().Addr().Unmap(); isTailnet(a) {
 			addrs = append(addrs, a)
 		}
 	}
