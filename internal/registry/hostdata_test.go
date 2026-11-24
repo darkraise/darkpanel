@@ -27,5 +27,10 @@ func TestEveryControllerReadDeclaresHostData(t *testing.T) {
 		if s.HostData == core.HostDataInput && len(s.HostPointers) == 0 {
 			t.Errorf("%s: HostData input with no HostPointers", def.Ref())
 		}
+		// Only an input read has its pointers checked, so pointers elsewhere
+		// would name hosts that no check reads.
+		if s.HostData != core.HostDataInput && len(s.HostPointers) > 0 {
+			t.Errorf("%s: HostData %s with HostPointers %v, which only input checks", def.Ref(), s.HostData, s.HostPointers)
+		}
 	}
 }
