@@ -85,6 +85,11 @@ func TestContributionsAreServed(t *testing.T) {
 		deps.Notifier == nil || deps.Notifier != s.notifier || deps.Notifier == core.Notifier(core.NopNotifier{}):
 		t.Errorf("deps = %+v, want the server's stores and services", deps)
 	}
+	// Agent-side change failures reach notifications only through the
+	// ingester (rollouts are proven by the A25 acceptance test).
+	if s.ingester.Notifier() != s.notifier {
+		t.Errorf("the audit ingester's notifier is %v, want the server's", s.ingester.Notifier())
+	}
 
 	url := baseURL(t, s)
 	if code, _ := get(t, plainClient, url+"/api/v1/test/xc", ""); code != http.StatusUnauthorized {

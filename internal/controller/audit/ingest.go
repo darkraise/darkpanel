@@ -115,6 +115,9 @@ func NewIngester(cfg IngesterConfig) *Ingester {
 	return &Ingester{cfg: cfg, acked: map[ackKey]int64{}, states: map[string]ingestState{}}
 }
 
+// Notifier is the notifier the ingester records change notifications with.
+func (in *Ingester) Notifier() core.Notifier { return in.cfg.Notifier }
+
 // IngestHost ingests hostID's journal now; the dispatcher calls it after each
 // agent apply, confirm and revert. It returns nil: a failure is reported as
 // the loop reports it, and the loop retries it. After Stop it does nothing.
