@@ -87,3 +87,14 @@ test("U10: a filter with no match says so; a name installed for two architecture
   await userEvent.type(screen.getByRole("textbox", { name: "Filter installed packages" }), "zzzz")
   await screen.findByText("No installed package matches zzzz")
 })
+
+test("a viewer sees the updates without the selection it cannot use", async () => {
+  stubFetch({
+    [R("updates")]: { body: { upgradable: [{ name: "curl", from: "1", to: "2", origin: "x-updates", security: false }, { name: "openssl", from: "1", to: "2", origin: "x-security", security: true }], removals: ["oldlib"], heldBack: [{ name: "systemd", version: "2", reason: "phased" }], refreshedAt: null, failedSources: [], dpkgInterrupted: false } },
+  })
+  renderWithProviders(<UpdatesTab host={host} />, { hostScope: "read" })
+  expect(await screen.findByText("openssl")).toBeTruthy()
+  expect(screen.getByText("curl")).toBeTruthy()
+  expect(screen.queryAllByRole("checkbox")).toHaveLength(0)
+  expect(screen.queryByText(/selected$/)).toBeNull()
+})

@@ -15,7 +15,7 @@ import { StatusPill } from "@/components/visual/status-pill"
 import { SystemChange, type PendingChange } from "./system-change"
 import { TileError } from "./tile"
 import { SYSTEM_MODULE, type Updates, type Upgradable } from "./types"
-import { Can } from "@/session/can"
+import { Can, useCanOnHost } from "@/session/can"
 
 function Group({ label, tip, children }: { label: string; tip?: string; children: ReactNode }) {
   return (
@@ -53,18 +53,22 @@ const selectable = (u: Upgradable) => u.from !== ""
 const STACK_ROW = "flex flex-col gap-1 py-2 @min-[40rem]:table-row @min-[40rem]:py-0"
 const STACK_CELL = "block h-auto py-0 whitespace-normal @min-[40rem]:table-cell @min-[40rem]:h-[revert-layer] @min-[40rem]:py-2"
 
-function UpgradableRow({ pkg, checked, onToggle }: { pkg: Upgradable; checked: boolean; onToggle: (on: boolean) => void }) {
+function UpgradableRow({ pkg, checked, selecting, onToggle }: { pkg: Upgradable; checked: boolean; selecting: boolean; onToggle: (on: boolean) => void }) {
   const id = `upgrade-${pkg.name}`
   const fresh = !selectable(pkg)
   return (
     <TableRow role="row" className={STACK_ROW}>
       <TableCell role="cell" className={`${STACK_CELL} @min-[40rem]:max-w-96`}>
-        <span className="flex items-start gap-3">
-          <Checkbox id={id} aria-label={pkg.name} checked={checked && !fresh} disabled={fresh} onCheckedChange={(v) => onToggle(v === true)} className="mt-0.5 shrink-0" />
-          <label htmlFor={id} className="min-w-0 font-mono text-sm break-all">
-            {pkg.name}
-          </label>
-        </span>
+        {selecting ? (
+          <span className="flex items-start gap-3">
+            <Checkbox id={id} aria-label={pkg.name} checked={checked && !fresh} disabled={fresh} onCheckedChange={(v) => onToggle(v === true)} className="mt-0.5 shrink-0" />
+            <label htmlFor={id} className="min-w-0 font-mono text-sm break-all">
+              {pkg.name}
+            </label>
+          </span>
+        ) : (
+          <span className="min-w-0 font-mono text-sm break-all">{pkg.name}</span>
+        )}
       </TableCell>
       <TableCell role="cell" className={`${STACK_CELL} ps-9 @min-[40rem]:ps-2`}>
         <Versions from={pkg.from} to={pkg.to} />
@@ -75,7 +79,7 @@ function UpgradableRow({ pkg, checked, onToggle }: { pkg: Upgradable; checked: b
           {fresh && (
             <span className="inline-flex items-center">
               <StatusPill status="info" label="New" />
-              <InfoTip label={`Why ${pkg.name} cannot be selected`}>A full upgrade installs it; Upgrade all on the Overview tab brings it.</InfoTip>
+              {selecting && <InfoTip label={`Why ${pkg.name} cannot be selected`}>A full upgrade installs it; Upgrade all on the Overview tab brings it.</InfoTip>}
             </span>
           )}
         </span>
@@ -98,6 +102,7 @@ function Rows({ label, children }: { label: string; children: ReactNode }) {
 export function UpdatesTab({ host }: { host: Host }) {
   // Until the operator changes it, the selection is the security updates.
   const [chosen, setChosen] = useState<ReadonlySet<string> | null>(null)
+  const operate = useCanOnHost("operate")
   const [pending, setPending] = useState<PendingChange | null>(null)
   const updates = useQuery({
     queryKey: ["resource", host.id, "system.updates"],
@@ -168,12 +173,12 @@ export function UpdatesTab({ host }: { host: Host }) {
     })
   }
 
-  const row = (pkg: Upgradable) => <UpgradableRow key={pkg.name} pkg={pkg} checked={selected.has(pkg.name)} onToggle={(on) => toggle(pkg.name, on)} />
+  const row = (pkg: Upgradable) => <UpgradableRow key={pkg.name} pkg={pkg} checked={selected.has(pkg.name)} selecting={operate} onToggle={(on) => toggle(pkg.name, on)} />
 
   return (
     <div className="@container flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground text-sm tabular-nums">{`${names.length} of ${choosable.length} selected`}</span>
+        {operate && <span className="text-muted-foreground text-sm tabular-nums">{`${names.length} of ${choosable.length} selected`}</span>}
         <Can need="operate"><Button
           size="sm"
           disabled={names.length === 0}
