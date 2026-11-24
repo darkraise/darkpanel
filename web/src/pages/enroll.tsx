@@ -199,9 +199,8 @@ export function EnrollPage() {
             id="enroll-code"
             inputMode="numeric"
             autoComplete="one-time-code"
-            maxLength={6}
             value={code}
-            onChange={(e) => setCode(e.target.value.trim())}
+            onChange={(e) => setCode(e.target.value.replace(/\s/g, "").slice(0, 6))}
           />
         </div>
         {shown.form !== undefined && (
