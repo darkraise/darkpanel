@@ -29,10 +29,12 @@ const channels: NotifyChannel[] = [
   { id: "c2", kind: "telegram", name: "team-chat", minSeverity: "critical", kinds: ["alert.firing", "alert.resolved"], groupIds: ["g0"], enabled: true, createdAt: "2026-11-20T08:00:00Z", telegram: { chatId: "-100123" }, lastDelivery: { state: "failed", at: "2026-11-24T09:00:00Z", error: "403" } },
   { id: "c3", kind: "email", name: "oncall", minSeverity: "info", kinds: [], groupIds: [], enabled: false, createdAt: "2026-11-20T08:00:00Z", email: { host: "smtp.example.com", port: 587, security: "starttls", username: "dp", passwordSet: true, from: "dp@example.com", recipients: ["a@example.com"] }, lastDelivery: null },
 ]
-const alerts: FiredAlert[] = Array.from({ length: 20 }, (_, i) => ({
+const alerts: FiredAlert[] = Array.from({ length: 20 }, (_, i): FiredAlert => ({
   ruleId: i % 4 === 0 ? "r1" : "r2", ruleName: i % 4 === 0 ? "Host offline" : "Disk almost full", metric: i % 4 === 0 ? "offline" : "disk", severity: i % 4 === 0 ? "critical" : "warning",
   hostId: i % 4 === 0 ? `${HOST_ID.slice(0, -3)}H${String(i).padStart(2, "0")}` : HOST_ID, hostName: `web-${String(i).padStart(3, "0")}`, subject: i % 4 === 0 ? "" : `/srv/data-${i}`, state: "firing", since: "2026-11-24T08:00:00Z", value: i % 4 === 0 ? 12 : 90 + (i % 9),
-}))
+})).concat(Array.from({ length: 2 }, (_, i): FiredAlert => ({
+  ruleId: "r2", ruleName: "Disk almost full", metric: "disk", severity: "warning", hostId: HOST_ID, hostName: "web-1", subject: `/srv/old-${i}`, state: "resolved", since: "2026-11-24T06:00:00Z", value: 85,
+})))
 const rules: AlertRule[] = [
   { id: "r1", name: "Host offline", metric: "offline", comparator: ">", threshold: 0, durationMin: 5, severity: "critical", target: "*", targetName: "", enabled: true, createdAt: "2026-11-20T08:00:00Z", updatedAt: "2026-11-20T08:00:00Z" },
   { id: "r2", name: "Disk almost full", metric: "disk", comparator: ">", threshold: 90, durationMin: 10, severity: "warning", target: "g0", targetName: LONG, enabled: false, createdAt: "2026-11-20T08:00:00Z", updatedAt: "2026-11-20T08:00:00Z" },
@@ -161,6 +163,10 @@ for (const theme of THEMES) {
           await rules.scrollIntoViewIfNeeded()
           await settle(page)
           await rules.screenshot({ path: `${EVIDENCE}/alerts-rules-${vp.width}-${theme}.png` })
+          const resolved = page.getByRole("table", { name: "Resolved alerts" })
+          await resolved.scrollIntoViewIfNeeded()
+          await settle(page)
+          await resolved.screenshot({ path: `${EVIDENCE}/alerts-resolved-${vp.width}-${theme}.png` })
           await page.getByRole("heading", { level: 1 }).first().scrollIntoViewIfNeeded()
           await settle(page)
         }
@@ -272,11 +278,12 @@ for (const theme of THEMES) {
           for (const e of list.getEntries() as unknown as { value: number; hadRecentInput: boolean }[]) if (!e.hadRecentInput) w.cls += e.value
         }).observe({ type: "layout-shift", buffered: true })
       })
-      await open(page, theme, 800)
+      await open(page, theme, 1500)
       for (const p of PAGES) {
         await page.goto(url(p.path))
         const loading = page.locator('[aria-label^="Loading"]').first()
         await expect(loading).toBeVisible()
+        await settle(page)
         if (p.id !== "metrics") await page.screenshot({ path: `${EVIDENCE}/${p.id}-${vp.width}-${theme}-loading.png` })
         await expect(page.locator('[aria-label^="Loading"]')).toHaveCount(0, { timeout: 10_000 })
         await settle(page)
@@ -299,6 +306,9 @@ for (const theme of THEMES) {
       await expect(range.getByRole("radio", { name: "24h" })).toBeChecked()
       await settle(page)
       await range.locator("xpath=..").screenshot({ path: `${EVIDENCE}/metrics-range-${vp.width}-${theme}.png` })
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await settle(page)
+      await range.locator("xpath=..").screenshot({ path: `${EVIDENCE}/metrics-range-${vp.width}-${theme}-selected.png` })
 
       await page.goto(url("/settings/notifications"))
       await page.route(/\/actions\/notify\.channel\.test\/v1\/read$/, async (route) => {
@@ -323,7 +333,9 @@ for (const theme of THEMES) {
       await expect(form.getByLabel("Port")).toHaveAttribute("aria-invalid", "true")
       await expect(form.getByLabel("Recipients")).toHaveAttribute("aria-invalid", "true")
       await settle(page)
-      await form.screenshot({ path: `${EVIDENCE}/notifications-${vp.width}-${theme}-invalid.png` })
+      for (const field of ["Port", "Recipients"]) {
+        await form.getByLabel(field).locator("xpath=..").screenshot({ path: `${EVIDENCE}/notifications-${vp.width}-${theme}-invalid-${field.toLowerCase()}.png` })
+      }
       await page.keyboard.press("Escape")
 
       await page.route(/\/api\/v1\/enroll\/begin$/, (route) =>
@@ -338,10 +350,11 @@ for (const theme of THEMES) {
       if (vp.width === 1440) {
         await open(page, theme)
         await page.goto(url("/alerts"))
-        const row = page.getByRole("table", { name: "Firing alerts" }).locator("tbody tr").nth(1)
-        await row.hover()
+        const button = page.getByRole("button", { name: "New rule" })
+        await button.hover()
         await settle(page)
-        await row.screenshot({ path: `${EVIDENCE}/alerts-1440-${theme}-row-hover.png` })
+        const box = (await button.boundingBox())!
+        await page.screenshot({ path: `${EVIDENCE}/alerts-1440-${theme}-button-hover.png`, clip: { x: box.x - 16, y: box.y - 16, width: box.width + 32, height: box.height + 32 } })
       }
     })
   }
@@ -380,7 +393,7 @@ for (const theme of THEMES) {
     await settle(page)
     await page.screenshot({ path: `${EVIDENCE}/keyboard-1440-${theme}-2-form.png` })
     await page.keyboard.press("Enter")
-    await expect(openDialog(page).getByRole("button", { name: "Apply" })).toBeVisible()
+    await expect(openDialog(page).getByRole("button", { name: "Apply" })).toBeEnabled()
     await tabTo("Apply")
     await settle(page)
     await page.screenshot({ path: `${EVIDENCE}/keyboard-1440-${theme}-3-apply-focused.png` })
