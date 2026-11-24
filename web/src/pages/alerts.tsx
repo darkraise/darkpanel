@@ -50,7 +50,7 @@ function SeverityBadge({ level }: { level: AlertSeverity }) {
 
 function Loading({ label }: { label: string }) {
   return (
-    <div className="flex flex-col gap-2" aria-label={label}>
+    <div className="flex flex-col gap-2" role="status" aria-label={label}>
       <Skeleton className="h-8 w-full" />
       <Skeleton className="h-8 w-full" />
       <Skeleton className="h-8 w-2/3" />
