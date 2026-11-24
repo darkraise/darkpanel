@@ -1497,14 +1497,27 @@ func TestA62_failure_notices(t *testing.T) {
 		}
 	}
 
-	// A notice that itself fails emits no notice.
-	good1.status.Store(400)
+	// A notice that itself fails emits no notice: noticeonly takes only
+	// failure notices, and fails the one that bad2's new streak sends it.
+	// The notice is emitted in the transaction that records the failure,
+	// so once that delivery is failed any notice about noticeonly exists.
+	noticeOnly, bad2 := qaNewHook(t), qaNewHook(t)
+	noticeOnly.status.Store(400)
+	bad2.status.Store(400)
+	noticeID := e.qaChannel("noticeonly", noticeOnly, map[string]any{"kinds": []string{"notify.delivery_failed"}})
+	bad2ID := e.qaChannel("bad2", bad2, map[string]any{"kinds": []string{"alert.firing"}})
 	e.qaEmit(qaEv("alert.firing", "warning", "", "a3"))
-	e.clock.Advance(time.Minute)
-	e.qaWaitDeliveries("a3 delivered", func([]qaDelivery) bool { return len(good2.got()) >= 4 })
-	for _, r := range good2.got() {
-		if strings.Contains(r.Title, "good1") {
-			t.Errorf("a failed failure notice produced a notice about its own channel: %q", r.Title)
+	ds := e.qaWaitDeliveries("noticeonly failed bad2's notice", func(ds []qaDelivery) bool {
+		for _, d := range ds {
+			if d.Channel == noticeID && d.DedupeKey == "notify.delivery_failed:"+bad2ID && d.State == "failed" {
+				return true
+			}
+		}
+		return false
+	})
+	for _, d := range ds {
+		if d.DedupeKey == "notify.delivery_failed:"+noticeID {
+			t.Errorf("a failed failure notice produced a notice about its own channel: delivery %+v", d)
 		}
 	}
 }
