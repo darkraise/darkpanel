@@ -15,6 +15,7 @@ import { LoginPage } from "@/pages/login"
 import { NotificationsPage } from "@/pages/notifications"
 import { RolloutsPage } from "@/pages/rollouts"
 import { SignInSettingsPage } from "@/pages/sign-in-settings"
+import { TailnetDevicesPage } from "@/pages/tailnet-devices"
 import { TokensPage } from "@/pages/tokens"
 import { UsersPage } from "@/pages/users"
 import { RequireAdmin, RequireSession, SessionProvider } from "@/session/session"
@@ -80,6 +81,7 @@ export function App() {
           <Route path="rollouts" element={<RolloutsPage />} />
           <Route path="changes/:changeId" element={<ChangePage />} />
           <Route path="settings/tokens" element={<TokensPage />} />
+          <Route path="settings/devices" element={<TailnetDevicesPage />} />
           <Route path="settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
           <Route path="settings/groups" element={<RequireAdmin><GroupsPage /></RequireAdmin>} />
           <Route path="settings/sign-in" element={<RequireAdmin><SignInSettingsPage /></RequireAdmin>} />

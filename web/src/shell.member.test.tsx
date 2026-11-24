@@ -55,6 +55,17 @@ describe("member navigation", () => {
     expect(screen.queryByRole("button", { name: "Add host" })).toBeNull()
   })
 
+  test.each([
+    ["an admin", adminSession, hostWith("admin")],
+    ["a member", memberSession(), hostWith("read")],
+  ])("UI-2 %s sees Tailscale devices directly below API tokens", async (_, session, host) => {
+    renderApp(session, "/", host)
+    const [tokens] = await screen.findAllByRole("link", { name: "API tokens" })
+    const next = tokens?.nextElementSibling
+    expect(next?.textContent).toBe("Tailscale devices")
+    expect(next?.getAttribute("href")).toBe("/settings/devices")
+  })
+
   test.each(["/settings/users", "/settings/groups", "/settings/sign-in", "/settings/notifications", "/tailnet"])(
     "a member's deep link to %s says only admins can see it",
     async (path) => {
