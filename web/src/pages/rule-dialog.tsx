@@ -4,7 +4,7 @@ import { Button } from "darkraise-ui/components/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
-import { SegmentGroup, SegmentGroupItem } from "darkraise-ui/components/segment-group"
+import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise-ui/components/segment-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "darkraise-ui/components/select"
 import { GROUPS_QUERY_KEY, listGroups } from "@/api/client"
 import type { AlertMetric, AlertRule, AlertSeverity } from "@/api/types"
@@ -82,6 +82,7 @@ export function RuleForm({ rule, onCancel, onPlan }: { rule: AlertRule | null; o
               Metric
             </span>
             <SegmentGroup value={metric} onValueChange={(m) => setMetric(m as AlertMetric)} aria-labelledby="rule-metric" variant="outline" className="flex-wrap">
+              <SegmentGroupIndicator />
               {METRICS.map((m) => (
                 <SegmentGroupItem key={m} value={m}>
                   {METRIC_LABELS[m]}
@@ -98,6 +99,7 @@ export function RuleForm({ rule, onCancel, onPlan }: { rule: AlertRule | null; o
                 Fires when the figure is
               </span>
               <SegmentGroup value={comparator} onValueChange={(c) => setComparator(c as ">" | "<")} aria-labelledby="rule-comparator" variant="outline">
+                <SegmentGroupIndicator />
                 <SegmentGroupItem value=">">Above</SegmentGroupItem>
                 <SegmentGroupItem value="<">Below</SegmentGroupItem>
               </SegmentGroup>
@@ -118,6 +120,7 @@ export function RuleForm({ rule, onCancel, onPlan }: { rule: AlertRule | null; o
               Severity
             </span>
             <SegmentGroup value={severity} onValueChange={(s) => setSeverity(s as AlertSeverity)} aria-labelledby="rule-severity" variant="outline">
+              <SegmentGroupIndicator />
               <SegmentGroupItem value="warning">Warning</SegmentGroupItem>
               <SegmentGroupItem value="critical">Critical</SegmentGroupItem>
             </SegmentGroup>

@@ -8,7 +8,7 @@ import { Copy } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
-import { SegmentGroup, SegmentGroupItem } from "darkraise-ui/components/segment-group"
+import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise-ui/components/segment-group"
 import { GROUPS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups } from "@/api/client"
 import type { GrantRole, HostGroup, Invitation, Role } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
@@ -21,6 +21,7 @@ const USERNAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
 function RolePick({ label, value, disabled, onChange }: { label: string; value: GrantRole; disabled: boolean; onChange: (r: GrantRole) => void }) {
   return (
     <SegmentGroup value={value} onValueChange={(v) => onChange(v as GrantRole)} aria-label={label} variant="outline" disabled={disabled}>
+      <SegmentGroupIndicator />
       <SegmentGroupItem value="viewer">Viewer</SegmentGroupItem>
       <SegmentGroupItem value="operator">Operator</SegmentGroupItem>
     </SegmentGroup>
@@ -190,6 +191,7 @@ export function InviteUser({ onDone }: { onDone: (username: string) => void }) {
                 Role
               </span>
               <SegmentGroup value={role} onValueChange={(v) => setRole(v as Role)} aria-labelledby="invite-role" variant="outline">
+                <SegmentGroupIndicator />
                 <SegmentGroupItem value="member">Member</SegmentGroupItem>
                 <SegmentGroupItem value="admin">Admin</SegmentGroupItem>
               </SegmentGroup>

@@ -96,6 +96,29 @@ describe("A42 dialogs", () => {
   })
 })
 
+describe("OP-3 selected segment", () => {
+  const segmentCases = [
+    { name: "host metrics range", page: <MetricsSection host={metricsHost} />, ready: "CPU (%)", trigger: null },
+    ...pages.filter((p) => p.name === "users" || p.name === "alerts"),
+  ]
+  test.each(segmentCases)("$name marks the selected option with an indicator, not colour alone", async ({ page, ready, trigger }) => {
+    stubFetch(routes)
+    renderWithProviders(page)
+    await screen.findAllByText(ready)
+    if (trigger !== null) await userEvent.setup().click(screen.getByRole("button", { name: trigger }))
+    const root = trigger === null ? document.body : await screen.findByRole("dialog")
+    const groups = await waitFor(() => {
+      const found = root.querySelectorAll(".dr-segment-group")
+      expect(found.length).toBeGreaterThan(0)
+      return Array.from(found)
+    })
+    for (const group of groups) {
+      const name = group.getAttribute("aria-label") ?? group.getAttribute("aria-labelledby")
+      await waitFor(() => expect(group.querySelector('.dr-segment-group-indicator[data-active="true"]'), `${name} has an active indicator`).not.toBeNull())
+    }
+  })
+})
+
 describe("UX-11 keyboard", () => {
   test("charts take focus and are named by their summary", async () => {
     stubFetch(routes)

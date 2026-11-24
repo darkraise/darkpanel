@@ -5,7 +5,7 @@ import { Checkbox } from "darkraise-ui/components/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
-import { SegmentGroup, SegmentGroupItem } from "darkraise-ui/components/segment-group"
+import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise-ui/components/segment-group"
 import { Switch } from "darkraise-ui/components/switch"
 import { Textarea } from "darkraise-ui/components/textarea"
 import { GROUPS_QUERY_KEY, listGroups } from "@/api/client"
@@ -220,6 +220,7 @@ export function ChannelForm({ kind, channel, onCancel, onBack, onPlan }: { kind:
                   Security
                 </span>
                 <SegmentGroup value={v("security")} onValueChange={(s) => setF((cur) => ({ ...cur, security: s }))} aria-labelledby="ch-security" variant="outline">
+                  <SegmentGroupIndicator />
                   <SegmentGroupItem value="starttls">STARTTLS</SegmentGroupItem>
                   <SegmentGroupItem value="tls">TLS</SegmentGroupItem>
                   <SegmentGroupItem value="none">None</SegmentGroupItem>
@@ -254,6 +255,7 @@ export function ChannelForm({ kind, channel, onCancel, onBack, onPlan }: { kind:
               Lowest severity
             </span>
             <SegmentGroup value={severity} onValueChange={(s) => setSeverity(s as Severity)} aria-labelledby="ch-severity" variant="outline">
+              <SegmentGroupIndicator />
               <SegmentGroupItem value="info">Info</SegmentGroupItem>
               <SegmentGroupItem value="warning">Warning</SegmentGroupItem>
               <SegmentGroupItem value="critical">Critical</SegmentGroupItem>

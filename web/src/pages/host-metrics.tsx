@@ -2,7 +2,7 @@ import { useState } from "react"
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
-import { SegmentGroup, SegmentGroupItem } from "darkraise-ui/components/segment-group"
+import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise-ui/components/segment-group"
 import { Skeleton } from "darkraise-ui/components/skeleton"
 import { HOSTS_QUERY_KEY, errorMessage, readAction, readResource } from "@/api/client"
 import type { Host, MetricsHistory, MetricsRange } from "@/api/types"
@@ -132,6 +132,7 @@ export function MetricsSection({ host }: { host: Host }) {
         </h2>
         {on && (
           <SegmentGroup value={range} onValueChange={(r) => setRange(r as MetricsRange)} aria-label="Range" variant="outline">
+            <SegmentGroupIndicator />
             {METRICS_RANGES.map((r) => (
               <SegmentGroupItem key={r} value={r}>
                 {r}

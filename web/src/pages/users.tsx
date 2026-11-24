@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "darkraise-ui/components/dropdown-menu"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
-import { SegmentGroup, SegmentGroupItem } from "darkraise-ui/components/segment-group"
+import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise-ui/components/segment-group"
 import { Skeleton } from "darkraise-ui/components/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { GROUPS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups, listUsers } from "@/api/client"
@@ -102,6 +102,7 @@ function RoleForm({ user, onCancel, onPlan }: { user: DirectoryUser; onCancel: (
   return (
     <FormDialog title={`Change the role of ${user.username}`} description="An admin can do everything; a member only what its access grants." onCancel={onCancel} onSubmit={() => onPlan(role)}>
       <SegmentGroup value={role} onValueChange={(v) => setRole(v as Role)} aria-label="Role" variant="outline">
+        <SegmentGroupIndicator />
         <SegmentGroupItem value="member">Member</SegmentGroupItem>
         <SegmentGroupItem value="admin">Admin</SegmentGroupItem>
       </SegmentGroup>
