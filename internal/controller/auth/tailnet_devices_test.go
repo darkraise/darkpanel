@@ -399,28 +399,27 @@ func TestRefusalCauses(t *testing.T) {
 		setup func(e *tsEnv, w *TailnetWhois)
 		code  errcode.Code
 		cause string
-		match bool // TailscaleMatchFor is refused with the same code
 	}{
-		{"a host address", func(e *tsEnv, _ *TailnetWhois) { host(e, "100.64.0.5") }, errcode.InvalidCredentials, "host", true},
+		{"a host address", func(e *tsEnv, _ *TailnetWhois) { host(e, "100.64.0.5") }, errcode.InvalidCredentials, "host"},
 		{"a remembered node a host session was then recorded from", func(e *tsEnv, _ *TailnetWhois) {
 			e.remember("mia", "nL", "laptop", e.clock.Now())
 			host(e, "100.64.0.5")
-		}, errcode.InvalidCredentials, "host", true},
-		{"a tagged node", func(_ *tsEnv, w *TailnetWhois) { w.Tags = []string{"tag:server"} }, errcode.InvalidCredentials, "node", true},
+		}, errcode.InvalidCredentials, "host"},
+		{"a tagged node", func(_ *tsEnv, w *TailnetWhois) { w.Tags = []string{"tag:server"} }, errcode.InvalidCredentials, "node"},
 		{"no linked user", func(e *tsEnv, _ *TailnetWhois) { exec(e.t, e.s, `UPDATE core_users SET tailnet_login = NULL`) },
-			errcode.NoLinkedUser, "link", true},
+			errcode.NoLinkedUser, "link"},
 		{"a pin mismatch", func(e *tsEnv, _ *TailnetWhois) { exec(e.t, e.s, `UPDATE core_users SET tailnet_user_id = '99'`) },
-			errcode.InvalidCredentials, "link", true},
+			errcode.InvalidCredentials, "link"},
 		{"a disabled user", func(e *tsEnv, _ *TailnetWhois) {
 			exec(e.t, e.s, `UPDATE core_users SET disabled_at = '2026-11-25T00:00:00Z' WHERE username = 'mia'`)
-		}, errcode.InvalidCredentials, "user", true},
+		}, errcode.InvalidCredentials, "user"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newTSEnv(t, false)
 			e.active("mia", "mia@github", 7)
 			w := miaWhois()
 			tc.setup(e, &w)
-			if _, err := e.s.TailscaleMatchFor(ctx, tsReq(w)); tc.match && errcode.From(err).Code != tc.code {
+			if _, err := e.s.TailscaleMatchFor(ctx, tsReq(w)); errcode.From(err).Code != tc.code {
 				t.Errorf("TailscaleMatchFor: %v, want %s", err, tc.code)
 			}
 			res, err := e.s.SignInTailscale(ctx, tsReq(w))
@@ -444,11 +443,26 @@ func (e *tsEnv) code(username string) string {
 	return c
 }
 
-// failures is the count of limiter keys holding a failure.
-func (e *tsEnv) failures() int {
-	e.s.limiter.mu.Lock()
-	defer e.s.limiter.mu.Unlock()
-	return len(e.s.limiter.keys)
+// budgetLeft asserts mia has n failed attempts left from her laptop's
+// address before the limiter locks her out: n wrong passwords are each
+// judged, and the next attempt is rate limited. The code step and the
+// password login count against the same budget. It leaves mia locked, so it
+// runs last.
+func (e *tsEnv) budgetLeft(n int) {
+	e.t.Helper()
+	try := func() errcode.Code {
+		_, err := e.s.Login(context.Background(), LoginRequest{Username: "mia", Password: "not her password", Source: "100.64.0.5", UserAgent: "test"})
+		return errcode.From(err).Code
+	}
+	for i := range n {
+		if c := try(); c != errcode.InvalidCredentials {
+			e.t.Errorf("wrong password %d of %d = %s, want auth.invalid_credentials: the budget was spent before", i+1, n, c)
+			return
+		}
+	}
+	if c := try(); c != errcode.RateLimited {
+		e.t.Errorf("attempt %d = %s, want auth.rate_limited: more than %d attempts were left", n+1, c, n)
+	}
 }
 
 // miaTicket is a Continue-as ticket for code-ready mia on her laptop.
@@ -553,7 +567,8 @@ func TestCodeStepFailuresRememberNothing(t *testing.T) {
 }
 
 // checkRefusedStep asserts a right code on ticket from remote is refused as
-// cause, with nothing pinned, remembered or spent.
+// cause, with nothing pinned or remembered; the caller checks the budget
+// last, with budgetLeft.
 func (e *tsEnv) checkRefusedStep(ticket, remote, cause string) {
 	e.t.Helper()
 	res, err := e.s.FinishTOTPStep(context.Background(), stepReq(ticket, e.code("mia"), remote))
@@ -563,8 +578,8 @@ func (e *tsEnv) checkRefusedStep(ticket, remote, cause string) {
 	if a := e.lastAudit(); a["refused"] != cause {
 		e.t.Errorf("audit = %v, want refused %s", a, cause)
 	}
-	if e.sessions() != 0 || e.pinned("mia") != "" || e.device("mia", "nL") != "" || e.failures() != 0 {
-		e.t.Errorf("after the refusal: %d sessions, pin %q, device %q, %d failures; want none", e.sessions(), e.pinned("mia"), e.device("mia", "nL"), e.failures())
+	if e.sessions() != 0 || e.pinned("mia") != "" || e.device("mia", "nL") != "" {
+		e.t.Errorf("after the refusal: %d sessions, pin %q, device %q; want none", e.sessions(), e.pinned("mia"), e.device("mia", "nL"))
 	}
 }
 
@@ -578,6 +593,7 @@ func TestCodeStepFromAnotherNode(t *testing.T) {
 			if res, err := e.s.FinishTOTPStep(context.Background(), stepReq(ticket, e.code("mia"), "100.64.0.5")); err != nil || res.SessionID == "" {
 				t.Errorf("the same ticket from its node = %+v, %v; want a session", res, err)
 			}
+			e.budgetLeft(UsernameFailureLimit)
 		})
 	}
 }
@@ -586,15 +602,16 @@ func TestCodeStepAfterLinkChange(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		change func(e *tsEnv)
+		pin    string // the pin the change leaves, which the refusal keeps
 	}{
 		{"the tailnet login changed", func(e *tsEnv) {
 			if _, err := e.s.SetIdentity(context.Background(), "mia", "", "other@github"); err != nil {
 				e.t.Fatal(err)
 			}
-		}},
+		}, ""},
 		{"the pinned tailnet user id is another", func(e *tsEnv) {
 			exec(e.t, e.s, `UPDATE core_users SET tailnet_user_id = '43' WHERE username = 'mia'`)
-		}},
+		}, "43"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newTSEnv(t, false)
@@ -608,28 +625,11 @@ func TestCodeStepAfterLinkChange(t *testing.T) {
 			if a := e.lastAudit(); a["refused"] != "link" {
 				t.Errorf("audit = %v, want refused link", a)
 			}
-			if pin := e.pinned("mia"); e.device("mia", "nL") != "" || e.failures() != 0 || pin != "" && pin != "43" {
-				t.Errorf("device %q, %d failures, pin %q; want nothing remembered, spent or pinned", e.device("mia", "nL"), e.failures(), pin)
+			if pin := e.pinned("mia"); e.device("mia", "nL") != "" || pin != tc.pin {
+				t.Errorf("device %q, pin %q; want nothing remembered and pin %q", e.device("mia", "nL"), pin, tc.pin)
 			}
+			e.budgetLeft(UsernameFailureLimit)
 		})
-	}
-}
-
-func TestCodeStepAfterHostRecorded(t *testing.T) {
-	ctx := context.Background()
-	e := newTSEnv(t, false)
-	e.active("mia", "mia@github", 7)
-	ticket := e.miaTicket()
-	exec(t, e.s, `INSERT INTO core_hosts (id, name, created_at) VALUES ('h1', 'web1', '2026-11-25T00:00:00Z')`)
-	exec(t, e.s, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('h1', '100.64.0.5', '', '2026-11-25T00:00:00Z')`)
-	e.checkRefusedStep(ticket, "100.64.0.5", "host")
-
-	exec(t, e.s, `DELETE FROM core_host_tailnet`)
-	if _, err := e.s.FinishTOTPStep(ctx, stepReq(e.miaTicket(), "000000", "100.64.0.5")); errcode.From(err).Code != errcode.InvalidCredentials {
-		t.Fatalf("a wrong code: %v, want auth.invalid_credentials", err)
-	}
-	if n := e.failures(); n == 0 {
-		t.Error("a wrong code on a clean ticket spent no failure")
 	}
 }
 
@@ -659,6 +659,22 @@ func TestTwoFirstTicketsBothSignIn(t *testing.T) {
 	if e.pinned("mia") != "42" || e.device("mia", "nL") == "" || e.device("mia", "nD") == "" {
 		t.Errorf("pin %q, laptop %q, desk %q; want 42 and both nodes remembered", e.pinned("mia"), e.device("mia", "nL"), e.device("mia", "nD"))
 	}
+}
+
+func TestCodeStepAfterHostRecorded(t *testing.T) {
+	ctx := context.Background()
+	e := newTSEnv(t, false)
+	e.active("mia", "mia@github", 7)
+	ticket := e.miaTicket()
+	exec(t, e.s, `INSERT INTO core_hosts (id, name, created_at) VALUES ('h1', 'web1', '2026-11-25T00:00:00Z')`)
+	exec(t, e.s, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('h1', '100.64.0.5', '', '2026-11-25T00:00:00Z')`)
+	e.checkRefusedStep(ticket, "100.64.0.5", "host")
+
+	exec(t, e.s, `DELETE FROM core_host_tailnet`)
+	if _, err := e.s.FinishTOTPStep(ctx, stepReq(e.miaTicket(), "000000", "100.64.0.5")); errcode.From(err).Code != errcode.InvalidCredentials {
+		t.Fatalf("a wrong code: %v, want auth.invalid_credentials", err)
+	}
+	e.budgetLeft(UsernameFailureLimit - 1)
 }
 
 func TestListTailnetDevicesOrder(t *testing.T) {
