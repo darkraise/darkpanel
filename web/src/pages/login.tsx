@@ -140,7 +140,7 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState<{ username: string | null } | null>(() => (outcome === "totp" ? { username: null } : null))
   const [continuing, setContinuing] = useState(false)
-  const notice = outcome === null ? undefined : OUTCOME_MESSAGES[outcome]
+  const notice = outcome !== null && Object.prototype.hasOwnProperty.call(OUTCOME_MESSAGES, outcome) ? OUTCOME_MESSAGES[outcome] : undefined
   const noticeRef = useRef<HTMLDivElement>(null)
   const next = safeNext(params.get("next"))
   usePageTitle("Sign in")
