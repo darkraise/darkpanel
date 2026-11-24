@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/netip"
 	"time"
+
+	"github.com/darkraise/darkpanel/internal/transport"
 )
 
 // tailnetWriteTimeout bounds the core_host_tailnet write at connect.
@@ -28,10 +30,14 @@ func isTailnet(a netip.Addr) bool { return tailnetV4.Contains(a) || tailnetV6.Co
 // one host make any tailnet node count as managed (spec section 1). Rows are
 // never removed here: an offline host, or one that connects over the LAN,
 // leaves them, so sign-in keeps refusing every address a host has held.
-func (r *Registry) recordTailnet(hostID string, remote net.Addr) {
+//
+// A failed write closes the session: an unrecorded host's node would pass
+// the sign-in host check, so the agent reconnects and the write runs again.
+func (r *Registry) recordTailnet(hostID string, s *transport.Session) {
 	defer r.wg.Done()
-	tcp, ok := remote.(*net.TCPAddr)
+	tcp, ok := s.RemoteAddr().(*net.TCPAddr)
 	if !ok {
+		r.cfg.Log.Warn("fleet: the host's agent session has no TCP address; it is not recorded", "host", hostID, "addr", s.RemoteAddr().String())
 		return
 	}
 	a := tcp.AddrPort().Addr().Unmap()
@@ -50,6 +56,7 @@ func (r *Registry) recordTailnet(hostID string, remote net.Addr) {
 		return err
 	})
 	if err != nil {
-		r.cfg.Log.Warn("fleet: cannot record the host's tailnet address", "host", hostID, "err", err)
+		r.cfg.Log.Error("fleet: cannot record the host's tailnet address; its session is closed so the agent reconnects", "host", hostID, "err", err)
+		_ = s.Close()
 	}
 }

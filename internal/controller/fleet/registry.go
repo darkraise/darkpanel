@@ -155,7 +155,7 @@ func (r *Registry) Register(ctx context.Context, hostID, serial string, s *trans
 	}
 	go r.heartbeat(ls)
 	go r.watch(ls)
-	go r.recordTailnet(hostID, s.RemoteAddr())
+	go r.recordTailnet(hostID, s)
 	return nil
 }
 

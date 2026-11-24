@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io/fs"
 	"log/slog"
@@ -308,14 +309,31 @@ func TestRecordTailnetFromSessionOnly(t *testing.T) {
 			}
 		})
 	}
+}
 
-	// A second connect from the same address updates seen_at and keeps one row.
+// TestRecordTailnetWriteFailureClosesTheSession: a session whose address
+// cannot be recorded is closed, so the agent's reconnect records it.
+func TestRecordTailnetWriteFailureClosesTheSession(t *testing.T) {
+	ctx := context.Background()
 	e := newTailnetEnv(t)
-	e.answer(self, nil)
+	logs := e.logTo()
+	exec := func(q string) {
+		t.Helper()
+		if err := e.env.db.Write(ctx, func(tx *sql.Tx) error { _, err := tx.ExecContext(ctx, q); return err }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`CREATE TRIGGER refuse_tailnet BEFORE INSERT ON core_host_tailnet BEGIN SELECT RAISE(ABORT, 'refused by the test'); END`)
 	s := e.connect(t, "100.64.0.7:41000")
-	e.waitRows(t, map[string]string{"100.64.0.7": " " + formatTime(e.env.clock.Now())})
-	e.env.clock.Advance(time.Minute)
-	_ = s.Close()
+	select {
+	case <-s.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the session stayed open after its address could not be recorded")
+	}
+	if out := logs.String(); !strings.Contains(out, "level=ERROR msg=\"fleet: cannot record the host's tailnet address") {
+		t.Errorf("logs %q, want an Error line for the failed write", out)
+	}
+	exec(`DROP TRIGGER refuse_tailnet`)
 	_ = e.connect(t, "100.64.0.7:41000")
 	e.waitRows(t, map[string]string{"100.64.0.7": " " + formatTime(e.env.clock.Now())})
 }
