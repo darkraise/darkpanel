@@ -1028,8 +1028,8 @@ type enrollment struct {
 }
 
 // loadEnrollment finds the live link whose hash is tokenHash: unused, not
-// expired, and its user pending and not disabled. Anything else is
-// auth.enrollment_expired.
+// expired, and its user not disabled, pending or activated by an OIDC or
+// Tailscale sign-in (spec 1.5). Anything else is auth.enrollment_expired.
 func (s *Service) loadEnrollment(ctx context.Context, q querier, tokenHash string) (enrollment, error) {
 	var userID, expText string
 	var used sql.NullString
