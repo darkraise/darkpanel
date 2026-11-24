@@ -196,7 +196,13 @@ func (s *Server) changeVisible(ctx context.Context, p core.Principal, v core.Cha
 		return slices.Contains(ownActors(p), v.Actor)
 	}
 	steps, err := s.cfg.Dispatcher.Steps(ctx, p, v.ID)
-	if err != nil || len(steps) == 0 {
+	if err != nil {
+		if errcode.From(err).Code != errcode.NotFound && ctx.Err() == nil {
+			s.log.Warn("api: read a composite change's steps", "change", v.ID, "err", err)
+		}
+		return false
+	}
+	if len(steps) == 0 {
 		return false
 	}
 	for _, st := range steps {
