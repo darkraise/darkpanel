@@ -74,7 +74,7 @@ function ChannelCard({ channel, groups, onPick }: { channel: NotifyChannel; grou
         </DropdownMenu>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 text-sm">
-        <p>{routingText(channel, groups)}</p>
+        <p className="wrap-anywhere">{routingText(channel, groups)}</p>
         <p className="flex items-center gap-1.5 text-muted-foreground">
           {LastIcon !== null && <LastIcon aria-hidden className="size-4 shrink-0" />}
           <span className={last?.state === "failed" ? "font-medium text-foreground" : undefined}>{`Last delivery: ${lastDeliveryText(channel, formatTime)}`}</span>

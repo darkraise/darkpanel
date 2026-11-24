@@ -17,7 +17,7 @@ import { ChangeDialog } from "@/components/change-dialog"
 import { ALERTS_QUERY_KEY, ALERT_RULES_QUERY_KEY, SEVERITY_LABELS, alertTitle, conditionText, minutesText, targetText, valueText } from "@/lib/alerts"
 import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
-import { STACKED_BODY, STACKED_CELL, STACKED_HEAD, STACKED_ROW, STACKED_TABLE } from "@/lib/table"
+import { STACKED_BODY, STACKED_CELL, STACKED_FRAME, STACKED_HEAD, STACKED_ROW, STACKED_TABLE } from "@/lib/table"
 import { applied } from "@/lib/users"
 import { isAdmin } from "@/session/can"
 import { useSession } from "@/session/use-session"
@@ -72,34 +72,36 @@ function LoadError({ thing, error, onRetry }: { thing: string; error: unknown; o
 
 function AlertsTable({ label, alerts, when }: { label: string; alerts: FiredAlert[]; when: string }) {
   return (
-    <Table aria-label={label} className={STACKED_TABLE}>
-      <TableHeader className={STACKED_HEAD}>
-        <TableRow>
-          <TableHead>Severity</TableHead>
-          <TableHead>Host</TableHead>
-          <TableHead>Alert</TableHead>
-          <TableHead className="text-right">Value</TableHead>
-          <TableHead>{when}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody className={STACKED_BODY}>
-        {alerts.map((a) => (
-          <TableRow className={STACKED_ROW} key={`${a.ruleId}/${a.hostId}/${a.subject}`}>
-            <TableCell data-label="Severity" className={STACKED_CELL}>
-              <SeverityBadge level={a.severity} />
-            </TableCell>
-            <TableCell data-label="Host" className={`font-medium wrap-anywhere ${STACKED_CELL}`}>
-              <Link to={`/hosts/${encodeURIComponent(a.hostId)}`} className="underline-offset-4 hover:underline">
-                {a.hostName}
-              </Link>
-            </TableCell>
-            <TableCell data-label="Alert" className={`max-w-96 whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{alertTitle(a)}</TableCell>
-            <TableCell data-label="Value" className={`text-right tabular-nums ${STACKED_CELL}`}>{valueText(a)}</TableCell>
-            <TableCell data-label={when} className={`tabular-nums ${STACKED_CELL}`}>{formatTime(a.since)}</TableCell>
+    <div className={STACKED_FRAME}>
+      <Table aria-label={label} className={STACKED_TABLE}>
+        <TableHeader className={STACKED_HEAD}>
+          <TableRow>
+            <TableHead>Severity</TableHead>
+            <TableHead>Host</TableHead>
+            <TableHead>Alert</TableHead>
+            <TableHead className="text-right">Value</TableHead>
+            <TableHead>{when}</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody className={STACKED_BODY}>
+          {alerts.map((a) => (
+            <TableRow className={STACKED_ROW} key={`${a.ruleId}/${a.hostId}/${a.subject}`}>
+              <TableCell data-label="Severity" className={STACKED_CELL}>
+                <SeverityBadge level={a.severity} />
+              </TableCell>
+              <TableCell data-label="Host" className={`font-medium wrap-anywhere ${STACKED_CELL}`}>
+                <Link to={`/hosts/${encodeURIComponent(a.hostId)}`} className="underline-offset-4 hover:underline">
+                  {a.hostName}
+                </Link>
+              </TableCell>
+              <TableCell data-label="Alert" className={`max-w-96 whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{alertTitle(a)}</TableCell>
+              <TableCell data-label="Value" className={`text-right tabular-nums ${STACKED_CELL}`}>{valueText(a)}</TableCell>
+              <TableCell data-label={when} className={`tabular-nums ${STACKED_CELL}`}>{formatTime(a.since)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   )
 }
 
@@ -166,49 +168,51 @@ function RulesSection({ onPick }: { onPick: (d: Dialogue) => void }) {
   else if (rules.data.rules.length === 0) body = <EmptyState icon={<BellRing aria-hidden />} title="No alert rules" description="Add one to hear about busy or full hosts." />
   else
     body = (
-      <Table aria-label="Alert rules" className={STACKED_TABLE}>
-        <TableHeader className={STACKED_HEAD}>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Condition</TableHead>
-            <TableHead>For</TableHead>
-            <TableHead>Severity</TableHead>
-            <TableHead>Hosts</TableHead>
-            <TableHead>Enabled</TableHead>
-            <TableHead className="w-10">
-              <span className="sr-only">Actions</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody className={STACKED_BODY}>
-          {rules.data.rules.map((r) => (
-            <TableRow className={STACKED_ROW} key={r.id}>
-              <TableCell data-label="Name" className={`max-w-72 font-medium whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{r.name}</TableCell>
-              <TableCell data-label="Condition" className={STACKED_CELL}>{conditionText(r)}</TableCell>
-              <TableCell data-label="For" className={STACKED_CELL}>{minutesText(r.durationMin)}</TableCell>
-              <TableCell data-label="Severity" className={STACKED_CELL}>
-                <SeverityBadge level={r.severity} />
-              </TableCell>
-              <TableCell data-label="Hosts" className={`max-w-72 whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{targetText(r)}</TableCell>
-              <TableCell data-label="Enabled" className={STACKED_CELL}>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={r.enabled}
-                    aria-label={`${r.name} enabled`}
-                    onCheckedChange={(on) =>
-                      onPick({ kind: "change", title: on ? `Turn on ${r.name}` : `Turn off ${r.name}`, name: "metrics.alert.update", input: ruleInput(r, on) })
-                    }
-                  />
-                  <span className="text-sm text-muted-foreground">{r.enabled ? "On" : "Off"}</span>
-                </div>
-              </TableCell>
-              <TableCell data-label="Actions" className={STACKED_CELL}>
-                <RuleMenu rule={r} onPick={onPick} />
-              </TableCell>
+      <div className={STACKED_FRAME}>
+        <Table aria-label="Alert rules" className={STACKED_TABLE}>
+          <TableHeader className={STACKED_HEAD}>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Condition</TableHead>
+              <TableHead>For</TableHead>
+              <TableHead>Severity</TableHead>
+              <TableHead>Hosts</TableHead>
+              <TableHead>Enabled</TableHead>
+              <TableHead className="w-10">
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody className={STACKED_BODY}>
+            {rules.data.rules.map((r) => (
+              <TableRow className={STACKED_ROW} key={r.id}>
+                <TableCell data-label="Name" className={`max-w-72 font-medium whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{r.name}</TableCell>
+                <TableCell data-label="Condition" className={STACKED_CELL}>{conditionText(r)}</TableCell>
+                <TableCell data-label="For" className={STACKED_CELL}>{minutesText(r.durationMin)}</TableCell>
+                <TableCell data-label="Severity" className={STACKED_CELL}>
+                  <SeverityBadge level={r.severity} />
+                </TableCell>
+                <TableCell data-label="Hosts" className={`max-w-72 whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{targetText(r)}</TableCell>
+                <TableCell data-label="Enabled" className={STACKED_CELL}>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={r.enabled}
+                      aria-label={`${r.name} enabled`}
+                      onCheckedChange={(on) =>
+                        onPick({ kind: "change", title: on ? `Turn on ${r.name}` : `Turn off ${r.name}`, name: "metrics.alert.update", input: ruleInput(r, on) })
+                      }
+                    />
+                    <span className="text-sm text-muted-foreground">{r.enabled ? "On" : "Off"}</span>
+                  </div>
+                </TableCell>
+                <TableCell data-label="Actions" className={STACKED_CELL}>
+                  <RuleMenu rule={r} onPick={onPick} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     )
   return (
     <section aria-labelledby="alerts-rules" className="flex flex-col gap-3">
