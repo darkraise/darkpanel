@@ -135,7 +135,7 @@ func TestServerRegistryHasTheSameShape(t *testing.T) {
 // registry accepts every module of the v1 programme. What each module
 // declares is tested in its own package.
 func TestAllListsTheModuleSkeletons(t *testing.T) {
-	want := []string{"hostinfo", "firewall", "docker", "tailscale", "tailnet", "derp", "npm", "cloudflare", "panel", "system", "notify"}
+	want := []string{"hostinfo", "firewall", "docker", "tailscale", "tailnet", "derp", "npm", "cloudflare", "panel", "system", "notify", "metrics"}
 	var ids []string
 	for _, m := range modules.All() {
 		ids = append(ids, m.Manifest().ID)

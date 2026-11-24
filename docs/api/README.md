@@ -125,3 +125,4 @@ This reference is generated from the action schemas. `openapi.json` is the OpenA
 - [panel](panel.md)
 - [system](system.md)
 - [notify](notify.md)
+- [metrics](metrics.md)

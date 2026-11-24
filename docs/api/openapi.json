@@ -12485,6 +12485,144 @@
         ],
         "type": "object"
       },
+      "metrics.samples.get.v1.input": {
+        "$ref": "#/components/schemas/metrics.samples.get.v1.input.SamplesInput"
+      },
+      "metrics.samples.get.v1.input.SamplesInput": {
+        "additionalProperties": false,
+        "properties": {
+          "since": {
+            "description": "RFC 3339; only minutes that start after it. Empty for every minute held.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "metrics.samples.get.v1.output": {
+        "$ref": "#/components/schemas/metrics.samples.get.v1.output.SamplesOutput"
+      },
+      "metrics.samples.get.v1.output.FSUsage": {
+        "properties": {
+          "mount": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "used": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mount",
+          "used",
+          "total"
+        ],
+        "type": "object"
+      },
+      "metrics.samples.get.v1.output.NetRate": {
+        "properties": {
+          "iface": {
+            "type": "string"
+          },
+          "rxBps": {
+            "type": "number"
+          },
+          "txBps": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "iface",
+          "rxBps",
+          "txBps"
+        ],
+        "type": "object"
+      },
+      "metrics.samples.get.v1.output.Sample": {
+        "properties": {
+          "cpu": {
+            "description": "CPU busy percent across all cores.",
+            "type": "number"
+          },
+          "fs": {
+            "description": "Local filesystems, the first 16 by mount point.",
+            "items": {
+              "$ref": "#/components/schemas/metrics.samples.get.v1.output.FSUsage"
+            },
+            "type": "array"
+          },
+          "load1": {
+            "type": "number"
+          },
+          "load15": {
+            "type": "number"
+          },
+          "load5": {
+            "type": "number"
+          },
+          "memTotal": {
+            "type": "integer"
+          },
+          "memUsed": {
+            "description": "Memory in use in bytes: the total less the available memory.",
+            "type": "integer"
+          },
+          "net": {
+            "description": "Interfaces other than lo, the first 16 by name.",
+            "items": {
+              "$ref": "#/components/schemas/metrics.samples.get.v1.output.NetRate"
+            },
+            "type": "array"
+          },
+          "swapTotal": {
+            "type": "integer"
+          },
+          "swapUsed": {
+            "type": "integer"
+          },
+          "ts": {
+            "description": "When the sample was taken; for a minute average, the start of the minute.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "cpu",
+          "memUsed",
+          "memTotal",
+          "swapUsed",
+          "swapTotal",
+          "load1",
+          "load5",
+          "load15",
+          "fs",
+          "net"
+        ],
+        "type": "object"
+      },
+      "metrics.samples.get.v1.output.SamplesOutput": {
+        "properties": {
+          "now": {
+            "description": "The agent's clock.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "samples": {
+            "description": "The averages of complete minutes after since, oldest first, at most 60.",
+            "items": {
+              "$ref": "#/components/schemas/metrics.samples.get.v1.output.Sample"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "now",
+          "samples"
+        ],
+        "type": "object"
+      },
       "notify.channel.create.v1.input": {
         "$ref": "#/components/schemas/notify.channel.create.v1.input.ChannelInput"
       },
@@ -31356,6 +31494,72 @@
           }
         ],
         "summary": "Repair the firewall: bring UFW's loaded state to its target."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/metrics.samples.get/v1/read": {
+      "post": {
+        "operationId": "metrics.samples.get.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/metrics.samples.get.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/metrics.samples.get.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Return the 1-minute averages of the host's recent metrics."
       }
     },
     "/api/v1/hosts/{host}/actions/npm.accesslist.add/v1/apply": {

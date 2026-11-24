@@ -1,0 +1,151 @@
+{
+  "name": "metrics.samples.get",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SamplesInput",
+    "$defs": {
+      "SamplesInput": {
+        "properties": {
+          "since": {
+            "type": "string",
+            "description": "RFC 3339; only minutes that start after it. Empty for every minute held."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SamplesOutput",
+    "$defs": {
+      "FSUsage": {
+        "properties": {
+          "mount": {
+            "type": "string"
+          },
+          "used": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mount",
+          "used",
+          "total"
+        ]
+      },
+      "NetRate": {
+        "properties": {
+          "iface": {
+            "type": "string"
+          },
+          "rxBps": {
+            "type": "number"
+          },
+          "txBps": {
+            "type": "number"
+          }
+        },
+        "type": "object",
+        "required": [
+          "iface",
+          "rxBps",
+          "txBps"
+        ]
+      },
+      "Sample": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the sample was taken; for a minute average, the start of the minute."
+          },
+          "cpu": {
+            "type": "number",
+            "description": "CPU busy percent across all cores."
+          },
+          "memUsed": {
+            "type": "integer",
+            "description": "Memory in use in bytes: the total less the available memory."
+          },
+          "memTotal": {
+            "type": "integer"
+          },
+          "swapUsed": {
+            "type": "integer"
+          },
+          "swapTotal": {
+            "type": "integer"
+          },
+          "load1": {
+            "type": "number"
+          },
+          "load5": {
+            "type": "number"
+          },
+          "load15": {
+            "type": "number"
+          },
+          "fs": {
+            "items": {
+              "$ref": "#/$defs/FSUsage"
+            },
+            "type": "array",
+            "description": "Local filesystems, the first 16 by mount point."
+          },
+          "net": {
+            "items": {
+              "$ref": "#/$defs/NetRate"
+            },
+            "type": "array",
+            "description": "Interfaces other than lo, the first 16 by name."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "cpu",
+          "memUsed",
+          "memTotal",
+          "swapUsed",
+          "swapTotal",
+          "load1",
+          "load5",
+          "load15",
+          "fs",
+          "net"
+        ]
+      },
+      "SamplesOutput": {
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The agent's clock."
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/$defs/Sample"
+            },
+            "type": "array",
+            "description": "The averages of complete minutes after since, oldest first, at most 60."
+          }
+        },
+        "type": "object",
+        "required": [
+          "now",
+          "samples"
+        ]
+      }
+    }
+  }
+}

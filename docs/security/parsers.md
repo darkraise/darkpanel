@@ -125,6 +125,11 @@ A cell never contains a pipe character. Several rows may name one `(Package, Tar
 | `events.ParseID` | the `Last-Event-ID` request header | `./internal/controller/events` | `FuzzParseID` | - |
 | `cli.printEvents` | the server-sent event stream of the controller | `./internal/cli` | `FuzzPrintEvents` | - |
 | `install.CheckAgentAddress` | the agent address flag of a unit file | `./internal/install` | `FuzzCheckAgentAddress` | - |
+| `metrics.parseProcStat` | the aggregate cpu line of `/proc/stat` | `./internal/modules/metrics` | `FuzzProcStat` | - |
+| `metrics.parseMeminfo` | `/proc/meminfo` | `./internal/modules/metrics` | `FuzzMeminfo` | - |
+| `metrics.parseLoadavg` | `/proc/loadavg` | `./internal/modules/metrics` | `FuzzLoadavg` | - |
+| `metrics.parseNetDev` | `/proc/net/dev` | `./internal/modules/metrics` | `FuzzNetDev` | - |
+| `metrics.parseMounts` | `/proc/self/mounts`, with its octal escapes | `./internal/modules/metrics` | `FuzzMounts` | - |
 
 ## Not fuzzed
 

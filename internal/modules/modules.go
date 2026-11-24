@@ -9,6 +9,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/docker"
 	"github.com/darkraise/darkpanel/internal/modules/firewall"
 	"github.com/darkraise/darkpanel/internal/modules/hostinfo"
+	"github.com/darkraise/darkpanel/internal/modules/metrics"
 	"github.com/darkraise/darkpanel/internal/modules/notify"
 	"github.com/darkraise/darkpanel/internal/modules/npm"
 	"github.com/darkraise/darkpanel/internal/modules/panel"
@@ -31,5 +32,6 @@ func All() []core.Module {
 		panel.Module(),
 		system.Module(),
 		notify.Module(),
+		metrics.Module(),
 	}
 }
