@@ -35,7 +35,7 @@ func (m module) tailnetDeviceActions() []core.ActionDef {
 		}, ownDeviceList{m}),
 		core.DefineMutating[TailnetDeviceInput, auth.TailnetDevice](core.ActionSpec{
 			Name: "core.tailnetdevice.forget", Version: 1, Class: core.ClassIrreversible, Side: core.SideController,
-			Summary: "Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id.",
+			Summary: "Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id. A member runs it from a signed-in session, never with a token.",
 		}, ownDeviceForget{m}),
 		core.DefineRead[UsernameInput, TailnetDeviceList](core.ActionSpec{
 			Name: "core.user.list-tailnet-devices", Version: 1, Side: core.SideController,

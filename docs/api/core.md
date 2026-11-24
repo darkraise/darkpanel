@@ -576,7 +576,7 @@ Returned in the `output` field of the response.
 
 ## core.tailnetdevice.forget v1
 
-Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id.
+Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id. A member runs it from a signed-in session, never with a token.
 
 | Operation | Request |
 |---|---|
@@ -1206,7 +1206,7 @@ Returned in the `output` field of the response.
 
 ## core.user.renew-invite v1
 
-Give an invited user that never enrolled a new enrollment link; the previous link stops working.
+Give an invited user that never enrolled, or an active user without a password, a new enrollment link; the previous link stops working.
 
 | Operation | Request |
 |---|---|

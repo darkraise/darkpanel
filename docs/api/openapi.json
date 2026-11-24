@@ -22462,7 +22462,7 @@
             "token": []
           }
         ],
-        "summary": "Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id."
+        "summary": "Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id. A member runs it from a signed-in session, never with a token."
       }
     },
     "/api/v1/actions/core.tailnetdevice.forget/v1/plan": {
@@ -22510,7 +22510,7 @@
             "token": []
           }
         ],
-        "summary": "Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id."
+        "summary": "Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id. A member runs it from a signed-in session, never with a token."
       }
     },
     "/api/v1/actions/core.tailnetdevice.list/v1/read": {
@@ -23612,7 +23612,7 @@
             "token": []
           }
         ],
-        "summary": "Give an invited user that never enrolled a new enrollment link; the previous link stops working."
+        "summary": "Give an invited user that never enrolled, or an active user without a password, a new enrollment link; the previous link stops working."
       }
     },
     "/api/v1/actions/core.user.renew-invite/v1/plan": {
@@ -23660,7 +23660,7 @@
             "token": []
           }
         ],
-        "summary": "Give an invited user that never enrolled a new enrollment link; the previous link stops working."
+        "summary": "Give an invited user that never enrolled, or an active user without a password, a new enrollment link; the previous link stops working."
       }
     },
     "/api/v1/actions/core.user.set-grants/v1/apply": {

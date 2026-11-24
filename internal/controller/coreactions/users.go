@@ -266,7 +266,7 @@ func (m module) inviteActions() []core.ActionDef {
 		core.DefineMutating[UsernameInput, Invitation](core.ActionSpec{
 			Name: "core.user.renew-invite", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
 			MinScope: core.ScopeAdmin, CompensatedBy: "core.user.renew-invite",
-			Summary: "Give an invited user that never enrolled a new enrollment link; the previous link stops working.",
+			Summary: "Give an invited user that never enrolled, or an active user without a password, a new enrollment link; the previous link stops working.",
 		}, userInviteRenew{m}),
 		core.DefineMutating[UsernameInput, auth.User](core.ActionSpec{
 			Name: "core.user.cancel-invite", Version: 1, Class: core.ClassCompensable, Side: core.SideController,

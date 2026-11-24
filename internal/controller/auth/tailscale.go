@@ -46,7 +46,8 @@ type TailscaleMatch struct {
 	Username  string `json:"username"`
 	LoginName string `json:"loginName"`
 	NodeName  string `json:"nodeName"`
-	// Remembered reports that the node signs the user in without a code.
+	// Remembered reports that the user has a device row for this node; it
+	// signs in without a code only while requireTotp is off.
 	Remembered bool `json:"remembered"`
 	// CodeReady reports that the user has typed an authenticator code
 	// before, so the code step can remember the node.
