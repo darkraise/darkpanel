@@ -973,6 +973,7 @@ Returned in the `output` field of the response.
 | `users[].grants[].role` | string | yes | viewer gives read, operator gives operate. Values: viewer, operator. |
 | `users[].grants[].target` | string | yes | A host group id, or * for every host, including hosts enrolled later. |
 | `users[].id` | string | yes |  |
+| `users[].inviteExpiresAt` | string (date-time) or null | yes |  |
 | `users[].role` | string | yes |  |
 | `users[].signIn` | array of string | yes | The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account. |
 | `users[].state` | string | yes |  |
@@ -1154,6 +1155,7 @@ Returned in the `output` field of the change that apply returns.
 | `grants[].role` | string | yes | viewer gives read, operator gives operate. Values: viewer, operator. |
 | `grants[].target` | string | yes | A host group id, or * for every host, including hosts enrolled later. |
 | `id` | string | yes |  |
+| `inviteExpiresAt` | string (date-time) or null | yes |  |
 | `role` | string | yes |  |
 | `signIn` | array of string | yes | The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account. |
 | `state` | string | yes |  |
@@ -1194,6 +1196,7 @@ Returned in the `output` field of the change that apply returns.
 | `grants[].role` | string | yes | viewer gives read, operator gives operate. Values: viewer, operator. |
 | `grants[].target` | string | yes | A host group id, or * for every host, including hosts enrolled later. |
 | `id` | string | yes |  |
+| `inviteExpiresAt` | string (date-time) or null | yes |  |
 | `role` | string | yes |  |
 | `signIn` | array of string | yes | The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account. |
 | `state` | string | yes |  |
@@ -1233,6 +1236,7 @@ Returned in the `output` field of the change that apply returns.
 | `grants[].role` | string | yes | viewer gives read, operator gives operate. Values: viewer, operator. |
 | `grants[].target` | string | yes | A host group id, or * for every host, including hosts enrolled later. |
 | `id` | string | yes |  |
+| `inviteExpiresAt` | string (date-time) or null | yes |  |
 | `role` | string | yes |  |
 | `signIn` | array of string | yes | The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account. |
 | `state` | string | yes |  |

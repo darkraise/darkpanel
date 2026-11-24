@@ -54,7 +54,7 @@ export type GrantRole = "viewer" | "operator"
 // target is "*" for every host, else a host group's id.
 export interface Grant { role: GrantRole; target: string }
 export type SignInMethod = "password" | "oidc" | "tailscale"
-export interface DirectoryUser { id: string; username: string; role: Role; state: string; createdAt: string; disabled: boolean; grants: Grant[]; email: string; tailnetLogin: string; signIn: SignInMethod[] }
+export interface DirectoryUser { id: string; username: string; role: Role; state: string; createdAt: string; disabled: boolean; grants: Grant[]; email: string; tailnetLogin: string; signIn: SignInMethod[]; inviteExpiresAt: string | null }
 export interface Directory { users: DirectoryUser[] }
 export interface HostGroup { id: string; name: string; hostIds: string[]; hostCount: number; grantCount: number; createdAt: string }
 export interface GroupList { groups: HostGroup[] }

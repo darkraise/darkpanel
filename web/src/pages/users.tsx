@@ -20,10 +20,14 @@ import { STACKED_BODY, STACKED_CELL, STACKED_FRAME, STACKED_HEAD, STACKED_ROW, S
 import { accessText, applied, draftOf, grantsOf, invitationOf, methodsText, type AccessDraft } from "@/lib/users"
 import { AccessFields, InviteUser, LinkDialog } from "./invite-dialog"
 
+const dayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
+
 function stateText(user: DirectoryUser): string {
   if (user.disabled) return "Disabled"
-  if (user.state === "pending") return "Invited"
-  return "Active"
+  if (user.state !== "pending") return "Active"
+  if (user.inviteExpiresAt === null) return "Invited"
+  const expires = new Date(user.inviteExpiresAt)
+  return expires.getTime() <= Date.now() ? "Invited, link expired" : `Invited, expires ${dayFormat.format(expires)}`
 }
 
 type Dialogue =

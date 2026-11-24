@@ -27,7 +27,7 @@ const groups: HostGroup[] = Array.from({ length: 32 }, (_, i) => ({
 }))
 const users: DirectoryUser[] = Array.from({ length: 50 }, (_, i) => ({
   id: `u${i}`, username: i === 0 ? "admin" : `user-${String(i).padStart(2, "0")}`, role: i === 0 ? "admin" : "member", state: "active", createdAt: "2026-11-20T08:00:00Z",
-  disabled: false, grants: i === 0 ? [] : [{ role: "viewer", target: "g0" }], email: "", tailnetLogin: "", signIn: ["password"],
+  disabled: false, grants: i === 0 ? [] : [{ role: "viewer", target: "g0" }], email: "", tailnetLogin: "", signIn: ["password"], inviteExpiresAt: null,
 }))
 const firing: FiredAlert[] = Array.from({ length: 20 }, (_, i) => ({
   ruleId: "r1", ruleName: "Disk almost full", metric: "disk", severity: i % 4 === 0 ? "critical" : "warning", hostId: `h${i}`, hostName: `web-${String(i).padStart(3, "0")}`,

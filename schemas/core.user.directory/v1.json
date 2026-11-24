@@ -82,6 +82,18 @@
             },
             "type": "array",
             "description": "The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account."
+          },
+          "inviteExpiresAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "When the user's enrollment link expires; null when it has no unused link or the link was ended."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -94,7 +106,8 @@
           "grants",
           "email",
           "tailnetLogin",
-          "signIn"
+          "signIn",
+          "inviteExpiresAt"
         ]
       },
       "Grant": {

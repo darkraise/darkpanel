@@ -33,7 +33,7 @@ const metricsHost = makeHost({ id: "h1", modules: [{ id: "metrics", version: 1, 
 
 const routes: Record<string, StubHandler> = {
   [read("core.user.directory")]: out({
-    users: [{ id: "u1", username: "admin", role: "admin", state: "active", createdAt: "2026-11-20T08:00:00Z", disabled: false, grants: [], email: "", tailnetLogin: "", signIn: ["password"] }],
+    users: [{ id: "u1", username: "admin", role: "admin", state: "active", createdAt: "2026-11-20T08:00:00Z", disabled: false, grants: [], email: "", tailnetLogin: "", signIn: ["password"], inviteExpiresAt: null }],
   }),
   [read("core.group.list")]: out({ groups }),
   [read("core.host.list")]: out({ hosts: [makeHost({ id: "h1" })] }),

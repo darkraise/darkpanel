@@ -94,8 +94,9 @@ func TestDirectoryIsFleetOnly(t *testing.T) {
 	ctx := context.Background()
 	rootUser, admin := e.activeUser("root")
 	e.exec(`INSERT INTO core_host_groups (id, name, created_at) VALUES ('g1', 'web', '2026-11-24T09:00:00.000000000Z')`)
-	if _, err := e.auth.Invite(ctx, auth.InviteRequest{Username: "mia", Role: auth.RoleMember,
-		Grants: []auth.Grant{{Target: "g1", Role: auth.GrantViewer}, {Target: "*", Role: auth.GrantViewer}}, Email: "mia@example.com"}); err != nil {
+	inv, err := e.auth.Invite(ctx, auth.InviteRequest{Username: "mia", Role: auth.RoleMember,
+		Grants: []auth.Grant{{Target: "g1", Role: auth.GrantViewer}, {Target: "*", Role: auth.GrantViewer}}, Email: "mia@example.com"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	bob, _ := e.activeUser("bob")
@@ -126,7 +127,7 @@ func TestDirectoryIsFleetOnly(t *testing.T) {
 			SignIn: []string{auth.SignInPassword, auth.SignInOIDC, auth.SignInTailscale}},
 		"mia": {User: auth.User{Username: "mia", Role: auth.RoleMember, State: auth.StatePending},
 			Grants: []auth.Grant{{Target: "*", Role: auth.GrantViewer}, {Target: "g1", Role: auth.GrantViewer}},
-			Email:  "mia@example.com", SignIn: []string{}},
+			Email:  "mia@example.com", SignIn: []string{}, InviteExpiresAt: &inv.ExpiresAt},
 		"root": {User: auth.User{ID: rootUser.ID, Username: "root", Role: auth.RoleAdmin, State: auth.StateActive},
 			Grants: []auth.Grant{}, SignIn: []string{auth.SignInPassword}},
 	}
@@ -136,9 +137,15 @@ func TestDirectoryIsFleetOnly(t *testing.T) {
 			w.ID = g.ID
 		}
 		w.CreatedAt = g.CreatedAt
+		if w.InviteExpiresAt != nil && g.InviteExpiresAt != nil && w.InviteExpiresAt.Equal(*g.InviteExpiresAt) {
+			w.InviteExpiresAt = g.InviteExpiresAt
+		}
 		if !reflect.DeepEqual(g, w) {
 			t.Errorf("directory entry %s = %+v, want %+v", name, g, w)
 		}
+	}
+	if !strings.Contains(string(raw), `"inviteExpiresAt":null`) {
+		t.Errorf("directory %s; want an active user's invite expiry as null", raw)
 	}
 	if !strings.Contains(string(raw), `"grants":[]`) || !strings.Contains(string(raw), `"signIn":[]`) {
 		t.Errorf("directory %s; want empty grants and sign-in lists as []", raw)
@@ -153,6 +160,9 @@ func TestDirectoryIsFleetOnly(t *testing.T) {
 	for _, u := range got.Users {
 		if u.Username == "mia" && !reflect.DeepEqual(u.SignIn, []string{auth.SignInPassword}) {
 			t.Errorf("mia's sign-in after a password reset = %v, want password", u.SignIn)
+		}
+		if u.Username == "mia" && u.InviteExpiresAt != nil {
+			t.Errorf("mia's invite expiry after a password reset ended the link = %v, want null", u.InviteExpiresAt)
 		}
 	}
 

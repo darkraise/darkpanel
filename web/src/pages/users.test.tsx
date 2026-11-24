@@ -10,7 +10,7 @@ const route = (action: string, op: string) => `POST /api/v1/actions/${action}/v1
 function dirUser(over: Partial<DirectoryUser>): DirectoryUser {
   return {
     id: `u-${over.username ?? "x"}`, username: "x", role: "member", state: "active", createdAt: "2026-11-20T08:00:00Z", disabled: false,
-    grants: [], email: "", tailnetLogin: "", signIn: ["password"], ...over,
+    grants: [], email: "", tailnetLogin: "", signIn: ["password"], inviteExpiresAt: null, ...over,
   }
 }
 
@@ -84,7 +84,9 @@ test("UI-1 row menu and access column", async () => {
     admin,
     dirUser({ username: "mia", grants: [{ role: "operator", target: "g1" }, { role: "operator", target: "g2" }], signIn: ["password", "oidc"] }),
     dirUser({ username: "sam", grants: [{ role: "viewer", target: "*" }], signIn: ["tailscale"] }),
-    dirUser({ username: "noor", state: "pending", signIn: [] }),
+    dirUser({ username: "noor", state: "pending", signIn: [], inviteExpiresAt: "2099-11-26T09:40:00Z" }),
+    dirUser({ username: "kai", state: "pending", signIn: [], inviteExpiresAt: "2026-01-02T09:40:00Z" }),
+    dirUser({ username: "lee", state: "pending", signIn: [] }),
     dirUser({ username: "ola", disabled: true }),
   ])
   renderWithProviders(<UsersPage />)
@@ -93,7 +95,10 @@ test("UI-1 row menu and access column", async () => {
   expect(within(await row("mia")).getByText("Operator on web, db")).toBeTruthy()
   expect(within(await row("mia")).getByText("Password and code, OIDC")).toBeTruthy()
   expect(within(await row("sam")).getByText("Viewer on all hosts")).toBeTruthy()
-  expect(within(await row("noor")).getByText("Invited")).toBeTruthy()
+  const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date("2099-11-26T09:40:00Z"))
+  expect(within(await row("noor")).getByText(`Invited, expires ${day}`)).toBeTruthy()
+  expect(within(await row("kai")).getByText("Invited, link expired")).toBeTruthy()
+  expect(within(await row("lee")).getByText("Invited")).toBeTruthy()
   expect(within(await row("noor")).getByText("None yet")).toBeTruthy()
   expect(within(await row("ola")).getByText("Disabled")).toBeTruthy()
   expect(within(await row("admin")).getByText("All hosts")).toBeTruthy()

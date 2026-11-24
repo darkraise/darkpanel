@@ -778,10 +778,11 @@ const (
 // sign-in identities and the sign-in methods it has.
 type DirectoryUser struct {
 	User
-	Grants       []Grant  `json:"grants" jsonschema_description:"The user's grants, sorted by target; they apply only while the user is a member."`
-	Email        string   `json:"email" jsonschema_description:"The email an OIDC sign-in matches; empty when unset."`
-	TailnetLogin string   `json:"tailnetLogin" jsonschema_description:"The tailnet login a Tailscale sign-in matches; empty when unset."`
-	SignIn       []string `json:"signIn" jsonschema:"enum=password,enum=oidc,enum=tailscale" jsonschema_description:"The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account."`
+	Grants          []Grant    `json:"grants" jsonschema_description:"The user's grants, sorted by target; they apply only while the user is a member."`
+	Email           string     `json:"email" jsonschema_description:"The email an OIDC sign-in matches; empty when unset."`
+	TailnetLogin    string     `json:"tailnetLogin" jsonschema_description:"The tailnet login a Tailscale sign-in matches; empty when unset."`
+	SignIn          []string   `json:"signIn" jsonschema:"enum=password,enum=oidc,enum=tailscale" jsonschema_description:"The sign-in methods the user has: password once it has a password of its own, oidc and tailscale once a sign-in by that method linked the account."`
+	InviteExpiresAt *time.Time `json:"inviteExpiresAt" jsonschema:"nullable" jsonschema_description:"When the user's enrollment link expires; null when it has no unused link or the link was ended."`
 }
 
 // directory reads every user, or only username when it is not "".
@@ -789,7 +790,8 @@ func directory(ctx context.Context, q accessQuerier, username string) ([]Directo
 	query := `SELECT u.id, u.username, u.role, u.state, u.created_at, u.disabled_at IS NOT NULL,
 		coalesce(u.email, ''), coalesce(u.tailnet_login, ''),
 		NOT EXISTS (SELECT 1 FROM core_user_enrollments e WHERE e.user_id = u.id AND e.used_at IS NULL),
-		u.oidc_subject IS NOT NULL, u.tailnet_user_id IS NOT NULL
+		u.oidc_subject IS NOT NULL, u.tailnet_user_id IS NOT NULL,
+		(SELECT e.expires_at FROM core_user_enrollments e WHERE e.user_id = u.id AND e.used_at IS NULL AND e.token_hash != '')
 		FROM core_users u`
 	args := []any{}
 	if username != "" {
@@ -807,12 +809,20 @@ func directory(ctx context.Context, q accessQuerier, username string) ([]Directo
 		var d DirectoryUser
 		var created string
 		var password, oidc, tailscale bool
+		var expires sql.NullString
 		if err := rows.Scan(&d.ID, &d.Username, &d.Role, &d.State, &created, &d.Disabled, &d.Email, &d.TailnetLogin,
-			&password, &oidc, &tailscale); err != nil {
+			&password, &oidc, &tailscale, &expires); err != nil {
 			return nil, fmt.Errorf("auth: read the directory: %w", err)
 		}
 		if d.CreatedAt, err = parseTime(created); err != nil {
 			return nil, err
+		}
+		if expires.Valid {
+			at, err := parseTime(expires.String)
+			if err != nil {
+				return nil, err
+			}
+			d.InviteExpiresAt = &at
 		}
 		d.Grants, d.SignIn = []Grant{}, []string{}
 		for _, m := range []struct {

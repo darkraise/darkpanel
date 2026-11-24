@@ -5158,6 +5158,18 @@
           "id": {
             "type": "string"
           },
+          "inviteExpiresAt": {
+            "oneOf": [
+              {
+                "description": "When the user's enrollment link expires; null when it has no unused link or the link was ended.",
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "role": {
             "type": "string"
           },
@@ -5193,7 +5205,8 @@
           "grants",
           "email",
           "tailnetLogin",
-          "signIn"
+          "signIn",
+          "inviteExpiresAt"
         ],
         "type": "object"
       },
@@ -5599,6 +5612,18 @@
           "id": {
             "type": "string"
           },
+          "inviteExpiresAt": {
+            "oneOf": [
+              {
+                "description": "When the user's enrollment link expires; null when it has no unused link or the link was ended.",
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "role": {
             "type": "string"
           },
@@ -5634,7 +5659,8 @@
           "grants",
           "email",
           "tailnetLogin",
-          "signIn"
+          "signIn",
+          "inviteExpiresAt"
         ],
         "type": "object"
       },
@@ -5716,6 +5742,18 @@
           "id": {
             "type": "string"
           },
+          "inviteExpiresAt": {
+            "oneOf": [
+              {
+                "description": "When the user's enrollment link expires; null when it has no unused link or the link was ended.",
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "role": {
             "type": "string"
           },
@@ -5751,7 +5789,8 @@
           "grants",
           "email",
           "tailnetLogin",
-          "signIn"
+          "signIn",
+          "inviteExpiresAt"
         ],
         "type": "object"
       },
@@ -5830,6 +5869,18 @@
           "id": {
             "type": "string"
           },
+          "inviteExpiresAt": {
+            "oneOf": [
+              {
+                "description": "When the user's enrollment link expires; null when it has no unused link or the link was ended.",
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "role": {
             "type": "string"
           },
@@ -5865,7 +5916,8 @@
           "grants",
           "email",
           "tailnetLogin",
-          "signIn"
+          "signIn",
+          "inviteExpiresAt"
         ],
         "type": "object"
       },
