@@ -267,6 +267,19 @@ for (const theme of THEMES) {
         expect(await contrastViolations(page), `${id} dialog text contrast`).toEqual([])
         await page.screenshot({ path: `${EVIDENCE}/${id}-${vp.width}-${theme}-dialog.png` })
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${id} dialog has no sideways scroll`).toBe(true)
+        // A dialog taller than the screen scrolls inside itself to its lowest
+        // button (narrow footers stack in reverse, so the DOM's last is not it).
+        const buttons = openDialog(page).getByRole("button")
+        const bottoms = await buttons.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom))
+        const last = buttons.nth(bottoms.indexOf(Math.max(...bottoms)))
+        const shown = () => last.evaluate((el) => el.getBoundingClientRect().bottom <= Math.min(window.innerHeight, el.closest('[role="dialog"]')!.getBoundingClientRect().bottom))
+        if (!(await shown())) {
+          await last.scrollIntoViewIfNeeded()
+          await settle(page)
+          expect(await shown(), `${id} dialog's lowest button scrolls into view`).toBe(true)
+          expect(await page.evaluate(() => window.scrollY), `${id} scrolls inside the dialog, not the page`).toBe(0)
+          await page.screenshot({ path: `${EVIDENCE}/${id}-${vp.width}-${theme}-dialog-footer.png` })
+        }
       }
     })
   }
