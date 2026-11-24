@@ -208,16 +208,8 @@ func TestUserDelete(t *testing.T) {
 		t.Error("verify passed for a user that exists")
 	}
 
-	pv, err = e.plan(root, "core.user.delete", UsernameInput{Username: "alice"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []core.Guard{{ID: "not-last-admin", Message: "alice is the last active admin; create and activate another admin first"}}
-	if !reflect.DeepEqual(pv.Guards, want) {
-		t.Errorf("guards = %+v, want %+v", pv.Guards, want)
-	}
-	_, err = e.apply(root, pv.PlanID, "alice")
-	wantCode(t, err, errcode.PlanGuardFailed)
+	_, err = e.plan(root, "core.user.delete", UsernameInput{Username: "alice"})
+	wantCode(t, err, errcode.UserLastAdmin)
 }
 
 func TestUserDeleteStateChanged(t *testing.T) {
@@ -231,8 +223,10 @@ func TestUserDeleteStateChanged(t *testing.T) {
 	if err := e.auth.DeleteUser(context.Background(), "bob"); err != nil {
 		t.Fatal(err)
 	}
+	// bob's removal left alice the last active admin, which the re-plan at
+	// apply refuses outright.
 	_, err = e.apply(root, pv.PlanID, "alice")
-	wantCode(t, err, errcode.PlanStateChanged)
+	wantCode(t, err, errcode.UserLastAdmin)
 }
 
 func TestUserActionsRefuseUnknownUsers(t *testing.T) {

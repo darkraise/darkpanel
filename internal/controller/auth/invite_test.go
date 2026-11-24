@@ -265,13 +265,8 @@ func TestDisabledUserIsRefusedEverywhere(t *testing.T) {
 		Code: e.code(carl.Secret), Source: "192.0.2.1"})
 	wantErrCode(t, "disabled invite's enrollment", err, errcode.EnrollmentExpired)
 
-	pv, err := e.plan(root, "core.user.delete", `{"username":"root"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if guardOK(t, pv, "not-last-admin") {
-		t.Error("with the other admin disabled, deleting root: guard not-last-admin OK")
-	}
+	_, err = e.plan(root, "core.user.delete", `{"username":"root"}`)
+	wantErrCode(t, "with the other admin disabled, deleting root", err, errcode.UserLastAdmin)
 	_, err = e.plan(root, "core.user.disable", `{"username":"root"}`)
 	wantErrCode(t, "disabling the last active admin", err, errcode.UserLastAdmin)
 	if _, err := e.auth.SetDisabled(ctx, "root", true); errcode.From(err).Code != errcode.UserLastAdmin {
@@ -284,7 +279,8 @@ func TestDisabledUserIsRefusedEverywhere(t *testing.T) {
 			t.Errorf("enabled user's %s: %v", name, err)
 		}
 	}
-	if pv, err = e.plan(root, "core.user.delete", `{"username":"root"}`); err != nil {
+	pv, err := e.plan(root, "core.user.delete", `{"username":"root"}`)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if !guardOK(t, pv, "not-last-admin") {

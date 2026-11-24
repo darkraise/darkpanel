@@ -28,13 +28,8 @@ func TestLastAdminIsProtected(t *testing.T) {
 	_, err = e.auth.SetDisabled(ctx, "root", true)
 	wantErrCode(t, "SetDisabled of the last active admin", err, errcode.UserLastAdmin)
 	wantErrCode(t, "break-glass delete of the last active admin", e.auth.DeleteUser(ctx, "root"), errcode.UserLastAdmin)
-	pv, err := e.plan(root, "core.user.delete", `{"username":"root"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if guardOK(t, pv, "not-last-admin") {
-		t.Error("break-glass delete of the last active admin: guard not-last-admin OK")
-	}
+	_, err = e.plan(root, "core.user.delete", `{"username":"root"}`)
+	wantErrCode(t, "break-glass plan to delete the last active admin", err, errcode.UserLastAdmin)
 
 	e.active("ann")
 	cv := e.apply(root, "core.user.set-role", `{"username":"ann","role":"member"}`)

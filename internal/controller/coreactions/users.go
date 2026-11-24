@@ -204,10 +204,10 @@ func (h userDelete) Plan(ctx context.Context, _ core.Env, in UsernameInput) (cor
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	guard := core.Guard{ID: "not-last-admin", OK: !last, Message: u.Username + " is not the last active admin"}
 	if last {
-		guard.Message = u.Username + " is the last active admin; create and activate another admin first"
+		return core.PlanOutcome{}, auth.LastAdminError(u.Username)
 	}
+	guard := core.Guard{ID: "not-last-admin", OK: true, Message: u.Username + " is not the last active admin"}
 	return core.PlanOutcome{
 		Diff: []core.DiffLine{
 			{Op: "-", Text: fmt.Sprintf("user %s (%s, role %s), with its sessions and API tokens", u.Username, u.State, u.Role)},
