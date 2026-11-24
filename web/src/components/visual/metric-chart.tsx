@@ -18,7 +18,7 @@ function dash(i: number): string | undefined {
   return DASHES[i % DASHES.length]
 }
 
-const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" })
+const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
 const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
 
 // MetricChart draws one metric over the range. Its accessible name is its
