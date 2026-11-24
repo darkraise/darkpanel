@@ -6,11 +6,13 @@ import { globalPages, moduleRegistry } from "@/modules/registry"
 import type { GlobalPage } from "@/modules/types"
 import { AuditPage } from "@/pages/audit"
 import { ChangePage } from "@/pages/change"
+import { EnrollPage } from "@/pages/enroll"
 import { HostPage } from "@/pages/host"
 import { HostsPage } from "@/pages/hosts"
 import { LoginPage } from "@/pages/login"
 import { RolloutsPage } from "@/pages/rollouts"
 import { TokensPage } from "@/pages/tokens"
+import { UsersPage } from "@/pages/users"
 import { RequireAdmin, RequireSession, SessionProvider } from "@/session/session"
 import { Shell } from "@/shell"
 
@@ -33,20 +35,20 @@ function SettingsPage({ title }: { title: string }) {
 }
 
 const adminSettings = [
-  { path: "settings/users", title: "Users" },
   { path: "settings/groups", title: "Host groups" },
   { path: "settings/sign-in", title: "Sign-in" },
   { path: "settings/notifications", title: "Notifications" },
 ]
 
-// The routes of spec section 17. Every route but /login and the development
-// boards sits behind the session guard, the modules' global pages included;
+// The routes of spec section 17. Every route but /login, /enroll and the
+// development boards sits behind the session guard, the modules' global pages included;
 // the admin settings and the Network pages also sit behind the admin guard.
 export function App() {
   return (
     <SessionProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/enroll" element={<EnrollPage />} />
         {M10Boards && import.meta.env.DEV && (
           <Route
             path="/__boards/m10"
@@ -71,6 +73,7 @@ export function App() {
           <Route path="rollouts" element={<RolloutsPage />} />
           <Route path="changes/:changeId" element={<ChangePage />} />
           <Route path="settings/tokens" element={<TokensPage />} />
+          <Route path="settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
           {adminSettings.map((page) => (
             <Route key={page.path} path={page.path} element={<RequireAdmin><SettingsPage title={page.title} /></RequireAdmin>} />
           ))}

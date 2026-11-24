@@ -1,4 +1,7 @@
 import type {
+  Directory,
+  EnrollmentStart,
+  GroupList,
   Change,
   Effect,
   FieldError,
@@ -13,6 +16,7 @@ import type {
   RepairResult,
   Resolution,
   RolloutList,
+  Session,
   Step,
   TokenList,
 } from "./types"
@@ -22,6 +26,8 @@ const CSRF_HEADER = "X-CSRF-Token"
 export const HOSTS_QUERY_KEY = ["hosts"] as const
 export const ROLLOUTS_QUERY_KEY = ["rollouts"] as const
 export const TOKENS_QUERY_KEY = ["tokens"] as const
+export const USERS_QUERY_KEY = ["users"] as const
+export const GROUPS_QUERY_KEY = ["groups"] as const
 
 // The query keys of one change; connectEvents invalidates them on the
 // change and composite.step events.
@@ -170,6 +176,24 @@ export function listRollouts(): Promise<RolloutList> {
 
 export function listTokens(): Promise<TokenList> {
   return readAction<TokenList>("core.token.list", 1)
+}
+
+export function listUsers(): Promise<Directory> {
+  return readAction<Directory>("core.user.directory", 1)
+}
+
+export function listGroups(): Promise<GroupList> {
+  return readAction<GroupList>("core.group.list", 1)
+}
+
+// The enrollment token travels in the request body only: the page reads it
+// from the URL fragment, which the browser never sends.
+export function beginEnrollment(token: string): Promise<EnrollmentStart> {
+  return request<EnrollmentStart>("POST", "/api/v1/enroll/begin", { token })
+}
+
+export function finishEnrollment(token: string, password: string, code: string): Promise<Session> {
+  return request<Session>("POST", "/api/v1/enroll/finish", { token, password, code })
 }
 
 export function getListenerState(): Promise<ListenerState> {

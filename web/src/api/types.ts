@@ -49,3 +49,14 @@ export interface AuditList { entries: AuditEntry[]; nextBefore: string | null }
 export interface ListenerState { tailscaleBound: boolean; message: string }
 export interface FieldError { path: string; message: string }
 export interface Problem { type: string; title: string; status: number; detail: string; code: string; errors?: FieldError[] }
+// The user and group shapes of the M10 access actions.
+export type GrantRole = "viewer" | "operator"
+// target is "*" for every host, else a host group's id.
+export interface Grant { role: GrantRole; target: string }
+export type SignInMethod = "password" | "oidc" | "tailscale"
+export interface DirectoryUser { id: string; username: string; role: Role; state: string; createdAt: string; disabled: boolean; grants: Grant[]; email: string; tailnetLogin: string; signIn: SignInMethod[] }
+export interface Directory { users: DirectoryUser[] }
+export interface HostGroup { id: string; name: string; hostIds: string[]; hostCount: number; grantCount: number; createdAt: string }
+export interface GroupList { groups: HostGroup[] }
+export interface Invitation { user: User; token: string; expiresAt: string }
+export interface EnrollmentStart { username: string; secret: string; uri: string; expiresAt: string }

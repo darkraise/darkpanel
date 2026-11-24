@@ -64,7 +64,7 @@ describe("member navigation", () => {
   )
 
   test("an admin reaches the admin settings routes", async () => {
-    renderApp(adminSession, "/settings/users", hostWith("admin"))
+    renderApp(adminSession, "/settings/groups", hostWith("admin"))
     expect(await screen.findByText("This page is not built yet.")).toBeTruthy()
     expect(screen.queryByText("Only admins can see this page.")).toBeNull()
   })
