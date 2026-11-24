@@ -186,14 +186,14 @@ func (s *Server) startServices(ctx context.Context) error {
 }
 
 // moduleNotifier is the notifier of the first compiled-in module that
-// provides one, or the no-op notifier. It is built before the dispatcher and
-// the hosts exist, so its deps carry only the stores, the clock, the log and
-// the audit log.
+// provides one and whose controller migrations applied, or the no-op
+// notifier. It is built before the dispatcher and the hosts exist, so its
+// deps carry only the stores, the clock, the log and the audit log.
 func (s *Server) moduleNotifier() core.Notifier {
 	deps := ext.Deps{DB: s.controllerDB, Sealer: s.controllerSealer, Clock: s.clock, Log: s.log, Audit: s.auditLog,
 		LocalHostID: s.localHostID}
 	for _, m := range modules.All() {
-		if p, ok := m.(ext.NotifierProvider); ok {
+		if p, ok := m.(ext.NotifierProvider); ok && !s.unmigrated[m.Manifest().ID] {
 			return core.NotifierOrNop(p.Notifier(deps))
 		}
 	}

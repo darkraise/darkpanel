@@ -56,14 +56,14 @@ func (s *Server) extDeps() ext.Deps {
 }
 
 // contributions calls Controller on every compiled-in module that has a
-// controller-side contribution, on Options.Contributors, and on the
-// Contribute method of a backup.Backup built from backupConfig, in that
-// order, and returns their routes and services.
+// controller-side contribution and whose controller migrations applied, on
+// Options.Contributors, and on the Contribute method of a backup.Backup built
+// from backupConfig, in that order, and returns their routes and services.
 // A contribution's error fails startup.
 func (s *Server) contributions() ([]ext.Route, []ext.Service, error) {
 	var all []contributor
 	for _, m := range modules.All() {
-		if c, ok := m.(ext.Controller); ok {
+		if c, ok := m.(ext.Controller); ok && !s.unmigrated[m.Manifest().ID] {
 			all = append(all, contributor{name: "module " + m.Manifest().ID, c: c})
 		}
 	}

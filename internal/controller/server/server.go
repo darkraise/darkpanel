@@ -118,8 +118,11 @@ type Server struct {
 	log      *slog.Logger
 	hostname string // "" when unknown
 
-	controllerDB     *store.DB
-	agentDB          *store.DB
+	controllerDB *store.DB
+	agentDB      *store.DB
+	// unmigrated holds the modules whose controller migrations failed; they
+	// contribute nothing, since their tables may be missing.
+	unmigrated       map[string]bool
 	controllerSealer *secret.Sealer
 	agentSealer      *secret.Sealer
 	localHostID      string
@@ -338,8 +341,10 @@ func (s *Server) migrateController(ctx context.Context) error {
 	if res.PruneErr != nil {
 		s.log.Warn("server: old controller database backups could not be pruned", "error", res.PruneErr)
 	}
+	s.unmigrated = make(map[string]bool, len(res.Failed))
 	for _, f := range res.Failed {
 		s.log.Error("server: module controller migrations failed", "module", f.Module, "error", f.Err)
+		s.unmigrated[f.Module] = true
 	}
 	return nil
 }
