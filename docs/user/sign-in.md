@@ -55,8 +55,10 @@ Edit sign-in links on the Users page.
 
 It works only on the Tailscale listener, and only for a device owned by a
 user: a tagged device, a device shared into the tailnet, a request through a
-proxy and any Darkpanel host's own address never sign in. If Darkpanel is not
-listening on the tailnet, the Sign-in page says so.
+proxy and any Darkpanel host's own address never sign in. A host is known by
+the tailnet addresses its agent reports when it connects, so a host whose
+Tailscale module is off is not recognised. If Darkpanel is not listening on the
+tailnet, the Sign-in page says so.
 
 ## Require the code too
 
