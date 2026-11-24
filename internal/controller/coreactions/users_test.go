@@ -238,3 +238,16 @@ func TestUserActionsRefuseUnknownUsers(t *testing.T) {
 	_, err := e.plan(root, "core.user.delete", UsernameInput{Username: "Not Valid"})
 	wantCode(t, err, errcode.InvalidInput)
 }
+
+func TestUserInviteRefusesATakenIdentityAtPlan(t *testing.T) {
+	e := newTestEnv(t)
+	e.activeUser("alice")
+	e.exec(`UPDATE core_users SET email = 'Alice@Example.com', tailnet_login = 'alice@github' WHERE username = 'alice'`)
+	_, err := e.plan(root, "core.user.invite", InviteInput{Username: "bob", Role: auth.RoleMember, Email: "alice@example.com"})
+	wantField(t, err, "/email")
+	_, err = e.plan(root, "core.user.invite", InviteInput{Username: "bob", Role: auth.RoleMember, TailnetLogin: "alice@github"})
+	wantField(t, err, "/tailnetLogin")
+	if _, err := e.plan(root, "core.user.invite", InviteInput{Username: "bob", Role: auth.RoleMember, Email: "bob@example.com"}); err != nil {
+		t.Errorf("an invite with a free email: %v", err)
+	}
+}

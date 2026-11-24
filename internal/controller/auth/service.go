@@ -959,6 +959,12 @@ func (s *Service) CheckIdentity(ctx context.Context, username, email, tailnetLog
 	return checkIdentities(ctx, s.db.Read(), r.ID, email, tailnetLogin)
 }
 
+// CheckNewIdentity checks email and tailnetLogin as Invite would store them
+// on a new user: their form, and that no user has either in any case.
+func (s *Service) CheckNewIdentity(ctx context.Context, email, tailnetLogin string) error {
+	return checkIdentities(ctx, s.db.Read(), "", email, tailnetLogin)
+}
+
 func checkIdentities(ctx context.Context, q querier, userID, email, tailnetLogin string) error {
 	if err := checkIdentity("/email", email, true); err != nil {
 		return err

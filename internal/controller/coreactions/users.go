@@ -308,6 +308,9 @@ func (h userInvite) Plan(ctx context.Context, env core.Env, in InviteInput) (cor
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
+	if err := svc.CheckNewIdentity(ctx, in.Email, in.TailnetLogin); err != nil {
+		return core.PlanOutcome{}, err
+	}
 	_, err = svc.GetUser(ctx, in.Username)
 	taken := err == nil
 	if err != nil && errcode.From(err).Code != errcode.NotFound {
