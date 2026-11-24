@@ -108,6 +108,30 @@ describe("range and summaries", () => {
     expect(await screen.findByRole("img", { name: /^CPU \(%\), last 24 hours\./ })).toBeTruthy()
   })
 
+  test("while another range loads, the shown charts keep their own range and a status says what loads", async () => {
+    let release: (() => void) | null = null
+    stubFetch({
+      [HISTORY]: (call) => {
+        const range = (call.body as { input?: { range?: string } } | undefined)?.input?.range
+        if (range !== "24h") return { body: { output: history([point(0), point(1)]) } }
+        return new Promise((resolve) => {
+          release = () => resolve({ body: { output: history([point(0), point(1)], okStatus, { range: "24h" }) } })
+        })
+      },
+      [SUMMARY]: { body: { cpu: { logicalCount: 4 } } },
+    })
+    renderWithProviders(<MetricsSection host={makeHost({ id: "h1", name: "web-1", online: true, modules: [metricsOn] })} />, { hostScope: "admin" })
+    const group = await screen.findByRole("radiogroup", { name: "Range" })
+    await screen.findByRole("img", { name: /^CPU \(%\), last hour\./ })
+    await userEvent.setup().click(within(group).getByRole("radio", { name: "24h" }))
+    expect(await screen.findByText("Loading the last 24 hours…")).toBeTruthy()
+    expect(screen.getByRole("img", { name: /^CPU \(%\), last hour\./ })).toBeTruthy()
+    await waitFor(() => expect(release).not.toBeNull())
+    release!()
+    expect(await screen.findByRole("img", { name: /^CPU \(%\), last 24 hours\./ })).toBeTruthy()
+    expect(screen.queryByText("Loading the last 24 hours…")).toBeNull()
+  })
+
   test("each chart's accessible name is its text summary", async () => {
     render(history([point(0), point(1), point(2)]))
     expect(await screen.findByRole("img", { name: "CPU (%), last hour. CPU: latest 12.0 %, min 10.0 %, max 12.0 %." })).toBeTruthy()

@@ -84,7 +84,11 @@ function Charts({ host, range }: { host: Host; range: MetricsRange }) {
     )
   const h = history.data
   const status = h.status
+  // While another range loads, the previous one stays on screen, labelled as
+  // what it is.
+  const shown = history.isPlaceholderData ? h.range : range
   const banners = []
+  if (history.isPlaceholderData) banners.push(<p key="loading" role="status" className="text-sm text-muted-foreground">{`Loading the ${RANGE_TEXT[range]}…`}</p>)
   if (!host.online) banners.push(<Alert key="offline" variant="warning" role="status"><AlertDescription>{`Offline since ${formatTime(host.lastSeenAt)}`}</AlertDescription></Alert>)
   if (status !== null && status.lastErrorCode !== null)
     banners.push(
@@ -98,17 +102,17 @@ function Charts({ host, range }: { host: Host; range: MetricsRange }) {
     return (
       <>
         {banners}
-        {!collecting && <p className="text-sm text-muted-foreground">{`No samples in the ${RANGE_TEXT[range]}.`}</p>}
+        {!collecting && <p className="text-sm text-muted-foreground">{`No samples in the ${RANGE_TEXT[shown]}.`}</p>}
       </>
     )
   const cpus = info.data?.cpu.logicalCount ?? null
   const c = charts(h, cpus)
-  const daily = h.resolution === "1h" || range === "7d"
-  const common = { daily, rangeText: RANGE_TEXT[range] }
+  const daily = h.resolution === "1h" || shown === "7d"
+  const common = { daily, rangeText: RANGE_TEXT[shown] }
   return (
     <>
       {banners}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2" aria-busy={history.isPlaceholderData}>
         <MetricChart title="CPU (%)" unit=" %" data={c.cpu} area {...common} />
         <MetricChart title="Memory (GiB)" unit=" GiB" data={c.memory} area {...common} />
         <MetricChart title="Disk per mount (%)" unit=" %" data={c.disk} {...common} />
