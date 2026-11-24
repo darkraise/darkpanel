@@ -19,7 +19,7 @@ const HOST: Host = {
   protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true,
   modules: [{ id: "metrics", version: 1, enabled: true, available: true, reason: null, checkedAt: null }], ingestion: null,
 }
-const groups: HostGroup[] = Array.from({ length: 32 }, (_, i) => ({ id: `g${i}`, name: i === 0 ? LONG : `group-${i}`, hostIds: [HOST_ID], hostCount: i, grantCount: i % 3, createdAt: "2026-11-20T08:00:00Z" }))
+const groups: HostGroup[] = Array.from({ length: 32 }, (_, i) => ({ id: `g${i}`, name: i === 0 ? LONG : `group-${i}`, hostIds: i % 2 === 1 ? [HOST_ID] : [], hostCount: i % 2, grantCount: i % 3, createdAt: "2026-11-20T08:00:00Z" }))
 const users = Array.from({ length: 50 }, (_, i) => ({
   id: `u${i}`, username: i === 0 ? "admin" : `user-${String(i).padStart(2, "0")}`, role: i === 0 ? "admin" : "member", state: "active", createdAt: "2026-11-20T08:00:00Z",
   disabled: false, grants: i === 0 ? [] : [{ role: i % 2 === 0 ? "viewer" : "operator", target: "g0" }], email: "", tailnetLogin: "", signIn: ["password"],
@@ -94,7 +94,7 @@ const PAGES = [
   { id: "metrics", path: `/hosts/${HOST_ID}`, table: null },
 ] as const
 
-async function open(page: Page, theme: (typeof THEMES)[number]) {
+async function open(page: Page, theme: (typeof THEMES)[number], delayMs = 0) {
   await page.addInitScript((mode) => localStorage.setItem("mode", mode), theme)
   await mockApi(page, { signedIn: true })
   await page.route(/\/api\/v1\/events$/, (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "retry: 200\n\n" }))
@@ -109,7 +109,10 @@ async function open(page: Page, theme: (typeof THEMES)[number]) {
     "metrics.history.get": { hostId: HOST_ID, range: "1h", resolution: "1m", points, status: { lastOk: "2026-11-24T08:59:00Z", lastErrorCode: null, lastErrorAt: null, clockSkewS: 0 } },
   }
   for (const [name, output] of Object.entries(reads)) {
-    await page.route(new RegExp(`/actions/${name.replace(/\./g, "\\.")}/v1/read$`), (route) => route.fulfill(ok(output)))
+    await page.route(new RegExp(`/actions/${name.replace(/\./g, "\\.")}/v1/read$`), async (route) => {
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
+      await route.fulfill(ok(output))
+    })
   }
 }
 
@@ -253,4 +256,140 @@ for (const theme of THEMES) {
       }
     })
   }
+}
+
+// The states the page tests prove only in jsdom, on screen: loading (with the
+// layout shift it causes measured), a row menu, the range control, the
+// enrollment form, Send test pending, an invalid form and a hovered control.
+for (const theme of THEMES) {
+  for (const vp of VIEWPORTS) {
+    test(`M10 states at ${vp.width} in ${theme}`, async ({ page }) => {
+      await page.setViewportSize(vp)
+      await page.addInitScript(() => {
+        const w = window as unknown as { cls: number }
+        w.cls = 0
+        new PerformanceObserver((list) => {
+          for (const e of list.getEntries() as unknown as { value: number; hadRecentInput: boolean }[]) if (!e.hadRecentInput) w.cls += e.value
+        }).observe({ type: "layout-shift", buffered: true })
+      })
+      await open(page, theme, 800)
+      for (const p of PAGES) {
+        await page.goto(url(p.path))
+        const loading = page.locator('[aria-label^="Loading"]').first()
+        await expect(loading).toBeVisible()
+        if (p.id !== "metrics") await page.screenshot({ path: `${EVIDENCE}/${p.id}-${vp.width}-${theme}-loading.png` })
+        await expect(page.locator('[aria-label^="Loading"]')).toHaveCount(0, { timeout: 10_000 })
+        await settle(page)
+        const cls = await page.evaluate(() => (window as unknown as { cls: number }).cls)
+        expect(cls, `${p.id} layout shift while loading`).toBeLessThan(0.1)
+        await page.evaluate(() => ((window as unknown as { cls: number }).cls = 0))
+      }
+
+      await page.goto(url("/settings/users"))
+      await page.getByRole("button", { name: "Actions for user-01" }).click()
+      await expect(page.getByRole("menu")).toBeVisible()
+      await settle(page)
+      await page.screenshot({ path: `${EVIDENCE}/users-${vp.width}-${theme}-row-menu.png` })
+      await page.keyboard.press("Escape")
+
+      await page.goto(url(`/hosts/${HOST_ID}`))
+      const range = page.getByRole("radiogroup", { name: "Range" })
+      await range.getByRole("radio", { name: "1h" }).focus()
+      await page.keyboard.press("ArrowRight")
+      await expect(range.getByRole("radio", { name: "24h" })).toBeChecked()
+      await settle(page)
+      await range.locator("xpath=..").screenshot({ path: `${EVIDENCE}/metrics-range-${vp.width}-${theme}.png` })
+
+      await page.goto(url("/settings/notifications"))
+      await page.route(/\/actions\/notify\.channel\.test\/v1\/read$/, async (route) => {
+        await new Promise((r) => setTimeout(r, 5000))
+        await route.fulfill(ok({ delivered: true, code: "200" })).catch(() => undefined)
+      })
+      const card = page.getByRole("region", { name: "ops-phone" })
+      await card.getByRole("button", { name: "Send test" }).click()
+      await expect(card.getByRole("status")).toHaveText("Sending test…")
+      await settle(page)
+      await card.screenshot({ path: `${EVIDENCE}/notifications-${vp.width}-${theme}-send-test-pending.png` })
+
+      await page.getByRole("button", { name: "Add channel" }).click()
+      await openDialog(page).getByRole("button", { name: "Email" }).click()
+      const form = openDialog(page)
+      await form.getByLabel("Name", { exact: true }).fill("oncall-2")
+      await form.getByLabel("SMTP host").fill("smtp.example.com")
+      await form.getByLabel("Port").fill("70000")
+      await form.getByLabel("From").fill("dp@example.com")
+      await form.getByLabel("Recipients").fill(Array.from({ length: 11 }, (_, i) => `a${i}@example.com`).join(", "))
+      await form.getByRole("button", { name: "Review channel" }).click()
+      await expect(form.getByLabel("Port")).toHaveAttribute("aria-invalid", "true")
+      await expect(form.getByLabel("Recipients")).toHaveAttribute("aria-invalid", "true")
+      await settle(page)
+      await form.screenshot({ path: `${EVIDENCE}/notifications-${vp.width}-${theme}-invalid.png` })
+      await page.keyboard.press("Escape")
+
+      await page.route(/\/api\/v1\/enroll\/begin$/, (route) =>
+        route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ username: "noor", secret: "JBSWY3DPEHPK3PXP", uri: "otpauth://totp/Darkpanel:noor?secret=JBSWY3DPEHPK3PXP&issuer=Darkpanel", expiresAt: "2026-11-26T09:40:00Z" }) }),
+      )
+      await page.goto(url("/enroll#token-1"))
+      await expect(page.getByLabel("Authentication code")).toBeVisible()
+      await settle(page)
+      await page.screenshot({ path: `${EVIDENCE}/enroll-${vp.width}-${theme}-form.png`, fullPage: true })
+      expect(await contrastViolations(page), "enrollment form text contrast").toEqual([])
+
+      if (vp.width === 1440) {
+        await open(page, theme)
+        await page.goto(url("/alerts"))
+        const row = page.getByRole("table", { name: "Firing alerts" }).locator("tbody tr").nth(1)
+        await row.hover()
+        await settle(page)
+        await row.screenshot({ path: `${EVIDENCE}/alerts-1440-${theme}-row-hover.png` })
+      }
+    })
+  }
+}
+
+// UX-1 by keyboard alone: Tab reaches Invite user, the form submits with
+// Enter, Tab reaches Apply, and Done closes the link, each step shot with its
+// focus ring.
+for (const theme of THEMES) {
+  test(`UX-1 invite by keyboard at 1440 in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page, theme)
+    await page.route(/\/actions\/core\.user\.invite\/v1\/plan$/, (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ planId: "plan-invite", hostId: null, action: "core.user.invite", version: 1, inputHash: "sha256:fixture", diff: [{ op: "+", text: "user noor, member" }], guards: [], expiresAt: "2099-01-01T00:00:00Z", confirmation: null }) }),
+    )
+    await page.route(/\/actions\/core\.user\.invite\/v1\/apply$/, (route) =>
+      route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ id: "change-invite", hostId: null, action: "core.user.invite", version: 1, class: "irreversible", state: "completed", actor: "user:admin", createdAt: "2026-11-24T09:00:00Z", updatedAt: "2026-11-24T09:00:00Z", revertDeadline: null, output: { user: { id: "u-new", username: "noor", role: "member", allHosts: "", state: "invited", createdAt: "2026-11-24T09:00:00Z" }, token: "dpi_fixture_enrollment_token", expiresAt: "2026-11-25T09:00:00Z" }, error: null, compensatedBy: null, parentChangeId: null, owner: null, repairedBy: null, repairOutcome: null, override: null }),
+      }),
+    )
+    await page.goto(url("/settings/users"))
+    await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible()
+    await settle(page)
+    const focused = () => page.evaluate(() => document.activeElement?.textContent?.trim() ?? "")
+    async function tabTo(name: string) {
+      for (let i = 0; i < 60 && (await focused()) !== name; i++) await page.keyboard.press("Tab")
+      expect(await focused(), `Tab reaches ${name}`).toBe(name)
+    }
+    await tabTo("Invite user")
+    await settle(page)
+    await page.screenshot({ path: `${EVIDENCE}/keyboard-1440-${theme}-1-invite-focused.png` })
+    await page.keyboard.press("Enter")
+    await expect(openDialog(page).getByLabel("Username")).toBeFocused()
+    await page.keyboard.type("noor")
+    await settle(page)
+    await page.screenshot({ path: `${EVIDENCE}/keyboard-1440-${theme}-2-form.png` })
+    await page.keyboard.press("Enter")
+    await expect(openDialog(page).getByRole("button", { name: "Apply" })).toBeVisible()
+    await tabTo("Apply")
+    await settle(page)
+    await page.screenshot({ path: `${EVIDENCE}/keyboard-1440-${theme}-3-apply-focused.png` })
+    await page.keyboard.press("Enter")
+    await expect(page.getByRole("dialog", { name: "Enrollment link for noor" })).toBeVisible()
+    await tabTo("Done")
+    await settle(page)
+    await page.screenshot({ path: `${EVIDENCE}/keyboard-1440-${theme}-4-link-done-focused.png` })
+    await page.keyboard.press("Enter")
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+  })
 }

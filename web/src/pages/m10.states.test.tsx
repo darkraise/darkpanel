@@ -68,6 +68,10 @@ const cases: PageCase[] = [
     routes: (s) => ({ [read("metrics.alert.list-rules")]: s === "pending" ? never : s === "error" ? fail : out({ rules: [] }), [read("metrics.alert.list")]: out({ alerts: [] }) }),
   },
   {
+    name: "firing alerts", page: <AlertsPage />, loading: "Loading the alerts", error: "Couldn't load alerts: boom", empty: null,
+    routes: (s) => ({ [read("metrics.alert.list")]: s === "pending" ? never : fail, [read("metrics.alert.list-rules")]: out({ rules: [rule] }) }),
+  },
+  {
     name: "sign-in settings", page: <SignInSettingsPage />, loading: "Loading the sign-in settings", error: "Couldn't load the sign-in settings: boom", empty: null,
     routes: (s) => ({ [read("auth.settings.get")]: s === "pending" ? never : fail }),
   },
