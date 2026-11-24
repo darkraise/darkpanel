@@ -122,15 +122,33 @@ func (o *outbox) wait() { o.wg.Wait() }
 // once, and returns how many deliveries it started or settled. It does
 // nothing while the outbox is suspended, or when it cannot tell.
 func (o *outbox) pass(ctx context.Context) int {
+	snap, ok := o.due(ctx)
+	if !ok {
+		return 0
+	}
+	return o.start(ctx, snap)
+}
+
+// dueSnapshot is what one pass read: the due deliveries, the alert heads
+// and the channels.
+type dueSnapshot struct {
+	list     []due
+	heads    map[alertHead]string
+	channels map[string]channelRow
+}
+
+// due reads the deliveries a pass may start; false when the outbox is
+// suspended, cannot tell, has no free send or cannot read them.
+func (o *outbox) due(ctx context.Context) (dueSnapshot, bool) {
 	suspended, err := o.cfg.Suspended(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
 			o.cfg.Log.Warn("notify: cannot tell whether restore quarantine suspends the sender; sending nothing", "error", err)
 		}
-		return 0
+		return dueSnapshot{}, false
 	}
 	if suspended {
-		return 0
+		return dueSnapshot{}, false
 	}
 	o.purgeIfDue(ctx)
 	now := o.cfg.Clock.Now()
@@ -143,18 +161,27 @@ func (o *outbox) pass(ctx context.Context) int {
 	}
 	o.mu.Unlock()
 	if free <= 0 {
-		return 0
+		return dueSnapshot{}, false
 	}
 	list, heads, channels, err := o.dueDeliveries(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
 			o.cfg.Log.Warn("notify: cannot read the due deliveries", "error", err)
 		}
-		return 0
+		return dueSnapshot{}, false
 	}
+	return dueSnapshot{list: list, heads: heads, channels: channels}, true
+}
+
+// start starts the deliveries of snap that may go, up to maxSending running
+// at once, and returns how many it started or settled.
+func (o *outbox) start(ctx context.Context, snap dueSnapshot) int {
+	o.mu.Lock()
+	free := maxSending - len(o.inFlight)
+	o.mu.Unlock()
 	progress := 0
-	for _, d := range list {
-		if free == 0 {
+	for _, d := range snap.list {
+		if free <= 0 {
 			break
 		}
 		o.mu.Lock()
@@ -166,10 +193,10 @@ func (o *outbox) pass(ctx context.Context) int {
 		}
 		// One alert's events go out in order on a channel: only the oldest
 		// pending one may be sent.
-		if subject := alertSubject(d.kind, d.dkey); subject != "" && heads[alertHead{d.key.channel, subject}] != d.key.event {
+		if subject := alertSubject(d.kind, d.dkey); subject != "" && snap.heads[alertHead{d.key.channel, subject}] != d.key.event {
 			continue
 		}
-		ch, ok := channels[d.key.channel]
+		ch, ok := snap.channels[d.key.channel]
 		if !ok {
 			continue
 		}
