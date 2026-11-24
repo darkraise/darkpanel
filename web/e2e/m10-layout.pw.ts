@@ -225,7 +225,7 @@ for (const theme of THEMES) {
       await open(page, theme)
       const invitation = { user: { id: "u-new", username: "noor", role: "member", allHosts: "", state: "invited", createdAt: "2026-11-24T09:00:00Z" }, token: "dpi_fixture_enrollment_token", expiresAt: "2026-11-25T09:00:00Z" }
       await page.route(/\/actions\/core\.user\.invite\/v1\/plan$/, (route) =>
-        route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ planId: "plan-invite", hostId: null, action: "core.user.invite", version: 1, inputHash: "sha256:fixture", diff: [{ op: "+", text: "user noor, member" }], guards: [], expiresAt: "2099-01-01T00:00:00Z", confirmation: null }) }),
+        route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ planId: "plan-invite", hostId: null, action: "core.user.invite", version: 1, inputHash: "sha256:fixture", diff: [{ op: "+", text: "user noor, member" }], guards: [], expiresAt: "2099-01-01T00:00:00Z", confirmation: "noor" }) }),
       )
       await page.route(/\/actions\/core\.user\.invite\/v1\/apply$/, (route) =>
         route.fulfill({
@@ -239,6 +239,7 @@ for (const theme of THEMES) {
           await p.getByRole("button", { name: "Invite user" }).click()
           await p.getByLabel("Username").fill("noor")
           await p.getByRole("button", { name: "Review invite" }).click()
+          await openDialog(p).getByLabel("Type noor to confirm").fill("noor")
           await openDialog(p).getByRole("button", { name: "Apply" }).click()
           await expect(p.getByRole("dialog", { name: "Enrollment link for noor" })).toBeVisible()
         }],
@@ -400,7 +401,7 @@ for (const theme of THEMES) {
     await page.setViewportSize({ width: 1440, height: 900 })
     await open(page, theme)
     await page.route(/\/actions\/core\.user\.invite\/v1\/plan$/, (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ planId: "plan-invite", hostId: null, action: "core.user.invite", version: 1, inputHash: "sha256:fixture", diff: [{ op: "+", text: "user noor, member" }], guards: [], expiresAt: "2099-01-01T00:00:00Z", confirmation: null }) }),
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ planId: "plan-invite", hostId: null, action: "core.user.invite", version: 1, inputHash: "sha256:fixture", diff: [{ op: "+", text: "user noor, member" }], guards: [], expiresAt: "2099-01-01T00:00:00Z", confirmation: "noor" }) }),
     )
     await page.route(/\/actions\/core\.user\.invite\/v1\/apply$/, (route) =>
       route.fulfill({
@@ -425,6 +426,12 @@ for (const theme of THEMES) {
     await settle(page)
     await page.screenshot({ path: `${EVIDENCE}/keyboard-1440-${theme}-2-form.png` })
     await page.keyboard.press("Enter")
+    // The invite asks for the username typed; the walk reaches the field by Tab.
+    const confirm = openDialog(page).getByLabel("Type noor to confirm")
+    await expect(confirm).toBeVisible()
+    for (let i = 0; i < 30 && !(await confirm.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press("Tab")
+    await expect(confirm).toBeFocused()
+    await page.keyboard.type("noor")
     await expect(openDialog(page).getByRole("button", { name: "Apply" })).toBeEnabled()
     await tabTo("Apply")
     await settle(page)

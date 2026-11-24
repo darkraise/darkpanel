@@ -44,8 +44,9 @@ each one.
    it may use and a role for each, or choose a role on all hosts.
 3. Optionally enter the email an OIDC sign-in should match and the tailnet
    login a Tailscale sign-in should match ([Sign-in methods](sign-in.md)).
-4. Review the plan and apply it. Darkpanel shows the enrollment link once,
-   with the date it expires, 72 hours later. Copy it and send it to the user.
+4. Review the plan, type the username to confirm, and apply it. Darkpanel
+   shows the enrollment link once, with the date it expires, 72 hours later.
+   Copy it and send it to the user.
 
 The user opens the link, sets a password, scans the authenticator QR code and
 enters a code, and is then signed in. A used or expired link says "This link

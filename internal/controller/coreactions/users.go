@@ -259,7 +259,7 @@ type Invitation struct {
 func (m module) inviteActions() []core.ActionDef {
 	return []core.ActionDef{
 		core.DefineMutating[InviteInput, Invitation](core.ActionSpec{
-			Name: "core.user.invite", Version: 1, Class: core.ClassCompensable, Side: core.SideController,
+			Name: "core.user.invite", Version: 1, Class: core.ClassCompensable, Side: core.SideController, TypedConfirmation: true,
 			MinScope: core.ScopeAdmin, CompensatedBy: "core.user.cancel-invite",
 			Summary: "Invite a user: a pending user with no usable credentials and a one-time enrollment link valid 72 hours.",
 		}, userInvite{m}),
@@ -333,7 +333,7 @@ func (h userInvite) Plan(ctx context.Context, env core.Env, in InviteInput) (cor
 	diff = append(diff,
 		core.DiffLine{Op: "+", Text: "an enrollment link, shown once and valid 72 hours"},
 		core.DiffLine{Op: " ", Text: "compensated by core.user.cancel-invite"})
-	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{guard}, StateHash: stateHash(state...)}, nil
+	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{guard}, StateHash: stateHash(state...), Confirmation: in.Username}, nil
 }
 
 func (h userInvite) Apply(ctx context.Context, _ core.Env, in InviteInput) (Invitation, error) {

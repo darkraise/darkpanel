@@ -115,7 +115,7 @@ func (e *inviteEnv) apply(p core.Principal, name, input string) core.ChangeView 
 	if err != nil {
 		e.t.Fatalf("plan %s: %v", name, err)
 	}
-	cv, err := e.engine.Apply(context.Background(), p, pv.PlanID, core.ApplyOptions{})
+	cv, err := e.engine.Apply(context.Background(), p, pv.PlanID, core.ApplyOptions{Confirmation: pv.Confirmation})
 	if err != nil || cv.State != core.StateCompleted {
 		e.t.Fatalf("apply %s: %+v, %v", name, cv, err)
 	}
@@ -148,7 +148,15 @@ func TestInviteCreatesAnUnusablePendingUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cv := e.apply(admin, "core.user.invite", `{"username":"mia","role":"member","grants":[{"target":"g1","role":"viewer"}],"email":"mia@example.com"}`)
+	invite := `{"username":"mia","role":"member","grants":[{"target":"g1","role":"viewer"}],"email":"mia@example.com"}`
+	// An invite asks for the username typed (UX-1), though cancel-invite undoes it.
+	pv, err := e.plan(admin, "core.user.invite", invite)
+	if err != nil || pv.Confirmation != "mia" {
+		t.Fatalf("invite plan %+v, %v; want the confirmation phrase mia", pv, err)
+	}
+	_, err = e.engine.Apply(context.Background(), admin, pv.PlanID, core.ApplyOptions{})
+	wantErrCode(t, "an invite applied without its phrase", err, errcode.PlanConfirmationNeeded)
+	cv := e.apply(admin, "core.user.invite", invite)
 	var out coreactions.Invitation
 	if err := json.Unmarshal(cv.Output, &out); err != nil {
 		t.Fatal(err)
@@ -192,7 +200,7 @@ func TestInviteCreatesAnUnusablePendingUser(t *testing.T) {
 		_, err := e.plan(admin, "core.user.invite", input)
 		wantErrCode(t, name, err, errcode.InvalidInput)
 	}
-	pv, err := e.plan(admin, "core.user.invite", `{"username":"mia","role":"member"}`)
+	pv, err = e.plan(admin, "core.user.invite", `{"username":"mia","role":"member"}`)
 	if err != nil {
 		t.Fatal(err)
 	}

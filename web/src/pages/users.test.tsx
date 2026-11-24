@@ -33,7 +33,7 @@ test("UX-1 invite flow: the form plans core.user.invite, the link shows once, fo
   let invited = false
   const noor = dirUser({ username: "noor", state: "pending", signIn: [], grants: [{ role: "operator", target: "g1" }] })
   const calls = stub(() => (invited ? [admin, noor] : [admin]), {
-    [route("core.user.invite", "plan")]: { body: makePlan("core.user.invite", { confirmation: null }) },
+    [route("core.user.invite", "plan")]: { body: makePlan("core.user.invite", { confirmation: "noor" }) },
     [route("core.user.invite", "apply")]: () => {
       invited = true
       return { body: makeChange("core.user.invite", { user: noor, token: "tok-123", expiresAt: "2026-11-26T09:40:00Z" }) }
@@ -52,7 +52,8 @@ test("UX-1 invite flow: the form plans core.user.invite, the link shows once, fo
   await user.click(within(form).getByRole("button", { name: "Review invite" }))
 
   const change = await screen.findByRole("dialog", { name: "Invite noor" })
-  await user.click(await within(change).findByRole("button", { name: "Apply" }))
+  await user.type(await within(change).findByLabelText("Type noor to confirm"), "noor")
+  await user.click(within(change).getByRole("button", { name: "Apply" }))
   expect(calls.find((c) => c.path.endsWith("invite/v1/plan"))?.body).toEqual({
     input: { username: "noor", role: "member", grants: [{ role: "operator", target: "g1" }], email: "noor@example.com", tailnetLogin: "noor@github" },
   })
