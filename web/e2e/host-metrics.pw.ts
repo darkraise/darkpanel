@@ -28,28 +28,33 @@ function history(range: MetricsHistory["range"], n: number, stepMs: number): Met
   return { hostId: HOST_ID, range, resolution: n > 7 * 1440 || stepMs === 3_600_000 ? "1h" : "1m", points, status: { lastOk: "2026-11-24T09:00:00Z", lastErrorCode: null, lastErrorAt: null, clockSkewS: 0 } }
 }
 
-test("A45 renders 90 days within 1 s", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await mockApi(page, { signedIn: true })
-  await page.route(/\/api\/v1\/events$/, (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "retry: 200\n\n" }))
-  await page.route(/\/actions\/core\.host\.list\/v1\/read$/, (route) => route.fulfill(ok({ hosts: [HOST] })))
-  let answered = 0
-  await page.route(/\/actions\/metrics\.history\.get\/v1\/read$/, async (route) => {
-    const range = (route.request().postDataJSON() as { input: { range: MetricsHistory["range"] } }).input.range
-    const body = range === "90d" ? history("90d", 90 * 24, 3_600_000) : history(range, 60, 60_000)
-    if (range === "90d") answered = Date.now()
-    await route.fulfill(ok(body))
-  })
+for (const c of [
+  { title: "A45 renders 90 days within 1 s", range: "90d", points: 90 * 24, stepMs: 3_600_000, label: "last 90 days" },
+  { title: "renders 7 days of minutes within 1 s", range: "7d", points: 7 * 1440, stepMs: 60_000, label: "last 7 days" },
+] as const) {
+  test(c.title, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await mockApi(page, { signedIn: true })
+    await page.route(/\/api\/v1\/events$/, (route) => route.fulfill({ status: 200, contentType: "text/event-stream", body: "retry: 200\n\n" }))
+    await page.route(/\/actions\/core\.host\.list\/v1\/read$/, (route) => route.fulfill(ok({ hosts: [HOST] })))
+    let answered = 0
+    await page.route(/\/actions\/metrics\.history\.get\/v1\/read$/, async (route) => {
+      const range = (route.request().postDataJSON() as { input: { range: MetricsHistory["range"] } }).input.range
+      const body = range === c.range ? history(c.range, c.points, c.stepMs) : history(range, 60, 60_000)
+      if (range === c.range) answered = Date.now()
+      await route.fulfill(ok(body))
+    })
 
-  await page.goto(url(`/hosts/${HOST_ID}`))
-  await expect(page.getByRole("img", { name: /^CPU \(%\), last hour\./ })).toBeVisible()
-  await page.getByRole("radiogroup", { name: "Range" }).getByRole("radio", { name: "90d" }).click()
-  await page.waitForFunction(
-    () => [...document.querySelectorAll('[role="img"][aria-label*="last 90 days"]')].filter((el) => el.querySelector("path.recharts-curve") !== null).length === 5,
-    undefined,
-    { polling: "raf" },
-  )
-  const elapsed = Date.now() - answered
-  expect(answered).toBeGreaterThan(0)
-  expect(elapsed, `five charts drew ${elapsed} ms after the response`).toBeLessThan(1000)
-})
+    await page.goto(url(`/hosts/${HOST_ID}`))
+    await expect(page.getByRole("img", { name: /^CPU \(%\), last hour\./ })).toBeVisible()
+    await page.getByRole("radiogroup", { name: "Range" }).getByRole("radio", { name: c.range }).click()
+    await page.waitForFunction(
+      (label) => [...document.querySelectorAll(`[role="img"][aria-label*="${label}"]`)].filter((el) => el.querySelector("path.recharts-curve") !== null).length === 5,
+      c.label,
+      { polling: "raf" },
+    )
+    const elapsed = Date.now() - answered
+    expect(answered).toBeGreaterThan(0)
+    expect(elapsed, `five charts drew ${elapsed} ms after the response`).toBeLessThan(1000)
+  })
+}
