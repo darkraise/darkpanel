@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/cli"
 	"github.com/darkraise/darkpanel/internal/controller/api"
 	"github.com/darkraise/darkpanel/internal/controller/auth"
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
@@ -33,11 +37,25 @@ func qaStart(t *testing.T) *e2e {
 func qaStartOpts(t *testing.T) (*e2e, Options) {
 	t.Helper()
 	opts := testOptions(t)
+	logs := &lockedBuffer{}
+	opts.Log = slog.New(slog.NewTextHandler(logs, nil))
 	e := &e2e{t: t, clock: opts.Clock.(*coretest.FakeClock), home: t.TempDir()}
+	qaLogs.Store(t, logs)
 	e.s = start(t, opts)
 	e.url = baseURL(t, e.s)
 	e.loginAdmin()
 	return e, opts
+}
+
+// qaLogs maps a test to the server's log of it.
+var qaLogs sync.Map
+
+// qaLog is the server's log so far.
+func qaLog(t *testing.T) string {
+	if b, ok := qaLogs.Load(t); ok {
+		return b.(*lockedBuffer).String()
+	}
+	return ""
 }
 
 // qaRestartAt stops the server and starts it again over the same files with
@@ -137,7 +155,7 @@ func (e *e2e) qaMust(name string, input any) json.RawMessage {
 // qaHost inserts a host row that is in no group.
 func qaHost(e *e2e, id string) {
 	e.t.Helper()
-	exec(e.t, e.s, `INSERT INTO core_hosts (id, name, is_local, created_at) VALUES (?, ?, 0, ?)`, id, id, e.clock.Now().UTC().Format(time.RFC3339Nano))
+	exec(e.t, e.s, `INSERT INTO core_hosts (id, name, is_local, created_at) VALUES (?, ?, 0, ?)`, id, id, e.clock.Now().UTC().Format(qaTimeFormat))
 }
 
 // qaGroup creates a group holding hosts and returns its id.
@@ -662,4 +680,452 @@ func TestA59_group_delete_refused_while_named(t *testing.T) {
 	// Once nothing names it, the group goes.
 	e.qaMust("core.user.set-grants", map[string]any{"username": "grantee", "grants": []qaGrant{}})
 
+}
+
+// qaTimeFormat is the fixed-width time text the stores keep.
+const qaTimeFormat = "2006-01-02T15:04:05.000000000Z"
+
+// qaSeedChange inserts a completed change of action on host (empty for a
+// host-less one), with the plan row it needs. Ids sort in the order of n.
+func qaSeedChange(e *e2e, n int, host, action string) string {
+	e.t.Helper()
+	id := fmt.Sprintf("01QA%022d", n)
+	at := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC).Add(time.Duration(n) * time.Second).Format(qaTimeFormat)
+	exp := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC).Format(qaTimeFormat)
+	exec(e.t, e.s, `INSERT INTO core_plans (id, host_id, action, version, actor, input_hash, state_hash, diff_json, guards_json, confirmation, created_at, expires_at)
+		VALUES (?, ?, ?, 1, 'system', 'h', 'h', '[]', '[]', '', ?, ?)`, "P"+id, host, action, at, exp)
+	exec(e.t, e.s, `INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state, input_json, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 1, 'revertible', '', 'system', 'completed', '{}', ?, ?)`, id, "P"+id, host, action, at, at)
+	return id
+}
+
+// qaSeedAudit inserts one audit row of an action on host, empty for none.
+func qaSeedAudit(e *e2e, n int, host string) {
+	e.t.Helper()
+	at := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC).Add(time.Duration(n) * time.Second).Format(qaTimeFormat)
+	var h any
+	if host != "" {
+		h = host
+	}
+	exec(e.t, e.s, `INSERT INTO core_audit (id, seq, at, actor, host_id, action, version, phase, input_json, result)
+		VALUES (?, ?, ?, 'system', ?, 'firewall.defaults.set', 1, 'apply', '{}', 'ok')`, fmt.Sprintf("01QAAUD%019d", n), n, at, h)
+}
+
+// qaAccess is the two-host fixture of the access tests: h-g is in group G,
+// h-x in none, and the local host in group L.
+type qaAccess struct {
+	e     *e2e
+	g, l  string
+	local string
+}
+
+func qaAccessFixture(t *testing.T) *qaAccess {
+	t.Helper()
+	e := qaStart(t)
+	qaHost(e, "h-g")
+	qaHost(e, "h-x")
+	a := &qaAccess{e: e, local: e.s.LocalHostID()}
+	a.g = e.qaGroup("Group G", "h-g")
+	a.l = e.qaGroup("Group L", a.local)
+	return a
+}
+
+// qaPath of an agent-side mutating action's plan on host.
+func qaPlanPath(host string) string {
+	return "/api/v1/hosts/" + host + "/actions/firewall.defaults.set/v1/plan"
+}
+
+// qaReached reports whether an answer shows the request passed
+// authorization: anything but forbidden and not found.
+func qaReached(r reply) bool { return r.status != 403 && r.status != 404 }
+
+func TestA2_viewer_reads_and_cannot_mutate(t *testing.T) {
+	a := qaAccessFixture(t)
+	e := a.e
+	v := e.qaJoin("viewer-g", qaGrant{a.g, "viewer"})
+	for _, path := range []string{
+		"/api/v1/hosts/h-g/resources/hostinfo/summary",
+		"/api/v1/hosts/h-g/resources/firewall/status",
+		"/api/v1/hosts/h-g/resources/docker/containers",
+		"/api/v1/hosts/h-g/resources/system/updates",
+		"/api/v1/hosts/h-g/modules/firewall/availability",
+	} {
+		if r := e.do("GET", path, nil, v.creds); !qaReached(r) {
+			t.Errorf("viewer on G: GET %s = %d %s, want it past authorization", path, r.status, r.body)
+		}
+	}
+	for _, name := range []string{"firewall.defaults.set", "firewall.rules.apply", "docker.container.start", "system.packages.upgrade"} {
+		path := "/api/v1/hosts/h-g/actions/" + name + "/v1/plan"
+		r := e.do("POST", path, map[string]any{"input": map[string]any{}}, v.creds)
+		if name == "docker.container.start" || name == "system.packages.upgrade" {
+			if _, ok := e.s.Registry().Action(core.ActionRef{Name: name, Version: 1}); !ok {
+				continue
+			}
+		}
+		e.wantProblem(r, 403, errcode.Forbidden)
+	}
+}
+
+func TestA4_hosts_outside_grants_are_not_found(t *testing.T) {
+	a := qaAccessFixture(t)
+	e := a.e
+	v := e.qaJoin("viewer-g", qaGrant{a.g, "viewer"})
+	o := e.qaJoin("operator-g", qaGrant{a.g, "operator"})
+	hidden := qaSeedChange(e, 1, "h-x", "firewall.defaults.set")
+	inside := qaSeedChange(e, 2, "h-g", "firewall.defaults.set")
+	for _, m := range []qaMember{v, o} {
+		for _, tc := range []struct{ method, path string }{
+			{"GET", "/api/v1/hosts/h-x/resources/hostinfo/summary"},
+			{"GET", "/api/v1/hosts/h-x/modules/firewall/availability"},
+			{"POST", qaPlanPath("h-x")},
+			{"POST", "/api/v1/hosts/h-x/actions/firewall.defaults.set/v1/read"},
+			{"POST", "/api/v1/hosts/h-x/actions/firewall.defaults.set/v1/apply"},
+			{"GET", "/api/v1/changes/" + hidden},
+			{"GET", "/api/v1/changes/" + hidden + "/effects"},
+			{"GET", "/api/v1/changes/" + hidden + "/steps"},
+			{"POST", "/api/v1/changes/" + hidden + "/confirm"},
+			{"POST", "/api/v1/changes/" + hidden + "/revert"},
+			{"POST", "/api/v1/changes/" + hidden + "/undo"},
+		} {
+			var body any
+			if tc.method == "POST" {
+				body = map[string]any{"input": map[string]any{}, "planId": "x"}
+			}
+			r := e.do(tc.method, tc.path, body, m.creds)
+			if r.status != 404 {
+				t.Errorf("%s: %s %s = %d %s, want 404 not found, never forbidden", m.name, tc.method, tc.path, r.status, r.body)
+			}
+		}
+		for _, host := range []string{"h-x"} {
+			for _, st := range e.s.Registry().Streams() {
+				path := "/api/v1/hosts/" + host + "/streams/" + st.Module + "/" + st.Def.Name
+				if r := e.do("GET", path, nil, m.creds); r.status != 404 {
+					t.Errorf("%s: GET %s = %d, want 404", m.name, path, r.status)
+				}
+			}
+		}
+		// The same shapes on a visible host are not found for a missing change only.
+		if r := e.do("GET", "/api/v1/changes/"+inside, nil, m.creds); r.status != 200 {
+			t.Errorf("%s: a change on its own host = %d %s, want 200", m.name, r.status, r.body)
+		}
+	}
+	// A change that does not exist answers the same as a hidden one.
+	missing := e.do("GET", "/api/v1/changes/01QAMISSING", nil, v.creds)
+	hid := e.do("GET", "/api/v1/changes/"+hidden, nil, v.creds)
+	if missing.status != hid.status || missing.problemCode() != hid.problemCode() {
+		t.Errorf("a hidden change answers %d %s, a missing one %d %s, want the same", hid.status, hid.problemCode(), missing.status, missing.problemCode())
+	}
+}
+
+func TestA5_lists_hold_only_visible_hosts(t *testing.T) {
+	a := qaAccessFixture(t)
+	e := a.e
+	v := e.qaJoin("viewer-g", qaGrant{a.g, "viewer"})
+	qaSeedChange(e, 1, "h-x", "firewall.defaults.set")
+	qaSeedChange(e, 2, "h-g", "firewall.defaults.set")
+	qaSeedAudit(e, 1, "h-x")
+	qaSeedAudit(e, 2, "h-g")
+
+	ids := e.qaHostIDs(v.creds)
+	if len(ids) != 1 || ids[0] != "h-g" {
+		t.Errorf("core.host.list for a viewer on G = %v, want [h-g]", ids)
+	}
+	if all := e.qaHostIDs(e.admin()); !qaHas(all, "h-x") || !qaHas(all, "h-g") {
+		t.Errorf("core.host.list for the admin = %v, want both hosts", all)
+	}
+	for name, r := range map[string]reply{
+		"core.audit.list":      e.qaRead(v.creds, "core.audit.list", nil),
+		"core.update.rollouts": e.qaRead(v.creds, "core.update.rollouts", nil),
+		"metrics.alert.list":   e.qaRead(v.creds, "metrics.alert.list", nil),
+		"GET /changes":         e.do("GET", "/api/v1/changes", nil, v.creds),
+	} {
+		if r.status != 200 {
+			t.Errorf("%s as a viewer on G = %d %s, want 200 with its rows", name, r.status, r.body)
+			continue
+		}
+		if strings.Contains(string(r.body), "h-x") {
+			t.Errorf("%s as a viewer on G names h-x: %s", name, r.body)
+		}
+	}
+	if r := e.qaRead(v.creds, "core.audit.list", nil); !strings.Contains(string(r.body), "h-g") {
+		t.Errorf("core.audit.list as a viewer on G lacks the h-g row: %s", r.body)
+	}
+	if r := e.do("GET", "/api/v1/changes", nil, v.creds); !strings.Contains(string(r.body), "h-g") {
+		t.Errorf("GET /changes as a viewer on G lacks the h-g change: %s", r.body)
+	}
+}
+
+func TestA6_members_cannot_run_controller_side_actions(t *testing.T) {
+	a := qaAccessFixture(t)
+	e := a.e
+	op := e.qaJoin("op-star", qaGrant{"*", "operator"}, qaGrant{a.g, "operator"})
+	n := 0
+	for _, def := range e.s.Registry().Actions() {
+		s := def.Spec
+		if s.Side != core.SideController || s.Class == core.ClassRead || s.BreakGlass || s.Internal {
+			continue
+		}
+		if s.Name == "core.token.create" || s.Name == "core.token.revoke" {
+			continue // the named exceptions of A47
+		}
+		n++
+		path := "/api/v1/actions/" + s.Name + "/v" + fmt.Sprint(s.Version) + "/plan"
+		r := e.do("POST", path, map[string]any{"input": map[string]any{"hostId": "h-g", "hostIds": []string{"h-g"}}}, op.creds)
+		if r.status != 403 || r.problemCode() != errcode.Forbidden {
+			t.Errorf("an operator planning %s = %d %s, want 403 auth.forbidden", s.Name, r.status, r.body)
+		}
+	}
+	if n < 20 {
+		t.Errorf("the registry walk found only %d controller-side mutating actions", n)
+	}
+	// Module enablement, update policy and rollouts by name.
+	for _, name := range []string{"core.module.enable", "core.module.disable", "core.host.update-policy", "core.update.rollout"} {
+		r := e.do("POST", "/api/v1/actions/"+name+"/v1/plan", map[string]any{"input": map[string]any{"hostId": "h-g"}}, op.creds)
+		e.wantProblem(r, 403, errcode.Forbidden)
+	}
+}
+
+func TestA7_star_covers_new_hosts_and_group_removal_revokes(t *testing.T) {
+	a := qaAccessFixture(t)
+	e := a.e
+	star := e.qaJoin("star", qaGrant{"*", "viewer"})
+	g := e.qaJoin("ingroup", qaGrant{a.g, "viewer"})
+	qaHost(e, "h-new") // enrolled after the grants
+	if ids := e.qaHostIDs(star.creds); !qaHas(ids, "h-new") {
+		t.Errorf("a * grant after a host was added: core.host.list = %v, want h-new in it", ids)
+	}
+	if r := e.do("GET", "/api/v1/hosts/h-new/resources/hostinfo/summary", nil, star.creds); !qaReached(r) {
+		t.Errorf("a * grant on a new host: %d %s, want it past authorization", r.status, r.body)
+	}
+	if r := e.do("GET", "/api/v1/hosts/h-new/resources/hostinfo/summary", nil, g.creds); r.status != 404 {
+		t.Errorf("a G grant on a host in no group: %d, want 404", r.status)
+	}
+	// Putting the host in G gives access; removing it takes the access away at the next request.
+	e.qaMust("core.group.set-members", map[string]any{"id": a.g, "hostIds": []string{"h-g", "h-new"}})
+	if r := e.do("GET", "/api/v1/hosts/h-new/resources/hostinfo/summary", nil, g.creds); !qaReached(r) {
+		t.Errorf("after adding the host to G: %d %s, want it past authorization", r.status, r.body)
+	}
+	e.qaMust("core.group.set-members", map[string]any{"id": a.g, "hostIds": []string{"h-g"}})
+	if r := e.do("GET", "/api/v1/hosts/h-new/resources/hostinfo/summary", nil, g.creds); r.status != 404 {
+		t.Errorf("after removing the host from G: %d %s, want 404", r.status, r.body)
+	}
+	if ids := e.qaHostIDs(g.creds); qaHas(ids, "h-new") {
+		t.Errorf("after removing the host from G its member still lists %v", ids)
+	}
+}
+
+func TestA8_token_never_exceeds_its_user(t *testing.T) {
+	a := qaAccessFixture(t)
+	e := a.e
+	v := e.qaJoin("viewer-tok", qaGrant{a.g, "viewer"})
+	tok, r := e.qaToken(v.creds, "operate")
+	if !r.ok() {
+		t.Fatalf("a viewer's operate token: plan %d %s, apply %d %s", r.plan.status, r.plan.body, r.apply.status, r.apply.body)
+	}
+	bearer := credentials{bearer: tok.Token}
+	if r := e.do("GET", "/api/v1/hosts/h-g/resources/hostinfo/summary", nil, bearer); !qaReached(r) {
+		t.Errorf("an operate token on a viewer grant reading: %d %s, want it past authorization", r.status, r.body)
+	}
+	e.wantProblem(e.do("POST", qaPlanPath("h-g"), map[string]any{"input": map[string]any{}}, bearer), 403, errcode.Forbidden)
+	e.wantProblem(e.do("GET", "/api/v1/hosts/h-x/resources/hostinfo/summary", nil, bearer), 404, errcode.NotFound)
+	// Demoting the user takes the token's reach with it.
+	e.qaMust("core.user.set-grants", map[string]any{"username": "viewer-tok", "grants": []qaGrant{}})
+	if r := e.do("GET", "/api/v1/hosts/h-g/resources/hostinfo/summary", nil, bearer); r.status != 404 {
+		t.Errorf("a token of a user whose grants were removed: %d, want 404", r.status)
+	}
+}
+
+func TestA65_controller_host_is_read_only_for_members(t *testing.T) {
+	a := qaAccessFixture(t)
+	e := a.e
+	for name, m := range map[string]qaMember{
+		"group":    e.qaJoin("op-l", qaGrant{a.l, "operator"}),
+		"all":      e.qaJoin("op-star", qaGrant{"*", "operator"}),
+		"viewer-l": e.qaJoin("v-l", qaGrant{a.l, "viewer"}),
+	} {
+		if r := e.do("GET", "/api/v1/hosts/"+a.local+"/resources/hostinfo/summary", nil, m.creds); !qaReached(r) {
+			t.Errorf("%s: reading the controller's host: %d %s, want it past authorization", name, r.status, r.body)
+		}
+		e.wantProblem(e.do("POST", qaPlanPath(a.local), map[string]any{"input": map[string]any{}}, m.creds), 403, errcode.Forbidden)
+		e.wantProblem(e.do("POST", "/api/v1/hosts/"+a.local+"/actions/firewall.defaults.set/v1/apply", map[string]any{"planId": "x"}, m.creds), 403, errcode.Forbidden)
+	}
+	// A member operating a different host is not stopped.
+	op := e.qaJoin("op-g", qaGrant{a.g, "operator"})
+	if r := e.do("POST", qaPlanPath("h-g"), map[string]any{"input": map[string]any{}}, op.creds); r.status == 403 || r.status == 404 {
+		t.Errorf("an operator planning on its group's host: %d %s, want it past authorization", r.status, r.body)
+	}
+}
+
+func TestA49_every_controller_read_is_classified(t *testing.T) {
+	a := qaAccessFixture(t)
+	n := 0
+	for _, def := range a.e.s.Registry().Actions() {
+		s := def.Spec
+		if s.Side != core.SideController || s.Class != core.ClassRead || s.Internal || s.BreakGlass {
+			continue
+		}
+		n++
+		switch s.HostData {
+		case core.HostDataNone, core.HostDataFleet, core.HostDataInput, core.HostDataFiltered:
+		default:
+			t.Errorf("controller-side read %s declares HostData %q, want none, fleet, input or filtered", s.Name, s.HostData)
+		}
+		if s.HostData == core.HostDataInput && len(s.HostPointers) == 0 {
+			t.Errorf("%s is an input read with no host pointer", s.Name)
+		}
+	}
+	if n < 15 {
+		t.Errorf("the registry walk found only %d controller-side reads", n)
+	}
+	for _, name := range []string{"core.host.list", "core.audit.list", "core.update.rollouts", "npm.instance.list", "derp.server.list",
+		"tailnet.device.list", "cloudflare.tunnel.list", "cloudflare.hostname.list", "metrics.alert.list"} {
+		def, ok := a.e.s.Registry().Action(core.ActionRef{Name: name, Version: 1})
+		if !ok {
+			t.Errorf("no action %s", name)
+			continue
+		}
+		if def.Spec.HostData != core.HostDataFiltered {
+			t.Errorf("%s declares HostData %q, want filtered", name, def.Spec.HostData)
+		}
+	}
+}
+
+func TestA50_viewer_gets_no_other_host_from_any_read(t *testing.T) {
+	a := qaAccessFixture(t)
+	e := a.e
+	exec(e.t, e.s, `UPDATE core_hosts SET name = 'outside-secret-name' WHERE id = 'h-x'`)
+	exec(e.t, e.s, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('h-x', '100.99.88.77', 'nSTABLEOUTSIDE', ?)`, e.clock.Now().UTC().Format(qaTimeFormat))
+	for _, h := range []string{"h-g", "h-x"} {
+		exec(e.t, e.s, `INSERT INTO derp_servers (host_id, mode, host_name, region_id, region_code, derper_version, unit_active, checked_at)
+			VALUES (?, 'ip', ?, 1, 'qa', '1.0', 1, ?)`, h, "derp-of-"+h, e.clock.Now().UTC().Format(qaTimeFormat))
+	}
+	qaSeedChange(e, 1, "h-x", "firewall.defaults.set")
+	qaSeedAudit(e, 1, "h-x")
+	v := e.qaJoin("viewer-g", qaGrant{a.g, "viewer"})
+	needles := []string{"h-x", "outside-secret-name", "100.99.88.77", "nSTABLEOUTSIDE", "derp-of-h-x"}
+	n := 0
+	for _, def := range e.s.Registry().Actions() {
+		s := def.Spec
+		if s.Side != core.SideController || s.Class != core.ClassRead || s.Internal || s.BreakGlass {
+			continue
+		}
+		in := map[string]any{}
+		if s.HostData == core.HostDataInput {
+			in["hostId"] = "h-x"
+		}
+		r := e.do("POST", "/api/v1/actions/"+s.Name+"/v"+fmt.Sprint(s.Version)+"/read", map[string]any{"input": in}, v.creds)
+		n++
+		for _, needle := range needles {
+			// A refusal of a host the caller itself named may repeat the id it sent.
+			if needle == "h-x" && s.HostData == core.HostDataInput {
+				continue
+			}
+			if strings.Contains(string(r.body), needle) {
+				t.Errorf("%s as a viewer on G (%d) returns %q: %s", s.Name, r.status, needle, r.body)
+			}
+		}
+		if s.HostData == core.HostDataInput && r.status != 404 {
+			t.Errorf("%s naming a host outside the grants = %d, want 404", s.Name, r.status)
+		}
+	}
+	if n < 15 {
+		t.Errorf("walked only %d reads", n)
+	}
+	if r := e.qaRead(v.creds, "derp.server.list", nil); r.status == 200 && !strings.Contains(string(r.body), "h-g") {
+		t.Errorf("derp.server.list as a viewer on G lacks its own h-g row: %s", r.body)
+	}
+}
+
+func TestA51_member_pages_are_full(t *testing.T) {
+	e := qaStart(t)
+	for i := 0; i < 200; i++ {
+		qaHost(e, fmt.Sprintf("h%03d", i))
+	}
+	gid := e.qaGroup("Sparse", "h007", "h131")
+	m := e.qaJoin("sparse", qaGrant{gid, "viewer"})
+	n := 0
+	var want []string
+	for i := 0; i < 200; i++ {
+		for k := 0; k < 3; k++ {
+			n++
+			id := qaSeedChange(e, n, fmt.Sprintf("h%03d", i), "firewall.defaults.set")
+			qaSeedAudit(e, n, fmt.Sprintf("h%03d", i))
+			if i == 7 || i == 131 {
+				want = append(want, id)
+			}
+		}
+	}
+	for k := 0; k < 20; k++ {
+		n++
+		qaSeedChange(e, n, "", "core.group.create")
+		qaSeedAudit(e, n, "")
+	}
+	for _, limit := range []int{1, 2, 4} {
+		var got []string
+		before := ""
+		for page := 0; page < 20; page++ {
+			path := fmt.Sprintf("/api/v1/changes?limit=%d", limit)
+			if before != "" {
+				path += "&before=" + before
+			}
+			var out struct {
+				Changes []struct {
+					ID     string `json:"id"`
+					HostID string `json:"hostId"`
+				} `json:"changes"`
+			}
+			e.want(e.do("GET", path, nil, m.creds), 200, &out)
+			if len(out.Changes) == 0 {
+				break
+			}
+			remaining := len(want) - len(got)
+			if wantLen := min(limit, remaining); len(out.Changes) != wantLen {
+				t.Errorf("limit %d, page %d: %d changes, want a full page of %d", limit, page, len(out.Changes), wantLen)
+			}
+			for _, c := range out.Changes {
+				if c.HostID != "h007" && c.HostID != "h131" {
+					t.Errorf("limit %d: a member's page holds a change of %q", limit, c.HostID)
+				}
+				got = append(got, c.ID)
+			}
+			before = out.Changes[len(out.Changes)-1].ID
+		}
+		if len(got) != len(want) {
+			t.Errorf("limit %d: paging a member's changes gave %d rows %v, want the %d visible ones", limit, len(got), got, len(want))
+		}
+	}
+	// The audit log pages the same way.
+	var seen int
+	before := ""
+	for page := 0; page < 20; page++ {
+		in := map[string]any{"limit": 2}
+		if before != "" {
+			in["before"] = before
+		}
+		var out struct {
+			Output struct {
+				Entries []struct {
+					HostID *string `json:"hostId"`
+				} `json:"entries"`
+				NextBefore *string `json:"nextBefore"`
+			} `json:"output"`
+		}
+		e.want(e.qaRead(m.creds, "core.audit.list", in), 200, &out)
+		for _, en := range out.Output.Entries {
+			if en.HostID == nil || (*en.HostID != "h007" && *en.HostID != "h131") {
+				t.Errorf("a member's audit page holds a row of host %v", en.HostID)
+			}
+		}
+		seen += len(out.Output.Entries)
+		if len(out.Output.Entries) < 2 && out.Output.NextBefore != nil && page < 2 {
+			t.Errorf("audit page %d holds %d rows of 2 though more remain", page, len(out.Output.Entries))
+		}
+		if out.Output.NextBefore == nil {
+			break
+		}
+		before = *out.Output.NextBefore
+	}
+	if seen != 6 {
+		t.Errorf("paging a member's audit log gave %d rows, want the 6 visible ones", seen)
+	}
 }
