@@ -1,6 +1,7 @@
 import { useLayoutEffect, type ReactNode } from "react"
 import { Laptop, MoreHorizontal } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
+import { Badge } from "darkraise-ui/components/badge"
 import { Button } from "darkraise-ui/components/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { EmptyState } from "darkraise-ui/components/empty-state"
@@ -147,6 +148,10 @@ function PasswordForm({ prefix }: { prefix: string }) {
         <Label htmlFor={`${prefix}-pass`}>Password</Label>
         <Input id={`${prefix}-pass`} type="password" />
       </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${prefix}-totp`}>Authentication code</Label>
+        <Input id={`${prefix}-totp`} inputMode="numeric" />
+      </div>
       <Button>Log in</Button>
     </>
   )
@@ -155,13 +160,14 @@ function PasswordForm({ prefix }: { prefix: string }) {
 function CodeStep({ prefix, line }: { prefix: string; line?: string }) {
   return (
     <>
+      <p className="text-sm text-muted-foreground">Enter the code from your authenticator app to finish signing in as mia.</p>
       {line && <p className="text-sm text-muted-foreground">{line}</p>}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={`${prefix}-code`}>Authentication code</Label>
         <Input id={`${prefix}-code`} inputMode="numeric" />
       </div>
       <Button>Log in</Button>
-      <Button variant="ghost">Back</Button>
+      <Button variant="ghost">Use another way to sign in</Button>
     </>
   )
 }
@@ -274,21 +280,30 @@ function Boards() {
       </State>
       <State id="td-sign-in-card" heading="Sign-in: Tailscale card" tag="UI-5">
         <Card className="max-w-xl">
-          <CardHeader>
-            <CardTitle>Tailscale</CardTitle>
-            <CardDescription>Continue as from a node of your tailnet.</CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+            <div className="flex flex-col gap-1">
+              <CardTitle>Tailscale identity</CardTitle>
+              <CardDescription>Sign in as the tailnet user of the device you browse from.</CardDescription>
+            </div>
+            <Badge variant="success">On</Badge>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="ts-on">Allow Continue as</Label>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="ts-on">Sign in with Tailscale identity</Label>
               <Switch id="ts-on" defaultChecked />
             </div>
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="ts-always">Require the code every time</Label>
-                <p className="text-xs text-muted-foreground">When off, each device asks for the code once and is then remembered.</p>
+                <Switch id="ts-always" aria-describedby="ts-always-hint" />
               </div>
-              <Switch id="ts-always" />
+              <p id="ts-always-hint" className="text-xs text-muted-foreground">
+                When off, each device asks for the code once and is then remembered.
+              </p>
+            </div>
+            <p className="text-sm text-muted-foreground">Works only when Darkpanel is opened at its tailnet address.</p>
+            <div>
+              <Button>Save</Button>
             </div>
           </CardContent>
         </Card>
