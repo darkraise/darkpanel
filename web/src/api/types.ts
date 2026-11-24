@@ -62,4 +62,6 @@ export interface Invitation { user: User; token: string; expiresAt: string }
 export interface OIDCSettings { issuer: string; clientId: string; displayName: string; redirectBase: string; requireTotp: boolean; clientSecretSet: boolean }
 export interface TailscaleSettings { enabled: boolean; requireTotp: boolean }
 export interface SignInSettings { oidc: OIDCSettings | null; tailscale: TailscaleSettings }
+export interface SignInMethods { oidc: { displayName: string } | null; tailscale: boolean }
+export interface TailscaleMatch { username: string; loginName: string; nodeName: string }
 export interface EnrollmentStart { username: string; secret: string; uri: string; expiresAt: string }

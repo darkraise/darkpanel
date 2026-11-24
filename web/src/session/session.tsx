@@ -94,7 +94,11 @@ export function SessionSpinner() {
 export function RequireSession({ children }: { children: ReactNode }) {
   const { status, session, loggedOut } = useSession()
   const location = useLocation()
+  // The OIDC callback page navigates to /?signin=<outcome>: the login page
+  // shows the outcome, and a signed-in user lands on / without it.
+  const signin = location.pathname === "/" ? new URLSearchParams(location.search).get("signin") : null
   if (status === "loading") return <SessionSpinner />
+  if (signin !== null) return <Navigate to={session === null ? `/login?signin=${encodeURIComponent(signin)}` : "/"} replace />
   if (session === null) {
     const next = location.pathname + location.search
     return <Navigate to={loggedOut || next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`} replace />

@@ -17,7 +17,9 @@ import type {
   Resolution,
   RolloutList,
   Session,
+  SignInMethods,
   SignInSettings,
+  TailscaleMatch,
   Step,
   TokenList,
 } from "./types"
@@ -200,6 +202,28 @@ export function beginEnrollment(token: string): Promise<EnrollmentStart> {
 
 export function finishEnrollment(token: string, password: string, code: string): Promise<Session> {
   return request<Session>("POST", "/api/v1/enroll/finish", { token, password, code })
+}
+
+// The browser goes to OIDC_START_PATH itself: the controller answers with a
+// redirect to the provider.
+export const OIDC_START_PATH = "/api/v1/auth/oidc/start"
+
+export function getSignInMethods(): Promise<SignInMethods> {
+  return request<SignInMethods>("GET", "/api/v1/auth/methods")
+}
+
+export function getTailscaleMatch(): Promise<TailscaleMatch> {
+  return request<TailscaleMatch>("GET", "/api/v1/auth/tailscale")
+}
+
+// signInTailscale answers a session, or { totp: true } while the code step
+// waits.
+export function signInTailscale(): Promise<Session | { totp: true }> {
+  return request<Session | { totp: true }>("POST", "/api/v1/auth/tailscale", {})
+}
+
+export function finishCodeStep(code: string): Promise<Session> {
+  return request<Session>("POST", "/api/v1/auth/totp", { code })
 }
 
 export function getListenerState(): Promise<ListenerState> {
