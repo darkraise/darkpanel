@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { SegmentGroup, SegmentGroupItem } from "darkraise-ui/components/segment-group"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "darkraise-ui/components/select"
 import { GROUPS_QUERY_KEY, listGroups } from "@/api/client"
 import type { AlertMetric, AlertRule, AlertSeverity } from "@/api/types"
 import { METRICS, METRIC_LABELS, thresholdMax, thresholdUnit } from "@/lib/alerts"
@@ -122,21 +123,20 @@ export function RuleForm({ rule, onCancel, onPlan }: { rule: AlertRule | null; o
             </SegmentGroup>
           </div>
           <Field id="rule-target" label="Hosts" hint="All hosts, or one host group.">
-            <select
-              id="rule-target"
-              aria-describedby="rule-target-note"
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="*">All hosts</option>
-              {(groups.data?.groups ?? []).map((g) => (
-                <option key={g.id} value={g.id}>
-                  {`Group ${g.name}`}
-                </option>
-              ))}
-              {rule !== null && rule.target !== "*" && groups.data === undefined && <option value={rule.target}>{`Group ${rule.targetName}`}</option>}
-            </select>
+            <Select value={target} onValueChange={setTarget}>
+              <SelectTrigger id="rule-target" aria-describedby="rule-target-note" className="w-full min-w-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="*">All hosts</SelectItem>
+                {(groups.data?.groups ?? []).map((g) => (
+                  <SelectItem key={g.id} value={g.id} className="wrap-anywhere">
+                    {`Group ${g.name}`}
+                  </SelectItem>
+                ))}
+                {rule !== null && rule.target !== "*" && groups.data === undefined && <SelectItem value={rule.target}>{`Group ${rule.targetName}`}</SelectItem>}
+              </SelectContent>
+            </Select>
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onCancel}>

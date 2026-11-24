@@ -129,8 +129,8 @@ test("UX-5 New rule checks its fields inline, then plans the rule", async () => 
   await user.clear(within(form).getByLabelText("For (minutes)"))
   await user.type(within(form).getByLabelText("For (minutes)"), "1440")
   await user.click(within(form).getByRole("radio", { name: "Critical" }))
-  await within(form).findByRole("option", { name: "Group web" })
-  await user.selectOptions(within(form).getByLabelText("Hosts"), "g1")
+  await user.click(within(form).getByLabelText("Hosts"))
+  await user.click(await screen.findByRole("option", { name: "Group web" }))
   await user.click(within(form).getByRole("button", { name: "Review rule" }))
   expect(await screen.findByRole("dialog", { name: "Create the rule Busy CPU" })).toBeTruthy()
   await waitFor(() =>
