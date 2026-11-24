@@ -251,3 +251,29 @@ func TestUserInviteRefusesATakenIdentityAtPlan(t *testing.T) {
 		t.Errorf("an invite with a free email: %v", err)
 	}
 }
+
+// TestSetRolePlanNamesOnlyALiveLink: the set-role plan says the enrollment
+// link ends only while the user holds a link that still works.
+func TestSetRolePlanNamesOnlyALiveLink(t *testing.T) {
+	e := newTestEnv(t)
+	_, admin := e.activeUser("root")
+	if _, err := e.auth.Invite(context.Background(), auth.InviteRequest{Username: "mia", Role: auth.RoleAdmin}); err != nil {
+		t.Fatal(err)
+	}
+	const ends = "its enrollment link ends"
+	in := SetRoleInput{Username: "mia", Role: auth.RoleMember}
+	pv, err := e.plan(admin, "core.user.set-role", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diffText(pv.Diff), ends) {
+		t.Errorf("plan diff %+v with a live link; want it to say the link ends", pv.Diff)
+	}
+	e.exec(`UPDATE core_user_enrollments SET token_hash = ''`)
+	if pv, err = e.plan(admin, "core.user.set-role", in); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(diffText(pv.Diff), ends) {
+		t.Errorf("plan diff %+v with the link already ended; want no line about it", pv.Diff)
+	}
+}

@@ -625,7 +625,7 @@ func (h userSetRole) Plan(ctx context.Context, env core.Env, in SetRoleInput) (c
 		}
 	}
 	diff = append(diff, grantDiff...)
-	if _, err := svc.LinkHolder(ctx, in.Username); err == nil {
+	if p.InviteExpiresAt != nil {
 		diff = append(diff, core.DiffLine{Op: " ", Text: "its enrollment link ends; core.user.renew-invite gives a new one"})
 		state = append(state, "invited")
 	}
