@@ -441,13 +441,13 @@ func (o *qaOIDC) claims(nonce, sub, email string, edit func(map[string]any)) map
 
 // qaFlow is one start and callback.
 type qaFlow struct {
-	start, callback *httptest.ResponseRecorder
-	stateCookie     string
-	state, code     string
+	start       *httptest.ResponseRecorder
+	stateCookie string
+	state, code string
 }
 
 // begin runs the start and returns what a callback needs.
-func (o *qaOIDC) begin(provider *oidcfake.Provider) qaFlow {
+func (o *qaOIDC) begin() qaFlow {
 	o.t.Helper()
 	start := o.serve(request("GET", qaBase+"/api/v1/auth/oidc/start", ""))
 	if start.Code != http.StatusFound {
@@ -499,7 +499,7 @@ func qaSessionCookie(rec *httptest.ResponseRecorder) string {
 // signIn runs a whole sign-in of sub and email at the provider and returns the callback.
 func (o *qaOIDC) signIn(sub, email string, edit func(map[string]any)) *httptest.ResponseRecorder {
 	o.t.Helper()
-	f := o.begin(o.idp)
+	f := o.begin()
 	loc, _ := url.Parse(f.start.Header().Get("Location"))
 	o.register(o.idp, f, o.claims(loc.Query().Get("nonce"), sub, email, edit), nil)
 	return o.callback(f)
@@ -564,14 +564,14 @@ func TestA14_oidc_refusals_create_nothing(t *testing.T) {
 			return o.signIn("s1", "admin@example.com", func(c map[string]any) { c["iss"] = "https://evil.example" })
 		}},
 		{"bad signature", func(o *qaOIDC) *httptest.ResponseRecorder {
-			f := o.begin(o.idp)
+			f := o.begin()
 			loc, _ := url.Parse(f.start.Header().Get("Location"))
 			other := oidcfake.New(t)
 			o.register(o.idp, f, o.claims(loc.Query().Get("nonce"), "s1", "admin@example.com", nil), func(c *oidcfake.Code) { c.Key = other.Key })
 			return o.callback(f)
 		}},
 		{"missing state", func(o *qaOIDC) *httptest.ResponseRecorder {
-			f := o.begin(o.idp)
+			f := o.begin()
 			loc, _ := url.Parse(f.start.Header().Get("Location"))
 			o.register(o.idp, f, o.claims(loc.Query().Get("nonce"), "s1", "admin@example.com", nil), nil)
 			r := request("GET", qaBase+auth.OIDCCallbackPath+"?code="+f.code, "")
@@ -579,14 +579,14 @@ func TestA14_oidc_refusals_create_nothing(t *testing.T) {
 			return o.serve(r)
 		}},
 		{"state without its cookie", func(o *qaOIDC) *httptest.ResponseRecorder {
-			f := o.begin(o.idp)
+			f := o.begin()
 			loc, _ := url.Parse(f.start.Header().Get("Location"))
 			o.register(o.idp, f, o.claims(loc.Query().Get("nonce"), "s1", "admin@example.com", nil), nil)
 			return o.serve(request("GET", qaBase+auth.OIDCCallbackPath+"?state="+f.state+"&code="+f.code, ""))
 		}},
 		{"a state of another start", func(o *qaOIDC) *httptest.ResponseRecorder {
-			f := o.begin(o.idp)
-			g := o.begin(o.idp)
+			f := o.begin()
+			g := o.begin()
 			loc, _ := url.Parse(f.start.Header().Get("Location"))
 			o.register(o.idp, f, o.claims(loc.Query().Get("nonce"), "s1", "admin@example.com", nil), nil)
 			f.state = g.state
@@ -625,7 +625,7 @@ func TestA14_oidc_refusals_create_nothing(t *testing.T) {
 	})
 	t.Run("a replayed state", func(t *testing.T) {
 		o := qaNewOIDC(t, false)
-		f := o.begin(o.idp)
+		f := o.begin()
 		loc, _ := url.Parse(f.start.Header().Get("Location"))
 		o.register(o.idp, f, o.claims(loc.Query().Get("nonce"), "s1", "admin@example.com", nil), nil)
 		if qaSessionCookie(o.callback(f)) == "" {
@@ -652,8 +652,8 @@ func TestA14_oidc_refusals_create_nothing(t *testing.T) {
 			}
 			return first.Transport().RoundTrip(r)
 		})
-		o.harness.auth = auth.New(o.db, coretest.Sealer{}, o.clock, o.audit, auth.Options{Params: testParams, OIDCTransport: route})
-		o.cfg.Auth = o.harness.auth
+		o.auth = auth.New(o.db, coretest.Sealer{}, o.clock, o.audit, auth.Options{Params: testParams, OIDCTransport: route})
+		o.cfg.Auth = o.auth
 		qaRebuild(t, o.harness)
 		qaExec(t, o.harness, `UPDATE auth_settings SET oidc_issuer = ?`, idp2.URL())
 		o.idp = idp2
@@ -782,7 +782,7 @@ func qaNewTS(t *testing.T) *qaTS {
 	h := newHarness(t)
 	q := &qaTS{harness: h, whois: auth.TailnetWhois{LoginName: "alice@example.com", UserID: 4242, NodeName: "alice-laptop", StableID: "nAlice",
 		Addresses: []string{qaTSNode}}}
-	h.cfg.Whois = func(_ context.Context, addr netip.Addr) (json.RawMessage, error) {
+	h.cfg.Whois = func(context.Context, netip.Addr) (json.RawMessage, error) {
 		q.calls.Add(1)
 		if q.failed {
 			return nil, errcode.New(errcode.Unavailable, "no agent")
@@ -916,7 +916,7 @@ func TestA54_tailscale_refused_from_darkpanel_hosts(t *testing.T) {
 			qaHosts(t, q.harness, "managed")
 			qaExec(t, q.harness, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('managed', '100.64.0.88', 'nAlice', '2026-11-24T00:00:00Z')`)
 		}},
-		{"the controller's own address", func(q *qaTS) {}},
+		{"the controller's own address", func(*qaTS) {}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			q := qaNewTS(t)

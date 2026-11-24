@@ -67,7 +67,7 @@ func newQAProc() qaProc {
 
 func TestA26_sampler_returns_minute_averages(t *testing.T) {
 	proc := newQAProc()
-	statfs := func(path string) (uint64, uint64, error) { return 1 << 30, 4 << 30, nil }
+	statfs := func(string) (uint64, uint64, error) { return 1 << 30, 4 << 30, nil }
 	mod := metrics.New(metrics.Source{FS: proc, Statfs: statfs})
 	tasks := mod.(core.Background).BackgroundTasks()
 	if len(tasks) != 1 || tasks[0].Every != 15*time.Second {
@@ -338,7 +338,7 @@ func (c *qaCtl) start() {
 			_ = s.Run(ctx)
 		}()
 	}
-	c.expected += int32(len(c.hosts))
+	c.expected += int32(min(len(c.hosts), 1<<20)) //nolint:gosec // G115: a handful of hosts
 	c.idle(len(services))
 }
 
@@ -369,7 +369,7 @@ func (c *qaCtl) idle(timers int) {
 // step moves the clock one minute and waits for the poll that follows.
 func (c *qaCtl) step(timers int) {
 	c.t.Helper()
-	c.expected += int32(len(c.hosts))
+	c.expected += int32(min(len(c.hosts), 1<<20)) //nolint:gosec // G115: a handful of hosts
 	c.clock.Advance(time.Minute)
 	c.idle(timers)
 }
@@ -398,7 +398,7 @@ func (c *qaCtl) minutes(host string) []time.Time {
 // qaSample is a sample of a healthy host with the disk at diskPct percent.
 func qaSample(diskPct int) metrics.Sample {
 	return metrics.Sample{CPU: 10, MemUsed: 1 << 30, MemTotal: 4 << 30, SwapTotal: 1, Load1: 0.1,
-		FS: []metrics.FSUsage{{Mount: "/", Used: uint64(diskPct), Total: 100}}, Net: []metrics.NetRate{}}
+		FS: []metrics.FSUsage{{Mount: "/", Used: uint64(max(diskPct, 0)), Total: 100}}, Net: []metrics.NetRate{}}
 }
 
 func TestA27_outage_is_backfilled(t *testing.T) {
@@ -504,9 +504,10 @@ func TestA30_alert_fires_once_and_resolves(t *testing.T) {
 	// The rule needs 10 minutes: the newest complete minute is 12:00 after the first step.
 	count := func() (f, r int) {
 		for _, k := range c.notifier.kinds("h1") {
-			if k == "alert.firing" {
+			switch k {
+			case "alert.firing":
 				f++
-			} else if k == "alert.resolved" {
+			case "alert.resolved":
 				r++
 			}
 		}

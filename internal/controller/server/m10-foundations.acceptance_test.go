@@ -1328,7 +1328,7 @@ func TestA24_dedupe(t *testing.T) {
 	// After the window the same key is delivered again.
 	e.clock.Advance(11 * time.Minute)
 	e.qaEmit(qaEv("alert.firing", "warning", "", "same-key"))
-	e.qaWaitDeliveries("a delivery after the window", func(ds []qaDelivery) bool { return len(hook.got()) == 2 })
+	e.qaWaitDeliveries("a delivery after the window", func([]qaDelivery) bool { return len(hook.got()) == 2 })
 }
 
 func TestA58_fire_resolve_fire_in_order(t *testing.T) {
@@ -1450,7 +1450,7 @@ func TestA62_failure_notices(t *testing.T) {
 		}
 		return n == 2
 	})
-	e.qaWaitDeliveries("the failure notices delivered", func(ds []qaDelivery) bool {
+	e.qaWaitDeliveries("the failure notices delivered", func([]qaDelivery) bool {
 		return len(good1.got()) >= 3 && len(good2.got()) >= 3
 	})
 	e.clock.Advance(time.Minute)
