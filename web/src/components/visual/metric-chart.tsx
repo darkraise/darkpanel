@@ -4,8 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/component
 import { ChartContainer, type ChartConfig } from "darkraise-ui/components/chart"
 import { summary, type ChartData } from "@/lib/metrics"
 
-// Series after the first are dashed, each its own way, so lines differ by
-// more than colour.
+// The dash patterns repeat every four series, the first of each four solid,
+// so lines differ by more than colour.
 const DASHES = [undefined, "6 3", "2 2", "8 3 2 3"]
 
 // colour is the kit token of the i-th series. The kit defines --chart-N on

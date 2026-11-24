@@ -184,9 +184,6 @@ function StepDecision({ change, onError }: { change: Change; onError: (m: string
   )
 }
 
-// ChangeActions offers what can be done to a change: Undo on an undoable
-// one, and Repair, Release and, for a composite, a step decision on one
-// that needs repair.
 // useCanOperate reports whether the caller may undo or repair change: a
 // change on a host needs operate there, a controller change needs admin.
 function useCanOperate(change: Change): boolean {
@@ -196,6 +193,9 @@ function useCanOperate(change: Change): boolean {
   return admin || (host !== undefined && canOnHost(host, "operate"))
 }
 
+// ChangeActions offers what can be done to a change: Undo on an undoable
+// one, and Repair, Release and, for a composite, a step decision on one
+// that needs repair.
 export function ChangeActions({ change }: { change: Change }) {
   const client = useQueryClient()
   const admin = isAdmin(useSession().session)

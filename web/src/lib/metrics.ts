@@ -28,7 +28,8 @@ export interface Series {
 export interface ChartData {
   times: number[]
   series: Series[]
-  // shown is the drawn series count when some were left out, else null.
+  // hidden says how many series are drawn of how many when some were left
+  // out, else null.
   hidden: { shown: number; of: number; noun: string } | null
 }
 
