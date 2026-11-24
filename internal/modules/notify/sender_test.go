@@ -441,7 +441,7 @@ func TestRoutingAndDedupe(t *testing.T) {
 	warn := x.webhook("warn", func(in *ChannelInput) { in.MinSeverity = "warning" })
 	kinds := x.webhook("kinds", func(in *ChannelInput) { in.Kinds = []string{core.NotifyRolloutFailed} })
 	grp := x.webhook("grp", func(in *ChannelInput) { in.GroupIDs = []string{"g2", "g1"} })
-	lab := x.webhook("lab", func(in *ChannelInput) { in.GroupIDs = []string{"g2"} })
+	x.webhook("lab", func(in *ChannelInput) { in.GroupIDs = []string{"g2"} })
 	off := x.webhook("off", nil)
 	x.disable(off, "off")
 
@@ -463,7 +463,6 @@ func TestRoutingAndDedupe(t *testing.T) {
 			t.Errorf("%s reached %v, want %v", c.name, got, c.want)
 		}
 	}
-	_ = lab
 
 	// A change's key is emitted once: the repeat stores nothing.
 	if id := x.emit(core.NotifyEvent{Kind: core.NotifyChangeFailed, Severity: core.SeverityInfo, Title: "t", Body: "b",
@@ -635,7 +634,7 @@ func TestFailureNotices(t *testing.T) {
 	broken, b, c := x.webhook("broken", nil), x.webhook("b", nil), x.webhook("c", nil)
 	off := x.webhook("off", nil)
 	x.disable(off, "off")
-	critOnly := x.webhook("crit", func(in *ChannelInput) { in.MinSeverity = "critical" })
+	x.webhook("crit", func(in *ChannelInput) { in.MinSeverity = "critical" })
 	x.fake.setAnswer(answerBy(map[string]string{broken: "404"}))
 
 	// No notice for a failed test or failure notice.
@@ -652,7 +651,7 @@ func TestFailureNotices(t *testing.T) {
 
 	// The first failure of a streak notifies every other enabled channel the
 	// routing matches, once; a second failure in the streak adds nothing.
-	first := x.emit(rolloutEvent("rollout.failed:1"))
+	x.emit(rolloutEvent("rollout.failed:1"))
 	x.drain(x.o)
 	notices := x.noticesFor(broken)
 	if len(notices) != 1 {
@@ -673,7 +672,6 @@ func TestFailureNotices(t *testing.T) {
 	if got := len(x.fake.callsOf(b, notices[0])); got != 1 {
 		t.Errorf("the notice was sent %d times on b", got)
 	}
-	_ = first
 	x.clock.Advance(time.Hour)
 	x.emit(rolloutEvent("rollout.failed:2"))
 	x.drain(x.o)
@@ -692,7 +690,6 @@ func TestFailureNotices(t *testing.T) {
 	if n := x.noticesFor(broken); len(n) != 2 {
 		t.Errorf("%d notices after a new streak, want 2", len(n))
 	}
-	_ = critOnly
 
 	t.Run("restore", func(t *testing.T) {
 		x := newOutboxEnv(t)
