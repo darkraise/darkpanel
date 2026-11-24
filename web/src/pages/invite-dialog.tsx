@@ -88,12 +88,14 @@ export function LinkDialog({ username, invitation, onClose }: { username: string
               <p id="enroll-link" aria-labelledby="enroll-link-label" className="rounded-md border border-border bg-muted p-3 font-mono text-sm break-all select-all">
                 {enrollLink(invitation.token)}
               </p>
-              <ClipboardTrigger className="self-start">
-                <Copy aria-hidden />
-                Copy
-              </ClipboardTrigger>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">{`Expires ${formatTime(invitation.expiresAt)}`}</p>
+                <ClipboardTrigger>
+                  <Copy aria-hidden />
+                  Copy
+                </ClipboardTrigger>
+              </div>
             </SecretClipboard>
-            <p className="text-sm text-muted-foreground">{`Expires ${formatTime(invitation.expiresAt)}`}</p>
             <DialogFooter>
               <Button onClick={onClose}>Done</Button>
             </DialogFooter>
