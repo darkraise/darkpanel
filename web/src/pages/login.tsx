@@ -214,7 +214,7 @@ export function LoginPage() {
         </Alert>
       )}
       {who !== undefined && (
-        <Button type="button" variant="secondary" className="h-auto whitespace-normal" loading={continuing} onClick={() => void continueAs(who.username)}>
+        <Button type="button" variant="secondary" className="h-auto min-h-(--btn-height) whitespace-normal" loading={continuing} onClick={() => void continueAs(who.username)}>
           {`Continue as ${who.username} (${who.loginName}, from ${who.nodeName})`}
         </Button>
       )}
