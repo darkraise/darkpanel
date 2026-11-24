@@ -121,6 +121,24 @@ tokens cannot create or revoke tokens.
   member's signed-in session. It revokes one of your tokens, and it cannot be
   undone.
 
+## Remembered Tailscale devices
+
+A device is remembered once its user types their code after Continue as from
+it; from then on Continue as from that device signs in without a code, unless
+the Tailscale method requires the code every time.
+
+- `core.tailnetdevice.list`: `darkpanel tailnetdevice list` lists your
+  remembered devices, most recently used first. Any user may run it, from a
+  session or a token.
+- `core.tailnetdevice.forget`: `darkpanel tailnetdevice forget --stable-id <id>`
+  needs `admin`, or a member's signed-in session. It forgets one of your
+  devices, so its next Continue as asks the code; sessions it opened stay
+  signed in. The confirmation phrase is the stable id, and it cannot be undone.
+- `core.user.list-tailnet-devices`: `darkpanel user list-tailnet-devices --username <name>`
+  needs `admin`. It lists a user's remembered devices.
+- `core.user.forget-tailnet-device`: `darkpanel user forget-tailnet-device --username <name> --stable-id <id>`
+  needs `admin`. It forgets one of a user's devices, and it cannot be undone.
+
 ## Hosts
 
 A host is pending until its agent enrolls, then enrolled, and revoked after
