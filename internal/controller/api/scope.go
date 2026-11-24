@@ -65,7 +65,7 @@ func authorizeController(p core.Principal, def core.ActionDef) error {
 	access := p.HostAccess()
 	if ownTokenActions[def.Ref()] && !access.Fleet {
 		if p.UserID == "" || p.TokenID != "" {
-			return errcode.New(errcode.Forbidden, "managing tokens needs a signed-in session")
+			return errcode.New(errcode.Forbidden, "this action needs a signed-in session, not a token")
 		}
 		return nil
 	}

@@ -83,7 +83,7 @@ func (m module) tokenManager(p core.Principal, scope core.Scope) (*auth.Service,
 		return svc, userID, err
 	}
 	if p.TokenID != "" {
-		return nil, "", errcode.New(errcode.Forbidden, "managing tokens needs a signed-in session")
+		return nil, "", errcode.New(errcode.Forbidden, "this action needs a signed-in session, not a token")
 	}
 	if scope == core.ScopeAdmin {
 		return nil, "", errcode.New(errcode.Forbidden, "only an admin can create a token with the admin scope")

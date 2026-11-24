@@ -205,9 +205,9 @@ func TestTailnetDeviceForgetRefusals(t *testing.T) {
 	}{
 		{"another user's device", func(e *deviceEnv) caller { return e.session }, "nX", http.StatusNotFound, errcode.NotFound, ""},
 		{"a member read token", func(e *deviceEnv) caller { return e.read }, "nL", http.StatusForbidden, errcode.Forbidden,
-			"managing tokens needs a signed-in session"},
+			"this action needs a signed-in session, not a token"},
 		{"a member operate token", func(e *deviceEnv) caller { return e.op }, "nL", http.StatusForbidden, errcode.Forbidden,
-			"managing tokens needs a signed-in session"},
+			"this action needs a signed-in session, not a token"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newDeviceEnv(t)
