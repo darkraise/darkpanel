@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -362,5 +363,22 @@ func TestChangeStepsHideBreakGlassChildren(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), `"k3`) || strings.Contains(rec.Body.String(), `"k4"`) {
 		t.Errorf("the answer names a hidden child: %s", rec.Body)
+	}
+}
+
+// A composite change's steps that cannot be read hide the change from a
+// member, and the failure is logged so a short change list is explained.
+func TestChangeVisibleLogsAFailedStepsRead(t *testing.T) {
+	h := newHarness(t)
+	h.disp.StepsFunc = func(context.Context, core.Principal, string) ([]core.StepView, error) {
+		return nil, errors.New("store down")
+	}
+	member := core.Principal{Actor: "user:m1", UserID: "m1", Access: core.Access{All: core.ScopeOperate}}
+	v := core.ChangeView{ID: "c-composite", Action: "demo.item.add", Version: 1, Class: core.ClassComposite}
+	if h.srv.changeVisible(context.Background(), member, v) {
+		t.Error("a composite whose steps could not be read is visible to a member")
+	}
+	if log := h.log.String(); !strings.Contains(log, "read a composite change's steps") || !strings.Contains(log, "c-composite") {
+		t.Errorf("no warning names the change; log:\n%s", log)
 	}
 }
