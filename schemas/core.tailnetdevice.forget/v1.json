@@ -31,18 +31,22 @@
       "TailnetDevice": {
         "properties": {
           "stableId": {
-            "type": "string"
+            "type": "string",
+            "description": "Tailscale stable node id of the device."
           },
           "nodeName": {
-            "type": "string"
+            "type": "string",
+            "description": "The node's MagicDNS name when it last signed in; empty when it has none."
           },
           "rememberedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When a right code first remembered the device."
           },
           "lastUsedAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "When the device last signed its user in."
           }
         },
         "type": "object",

@@ -599,10 +599,10 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `lastUsedAt` | string (date-time) | yes |  |
-| `nodeName` | string | yes |  |
-| `rememberedAt` | string (date-time) | yes |  |
-| `stableId` | string | yes |  |
+| `lastUsedAt` | string (date-time) | yes | When the device last signed its user in. |
+| `nodeName` | string | yes | The node's MagicDNS name when it last signed in; empty when it has none. |
+| `rememberedAt` | string (date-time) | yes | When a right code first remembered the device. |
+| `stableId` | string | yes | Tailscale stable node id of the device. |
 
 ## core.tailnetdevice.list v1
 
@@ -627,10 +627,10 @@ Returned in the `output` field of the response.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `devices` | array of object | yes | The user's remembered Tailscale devices, most recently used first. Continue as from one of them asks no code. |
-| `devices[].lastUsedAt` | string (date-time) | yes |  |
-| `devices[].nodeName` | string | yes |  |
-| `devices[].rememberedAt` | string (date-time) | yes |  |
-| `devices[].stableId` | string | yes |  |
+| `devices[].lastUsedAt` | string (date-time) | yes | When the device last signed its user in. |
+| `devices[].nodeName` | string | yes | The node's MagicDNS name when it last signed in; empty when it has none. |
+| `devices[].rememberedAt` | string (date-time) | yes | When a right code first remembered the device. |
+| `devices[].stableId` | string | yes | Tailscale stable node id of the device. |
 
 ## core.token.create v1
 
@@ -1128,10 +1128,10 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `lastUsedAt` | string (date-time) | yes |  |
-| `nodeName` | string | yes |  |
-| `rememberedAt` | string (date-time) | yes |  |
-| `stableId` | string | yes |  |
+| `lastUsedAt` | string (date-time) | yes | When the device last signed its user in. |
+| `nodeName` | string | yes | The node's MagicDNS name when it last signed in; empty when it has none. |
+| `rememberedAt` | string (date-time) | yes | When a right code first remembered the device. |
+| `stableId` | string | yes | Tailscale stable node id of the device. |
 
 ## core.user.invite v1
 
@@ -1199,10 +1199,10 @@ Returned in the `output` field of the response.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `devices` | array of object | yes | The user's remembered Tailscale devices, most recently used first. Continue as from one of them asks no code. |
-| `devices[].lastUsedAt` | string (date-time) | yes |  |
-| `devices[].nodeName` | string | yes |  |
-| `devices[].rememberedAt` | string (date-time) | yes |  |
-| `devices[].stableId` | string | yes |  |
+| `devices[].lastUsedAt` | string (date-time) | yes | When the device last signed its user in. |
+| `devices[].nodeName` | string | yes | The node's MagicDNS name when it last signed in; empty when it has none. |
+| `devices[].rememberedAt` | string (date-time) | yes | When a right code first remembered the device. |
+| `devices[].stableId` | string | yes | Tailscale stable node id of the device. |
 
 ## core.user.renew-invite v1
 

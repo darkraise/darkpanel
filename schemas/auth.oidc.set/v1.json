@@ -126,7 +126,7 @@
           },
           "requireTotp": {
             "type": "boolean",
-            "description": "Whether the authenticator code is asked after the whois match."
+            "description": "Whether every Continue as asks for the authenticator code, remembered node or not."
           }
         },
         "type": "object",

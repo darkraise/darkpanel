@@ -433,7 +433,7 @@
             "type": "boolean"
           },
           "requireTotp": {
-            "description": "Whether the authenticator code is asked after the whois match.",
+            "description": "Whether every Continue as asks for the authenticator code, remembered node or not.",
             "type": "boolean"
           }
         },
@@ -560,7 +560,7 @@
             "type": "boolean"
           },
           "requireTotp": {
-            "description": "Whether the authenticator code is asked after the whois match.",
+            "description": "Whether every Continue as asks for the authenticator code, remembered node or not.",
             "type": "boolean"
           }
         },
@@ -649,7 +649,7 @@
             "type": "boolean"
           },
           "requireTotp": {
-            "description": "Whether the authenticator code is asked after the whois match.",
+            "description": "Whether every Continue as asks for the authenticator code, remembered node or not.",
             "type": "boolean"
           }
         },
@@ -670,7 +670,7 @@
             "type": "boolean"
           },
           "requireTotp": {
-            "description": "Ask for the user's authenticator code after the whois match; false when omitted.",
+            "description": "Ask for the user's authenticator code on every Continue as; when false, a node the user remembered with a code signs in without one. False when omitted.",
             "type": "boolean"
           }
         },
@@ -750,7 +750,7 @@
             "type": "boolean"
           },
           "requireTotp": {
-            "description": "Whether the authenticator code is asked after the whois match.",
+            "description": "Whether every Continue as asks for the authenticator code, remembered node or not.",
             "type": "boolean"
           }
         },
@@ -3858,17 +3858,21 @@
       "core.tailnetdevice.forget.v1.output.TailnetDevice": {
         "properties": {
           "lastUsedAt": {
+            "description": "When the device last signed its user in.",
             "format": "date-time",
             "type": "string"
           },
           "nodeName": {
+            "description": "The node's MagicDNS name when it last signed in; empty when it has none.",
             "type": "string"
           },
           "rememberedAt": {
+            "description": "When a right code first remembered the device.",
             "format": "date-time",
             "type": "string"
           },
           "stableId": {
+            "description": "Tailscale stable node id of the device.",
             "type": "string"
           }
         },
@@ -3894,17 +3898,21 @@
       "core.tailnetdevice.list.v1.output.TailnetDevice": {
         "properties": {
           "lastUsedAt": {
+            "description": "When the device last signed its user in.",
             "format": "date-time",
             "type": "string"
           },
           "nodeName": {
+            "description": "The node's MagicDNS name when it last signed in; empty when it has none.",
             "type": "string"
           },
           "rememberedAt": {
+            "description": "When a right code first remembered the device.",
             "format": "date-time",
             "type": "string"
           },
           "stableId": {
+            "description": "Tailscale stable node id of the device.",
             "type": "string"
           }
         },
@@ -5461,17 +5469,21 @@
       "core.user.forget-tailnet-device.v1.output.TailnetDevice": {
         "properties": {
           "lastUsedAt": {
+            "description": "When the device last signed its user in.",
             "format": "date-time",
             "type": "string"
           },
           "nodeName": {
+            "description": "The node's MagicDNS name when it last signed in; empty when it has none.",
             "type": "string"
           },
           "rememberedAt": {
+            "description": "When a right code first remembered the device.",
             "format": "date-time",
             "type": "string"
           },
           "stableId": {
+            "description": "Tailscale stable node id of the device.",
             "type": "string"
           }
         },
@@ -5631,17 +5643,21 @@
       "core.user.list-tailnet-devices.v1.output.TailnetDevice": {
         "properties": {
           "lastUsedAt": {
+            "description": "When the device last signed its user in.",
             "format": "date-time",
             "type": "string"
           },
           "nodeName": {
+            "description": "The node's MagicDNS name when it last signed in; empty when it has none.",
             "type": "string"
           },
           "rememberedAt": {
+            "description": "When a right code first remembered the device.",
             "format": "date-time",
             "type": "string"
           },
           "stableId": {
+            "description": "Tailscale stable node id of the device.",
             "type": "string"
           }
         },
@@ -27529,7 +27545,7 @@
           }
         },
         "security": [],
-        "summary": "Which user this Tailscale node may continue as, from the listener's whois"
+        "summary": "Which user this Tailscale node may continue as, whether the node is remembered and the user code-ready"
       },
       "post": {
         "responses": {
@@ -27541,7 +27557,7 @@
           }
         },
         "security": [],
-        "summary": "Continue as the user this Tailscale node's whois matches and sign in"
+        "summary": "Continue as the whois match: a remembered node signs in, any other asks the code that remembers it"
       }
     },
     "/api/v1/auth/totp": {
@@ -27555,7 +27571,7 @@
           }
         },
         "security": [],
-        "summary": "Enter the authenticator code a sign-in method asks for and sign in"
+        "summary": "Enter the authenticator code a sign-in method asks for and sign in; a Tailscale code must come from its node"
       }
     },
     "/api/v1/changes": {

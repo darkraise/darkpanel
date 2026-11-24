@@ -13,10 +13,10 @@ import (
 // TailnetDevice is a Tailscale node its user typed a right code from; the
 // user's next Continue-as from it asks no code.
 type TailnetDevice struct {
-	StableID     string    `json:"stableId"`
-	NodeName     string    `json:"nodeName"`
-	RememberedAt time.Time `json:"rememberedAt"`
-	LastUsedAt   time.Time `json:"lastUsedAt"`
+	StableID     string    `json:"stableId" jsonschema_description:"Tailscale stable node id of the device."`
+	NodeName     string    `json:"nodeName" jsonschema_description:"The node's MagicDNS name when it last signed in; empty when it has none."`
+	RememberedAt time.Time `json:"rememberedAt" jsonschema_description:"When a right code first remembered the device."`
+	LastUsedAt   time.Time `json:"lastUsedAt" jsonschema_description:"When the device last signed its user in."`
 }
 
 const deviceColumns = `stable_id, node_name, remembered_at, last_used_at`

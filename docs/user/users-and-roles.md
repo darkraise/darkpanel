@@ -51,7 +51,12 @@ each one.
 The user opens the link, sets a password, scans the authenticator QR code and
 enters a code, and is then signed in. A used or expired link says "This link
 has expired. Ask an admin for a new one." Use New enrollment link on the user's
-row menu for a new one; the old link stops working.
+row menu for a new one; the old link stops working. The row menu also offers
+New enrollment link for an active user without a password of its own, such as
+one that only Tailscale sign-in activated before remembered devices.
+
+An invited user always enrolls through the link: Tailscale sign-in never
+activates an invite.
 
 From the CLI, `darkpanel user invite --username <name> --role member` invites
 a user; it asks you to type the username, or takes `--confirmation <name>`.
@@ -67,6 +72,11 @@ The row menu on the Users page changes a user's role, access and sign-in
 links, and disables or enables the user. A disabled user cannot sign in by
 any method, and its sessions and API tokens stop working until it is enabled
 again. Darkpanel refuses to demote, disable or delete the last active admin.
+
+Tailscale devices in the row menu lists the devices the user's Continue as
+remembers, and Forget makes a device ask for the code again
+([Remembered devices](sign-in.md#remembered-devices)). Changing the user's
+tailnet login forgets all of them.
 
 ## API tokens of a member
 

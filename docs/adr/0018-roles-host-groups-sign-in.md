@@ -6,6 +6,9 @@
 
 Accepted
 
+Its Tailscale identity decisions are amended by
+[ADR 0019: Remembered tailnet devices](0019-remembered-tailnet-devices.md).
+
 ## Context
 
 Until M10 every Darkpanel user was an admin, and a token's scope (read,

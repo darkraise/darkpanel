@@ -56,7 +56,7 @@ type OIDCSetInput struct {
 // TailscaleSetInput is the input of auth.tailscale.set/v1.
 type TailscaleSetInput struct {
 	Enabled     bool `json:"enabled" jsonschema_description:"Offer Tailscale sign-in on the Tailscale listener."`
-	RequireTOTP bool `json:"requireTotp,omitempty" jsonschema_description:"Ask for the user's authenticator code after the whois match; false when omitted."`
+	RequireTOTP bool `json:"requireTotp,omitempty" jsonschema_description:"Ask for the user's authenticator code on every Continue as; when false, a node the user remembered with a code signs in without one. False when omitted."`
 }
 
 // NoSettingsInput is the empty input of auth.oidc.clear/v1 and auth.settings.get/v1.
@@ -75,7 +75,7 @@ type OIDCSettings struct {
 // TailscaleSettings is the stored Tailscale sign-in setting.
 type TailscaleSettings struct {
 	Enabled     bool `json:"enabled" jsonschema_description:"Whether Tailscale sign-in is offered."`
-	RequireTOTP bool `json:"requireTotp" jsonschema_description:"Whether the authenticator code is asked after the whois match."`
+	RequireTOTP bool `json:"requireTotp" jsonschema_description:"Whether every Continue as asks for the authenticator code, remembered node or not."`
 }
 
 // SignInSettings is the output of auth.settings.get/v1 and of each settings change.

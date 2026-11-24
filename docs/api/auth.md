@@ -28,7 +28,7 @@ Returned in the `output` field of the change that apply returns.
 | `oidc` | object or null | yes |  |
 | `tailscale` | object | yes | Tailscale sign-in. |
 | `tailscale.enabled` | boolean | yes | Whether Tailscale sign-in is offered. |
-| `tailscale.requireTotp` | boolean | yes | Whether the authenticator code is asked after the whois match. |
+| `tailscale.requireTotp` | boolean | yes | Whether every Continue as asks for the authenticator code, remembered node or not. |
 
 ## auth.oidc.set v1
 
@@ -63,7 +63,7 @@ Returned in the `output` field of the change that apply returns.
 | `oidc` | object or null | yes |  |
 | `tailscale` | object | yes | Tailscale sign-in. |
 | `tailscale.enabled` | boolean | yes | Whether Tailscale sign-in is offered. |
-| `tailscale.requireTotp` | boolean | yes | Whether the authenticator code is asked after the whois match. |
+| `tailscale.requireTotp` | boolean | yes | Whether every Continue as asks for the authenticator code, remembered node or not. |
 
 ## auth.settings.get v1
 
@@ -90,7 +90,7 @@ Returned in the `output` field of the response.
 | `oidc` | object or null | yes |  |
 | `tailscale` | object | yes | Tailscale sign-in. |
 | `tailscale.enabled` | boolean | yes | Whether Tailscale sign-in is offered. |
-| `tailscale.requireTotp` | boolean | yes | Whether the authenticator code is asked after the whois match. |
+| `tailscale.requireTotp` | boolean | yes | Whether every Continue as asks for the authenticator code, remembered node or not. |
 
 ## auth.tailscale.set v1
 
@@ -110,7 +110,7 @@ Sent in the `input` field of the request body.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `enabled` | boolean | yes | Offer Tailscale sign-in on the Tailscale listener. |
-| `requireTotp` | boolean | no | Ask for the user's authenticator code after the whois match; false when omitted. |
+| `requireTotp` | boolean | no | Ask for the user's authenticator code on every Continue as; when false, a node the user remembered with a code signs in without one. False when omitted. |
 
 ### Output
 
@@ -121,4 +121,4 @@ Returned in the `output` field of the change that apply returns.
 | `oidc` | object or null | yes |  |
 | `tailscale` | object | yes | Tailscale sign-in. |
 | `tailscale.enabled` | boolean | yes | Whether Tailscale sign-in is offered. |
-| `tailscale.requireTotp` | boolean | yes | Whether the authenticator code is asked after the whois match. |
+| `tailscale.requireTotp` | boolean | yes | Whether every Continue as asks for the authenticator code, remembered node or not. |

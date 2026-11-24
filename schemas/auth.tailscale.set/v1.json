@@ -16,7 +16,7 @@
           },
           "requireTotp": {
             "type": "boolean",
-            "description": "Ask for the user's authenticator code after the whois match; false when omitted."
+            "description": "Ask for the user's authenticator code on every Continue as; when false, a node the user remembered with a code signs in without one. False when omitted."
           }
         },
         "additionalProperties": false,
@@ -100,7 +100,7 @@
           },
           "requireTotp": {
             "type": "boolean",
-            "description": "Whether the authenticator code is asked after the whois match."
+            "description": "Whether every Continue as asks for the authenticator code, remembered node or not."
           }
         },
         "type": "object",

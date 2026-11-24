@@ -28,6 +28,8 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
   reserved names and ADR 0012's reservation of `system`
 - [ADR 0017: Design language](0017-design-language.md)
 - [ADR 0018: Roles, host groups and sign-in methods](0018-roles-host-groups-sign-in.md)
+- [ADR 0019: Remembered tailnet devices](0019-remembered-tailnet-devices.md);
+  amends ADR 0018's Tailscale identity decisions
 
 ## Format
 

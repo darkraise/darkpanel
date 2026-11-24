@@ -33,7 +33,8 @@ itself from signed releases with automatic rollback.
 - **Private by default.** There is no default account. The web interface
   listens on loopback and on Tailscale addresses only, and sign-in needs a
   password and a TOTP code, or an [OIDC provider or Tailscale
-  identity](docs/user/sign-in.md) linked to a user an admin added.
+  identity](docs/user/sign-in.md) linked to a user an admin added. Tailscale
+  identity asks for the code once per device.
 - **Members.** Admins invite [members](docs/user/users-and-roles.md) who see
   and act only on the host groups their grants name, as viewers or operators.
 - **Metrics and alerts.** Each host's CPU, memory, disk, network and load are
