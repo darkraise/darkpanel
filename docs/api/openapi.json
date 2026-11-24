@@ -12485,6 +12485,234 @@
         ],
         "type": "object"
       },
+      "metrics.history.get.v1.input": {
+        "$ref": "#/components/schemas/metrics.history.get.v1.input.HistoryInput"
+      },
+      "metrics.history.get.v1.input.HistoryInput": {
+        "additionalProperties": false,
+        "properties": {
+          "hostId": {
+            "description": "Id of the host whose metrics to read.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "range": {
+            "description": "How far back to read; 1h when left out. Up to 7d the points are minutes, beyond that hours.",
+            "enum": [
+              "1h",
+              "24h",
+              "7d",
+              "30d",
+              "90d"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "hostId"
+        ],
+        "type": "object"
+      },
+      "metrics.history.get.v1.output": {
+        "$ref": "#/components/schemas/metrics.history.get.v1.output.History"
+      },
+      "metrics.history.get.v1.output.FSUsage": {
+        "properties": {
+          "mount": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "used": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mount",
+          "used",
+          "total"
+        ],
+        "type": "object"
+      },
+      "metrics.history.get.v1.output.History": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "points": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/metrics.history.get.v1.output.Point"
+            },
+            "type": "array"
+          },
+          "range": {
+            "type": "string"
+          },
+          "resolution": {
+            "description": "1m for minute points, 1h for hour points.",
+            "enum": [
+              "1m",
+              "1h"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/metrics.history.get.v1.output.PollStatus",
+                "description": "The host's last poll; null before the first."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "hostId",
+          "range",
+          "resolution",
+          "points",
+          "status"
+        ],
+        "type": "object"
+      },
+      "metrics.history.get.v1.output.NetRate": {
+        "properties": {
+          "iface": {
+            "type": "string"
+          },
+          "rxBps": {
+            "type": "number"
+          },
+          "txBps": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "iface",
+          "rxBps",
+          "txBps"
+        ],
+        "type": "object"
+      },
+      "metrics.history.get.v1.output.Point": {
+        "properties": {
+          "cpu": {
+            "description": "CPU busy percent across all cores.",
+            "type": "number"
+          },
+          "fs": {
+            "items": {
+              "$ref": "#/components/schemas/metrics.history.get.v1.output.FSUsage"
+            },
+            "type": "array"
+          },
+          "load1": {
+            "type": "number"
+          },
+          "load15": {
+            "type": "number"
+          },
+          "load5": {
+            "type": "number"
+          },
+          "memTotal": {
+            "type": "integer"
+          },
+          "memUsed": {
+            "type": "integer"
+          },
+          "net": {
+            "items": {
+              "$ref": "#/components/schemas/metrics.history.get.v1.output.NetRate"
+            },
+            "type": "array"
+          },
+          "swapTotal": {
+            "type": "integer"
+          },
+          "swapUsed": {
+            "type": "integer"
+          },
+          "ts": {
+            "description": "The start of the minute or the hour.",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "cpu",
+          "memUsed",
+          "memTotal",
+          "swapUsed",
+          "swapTotal",
+          "load1",
+          "load5",
+          "load15",
+          "fs",
+          "net"
+        ],
+        "type": "object"
+      },
+      "metrics.history.get.v1.output.PollStatus": {
+        "properties": {
+          "clockSkewS": {
+            "oneOf": [
+              {
+                "description": "The agent clock less the controller's, in seconds, at the last answer.",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastErrorAt": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastErrorCode": {
+            "oneOf": [
+              {
+                "description": "The error code of the last poll while it failed: an error code, metrics.clock_skew or metrics.bad_answer.",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastOk": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "lastOk",
+          "lastErrorCode",
+          "lastErrorAt",
+          "clockSkewS"
+        ],
+        "type": "object"
+      },
       "metrics.samples.get.v1.input": {
         "$ref": "#/components/schemas/metrics.samples.get.v1.input.SamplesInput"
       },
@@ -23254,6 +23482,62 @@
           }
         ],
         "summary": "Pin tailscaled, then replace derper; between the two steps the versions differ and the region may refuse clients."
+      }
+    },
+    "/api/v1/actions/metrics.history.get/v1/read": {
+      "post": {
+        "operationId": "metrics.history.get.v1.read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/metrics.history.get.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/metrics.history.get.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Return a host's stored metrics over a range, with its last poll."
       }
     },
     "/api/v1/actions/notify.channel.create/v1/apply": {

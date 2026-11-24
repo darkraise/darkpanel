@@ -1,10 +1,12 @@
-// Package metrics is the host metrics module (M10 spec section 5.1): an
+// Package metrics is the host metrics module (M10 spec section 5): an
 // agent-side sampler of /proc and statfs every 15 s, one hour of samples in
-// memory, and the read of their minute averages.
+// memory, and the read of their minute averages; its controller half, in
+// internal/modules/metrics/controller, polls and stores them.
 package metrics
 
 import (
 	"context"
+	"embed"
 	"fmt"
 	"io/fs"
 	"os"
@@ -14,10 +16,24 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/ext"
+	metricsctl "github.com/darkraise/darkpanel/internal/modules/metrics/controller"
 )
 
 // ID is the module id.
 const ID = "metrics"
+
+//go:embed migrations
+var migrationsFS embed.FS
+
+func controllerMigrations() fs.FS {
+	sub, err := fs.Sub(migrationsFS, "migrations/controller")
+	if err != nil {
+		// fs.Sub fails only for an invalid path, and this one is a constant.
+		panic(err)
+	}
+	return sub
+}
 
 // sampleEvery is the sampler's interval.
 const sampleEvery = 15 * time.Second
@@ -32,7 +48,7 @@ type Source struct {
 // New returns the module sampling src.
 func New(src Source) core.Module {
 	r := newRing()
-	return module{s: &sampler{src: src, ring: r}}
+	return module{s: &sampler{src: src, ring: r}, ctl: metricsctl.New()}
 }
 
 // Module returns the module sampling this host.
@@ -47,19 +63,34 @@ func statfs(path string) (uint64, uint64, error) {
 	return (st.Blocks - st.Bfree) * bsize, st.Blocks * bsize, nil
 }
 
-type module struct{ s *sampler }
+type module struct {
+	s   *sampler
+	ctl metricsctl.Side
+}
 
-var _ core.Background = module{}
+var (
+	_ core.Background = module{}
+	_ ext.Controller  = module{}
+)
 
-// Manifest declares the module: one agent read, no tables. It is enabled by
-// default, so hosts enrolled before it existed, which store no flag, run it.
+// Manifest declares the module: the agent read, the controller's actions
+// and its controller migrations; the agent keeps no tables. It is enabled
+// by default, so hosts enrolled before it existed, which store no flag, run
+// it.
 func (m module) Manifest() core.Manifest {
 	return core.Manifest{
 		ID:             ID,
 		Version:        1,
 		DefaultEnabled: true,
-		Actions:        []core.ActionDef{samplesAction(m.s.ring)},
+		Actions:        append([]core.ActionDef{samplesAction(m.s.ring)}, m.ctl.Actions...),
+		Migrations:     map[core.Side]fs.FS{core.SideController: controllerMigrations()},
 	}
+}
+
+// Controller contributes the poller and the hourly rollup; the service
+// runner holds both while a restore's quarantine lasts.
+func (m module) Controller(deps ext.Deps) ([]ext.Route, []ext.Service, error) {
+	return nil, m.ctl.Services(deps), nil
 }
 
 // BackgroundTasks is the sampler.

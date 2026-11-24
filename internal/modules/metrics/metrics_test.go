@@ -20,6 +20,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/ext"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/platform"
 )
@@ -363,5 +364,49 @@ func TestSamplesReadIsNotJournaled(t *testing.T) {
 	}
 	if after := count(); after != before {
 		t.Errorf("60 reads of metrics.samples.get wrote %d journal entries, want none", after-before)
+	}
+}
+
+// TestControllerHalfIsWired checks that the module, as the registry and the
+// server's contributions see it, declares the controller migrations and
+// metrics.history.get and contributes the poller and the rollup.
+func TestControllerHalfIsWired(t *testing.T) {
+	m := Module()
+	man := m.Manifest()
+	if man.Migrations[core.SideController] == nil {
+		t.Error("the manifest declares no controller migrations")
+	}
+	if _, err := fs.Stat(man.Migrations[core.SideController], "0001_metrics.sql"); err != nil {
+		t.Errorf("the controller migrations lack 0001_metrics.sql: %v", err)
+	}
+	var names []string
+	for _, def := range man.Actions {
+		names = append(names, def.Spec.Name)
+	}
+	if !slices.Contains(names, "metrics.history.get") || !slices.Contains(names, ActionSamples) {
+		t.Errorf("the manifest declares %v", names)
+	}
+	ctl, ok := m.(ext.Controller)
+	if !ok {
+		t.Fatal("the module has no controller contribution")
+	}
+	db, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "controller.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	_, svcs, err := ctl.Controller(ext.Deps{DB: db, Dispatch: &coretest.FakeDispatcher{}, Clock: coretest.NewFakeClock(t0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var svcNames []string
+	for _, s := range svcs {
+		svcNames = append(svcNames, s.Name)
+	}
+	if !slices.Equal(svcNames, []string{"metrics.poll", "metrics.rollup"}) {
+		t.Errorf("the module contributes %v, want the poller and the rollup", svcNames)
+	}
+	if _, svcs, _ := ctl.Controller(ext.Deps{}); len(svcs) != 0 {
+		t.Errorf("with no database the module contributes %d services", len(svcs))
 	}
 }

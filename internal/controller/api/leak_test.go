@@ -149,25 +149,34 @@ func TestNoControllerReadLeaksAnotherHost(t *testing.T) {
 			if s.Class != core.ClassRead || s.Side != core.SideController || s.Internal || s.BreakGlass || s.Reveal {
 				continue
 			}
+			read := func(input string) (int, string) {
+				r := httptest.NewRequest(http.MethodPost, "/api/v1/actions/"+s.Name+"/v1/read",
+					strings.NewReader(`{"input": `+input+`}`))
+				r.Header.Set("Content-Type", "application/json")
+				r.RemoteAddr = "192.0.2.10:1234"
+				rec := httptest.NewRecorder()
+				srv.Handler().ServeHTTP(rec, credential(r))
+				return rec.Code, rec.Body.String()
+			}
 			input := `{}`
 			if s.HostData == core.HostDataInput {
 				input = `{"hostId": "h-in"}`
+				// A read naming a host outside the member's grants is not
+				// found, as an unknown host is.
+				if code, body := read(`{"hostId": "h-out"}`); code != http.StatusNotFound ||
+					!strings.Contains(body, `"code":"`+string(errcode.NotFound)+`"`) || strings.Contains(body, "outside-host") {
+					t.Errorf("%s, %s naming h-out: %d %s, want 404 %s", how, s.Name, code, body, errcode.NotFound)
+				}
 			}
-			r := httptest.NewRequest(http.MethodPost, "/api/v1/actions/"+s.Name+"/v1/read",
-				strings.NewReader(`{"input": `+input+`}`))
-			r.Header.Set("Content-Type", "application/json")
-			r.RemoteAddr = "192.0.2.10:1234"
-			rec := httptest.NewRecorder()
-			srv.Handler().ServeHTTP(rec, credential(r))
-			body := rec.Body.String()
+			code, body := read(input)
 			if s.HostData == core.HostDataFleet {
-				if rec.Code != http.StatusForbidden || !strings.Contains(body, "auth.forbidden") {
-					t.Errorf("%s, %s (fleet): %d %s, want 403 auth.forbidden", how, s.Name, rec.Code, body)
+				if code != http.StatusForbidden || !strings.Contains(body, "auth.forbidden") {
+					t.Errorf("%s, %s (fleet): %d %s, want 403 auth.forbidden", how, s.Name, code, body)
 				}
 				continue
 			}
-			if rec.Code != http.StatusOK {
-				t.Errorf("%s, %s (%s): %d %s, want 200", how, s.Name, s.HostData, rec.Code, body)
+			if code != http.StatusOK {
+				t.Errorf("%s, %s (%s): %d %s, want 200", how, s.Name, s.HostData, code, body)
 				continue
 			}
 			served[s.Name] = true

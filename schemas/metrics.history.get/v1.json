@@ -1,0 +1,241 @@
+{
+  "name": "metrics.history.get",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/HistoryInput",
+    "$defs": {
+      "HistoryInput": {
+        "properties": {
+          "hostId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Id of the host whose metrics to read."
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "1h",
+              "24h",
+              "7d",
+              "30d",
+              "90d"
+            ],
+            "description": "How far back to read; 1h when left out. Up to 7d the points are minutes, beyond that hours."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "hostId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/History",
+    "$defs": {
+      "FSUsage": {
+        "properties": {
+          "mount": {
+            "type": "string"
+          },
+          "used": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mount",
+          "used",
+          "total"
+        ]
+      },
+      "History": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string"
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "1m",
+              "1h"
+            ],
+            "description": "1m for minute points, 1h for hour points."
+          },
+          "points": {
+            "items": {
+              "$ref": "#/$defs/Point"
+            },
+            "type": "array",
+            "description": "Oldest first."
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/PollStatus",
+                "description": "The host's last poll; null before the first."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostId",
+          "range",
+          "resolution",
+          "points",
+          "status"
+        ]
+      },
+      "NetRate": {
+        "properties": {
+          "iface": {
+            "type": "string"
+          },
+          "rxBps": {
+            "type": "number"
+          },
+          "txBps": {
+            "type": "number"
+          }
+        },
+        "type": "object",
+        "required": [
+          "iface",
+          "rxBps",
+          "txBps"
+        ]
+      },
+      "Point": {
+        "properties": {
+          "ts": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The start of the minute or the hour."
+          },
+          "cpu": {
+            "type": "number",
+            "description": "CPU busy percent across all cores."
+          },
+          "memUsed": {
+            "type": "integer"
+          },
+          "memTotal": {
+            "type": "integer"
+          },
+          "swapUsed": {
+            "type": "integer"
+          },
+          "swapTotal": {
+            "type": "integer"
+          },
+          "load1": {
+            "type": "number"
+          },
+          "load5": {
+            "type": "number"
+          },
+          "load15": {
+            "type": "number"
+          },
+          "fs": {
+            "items": {
+              "$ref": "#/$defs/FSUsage"
+            },
+            "type": "array"
+          },
+          "net": {
+            "items": {
+              "$ref": "#/$defs/NetRate"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ts",
+          "cpu",
+          "memUsed",
+          "memTotal",
+          "swapUsed",
+          "swapTotal",
+          "load1",
+          "load5",
+          "load15",
+          "fs",
+          "net"
+        ]
+      },
+      "PollStatus": {
+        "properties": {
+          "lastOk": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastErrorCode": {
+            "oneOf": [
+              {
+                "type": "string",
+                "description": "The error code of the last poll while it failed: an error code, metrics.clock_skew or metrics.bad_answer."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastErrorAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clockSkewS": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "The agent clock less the controller's, in seconds, at the last answer."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "lastOk",
+          "lastErrorCode",
+          "lastErrorAt",
+          "clockSkewS"
+        ]
+      }
+    }
+  }
+}

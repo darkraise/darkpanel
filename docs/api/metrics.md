@@ -2,6 +2,54 @@
 
 Back to the [API reference](README.md).
 
+## metrics.history.get v1
+
+Return a host's stored metrics over a range, with its last poll.
+
+| Operation | Request |
+|---|---|
+| read | `POST /api/v1/actions/metrics.history.get/v1/read` |
+
+Minimum scope: `read`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `hostId` | string | yes | Id of the host whose metrics to read. |
+| `range` | string | no | How far back to read; 1h when left out. Up to 7d the points are minutes, beyond that hours. Values: 1h, 24h, 7d, 30d, 90d. |
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `hostId` | string | yes |  |
+| `points` | array of object | yes | Oldest first. |
+| `points[].cpu` | number | yes | CPU busy percent across all cores. |
+| `points[].fs` | array of object | yes |  |
+| `points[].fs[].mount` | string | yes |  |
+| `points[].fs[].total` | integer | yes |  |
+| `points[].fs[].used` | integer | yes |  |
+| `points[].load1` | number | yes |  |
+| `points[].load15` | number | yes |  |
+| `points[].load5` | number | yes |  |
+| `points[].memTotal` | integer | yes |  |
+| `points[].memUsed` | integer | yes |  |
+| `points[].net` | array of object | yes |  |
+| `points[].net[].iface` | string | yes |  |
+| `points[].net[].rxBps` | number | yes |  |
+| `points[].net[].txBps` | number | yes |  |
+| `points[].swapTotal` | integer | yes |  |
+| `points[].swapUsed` | integer | yes |  |
+| `points[].ts` | string (date-time) | yes | The start of the minute or the hour. |
+| `range` | string | yes |  |
+| `resolution` | string | yes | 1m for minute points, 1h for hour points. Values: 1m, 1h. |
+| `status` | object or null | yes |  |
+
 ## metrics.samples.get v1
 
 Return the 1-minute averages of the host's recent metrics.
