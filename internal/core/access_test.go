@@ -20,6 +20,8 @@ func TestAccessOn(t *testing.T) {
 		{"ceiling lowers a host grant", Access{Hosts: map[string]Scope{"c": ScopeOperate}, Ceil: map[string]Scope{"c": ScopeRead}}, "c", ScopeRead},
 		{"ceiling elsewhere", Access{All: ScopeOperate, Ceil: map[string]Scope{"c": ScopeRead}}, "h", ScopeOperate},
 		{"ceiling grants nothing", Access{Ceil: map[string]Scope{"c": ScopeRead}}, "c", ""},
+		{"an unknown all scope grants nothing", Access{All: "bogus"}, "h1", ""},
+		{"an unknown host scope grants nothing", Access{Hosts: map[string]Scope{"h1": "bogus"}}, "h1", ""},
 	}
 	for _, c := range cases {
 		if got := c.access.On(c.host); got != c.want {
@@ -50,5 +52,20 @@ func TestAccessAllHosts(t *testing.T) {
 		if got := c.access.AllHosts(c.need); got != c.want {
 			t.Errorf("%s: AllHosts(%q) = %v, want %v", c.name, c.need, got, c.want)
 		}
+	}
+}
+
+// TestAccessUnknownScopeFailsClosed: an unknown scope string is no access,
+// so it neither shows rows nor widens a list to every host.
+func TestAccessUnknownScopeFailsClosed(t *testing.T) {
+	a := Access{All: "bogus", Hosts: map[string]Scope{"h1": "bogus"}}
+	if a.Sees("h1") || a.Sees("h2") {
+		t.Error("an unknown scope sees a host row")
+	}
+	if got := a.Everywhere(); got != "" {
+		t.Errorf("Everywhere = %q, want none", got)
+	}
+	if r := a.RowScope(); r == nil || r.HostIDs == nil || len(r.HostIDs) != 0 {
+		t.Errorf("RowScope = %+v, want no hosts", r)
 	}
 }

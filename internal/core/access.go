@@ -26,6 +26,14 @@ func (a Access) On(hostID string) Scope {
 	if c, ok := a.Ceil[hostID]; ok && s.rank() > c.rank() {
 		s = c
 	}
+	return known(s)
+}
+
+// known is s, or "" for a scope no check knows, so it fails closed.
+func known(s Scope) Scope {
+	if s.rank() == 0 {
+		return ""
+	}
 	return s
 }
 
@@ -77,7 +85,7 @@ func (a Access) Everywhere() Scope {
 			s = c
 		}
 	}
-	return s
+	return known(s)
 }
 
 // RowScope limits a list to the rows a principal without fleet access may
@@ -96,7 +104,7 @@ func (a Access) RowScope(actors ...string) *RowScope {
 		return nil
 	}
 	r := &RowScope{Actors: actors}
-	if a.All == "" {
+	if known(a.All) == "" {
 		r.HostIDs = []string{}
 		for id := range a.Hosts {
 			if a.On(id) != "" {
