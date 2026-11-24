@@ -21,8 +21,9 @@ const HOST: Host = {
 }
 const groups: HostGroup[] = Array.from({ length: 32 }, (_, i) => ({ id: `g${i}`, name: i === 0 ? LONG : `group-${i}`, hostIds: i % 2 === 1 ? [HOST_ID] : [], hostCount: i % 2, grantCount: i % 3, createdAt: "2026-11-20T08:00:00Z" }))
 const users = Array.from({ length: 50 }, (_, i) => ({
-  id: `u${i}`, username: i === 0 ? "admin" : `user-${String(i).padStart(2, "0")}`, role: i === 0 ? "admin" : "member", state: "active", createdAt: "2026-11-20T08:00:00Z",
-  disabled: false, grants: i === 0 ? [] : [{ role: i % 2 === 0 ? "viewer" : "operator", target: "g0" }], email: "", tailnetLogin: "", signIn: ["password"],
+  id: `u${i}`, username: i === 0 ? "admin" : `user-${String(i).padStart(2, "0")}`, role: i === 0 ? "admin" : "member", state: i % 7 === 3 ? "pending" : "active", createdAt: "2026-11-20T08:00:00Z",
+  disabled: false, grants: i === 0 ? [] : [{ role: i % 2 === 0 ? "viewer" : "operator", target: "g0" }], email: "", tailnetLogin: "",
+  signIn: i % 7 === 3 ? [] : ["password"], inviteExpiresAt: i % 7 === 3 ? "2099-11-26T09:40:00Z" : null,
 }))
 const channels: NotifyChannel[] = [
   { id: "c1", kind: "ntfy", name: "ops-phone", minSeverity: "warning", kinds: [], groupIds: [], enabled: true, createdAt: "2026-11-20T08:00:00Z", ntfy: { server: "https://ntfy.sh", topic: "ops", tokenSet: true }, lastDelivery: { state: "sent", at: "2026-11-24T09:12:00Z" } },
@@ -155,6 +156,10 @@ for (const theme of THEMES) {
           for (const [i, chart] of (await charts.all()).entries()) {
             await chart.scrollIntoViewIfNeeded()
             await settle(page)
+            const tickText = chart.locator("xpath=../..").locator(".recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value")
+            await expect.poll(() => tickText.count(), "the time axis has ticks").toBeGreaterThan(0)
+            const ticks = await tickText.allTextContents()
+            for (const tick of ticks) expect(tick, "a time tick reads as a 24-hour clock").toMatch(/^\d{2}:\d{2}$/)
             await chart.locator("xpath=../..").screenshot({ path: `${EVIDENCE}/metrics-charts-${vp.width}-${theme}-${i + 1}.png` })
           }
         }
@@ -194,7 +199,10 @@ for (const theme of THEMES) {
       await page.route(/\/api\/v1\/enroll\/begin$/, (route) => route.fulfill(problem(410, "auth.enrollment_expired", "This link has expired.")))
       await page.goto(url("/login"))
       await expect(page.getByRole("link", { name: "Sign in with Acme SSO" })).toBeVisible()
-      await expect(page.getByRole("button", { name: "Continue as mia (mia@github, from laptop)" })).toBeVisible()
+      const continueAs = page.getByRole("button", { name: "Continue as mia (mia@github, from laptop)" })
+      await expect(continueAs).toBeVisible()
+      const logIn = (await page.getByRole("button", { name: "Log in" }).boundingBox())!.height
+      expect((await continueAs.boundingBox())!.height, "Continue as is as tall as Log in").toBeGreaterThanOrEqual(logIn)
       await settle(page)
       await page.screenshot({ path: `${EVIDENCE}/login-${vp.width}-${theme}.png`, fullPage: true })
       await page.goto(url("/?signin=no_linked_user"))
@@ -351,10 +359,14 @@ for (const theme of THEMES) {
         await open(page, theme)
         await page.goto(url("/alerts"))
         const button = page.getByRole("button", { name: "New rule" })
-        await button.hover()
+        await expect(button).toBeVisible()
         await settle(page)
         const box = (await button.boundingBox())!
-        await page.screenshot({ path: `${EVIDENCE}/alerts-1440-${theme}-button-hover.png`, clip: { x: box.x - 16, y: box.y - 16, width: box.width + 32, height: box.height + 32 } })
+        const clip = { x: box.x - 16, y: box.y - 16, width: box.width + 32, height: box.height + 32 }
+        await page.screenshot({ path: `${EVIDENCE}/alerts-1440-${theme}-button-rest.png`, clip })
+        await button.hover()
+        await settle(page)
+        await page.screenshot({ path: `${EVIDENCE}/alerts-1440-${theme}-button-hover.png`, clip })
       }
     })
   }
@@ -398,11 +410,53 @@ for (const theme of THEMES) {
     await settle(page)
     await page.screenshot({ path: `${EVIDENCE}/keyboard-1440-${theme}-3-apply-focused.png` })
     await page.keyboard.press("Enter")
-    await expect(page.getByRole("dialog", { name: "Enrollment link for noor" })).toBeVisible()
+    const link = page.getByRole("dialog", { name: "Enrollment link for noor" })
+    await expect(link).toBeVisible()
+    await expect.poll(() => link.evaluate((el) => el.contains(document.activeElement)), "the link dialog takes focus").toBe(true)
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press("Tab")
+      expect(await link.evaluate((el) => el.contains(document.activeElement)), `link dialog: tab ${i + 1} stays inside`).toBe(true)
+    }
     await tabTo("Done")
     await settle(page)
     await page.screenshot({ path: `${EVIDENCE}/keyboard-1440-${theme}-4-link-done-focused.png` })
     await page.keyboard.press("Enter")
     await expect(page.getByRole("dialog")).toHaveCount(0)
+  })
+}
+
+// UX-11 for the row-menu dialogs (jsdom orders the menu's focus return after
+// the dialog's autofocus, so only a browser shows this): the menu opens with Enter, its item opens
+// a dialog that takes focus and keeps Tab inside, and Escape returns focus to
+// the menu's button.
+const ROW_DIALOGS = [
+  { page: "/settings/groups", menu: "Actions for group-1", item: "Edit members", dialog: "Members of group-1" },
+  { page: "/settings/groups", menu: "Actions for group-1", item: "Delete", dialog: "Delete group-1" },
+  { page: "/settings/users", menu: "Actions for user-01", item: "Change role", dialog: "Change the role of user-01" },
+]
+for (const theme of THEMES) {
+  test(`UX-11 row-menu dialogs by keyboard at 1440 in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await open(page, theme)
+    for (const c of ROW_DIALOGS) {
+      await page.goto(url(c.page))
+      const trigger = page.getByRole("button", { name: c.menu, exact: true })
+      await trigger.focus()
+      await page.keyboard.press("Enter")
+      const item = page.getByRole("menuitem", { name: c.item, exact: true })
+      await expect(item).toBeVisible()
+      for (let i = 0; i < 6 && !(await item.evaluate((el) => el === document.activeElement || el.hasAttribute("data-highlighted"))); i++) await page.keyboard.press("ArrowDown")
+      await page.keyboard.press("Enter")
+      const dialog = page.getByRole("dialog", { name: c.dialog })
+      await expect(dialog).toBeVisible()
+      await expect.poll(() => dialog.evaluate((el) => el.contains(document.activeElement)), `${c.dialog} takes focus`).toBe(true)
+      for (let i = 0; i < 12; i++) {
+        await page.keyboard.press("Tab")
+        expect(await dialog.evaluate((el) => el.contains(document.activeElement)), `${c.dialog}: tab ${i + 1} stays inside`).toBe(true)
+      }
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("dialog")).toHaveCount(0)
+      await expect(trigger, `Escape from ${c.dialog} returns focus to ${c.menu}`).toBeFocused()
+    }
   })
 }
