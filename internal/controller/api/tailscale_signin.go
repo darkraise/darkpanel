@@ -104,20 +104,39 @@ func (s *Server) tailscaleRemote(r *http.Request) (netip.Addr, error) {
 	if !set.Tailscale.Enabled {
 		return netip.Addr{}, errcode.New(errcode.MethodOff, "this sign-in method is off")
 	}
-	refused := errcode.New(errcode.InvalidCredentials, "the sign-in was refused")
+	addr, ok := tailnetAddr(r)
+	if !ok {
+		return netip.Addr{}, errcode.New(errcode.InvalidCredentials, "the sign-in was refused")
+	}
+	return addr, nil
+}
+
+// tailnetPeer is the request's unmapped tailnet address when it arrived over
+// TLS on a Tailscale listener and was not proxied; false otherwise. It asks
+// no agent.
+func (s *Server) tailnetPeer(r *http.Request) (netip.Addr, bool) {
+	if r.TLS == nil || !s.onTailscaleListener(r) {
+		return netip.Addr{}, false
+	}
+	return tailnetAddr(r)
+}
+
+// tailnetAddr is the request's remote address, unmapped, when it lies in
+// Tailscale's ranges and is not loopback.
+func tailnetAddr(r *http.Request) (netip.Addr, bool) {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return netip.Addr{}, refused
+		return netip.Addr{}, false
 	}
 	addr, err := netip.ParseAddr(host)
 	if err != nil {
-		return netip.Addr{}, refused
+		return netip.Addr{}, false
 	}
 	addr = addr.Unmap()
 	if addr.IsLoopback() || !tailnetV4.Contains(addr) && !tailnetV6.Contains(addr) {
-		return netip.Addr{}, refused
+		return netip.Addr{}, false
 	}
-	return addr, nil
+	return addr, true
 }
 
 // whois asks the controller host's agent who holds addr, after spending one

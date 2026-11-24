@@ -69,16 +69,17 @@ func TestIsManagedTailnetNodeAddressesOnly(t *testing.T) {
 
 // tsEnv is a service with Tailscale sign-in on and helpers for its users.
 type tsEnv struct {
-	t     *testing.T
-	s     *Service
-	clock *coretest.FakeClock
-	audit *coretest.MemAudit
+	t       *testing.T
+	s       *Service
+	clock   *coretest.FakeClock
+	audit   *coretest.MemAudit
+	secrets map[string]string // username -> TOTP secret
 }
 
 func newTSEnv(t *testing.T, requireTOTP bool) *tsEnv {
 	t.Helper()
 	s, clock, audit := newTestService(t)
-	e := &tsEnv{t: t, s: s, clock: clock, audit: audit}
+	e := &tsEnv{t: t, s: s, clock: clock, audit: audit, secrets: map[string]string{}}
 	e.requireTOTP(requireTOTP)
 	return e
 }
@@ -92,7 +93,8 @@ func (e *tsEnv) requireTOTP(on bool) {
 // active adds an active user linked to login with totp_last_step step.
 func (e *tsEnv) active(username, login string, step int64) User {
 	e.t.Helper()
-	u, _ := createActive(e.t, e.s, e.clock, username)
+	u, secret := createActive(e.t, e.s, e.clock, username)
+	e.secrets[username] = secret
 	exec(e.t, e.s, `UPDATE core_users SET tailnet_login = ?, totp_last_step = ? WHERE id = ?`, login, step, u.ID)
 	return u
 }
@@ -429,5 +431,204 @@ func TestRefusalCauses(t *testing.T) {
 				t.Errorf("audit = %v, want refused %s with %s", a, tc.cause, tc.code)
 			}
 		})
+	}
+}
+
+// code is username's right TOTP code now.
+func (e *tsEnv) code(username string) string {
+	e.t.Helper()
+	c, err := TOTPCode(e.secrets[username], e.clock.Now())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return c
+}
+
+// failures is the count of limiter keys holding a failure.
+func (e *tsEnv) failures() int {
+	e.s.limiter.mu.Lock()
+	defer e.s.limiter.mu.Unlock()
+	return len(e.s.limiter.keys)
+}
+
+// miaTicket is a Continue-as ticket for code-ready mia on her laptop.
+func (e *tsEnv) miaTicket() string {
+	e.t.Helper()
+	res, err := e.s.SignInTailscale(context.Background(), tsReq(miaWhois()))
+	if err != nil || res.Ticket == "" {
+		e.t.Fatalf("SignInTailscale = %+v, %v; want a ticket", res, err)
+	}
+	return res.Ticket
+}
+
+func stepReq(ticket, code, remote string) TOTPStepRequest {
+	r := TOTPStepRequest{Ticket: ticket, Code: code, Source: "100.64.0.5", UserAgent: "test"}
+	if remote != "" {
+		r.Remote = netip.MustParseAddr(remote)
+	}
+	return r
+}
+
+func (e *tsEnv) pinned(username string) string {
+	e.t.Helper()
+	var v sql.NullString
+	if err := e.s.db.Read().QueryRow(`SELECT tailnet_user_id FROM core_users WHERE username = ?`, username).Scan(&v); err != nil {
+		e.t.Fatal(err)
+	}
+	return v.String
+}
+
+func TestCodeStepRemembersTheNode(t *testing.T) {
+	ctx := context.Background()
+	e := newTSEnv(t, false)
+	e.active("mia", "mia@github", 7)
+	t1 := e.clock.Now()
+	res, err := e.s.FinishTOTPStep(ctx, stepReq(e.miaTicket(), e.code("mia"), "100.64.0.5"))
+	if err != nil || res.SessionID == "" {
+		t.Fatalf("FinishTOTPStep = %+v, %v; want a session", res, err)
+	}
+	if got, want := e.device("mia", "nL"), "laptop.tail1234.ts.net "+formatTime(t1)+" "+formatTime(t1); got != want {
+		t.Errorf("device row = %q, want %q", got, want)
+	}
+	if got := e.pinned("mia"); got != "42" {
+		t.Errorf("tailnet_user_id = %q, want 42", got)
+	}
+	if a := e.lastAudit(); a["device"] != "new" || a["result"] != "ok" {
+		t.Errorf("audit = %v, want an ok code step with device new", a)
+	}
+
+	// requireTotp on: each Continue-as asks the code, and a right code
+	// refreshes the row.
+	e.requireTOTP(true)
+	e.clock.Advance(time.Minute)
+	w := miaWhois()
+	w.NodeName = "renamed.tail1234.ts.net"
+	got, err := e.s.SignInTailscale(ctx, tsReq(w))
+	if err != nil || got.Ticket == "" {
+		t.Fatalf("SignInTailscale = %+v, %v; want a ticket", got, err)
+	}
+	if _, err := e.s.FinishTOTPStep(ctx, stepReq(got.Ticket, e.code("mia"), "100.64.0.5")); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.device("mia", "nL"), "renamed.tail1234.ts.net "+formatTime(t1)+" "+formatTime(e.clock.Now()); got != want {
+		t.Errorf("device row after a second code = %q, want %q", got, want)
+	}
+	if a := e.lastAudit(); a["device"] != "remembered" {
+		t.Errorf("audit = %v, want device remembered", a)
+	}
+}
+
+func TestCodeStepFailuresRememberNothing(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		step func(e *tsEnv, ticket string)
+	}{
+		{"a wrong code", func(e *tsEnv, ticket string) {
+			if _, err := e.s.FinishTOTPStep(ctx, stepReq(ticket, "000000", "100.64.0.5")); err == nil {
+				e.t.Error("a wrong code signed in")
+			}
+		}},
+		{"an expired ticket", func(e *tsEnv, ticket string) {
+			e.clock.Advance(SignInTicketTTL + time.Second)
+			if _, err := e.s.FinishTOTPStep(ctx, stepReq(ticket, e.code("mia"), "100.64.0.5")); err == nil {
+				e.t.Error("an expired ticket signed in")
+			}
+		}},
+		{"Back, no step at all", func(*tsEnv, string) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTSEnv(t, false)
+			e.active("mia", "mia@github", 7)
+			tc.step(e, e.miaTicket())
+			if got := e.device("mia", "nL"); got != "" {
+				t.Errorf("device row %q, want none", got)
+			}
+			res, err := e.s.SignInTailscale(ctx, tsReq(miaWhois()))
+			if err != nil || res.Ticket == "" {
+				t.Errorf("the next Continue-as = %+v, %v; want a ticket again", res, err)
+			}
+		})
+	}
+}
+
+// checkRefusedStep asserts a right code on ticket from remote is refused as
+// cause, with nothing pinned, remembered or spent.
+func (e *tsEnv) checkRefusedStep(ticket, remote, cause string) {
+	e.t.Helper()
+	res, err := e.s.FinishTOTPStep(context.Background(), stepReq(ticket, e.code("mia"), remote))
+	if errcode.From(err).Code != errcode.InvalidCredentials || res.SessionID != "" {
+		e.t.Errorf("FinishTOTPStep from %q = %+v, %v; want auth.invalid_credentials", remote, res, err)
+	}
+	if a := e.lastAudit(); a["refused"] != cause {
+		e.t.Errorf("audit = %v, want refused %s", a, cause)
+	}
+	if e.sessions() != 0 || e.pinned("mia") != "" || e.device("mia", "nL") != "" || e.failures() != 0 {
+		e.t.Errorf("after the refusal: %d sessions, pin %q, device %q, %d failures; want none", e.sessions(), e.pinned("mia"), e.device("mia", "nL"), e.failures())
+	}
+}
+
+func TestCodeStepFromAnotherNode(t *testing.T) {
+	for _, remote := range []string{"100.64.0.6", ""} {
+		t.Run("remote "+remote, func(t *testing.T) {
+			e := newTSEnv(t, false)
+			e.active("mia", "mia@github", 7)
+			ticket := e.miaTicket()
+			e.checkRefusedStep(ticket, remote, "node")
+			if res, err := e.s.FinishTOTPStep(context.Background(), stepReq(ticket, e.code("mia"), "100.64.0.5")); err != nil || res.SessionID == "" {
+				t.Errorf("the same ticket from its node = %+v, %v; want a session", res, err)
+			}
+		})
+	}
+}
+
+func TestCodeStepAfterLinkChange(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(e *tsEnv)
+	}{
+		{"the tailnet login changed", func(e *tsEnv) {
+			if _, err := e.s.SetIdentity(context.Background(), "mia", "", "other@github"); err != nil {
+				e.t.Fatal(err)
+			}
+		}},
+		{"the pinned tailnet user id is another", func(e *tsEnv) {
+			exec(e.t, e.s, `UPDATE core_users SET tailnet_user_id = '43' WHERE username = 'mia'`)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTSEnv(t, false)
+			e.active("mia", "mia@github", 7)
+			ticket := e.miaTicket()
+			tc.change(e)
+			res, err := e.s.FinishTOTPStep(context.Background(), stepReq(ticket, e.code("mia"), "100.64.0.5"))
+			if errcode.From(err).Code != errcode.InvalidCredentials || res.SessionID != "" {
+				t.Errorf("FinishTOTPStep = %+v, %v; want auth.invalid_credentials", res, err)
+			}
+			if a := e.lastAudit(); a["refused"] != "link" {
+				t.Errorf("audit = %v, want refused link", a)
+			}
+			if pin := e.pinned("mia"); e.device("mia", "nL") != "" || e.failures() != 0 || pin != "" && pin != "43" {
+				t.Errorf("device %q, %d failures, pin %q; want nothing remembered, spent or pinned", e.device("mia", "nL"), e.failures(), pin)
+			}
+		})
+	}
+}
+
+func TestCodeStepAfterHostRecorded(t *testing.T) {
+	ctx := context.Background()
+	e := newTSEnv(t, false)
+	e.active("mia", "mia@github", 7)
+	ticket := e.miaTicket()
+	exec(t, e.s, `INSERT INTO core_hosts (id, name, created_at) VALUES ('h1', 'web1', '2026-11-25T00:00:00Z')`)
+	exec(t, e.s, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('h1', '100.64.0.5', '', '2026-11-25T00:00:00Z')`)
+	e.checkRefusedStep(ticket, "100.64.0.5", "host")
+
+	exec(t, e.s, `DELETE FROM core_host_tailnet`)
+	if _, err := e.s.FinishTOTPStep(ctx, stepReq(e.miaTicket(), "000000", "100.64.0.5")); errcode.From(err).Code != errcode.InvalidCredentials {
+		t.Fatalf("a wrong code: %v, want auth.invalid_credentials", err)
+	}
+	if n := e.failures(); n == 0 {
+		t.Error("a wrong code on a clean ticket spent no failure")
 	}
 }

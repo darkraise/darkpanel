@@ -405,6 +405,16 @@ func TestWhoisThrottle(t *testing.T) {
 	}
 }
 
+// codeStep is the code-step POST from tsPeer over TLS on the Tailscale
+// listener, the only place a Tailscale ticket's code is accepted from.
+func (h *tsHarness) codeStep(step *http.Cookie, code string) *http.Request {
+	r := request(http.MethodPost, tsHost+totpStepPath, `{"code":"`+code+`"}`)
+	r.Header.Add("Cookie", step.Name+"="+step.Value)
+	r.RemoteAddr = net.JoinHostPort(tsPeer, "41000")
+	r.TLS = &tls.ConnectionState{}
+	return r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: tsListener.AsSlice(), Port: 443}))
+}
+
 func TestTailscaleRequireTotp(t *testing.T) {
 	h := newTSHarness(t, true)
 	rec := h.do(post(tsPeer))
@@ -418,8 +428,7 @@ func TestTailscaleRequireTotp(t *testing.T) {
 	if h.tailnetUserID(h.user.ID) != "" {
 		t.Fatal("the tailnet user was pinned before the code")
 	}
-	r := request(http.MethodPost, tsHost+totpStepPath, `{"code":"`+h.code()+`"}`)
-	r.Header.Add("Cookie", step.Name+"="+step.Value)
+	r := h.codeStep(step, h.code())
 	if rec = h.serve(r); rec.Code != http.StatusOK || h.sessions() != 1 {
 		t.Fatalf("code step: %d %s; want a session", rec.Code, rec.Body)
 	}
@@ -434,8 +443,7 @@ func TestTailscaleRequireTotp(t *testing.T) {
 		t.Fatalf("second POST: %d %s", rec.Code, rec.Body)
 	}
 	h.exec(`UPDATE auth_settings SET tailscale_enabled = 0`)
-	r = request(http.MethodPost, tsHost+totpStepPath, `{"code":"`+h.code()+`"}`)
-	r.Header.Add("Cookie", step.Name+"="+step.Value)
+	r = h.codeStep(step, h.code())
 	if rec = h.serve(r); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"auth.method_off"`) || h.sessions() != 1 {
 		t.Errorf("code step with the method off: %d %s; want auth.method_off and no session", rec.Code, rec.Body)
 	}

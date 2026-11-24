@@ -856,6 +856,23 @@ func TestA16_tailscale_continue_as(t *testing.T) {
 	if step == "" || qaCount(t, q.harness, `SELECT count(*) FROM core_sessions`) != 0 {
 		t.Errorf("Continue as set no step cookie, or opened a session before the code")
 	}
+	// The code from the ticket's node opens a session and pins the whois
+	// user id; the next Continue-as from that node asks no code.
+	if rec := q.qaCodeStep(step, q.code(), qaTSController, qaTSNode, false); rec.Code != 200 ||
+		qaCount(t, q.harness, `SELECT count(*) FROM core_sessions`) != 1 {
+		t.Fatalf("the code step = %d %s, want a session", rec.Code, rec.Body)
+	}
+	if n := qaCount(t, q.harness, `SELECT count(*) FROM core_users WHERE username = 'admin' AND tailnet_user_id = '4242'`); n != 1 {
+		t.Errorf("the whois user id was not pinned by the code step")
+	}
+	rec = q.serve(q.req("POST", qaTSController, qaTSNode, "{}", false))
+	var again struct {
+		User struct{ Username string } `json:"user"`
+	}
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &again) != nil || again.User.Username != "admin" ||
+		qaCount(t, q.harness, `SELECT count(*) FROM core_sessions`) != 2 {
+		t.Errorf("the next Continue as = %d %s, want admin signed in without a code", rec.Code, rec.Body)
+	}
 	// A POST without the request's own Origin is refused.
 	r := q.req("POST", qaTSController, qaTSNode, "{}", false)
 	r.Header.Set("Origin", "https://evil.example")

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -104,6 +105,10 @@ type SignInResult struct {
 type TOTPStepRequest struct {
 	Ticket, Code, Source, UserAgent string
 	Trusted                         bool
+	// Remote is the request's tailnet address when it arrived over TLS on a
+	// Tailscale listener and was not proxied; zero otherwise. A Tailscale
+	// ticket's code is accepted only from one of its node's addresses.
+	Remote netip.Addr
 }
 
 // oidcState is the sealed content of the state cookie.
@@ -499,11 +504,16 @@ func (s *Service) FinishTOTPStep(ctx context.Context, r TOTPStepRequest) (LoginR
 		if t.Method == MethodOIDC && st.OIDC == nil || t.Method == MethodTailscale && !st.Tailscale.Enabled {
 			return errMethodOff()
 		}
+		if t.Method == MethodTailscale {
+			if err := s.checkTicketNode(ctx, tx, t, r.Remote); err != nil {
+				return err
+			}
+		}
 		key, err := s.sealer.Open(totpAD(cur.ID), cur.totpCT)
 		if err != nil {
 			return fmt.Errorf("auth: open TOTP secret: %w", err)
 		}
-		step, ok := matchTOTP(key, r.Code, s.clock.Now(), cur.lastStep)
+		totpStep, ok := matchTOTP(key, r.Code, s.clock.Now(), cur.lastStep)
 		if !ok {
 			return errInvalidCredentials()
 		}
@@ -511,7 +521,7 @@ func (s *Service) FinishTOTPStep(ctx context.Context, r TOTPStepRequest) (LoginR
 			return errSignInRefused()
 		}
 		now := formatTime(s.now())
-		if _, err := tx.ExecContext(ctx, `UPDATE core_users SET totp_last_step = ? WHERE id = ?`, step, cur.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE core_users SET totp_last_step = ? WHERE id = ?`, totpStep, cur.ID); err != nil {
 			return fmt.Errorf("auth: store TOTP step: %w", err)
 		}
 		if t.Subject != "" {
@@ -534,15 +544,37 @@ func (s *Service) FinishTOTPStep(ctx context.Context, r TOTPStepRequest) (LoginR
 				return errSignInRefused()
 			}
 		}
+		if t.Method == MethodTailscale {
+			known, err := remembered(ctx, tx, cur.ID, t.StableID)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO core_user_tailnet_devices (user_id, stable_id, node_name, remembered_at, last_used_at)
+				VALUES (?, ?, ?, ?, ?) ON CONFLICT (user_id, stable_id) DO UPDATE SET last_used_at = excluded.last_used_at, node_name = excluded.node_name`,
+				cur.ID, t.StableID, t.NodeName, now, now); err != nil {
+				return fmt.Errorf("auth: remember the tailnet device: %w", err)
+			}
+			step["device"] = "new"
+			if known {
+				step["device"] = "remembered"
+			}
+		}
 		res, err = s.openSession(ctx, tx, cur.User, r.Source, r.UserAgent)
 		return err
 	})
 	code := errcode.Code("")
 	if err != nil {
 		code = errcode.From(err).Code
-		s.limiter.failFor(rec.Username, src, trusted)
+		delete(step, "device")
+		if cause := refusedCause(err); cause != "" {
+			// The ticket is bound to another node or link: no code was
+			// tried, so no failure is spent.
+			step["refused"] = cause
+		} else {
+			s.limiter.failFor(rec.Username, src, trusted)
+		}
 	}
-	if aerr := s.recordSignInWith(ctx, t.Method, rec.Username, r.Source, rec.ID, code, map[string]string{"step": "totp"}); aerr != nil {
+	if aerr := s.recordSignInWith(ctx, t.Method, rec.Username, r.Source, rec.ID, code, step); aerr != nil {
 		return LoginResult{}, aerr
 	}
 	if err != nil {

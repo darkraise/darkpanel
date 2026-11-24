@@ -151,8 +151,12 @@ func (s *Server) handleTOTPStep(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(signInStepCookie); err == nil {
 		ticket = c.Value
 	}
-	res, err := s.cfg.Auth.FinishTOTPStep(r.Context(), auth.TOTPStepRequest{Ticket: ticket, Code: in.Code,
-		Source: clientAddr(r), UserAgent: r.UserAgent(), Trusted: s.TrustedListener(r)})
+	step := auth.TOTPStepRequest{Ticket: ticket, Code: in.Code,
+		Source: clientAddr(r), UserAgent: r.UserAgent(), Trusted: s.TrustedListener(r)}
+	if addr, ok := s.tailnetPeer(r); ok {
+		step.Remote = addr
+	}
+	res, err := s.cfg.Auth.FinishTOTPStep(r.Context(), step)
 	if err != nil {
 		writeProblem(w, s.log, err)
 		return

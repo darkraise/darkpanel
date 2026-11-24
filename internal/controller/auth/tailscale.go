@@ -150,6 +150,40 @@ func tailnetUser(ctx context.Context, q querier, w TailnetWhois) (rec userRecord
 	return rec, !pinned.Valid, rec.lastStep > 0, nil
 }
 
+// checkTicketNode refuses a Tailscale ticket's code step unless it comes
+// from one of the ticket's node addresses (node), the user is still linked
+// to the ticket's login and tailnet user (link), and none of the node's
+// addresses has become a Darkpanel host's (host).
+func (s *Service) checkTicketNode(ctx context.Context, tx *sql.Tx, t signInTicket, remote netip.Addr) error {
+	var addrs []netip.Addr
+	for _, a := range t.Addrs {
+		addr, err := netip.ParseAddr(a)
+		if err != nil {
+			return refuse(refusedNode, errSignInRefused())
+		}
+		addrs = append(addrs, addr)
+	}
+	if !remote.IsValid() || !slices.Contains(addrs, remote.Unmap()) {
+		return refuse(refusedNode, errSignInRefused())
+	}
+	var login, pinned sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT tailnet_login, tailnet_user_id FROM core_users WHERE id = ?`, t.UserID).
+		Scan(&login, &pinned); err != nil {
+		return fmt.Errorf("auth: read the tailnet link: %w", err)
+	}
+	if !login.Valid || !strings.EqualFold(login.String, t.Login) || pinned.Valid && pinned.String != t.WhoisUserID {
+		return refuse(refusedLink, errSignInRefused())
+	}
+	managed, err := s.IsManagedTailnetNode(ctx, tx, addrs)
+	if err != nil {
+		return err
+	}
+	if managed {
+		return refuse(refusedHost, errSignInRefused())
+	}
+	return nil
+}
+
 // remembered reports whether userID's device row for stableID exists.
 func remembered(ctx context.Context, q querier, userID, stableID string) (bool, error) {
 	var n int
