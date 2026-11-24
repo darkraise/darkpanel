@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Outlet } from "react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Bell, Boxes, History, KeyRound, LogIn, RefreshCw, Server, Users } from "lucide-react"
+import { Bell, BellRing, Boxes, History, KeyRound, LogIn, RefreshCw, Server, Users } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { SidebarLayout, type NavGroup, type NavItem } from "darkraise-ui/layout"
 import { HOSTS_QUERY_KEY, errorMessage, getListenerState, listHosts } from "@/api/client"
@@ -52,6 +52,7 @@ function navigation(hosts: Host[], admin: boolean): NavGroup[] {
     {
       items: [
         { label: "Hosts", href: "/", icon: Server, children: hostItems },
+        { label: "Alerts", href: "/alerts", icon: BellRing },
         { label: "Audit log", href: "/audit", icon: History },
         { label: "Rollouts", href: "/rollouts", icon: RefreshCw },
       ],

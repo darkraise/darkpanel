@@ -79,3 +79,15 @@ export interface NotifyChannel {
 export interface ChannelList { channels: NotifyChannel[] }
 export interface ChannelTestResult { delivered: boolean; code: string }
 export interface EnrollmentStart { username: string; secret: string; uri: string; expiresAt: string }
+export type AlertMetric = "cpu" | "memory" | "swap" | "disk" | "load" | "offline"
+export type AlertSeverity = "warning" | "critical"
+export interface AlertRule {
+  id: string; name: string; metric: AlertMetric; comparator: ">" | "<"; threshold: number; durationMin: number; severity: AlertSeverity
+  target: string; targetName: string; enabled: boolean; createdAt: string; updatedAt: string
+}
+export interface AlertRuleList { rules: AlertRule[] }
+export interface FiredAlert {
+  ruleId: string; ruleName: string; metric: AlertMetric; severity: AlertSeverity; hostId: string; hostName: string; subject: string
+  state: "firing" | "resolved"; since: string; value: number
+}
+export interface AlertList { alerts: FiredAlert[] }

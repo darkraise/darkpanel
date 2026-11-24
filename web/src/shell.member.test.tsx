@@ -44,13 +44,13 @@ describe("member navigation", () => {
   test("an admin sees the admin settings, the Network pages and API tokens", async () => {
     renderApp(adminSession, "/", hostWith("admin"))
     await screen.findAllByRole("link", { name: "Users" })
-    for (const name of [...ADMIN_ENTRIES, ...NETWORK, "API tokens", "Hosts", "Audit log", "Rollouts"]) expect(link(name), name).toBe(true)
+    for (const name of [...ADMIN_ENTRIES, ...NETWORK, "API tokens", "Hosts", "Alerts", "Audit log", "Rollouts"]) expect(link(name), name).toBe(true)
   })
 
-  test("a member sees Hosts, Audit, Rollouts and API tokens, no Network or admin settings", async () => {
+  test("a member sees Hosts, Alerts, Audit, Rollouts and API tokens, no Network or admin settings", async () => {
     renderApp(memberSession(), "/")
     await screen.findAllByRole("link", { name: "API tokens" })
-    for (const name of ["Hosts", "Audit log", "Rollouts", "API tokens"]) expect(link(name), name).toBe(true)
+    for (const name of ["Hosts", "Alerts", "Audit log", "Rollouts", "API tokens"]) expect(link(name), name).toBe(true)
     for (const name of [...ADMIN_ENTRIES, ...NETWORK]) expect(link(name), name).toBe(false)
     expect(screen.queryByRole("button", { name: "Add host" })).toBeNull()
   })

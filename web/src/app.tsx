@@ -4,6 +4,7 @@ import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { globalPages, moduleRegistry } from "@/modules/registry"
 import type { GlobalPage } from "@/modules/types"
+import { AlertsPage } from "@/pages/alerts"
 import { AuditPage } from "@/pages/audit"
 import { ChangePage } from "@/pages/change"
 import { EnrollPage } from "@/pages/enroll"
@@ -61,6 +62,7 @@ export function App() {
           <Route index element={<HostsPage />} />
           <Route path="hosts/:hostId" element={<HostPage />} />
           <Route path="hosts/:hostId/:moduleId/*" element={<HostPage />} />
+          <Route path="alerts" element={<AlertsPage />} />
           <Route path="audit" element={<AuditPage />} />
           <Route path="rollouts" element={<RolloutsPage />} />
           <Route path="changes/:changeId" element={<ChangePage />} />
