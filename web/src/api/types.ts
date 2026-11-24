@@ -64,4 +64,18 @@ export interface TailscaleSettings { enabled: boolean; requireTotp: boolean }
 export interface SignInSettings { oidc: OIDCSettings | null; tailscale: TailscaleSettings }
 export interface SignInMethods { oidc: { displayName: string } | null; tailscale: boolean }
 export interface TailscaleMatch { username: string; loginName: string; nodeName: string }
+export type ChannelKind = "ntfy" | "telegram" | "discord" | "email" | "webhook"
+export type Severity = "info" | "warning" | "critical"
+export interface Delivery { state: "sent" | "failed"; at: string; error?: string }
+export interface NotifyChannel {
+  id: string; kind: ChannelKind; name: string; minSeverity: Severity; kinds: string[]; groupIds: string[]; enabled: boolean; createdAt: string
+  ntfy?: { server: string; topic: string; tokenSet: boolean } | null
+  telegram?: { chatId: string } | null
+  discord?: Record<string, never> | null
+  email?: { host: string; port: number; security: "starttls" | "tls" | "none"; username: string; passwordSet: boolean; from: string; recipients: string[] } | null
+  webhook?: { url: string; secretSet: boolean } | null
+  lastDelivery: Delivery | null
+}
+export interface ChannelList { channels: NotifyChannel[] }
+export interface ChannelTestResult { delivered: boolean; code: string }
 export interface EnrollmentStart { username: string; secret: string; uri: string; expiresAt: string }

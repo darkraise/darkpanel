@@ -11,6 +11,7 @@ import { GroupsPage } from "@/pages/groups"
 import { HostPage } from "@/pages/host"
 import { HostsPage } from "@/pages/hosts"
 import { LoginPage } from "@/pages/login"
+import { NotificationsPage } from "@/pages/notifications"
 import { RolloutsPage } from "@/pages/rollouts"
 import { SignInSettingsPage } from "@/pages/sign-in-settings"
 import { TokensPage } from "@/pages/tokens"
@@ -30,15 +31,6 @@ function GlobalPageView({ page }: { page: GlobalPage }) {
     </Suspense>
   )
 }
-
-// SettingsPage holds an admin settings route until its page is built.
-function SettingsPage({ title }: { title: string }) {
-  return <EmptyState title={title} description="This page is not built yet." />
-}
-
-const adminSettings = [
-  { path: "settings/notifications", title: "Notifications" },
-]
 
 // The routes of spec section 17. Every route but /login, /enroll and the
 // development boards sits behind the session guard, the modules' global pages included;
@@ -76,9 +68,7 @@ export function App() {
           <Route path="settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
           <Route path="settings/groups" element={<RequireAdmin><GroupsPage /></RequireAdmin>} />
           <Route path="settings/sign-in" element={<RequireAdmin><SignInSettingsPage /></RequireAdmin>} />
-          {adminSettings.map((page) => (
-            <Route key={page.path} path={page.path} element={<RequireAdmin><SettingsPage title={page.title} /></RequireAdmin>} />
-          ))}
+          <Route path="settings/notifications" element={<RequireAdmin><NotificationsPage /></RequireAdmin>} />
           {globalPages(moduleRegistry).map((page) => (
             <Route key={page.path} path={`${page.path}/*`} element={<RequireAdmin><GlobalPageView page={page} /></RequireAdmin>} />
           ))}
