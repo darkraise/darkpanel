@@ -389,11 +389,12 @@ func TestWhoisThrottle(t *testing.T) {
 	}
 	var tailscale int
 	for _, e := range entries {
-		if b, _ := json.Marshal(e); strings.Contains(string(b), `tailscale`) && strings.Contains(string(b), `method`) {
+		if strings.Contains(string(e.Input), `"method":"tailscale"`) {
 			tailscale++
 		}
 	}
-	if tailscale < 7 {
+	// GETs and the 429 write none.
+	if tailscale != 7 {
 		t.Errorf("%d audit entries with method tailscale; want one per sign-in (7)", tailscale)
 	}
 }
