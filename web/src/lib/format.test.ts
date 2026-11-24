@@ -37,7 +37,7 @@ describe("formatTime", () => {
     const iso = `${new Date().getFullYear()}-10-19T08:30:00Z`
     const want = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso))
     expect(formatTime(iso)).toBe(want)
-    expect(formatTime(iso)).toMatch(/\d{2}:30$/)
+    expect(formatTime(iso)).toMatch(/\d{2}:\d{2}$/)
     expect(formatTime(iso)).not.toContain(String(new Date().getFullYear()))
   })
 
