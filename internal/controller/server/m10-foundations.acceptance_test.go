@@ -547,6 +547,34 @@ func TestA11_pending_user_cannot_sign_in(t *testing.T) {
 	}
 }
 
+func TestA11_pending_user_with_known_secrets_cannot_sign_in(t *testing.T) {
+	e := qaStart(t)
+	// A user created through the socket is pending until its first code is confirmed; its
+	// password and TOTP secret are known here, so only its state refuses the login.
+	out, errOut, code := e.cli(nil, qaPassword+"\n", "user", "create", "--username", "pendcli", "--role", "member", "--socket", e.s.SocketPath(), "--yes")
+	m := secretLine.FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("user create: exit %d\n%s\n%s", code, out, errOut)
+	}
+	pend := qaMember{name: "pendcli", secret: m[1]}
+	r := e.qaLogin(pend)
+	if r.status == 200 {
+		t.Errorf("a pending user signed in by password with its right password and code: %s", r.body)
+	}
+	for _, c := range (&http.Response{Header: r.header}).Cookies() {
+		if c.Name == api.SessionCookiePlain && c.Value != "" {
+			t.Errorf("a refused login set a session cookie")
+		}
+	}
+	// Once confirmed it signs in.
+	if out, errOut, code := e.cli(nil, e.qaNextCode(pend.secret)+"\n", "user", "activate", "--username", "pendcli", "--socket", e.s.SocketPath(), "--yes"); code != cli.ExitOK {
+		t.Fatalf("user activate: exit %d\n%s\n%s", code, out, errOut)
+	}
+	if r := e.qaLogin(pend); r.status != 200 {
+		t.Errorf("an activated user's password login = %d %s, want 200", r.status, r.body)
+	}
+}
+
 func TestA47_member_owns_tokens(t *testing.T) {
 	e := qaStart(t)
 	qaHost(e, "h-tok")
