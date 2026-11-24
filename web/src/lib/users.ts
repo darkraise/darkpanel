@@ -8,7 +8,7 @@ export function applied(change: Change): boolean {
 function isInvitation(v: unknown): v is Invitation {
   if (typeof v !== "object" || v === null) return false
   const o = v as Record<string, unknown>
-  return typeof o.token === "string" && o.token !== "" && typeof o.expiresAt === "string"
+  return typeof o.token === "string" && o.token !== "" && typeof o.expiresAt === "string" && typeof o.user === "object" && o.user !== null
 }
 
 export function invitationOf(change: Change): Invitation | null {
