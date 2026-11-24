@@ -85,7 +85,7 @@ func TestLogin(t *testing.T) {
 	e := entries[0]
 	if e.Actor != "user:"+u.ID || e.Action != AuditLoginAction || e.Version != 1 || e.Phase != "login" ||
 		e.Result != "ok" || e.ErrorCode != "" || e.Source != "10.0.0.1" || !e.At.Equal(clock.Now()) ||
-		string(e.Input) != `{"username":"alice"}` || e.ID == "" {
+		string(e.Input) != `{"method":"password","username":"alice"}` || e.ID == "" {
 		t.Errorf("audit entry = %+v", e)
 	}
 }
@@ -130,7 +130,7 @@ func TestLoginFailuresAreIdentical(t *testing.T) {
 		entries, _, _ := audit.List(ctx, core.AuditQuery{Limit: 1})
 		got := entries[0]
 		if got.Actor != tt.actor || got.Result != "error" || got.ErrorCode != string(errcode.InvalidCredentials) ||
-			got.Phase != "login" || string(got.Input) != `{"username":"`+tt.req.Username+`"}` {
+			got.Phase != "login" || string(got.Input) != `{"method":"password","username":"`+tt.req.Username+`"}` {
 			t.Errorf("%s: audit entry = %+v, want actor %s", tt.name, got, tt.actor)
 		}
 		for _, secretValue := range []string{tt.req.Password, tt.req.Code} {
@@ -417,7 +417,7 @@ func TestLoginFaultAfterPasswordCounts(t *testing.T) {
 		e := entries[0]
 		if len(entries) != 1 || e.Actor != "user:"+u.ID || e.Action != AuditLoginAction || e.Phase != "login" ||
 			e.Result != "error" || e.ErrorCode != string(errcode.Internal) || e.Source != "10.0.0.1" ||
-			string(e.Input) != `{"username":"alice"}` {
+			string(e.Input) != `{"method":"password","username":"alice"}` {
 			t.Fatalf("attempt %d: audit entry = %+v, want a login error with code internal", i, e)
 		}
 	}

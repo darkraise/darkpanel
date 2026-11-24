@@ -200,11 +200,11 @@ func (s *Service) attempt(ctx context.Context, r LoginRequest) (LoginResult, str
 // recordLogin audits a login; code is "" for a success. The row is written
 // even if the request was cancelled, so a session never exists unaudited.
 func (s *Service) recordLogin(ctx context.Context, r LoginRequest, userID string, code errcode.Code) error {
-	return s.recordSignIn(ctx, "", r.Username, r.Source, userID, code)
+	return s.recordSignIn(ctx, SignInPassword, r.Username, r.Source, userID, code)
 }
 
-// recordSignIn audits a sign-in by method; a password login records no
-// method, as it always has. username is "" when the attempt named no user.
+// recordSignIn audits a sign-in by method. username is "" when the attempt
+// named no user.
 func (s *Service) recordSignIn(ctx context.Context, method, username, source, userID string, code errcode.Code) error {
 	return s.recordSignInWith(ctx, method, username, source, userID, code, nil)
 }
@@ -220,7 +220,7 @@ func (s *Service) recordSignInWith(ctx context.Context, method, username, source
 	for k, v := range extra {
 		fields[k] = v
 	}
-	if username != "" || method == "" {
+	if username != "" || method == SignInPassword {
 		fields["username"] = username
 	}
 	if method != "" {
