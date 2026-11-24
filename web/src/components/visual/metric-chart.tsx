@@ -63,7 +63,8 @@ export function MetricChart({ title, unit, data, area = false, daily, rangeText 
               <svg width="20" height="6" className="shrink-0">
                 <line x1="0" y1="3" x2="20" y2="3" stroke={colour(i)} strokeWidth="2" strokeDasharray={dash(i)} />
               </svg>
-              <span className="min-w-0 wrap-anywhere">{`${l.label}: ${l.text}`}</span>
+              {/* A no-break space keeps each value on the line of its unit when the key wraps. */}
+              <span className="min-w-0 wrap-anywhere">{`${l.label}: ${l.text.replace(/(\d) (%|MB\/s|GiB)/g, "$1\u00a0$2")}`}</span>
             </li>
           ))}
           {hidden !== "" && <li>{hidden.trim()}</li>}
