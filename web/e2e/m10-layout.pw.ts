@@ -1,3 +1,4 @@
+import { createRequire } from "node:module"
 import { expect, test, type Page } from "@playwright/test"
 import type { AlertRule, FiredAlert, Host, HostGroup, MetricsPoint, NotifyChannel } from "../src/api/types"
 import { HOST_ID, mockApi } from "./fixtures"
@@ -10,6 +11,7 @@ const EVIDENCE = "../.dforge/ui-ux/m10"
 const url = (path: string) => `http://127.0.0.1:${process.env.E2E_PORT}${path}`
 const ok = (output: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify({ output }) })
 const GIB = 1024 ** 3
+const axePath = createRequire(createRequire(import.meta.url).resolve("vitest-axe")).resolve("axe-core/axe.min.js")
 
 const LONG = `ops-${"g".repeat(44)}`
 const HOST: Host = {
@@ -71,6 +73,18 @@ async function overflowing(page: Page): Promise<string[]> {
   })
 }
 
+// OP-3 in the rendered page: axe's colour-contrast rule on the settled view.
+async function contrastViolations(page: Page): Promise<string[]> {
+  await page.addScriptTag({ path: axePath })
+  const violations = await page.evaluate(async () => {
+    type Node = { target: unknown[]; any: { message: string }[] }
+    const axe = (window as unknown as { axe: { run: (context: Document, options: object) => Promise<{ violations: { id: string; nodes: Node[] }[] }> } }).axe
+    const result = await axe.run(document, { runOnly: { type: "rule", values: ["color-contrast"] }, resultTypes: ["violations"] })
+    return result.violations
+  })
+  return violations.flatMap((v) => v.nodes.map((n) => `${n.target.join(" ")}: ${n.any[0]?.message ?? ""}`))
+}
+
 const PAGES = [
   { id: "users", path: "/settings/users", table: "users" },
   { id: "groups", path: "/settings/groups", table: "groups" },
@@ -125,6 +139,7 @@ for (const theme of THEMES) {
           }
         }
         expect(await overflowing(page), `${p.id} content stays inside its cells and cards`).toEqual([])
+        expect(await contrastViolations(page), `${p.id} text contrast`).toEqual([])
         if (p.id === "metrics") {
           const charts = page.locator('[role="img"][aria-label*="last hour"]')
           await expect(charts).toHaveCount(5)
@@ -232,6 +247,7 @@ for (const theme of THEMES) {
         await settle(page)
         // A closed dialog stays mounted until its exit animation ends.
         await expect(page.getByRole("dialog")).toHaveCount(1)
+        expect(await contrastViolations(page), `${id} dialog text contrast`).toEqual([])
         await page.screenshot({ path: `${EVIDENCE}/${id}-${vp.width}-${theme}-dialog.png` })
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${id} dialog has no sideways scroll`).toBe(true)
       }
