@@ -30,6 +30,13 @@ const FOCUS_STEADY = 3
 export function TailnetDevicesTable({ devices, isLoading, error, onForget, emptyText, focusFallback }: TailnetDevicesTableProps) {
   const pending = useRef<{ stableId: string; index: number } | null>(null)
   const buttons = useRef(new Map<string, HTMLButtonElement>())
+  // A new forget must stop an earlier one still placing focus, or that one
+  // pulls focus out of the new change dialog.
+  const placing = useRef<number | null>(null)
+  const stopPlacing = () => {
+    if (placing.current !== null) window.clearInterval(placing.current)
+    placing.current = null
+  }
 
   useEffect(() => {
     const p = pending.current
@@ -44,17 +51,18 @@ export function TailnetDevicesTable({ devices, isLoading, error, onForget, empty
     const id = window.setInterval(() => {
       const el = target()
       if (el === null || tries++ >= FOCUS_TRIES) {
-        window.clearInterval(id)
+        stopPlacing()
         return
       }
       if (document.activeElement === el) {
-        if (++steady >= FOCUS_STEADY) window.clearInterval(id)
+        if (++steady >= FOCUS_STEADY) stopPlacing()
         return
       }
       steady = 0
       el.focus()
     }, FOCUS_TICK_MS)
-    return () => window.clearInterval(id)
+    placing.current = id
+    return stopPlacing
   }, [devices, focusFallback])
 
   if (isLoading) return <Spinner aria-label="Loading the devices" />
@@ -114,6 +122,7 @@ export function TailnetDevicesTable({ devices, isLoading, error, onForget, empty
                   size="sm"
                   aria-label={`Forget device ${deviceName(d)}`}
                   onClick={() => {
+                    stopPlacing()
                     pending.current = { stableId: d.stableId, index: i }
                     onForget(d)
                   }}

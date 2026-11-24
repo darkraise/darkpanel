@@ -183,4 +183,35 @@ describe("UX-4 forget moves focus", () => {
       await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: focus })))
     }
   })
+
+  test("A21 a Forget started while focus is still being placed keeps focus in its dialog", async () => {
+    let current = three
+    let planned = ""
+    stubFetch({
+      [LIST]: () => listed(current),
+      [PLAN]: (call) => {
+        planned = (call.body as { input: { stableId: string } }).input.stableId
+        return { body: makePlan("core.tailnetdevice.forget", { planId: "p9", confirmation: planned }) }
+      },
+      [APPLY]: () => {
+        current = current.filter((d) => d.stableId !== planned)
+        return { body: makeChange("core.tailnetdevice.forget", null) }
+      },
+    })
+    renderWithProviders(<TailnetDevicesPage />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: "Forget device laptop" }))
+    const first = await screen.findByRole("dialog", { name: "Forget device laptop" })
+    await user.type(await within(first).findByLabelText("Type nL to confirm"), "nL")
+    await user.click(within(first).getByRole("button", { name: "Apply" }))
+    const next = await screen.findByRole("button", { name: "Forget device gamma" })
+    await waitFor(() => expect(document.activeElement).toBe(next))
+
+    await user.click(next)
+    const second = await screen.findByRole("dialog", { name: "Forget device gamma" })
+    const field = await within(second).findByLabelText("Type n3 to confirm")
+    await user.click(field)
+    await new Promise((resolve) => window.setTimeout(resolve, 300))
+    expect(document.activeElement).toBe(field)
+  })
 })
