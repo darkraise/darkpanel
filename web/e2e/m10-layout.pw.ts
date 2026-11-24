@@ -102,3 +102,61 @@ for (const theme of THEMES) {
     })
   }
 }
+
+const problem = (status: number, code: string, detail: string) => ({
+  status, contentType: "application/json", body: JSON.stringify({ type: "about:blank", title: code, status, detail, code }),
+})
+
+// The signed-out views of UI-7 and UX-2/UX-3, and the M10 dialogs, for the
+// proof report: each must also keep the page from scrolling sideways.
+for (const theme of THEMES) {
+  for (const vp of VIEWPORTS) {
+    test(`UI-7 sign-in views at ${vp.width} in ${theme}`, async ({ page }) => {
+      await page.setViewportSize(vp)
+      await page.addInitScript((mode) => localStorage.setItem("mode", mode), theme)
+      await mockApi(page, { signedIn: false })
+      await page.route(/\/api\/v1\/auth\/methods$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ oidc: { displayName: "Acme SSO" }, tailscale: true }) }))
+      await page.route(/\/api\/v1\/auth\/tailscale$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ username: "mia", loginName: "mia@github", nodeName: "laptop" }) }))
+      await page.route(/\/api\/v1\/enroll\/begin$/, (route) => route.fulfill(problem(410, "auth.enrollment_expired", "This link has expired.")))
+      await page.goto(url("/login"))
+      await expect(page.getByRole("link", { name: "Sign in with Acme SSO" })).toBeVisible()
+      await expect(page.getByRole("button", { name: "Continue as mia (mia@github, from laptop)" })).toBeVisible()
+      await page.screenshot({ path: `${EVIDENCE}/login-${vp.width}-${theme}.png`, fullPage: true })
+      await page.goto(url("/?signin=no_linked_user"))
+      await expect(page.getByText("No Darkpanel user is linked to this account. Ask an admin to add you.")).toBeVisible()
+      await page.screenshot({ path: `${EVIDENCE}/login-${vp.width}-${theme}-no-linked-user.png`, fullPage: true })
+      await page.goto(url("/?signin=totp"))
+      await expect(page.getByLabel("Authentication code")).toBeVisible()
+      await page.screenshot({ path: `${EVIDENCE}/login-${vp.width}-${theme}-code-step.png`, fullPage: true })
+      await page.goto(url("/enroll#token-1"))
+      await expect(page.getByText("This link has expired. Ask an admin for a new one.")).toBeVisible()
+      await page.screenshot({ path: `${EVIDENCE}/enroll-${vp.width}-${theme}-expired.png`, fullPage: true })
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    })
+
+    test(`M10 dialogs at ${vp.width} in ${theme}`, async ({ page }) => {
+      await page.setViewportSize(vp)
+      await open(page, theme)
+      const shots: [string, string, (p: Page) => Promise<void>][] = [
+        ["users", "/settings/users", (p) => p.getByRole("button", { name: "Invite user" }).click()],
+        ["groups", "/settings/groups", async (p) => {
+          await p.getByRole("button", { name: `Actions for ${LONG}` }).click()
+          await p.getByRole("menuitem", { name: "Edit members" }).click()
+        }],
+        ["notifications", "/settings/notifications", async (p) => {
+          await p.getByRole("button", { name: "Add channel" }).click()
+          await p.getByRole("dialog").getByRole("button", { name: "Email" }).click()
+        }],
+        ["alerts", "/alerts", (p) => p.getByRole("button", { name: "New rule" }).click()],
+      ]
+      for (const [id, path, act] of shots) {
+        await page.goto(url(path))
+        await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible()
+        await act(page)
+        await expect(page.getByRole("dialog")).toBeVisible()
+        await page.screenshot({ path: `${EVIDENCE}/${id}-${vp.width}-${theme}-dialog.png` })
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${id} dialog has no sideways scroll`).toBe(true)
+      }
+    })
+  }
+}
