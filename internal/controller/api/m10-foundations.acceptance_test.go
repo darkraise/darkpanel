@@ -824,6 +824,13 @@ func (q *qaTS) req(method, local, remote, body string, proxied bool) *http.Reque
 	return r
 }
 
+// qaRemember remembers the admin's node q.whois.StableID, as a right code step would.
+func qaRemember(t *testing.T, q *qaTS) {
+	t.Helper()
+	qaExec(t, q.harness, `INSERT INTO core_user_tailnet_devices (user_id, stable_id, node_name, remembered_at, last_used_at)
+		SELECT id, ?, 'alice-laptop', '2026-11-24T00:00:00Z', '2026-11-24T00:00:00Z' FROM core_users WHERE username = 'admin'`, q.whois.StableID)
+}
+
 func TestA16_tailscale_continue_as(t *testing.T) {
 	q := qaNewTS(t)
 	rec := q.serve(q.req("GET", qaTSController, qaTSNode, "", false))
@@ -831,26 +838,23 @@ func TestA16_tailscale_continue_as(t *testing.T) {
 	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &match) != nil || match.Username != "admin" || match.LoginName != "alice@example.com" || match.NodeName != "alice-laptop" {
 		t.Fatalf("GET tailscale = %d %s, want a match of admin by alice@example.com from alice-laptop", rec.Code, rec.Body)
 	}
+	// The first Continue-as from a node not yet remembered asks the code.
+	qaExec(t, q.harness, `UPDATE core_users SET totp_last_step = 1 WHERE username = 'admin'`)
 	rec = q.serve(q.req("POST", qaTSController, qaTSNode, "{}", false))
 	var out struct {
-		User struct{ Username string } `json:"user"`
+		TOTP bool `json:"totp"`
 	}
-	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &out) != nil || out.User.Username != "admin" {
-		t.Fatalf("Continue as = %d %s, want admin signed in", rec.Code, rec.Body)
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &out) != nil || !out.TOTP {
+		t.Fatalf("Continue as = %d %s, want the code step", rec.Code, rec.Body)
 	}
-	var cookie string
+	var step string
 	for _, c := range rec.Result().Cookies() {
-		if c.Value != "" && strings.Contains(c.Name, "session") {
-			cookie = c.Value
+		if c.Value != "" && c.Name == signInStepCookie {
+			step = c.Value
 		}
 	}
-	if cookie == "" || qaCount(t, q.harness, `SELECT count(*) FROM core_sessions`) != 1 {
-		t.Errorf("Continue as set no session")
-	}
-	var pinned int64
-	_ = q.db.Read().QueryRow(`SELECT coalesce(tailnet_user_id, '') FROM core_users WHERE username = 'admin'`).Scan(&pinned)
-	if pinned != 4242 {
-		t.Errorf("the whois user id was not pinned on the first sign-in: %d", pinned)
+	if step == "" || qaCount(t, q.harness, `SELECT count(*) FROM core_sessions`) != 0 {
+		t.Errorf("Continue as set no step cookie, or opened a session before the code")
 	}
 	// A POST without the request's own Origin is refused.
 	r := q.req("POST", qaTSController, qaTSNode, "{}", false)
@@ -889,6 +893,7 @@ func TestA17_tailscale_refusals(t *testing.T) {
 		qaExec(t, q.harness, `UPDATE auth_settings SET tailscale_enabled = 0`)
 		check(method+" with the method off", q, q.req(method, qaTSController, qaTSNode, body, false), 0)
 		q = qaNewTS(t)
+		qaRemember(t, q)
 		q.whois.Tags = []string{"tag:server"}
 		check(method+" from a tagged node", q, q.req(method, qaTSController, qaTSNode, body, false), -1)
 		if q.calls.Load() == 0 {
@@ -923,6 +928,8 @@ func TestA54_tailscale_refused_from_darkpanel_hosts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			q := qaNewTS(t)
 			tc.setup(q)
+			// Remembered, the node would sign in without a code: the host check refuses it.
+			qaRemember(t, q)
 			remote := qaTSNode
 			if tc.name == "the controller's own address" {
 				remote = qaTSController
@@ -950,37 +957,29 @@ func TestA54_tailscale_refused_from_darkpanel_hosts(t *testing.T) {
 	}
 }
 
-func TestA66_first_tailscale_sign_in_activates_an_invite(t *testing.T) {
-	q := qaNewTS(t)
-	if _, err := q.auth.Invite(context.Background(), auth.InviteRequest{Username: "tsinvite", Role: "member", TailnetLogin: "bob@example.com"}); err != nil {
-		t.Fatal(err)
+func TestA66_first_tailscale_sign_in_refuses_an_invite(t *testing.T) {
+	for _, requireTOTP := range []bool{false, true} {
+		t.Run(fmt.Sprintf("refuses with requireTotp %v", requireTOTP), func(t *testing.T) {
+			q := qaNewTS(t)
+			if requireTOTP {
+				qaExec(t, q.harness, `UPDATE auth_settings SET tailscale_require_totp = 1`)
+			}
+			if _, err := q.auth.Invite(context.Background(), auth.InviteRequest{Username: "tsinvite", Role: "member", TailnetLogin: "bob@example.com"}); err != nil {
+				t.Fatal(err)
+			}
+			q.whois = auth.TailnetWhois{LoginName: "bob@example.com", UserID: 77, NodeName: "bob-pc", StableID: "nBob", Addresses: []string{qaTSNode}}
+			rec := q.serve(q.req("POST", qaTSController, qaTSNode, "{}", false))
+			if rec.Code != 401 || !strings.Contains(rec.Body.String(), `"auth.invalid_credentials"`) {
+				t.Errorf("an invited user's Tailscale sign-in = %d %s, want 401 auth.invalid_credentials", rec.Code, rec.Body)
+			}
+			if qaCount(t, q.harness, `SELECT count(*) FROM core_sessions`) != 0 {
+				t.Errorf("a pending user got a session through Tailscale")
+			}
+			if n := qaCount(t, q.harness, `SELECT count(*) FROM core_users WHERE username = 'tsinvite' AND state = 'pending'`); n != 1 {
+				t.Errorf("the invited user is no longer pending after a Tailscale sign-in")
+			}
+		})
 	}
-	q.whois = auth.TailnetWhois{LoginName: "bob@example.com", UserID: 77, NodeName: "bob-pc", StableID: "nBob", Addresses: []string{qaTSNode}}
-	rec := q.serve(q.req("POST", qaTSController, qaTSNode, "{}", false))
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"tsinvite"`) {
-		t.Fatalf("an invited user's first Tailscale sign-in = %d %s, want it signed in", rec.Code, rec.Body)
-	}
-	if n := qaCount(t, q.harness, `SELECT count(*) FROM core_users WHERE username = 'tsinvite' AND state = 'active'`); n != 1 {
-		t.Errorf("the invited user is not active after its first Tailscale sign-in")
-	}
-	if rec := q.serve(request("POST", "/api/v1/auth/login", `{"username":"tsinvite","password":"`+testPassword+`","code":"000000"}`)); rec.Code == 200 {
-		t.Errorf("password login of the invitee succeeded before enrollment")
-	}
-	// requireTotp on: a pending user cannot sign in by this method until it enrolls.
-	q2 := qaNewTS(t)
-	qaExec(t, q2.harness, `UPDATE auth_settings SET tailscale_require_totp = 1`)
-	if _, err := q2.auth.Invite(context.Background(), auth.InviteRequest{Username: "tsinvite", Role: "member", TailnetLogin: "bob@example.com"}); err != nil {
-		t.Fatal(err)
-	}
-	q2.whois = auth.TailnetWhois{LoginName: "bob@example.com", UserID: 77, NodeName: "bob-pc", StableID: "nBob", Addresses: []string{qaTSNode}}
-	rec = q2.serve(q2.req("POST", qaTSController, qaTSNode, "{}", false))
-	if qaCount(t, q2.harness, `SELECT count(*) FROM core_sessions`) != 0 {
-		t.Errorf("a pending user got a session through Tailscale with requireTotp on")
-	}
-	if n := qaCount(t, q2.harness, `SELECT count(*) FROM core_users WHERE username = 'tsinvite' AND state = 'active'`); n != 0 {
-		t.Errorf("the pending user was activated through Tailscale with requireTotp on")
-	}
-	_ = rec
 }
 
 func TestA60_disabled_user_cannot_use_tailscale(t *testing.T) {
@@ -1035,8 +1034,9 @@ func TestA18_sign_ins_are_audited_with_method_and_source(t *testing.T) {
 	if !has(es, "oidc", "ok") || !has(es, "oidc", "error") {
 		t.Errorf("OIDC outcomes audited as %+v, want an ok and an error entry with method oidc and a source", es)
 	}
-	// Tailscale, success and refusal.
+	// Tailscale, success (a remembered node) and refusal.
 	q := qaNewTS(t)
+	qaRemember(t, q)
 	q.serve(q.req("POST", qaTSController, qaTSNode, "{}", false))
 	q.whois.Tags = []string{"tag:x"}
 	q.serve(q.req("POST", qaTSController, "100.64.0.20", "{}", false))

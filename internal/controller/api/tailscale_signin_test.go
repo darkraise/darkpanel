@@ -164,22 +164,30 @@ func TestContinueAs(t *testing.T) {
 	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &match) != nil {
 		t.Fatalf("GET: %d %s", rec.Code, rec.Body)
 	}
-	if match != (auth.TailscaleMatch{Username: h.user.Username, LoginName: "alice@example.com", NodeName: "laptop.tail1234.ts.net"}) {
+	if match != (auth.TailscaleMatch{Username: h.user.Username, LoginName: "alice@example.com", NodeName: "laptop.tail1234.ts.net", CodeReady: true}) {
 		t.Errorf("GET answered %+v", match)
 	}
 	if h.tailnetUserID(h.user.ID) != "" {
 		t.Fatal("the GET pinned the tailnet user")
 	}
 
+	// A node not yet remembered asks the code and pins nothing.
+	rec = h.do(post(tsPeer))
+	if rec.Code != http.StatusOK || cookieNamed(rec, signInStepCookie) == nil || h.sessions() != 0 || h.tailnetUserID(h.user.ID) != "" {
+		t.Fatalf("first POST: %d %s; want the code step, no session and no pin", rec.Code, rec.Body)
+	}
+
+	// The code step pins and remembers the node (Task 4); a remembered node
+	// signs in without a code.
+	h.exec(`UPDATE core_users SET tailnet_user_id = '4242' WHERE id = ?`, h.user.ID)
+	h.exec(`INSERT INTO core_user_tailnet_devices (user_id, stable_id, node_name, remembered_at, last_used_at)
+		VALUES (?, 'nLaptop', 'laptop.tail1234.ts.net', '2026-11-24T00:00:00Z', '2026-11-24T00:00:00Z')`, h.user.ID)
 	rec = h.do(post(tsPeer))
 	if rec.Code != http.StatusOK || cookieNamed(rec, SessionCookiePlain) == nil && cookieNamed(rec, SessionCookieSecure) == nil || h.sessions() != 1 {
 		t.Fatalf("POST: %d %s; want a session", rec.Code, rec.Body)
 	}
 	if !strings.Contains(rec.Body.String(), `"csrfToken"`) {
 		t.Errorf("POST body %s; want the session answer", rec.Body)
-	}
-	if got := h.tailnetUserID(h.user.ID); got != "4242" {
-		t.Fatalf("tailnet_user_id = %q after the first sign-in; want 4242", got)
 	}
 
 	// Later sign-ins match the pinned id; a node of another user with the
@@ -203,7 +211,7 @@ func TestContinueAs(t *testing.T) {
 		t.Fatalf("POST after the node was tagged: %d %s; want 401", rec.Code, rec.Body)
 	}
 
-	// An invited user is activated by the sign-in.
+	// An invited user is refused and stays invited.
 	if _, err := h.auth.Invite(context.Background(), auth.InviteRequest{Username: "bob", Role: auth.RoleMember,
 		TailnetLogin: "bob@example.com"}); err != nil {
 		t.Fatal(err)
@@ -212,15 +220,15 @@ func TestContinueAs(t *testing.T) {
 	h.answer(bob, tsAnswer(func(w *auth.TailnetWhois) {
 		w.LoginName, w.UserID, w.StableID, w.Addresses = "bob@example.com", 77, "nBob", []string{bob}
 	}))
-	if rec = h.do(post(bob)); rec.Code != http.StatusOK || h.sessions() != 3 {
-		t.Fatalf("invited user's POST: %d %s", rec.Code, rec.Body)
+	if rec = h.do(post(bob)); rec.Code != http.StatusUnauthorized || h.sessions() != 2 {
+		t.Fatalf("invited user's POST: %d %s; want 401 and no session", rec.Code, rec.Body)
 	}
 	var state, pinned string
-	if err := h.db.Read().QueryRow(`SELECT state, tailnet_user_id FROM core_users WHERE username = 'bob'`).Scan(&state, &pinned); err != nil {
+	if err := h.db.Read().QueryRow(`SELECT state, coalesce(tailnet_user_id, '') FROM core_users WHERE username = 'bob'`).Scan(&state, &pinned); err != nil {
 		t.Fatal(err)
 	}
-	if state != auth.StateActive || pinned != "77" {
-		t.Errorf("invited user after sign-in: state %s, tailnet id %s; want active, 77", state, pinned)
+	if state != auth.StatePending || pinned != "" {
+		t.Errorf("invited user after the POST: state %s, tailnet id %q; want pending and unpinned", state, pinned)
 	}
 }
 

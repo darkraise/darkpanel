@@ -95,6 +95,9 @@ type SignInResult struct {
 	LoginResult
 	Ticket        string
 	TicketExpires time.Time
+	// Remember reports that a right code remembers the Tailscale node for
+	// the user, so its next Continue-as asks no code.
+	Remember bool
 }
 
 // TOTPStepRequest is the code step after a sign-in method.
@@ -123,8 +126,17 @@ type signInTicket struct {
 	Subject string `json:"sub,omitempty"`
 	// TailnetUserID is the Tailscale user id to pin once the code is right,
 	// empty when the user is already pinned.
-	TailnetUserID string    `json:"tailnetUser,omitempty"`
-	Expires       time.Time `json:"exp"`
+	TailnetUserID string `json:"tailnetUser,omitempty"`
+	// StableID, NodeName, Addrs, Login and WhoisUserID are the Tailscale
+	// node the ticket was issued to: the code step accepts the code only
+	// from that node and remembers it. Addrs holds the request's address
+	// first, then the whois addresses.
+	StableID    string    `json:"stableId,omitempty"`
+	NodeName    string    `json:"node,omitempty"`
+	Addrs       []string  `json:"addrs,omitempty"`
+	Login       string    `json:"login,omitempty"`
+	WhoisUserID string    `json:"whoisUser,omitempty"`
+	Expires     time.Time `json:"exp"`
 }
 
 func errMethodOff() error {

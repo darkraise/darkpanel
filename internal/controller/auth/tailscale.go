@@ -3,8 +3,10 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -44,6 +46,41 @@ type TailscaleMatch struct {
 	Username  string `json:"username"`
 	LoginName string `json:"loginName"`
 	NodeName  string `json:"nodeName"`
+	// Remembered reports that the node signs the user in without a code.
+	Remembered bool `json:"remembered"`
+	// CodeReady reports that the user has typed an authenticator code
+	// before, so the code step can remember the node.
+	CodeReady bool `json:"codeReady"`
+}
+
+// Refusal causes: the audit row's refused field says which check refused a
+// Tailscale sign-in; the caller sees only the error's code (spec section 3).
+const (
+	refusedHost   = "host"
+	refusedNode   = "node"
+	refusedDevice = "device"
+	refusedLink   = "link"
+	refusedUser   = "user"
+)
+
+// refusal is a sign-in refusal and the check that made it.
+type refusal struct {
+	cause string
+	err   error
+}
+
+func (r *refusal) Error() string { return r.err.Error() }
+func (r *refusal) Unwrap() error { return r.err }
+
+func refuse(cause string, err error) error { return &refusal{cause: cause, err: err} }
+
+// refusedCause is the cause err carries, or "" for any other error.
+func refusedCause(err error) string {
+	var r *refusal
+	if errors.As(err, &r) {
+		return r.cause
+	}
+	return ""
 }
 
 // checkTailnetNode refuses every whois answer but a node owned by a user
@@ -51,51 +88,76 @@ type TailscaleMatch struct {
 func (s *Service) checkTailnetNode(ctx context.Context, q querier, remote netip.Addr, w TailnetWhois) error {
 	// A whois answer with no node has no stable id.
 	if w.StableID == "" || len(w.Tags) > 0 || w.Sharer != 0 || w.UserID == 0 || w.LoginName == "" || strings.EqualFold(w.LoginName, taggedDevices) {
-		return errSignInRefused()
+		return refuse(refusedNode, errSignInRefused())
 	}
-	addrs := []netip.Addr{remote.Unmap()}
-	for _, a := range w.Addresses {
-		addr, err := netip.ParseAddr(a)
-		if err != nil {
-			return errSignInRefused()
-		}
-		addrs = append(addrs, addr)
+	addrs, err := nodeAddrs(remote, w)
+	if err != nil {
+		return err
 	}
 	managed, err := s.IsManagedTailnetNode(ctx, q, addrs)
 	if err != nil {
 		return err
 	}
 	if managed {
-		return errSignInRefused()
+		return refuse(refusedHost, errSignInRefused())
 	}
 	return nil
 }
 
-// tailnetUser is the user linked to w's login name; pin reports that its
-// tailnet user id is not stored yet. A pending user is refused when the
-// code step is on, as OIDC does.
-func tailnetUser(ctx context.Context, q querier, w TailnetWhois, requireTOTP bool) (rec userRecord, pin bool, err error) {
+// nodeAddrs is the node's unmapped addresses: the request's first, then the
+// whois answer's, each once. An address that does not parse refuses.
+func nodeAddrs(remote netip.Addr, w TailnetWhois) ([]netip.Addr, error) {
+	addrs := []netip.Addr{remote.Unmap()}
+	for _, a := range w.Addresses {
+		addr, err := netip.ParseAddr(a)
+		if err != nil {
+			return nil, refuse(refusedNode, errSignInRefused())
+		}
+		if addr = addr.Unmap(); !slices.Contains(addrs, addr) {
+			addrs = append(addrs, addr)
+		}
+	}
+	return addrs, nil
+}
+
+// tailnetUser is the active user linked to w's login name; pin reports
+// that its tailnet user id is not stored yet, and codeReady that the user
+// has typed an authenticator code before (totp_last_step > 0). Every other
+// state is refused; a pending user's refusal still carries its record.
+func tailnetUser(ctx context.Context, q querier, w TailnetWhois) (rec userRecord, pin, codeReady bool, err error) {
 	rec, err = loadUserBy(ctx, q, `tailnet_login = ? COLLATE NOCASE`, w.LoginName)
 	if errcode.From(err).Code == errcode.NotFound {
-		return rec, false, errNoLinkedUser()
+		return rec, false, false, refuse(refusedLink, errNoLinkedUser())
 	}
 	if err != nil {
-		return rec, false, err
+		return rec, false, false, err
 	}
 	var pinned sql.NullString
 	if err := q.QueryRowContext(ctx, `SELECT tailnet_user_id FROM core_users WHERE id = ?`, rec.ID).Scan(&pinned); err != nil {
-		return rec, false, fmt.Errorf("auth: read the tailnet link: %w", err)
-	}
-	if pinned.Valid && pinned.String != strconv.FormatInt(w.UserID, 10) || rec.Disabled {
-		return rec, false, errSignInRefused()
+		return rec, false, false, fmt.Errorf("auth: read the tailnet link: %w", err)
 	}
 	switch {
-	case rec.State == StateActive:
-	case rec.State == StatePending && !requireTOTP:
-	default:
-		return rec, false, errSignInRefused()
+	case pinned.Valid && pinned.String != strconv.FormatInt(w.UserID, 10):
+		return rec, false, false, refuse(refusedLink, errSignInRefused())
+	case rec.Disabled:
+		return rec, false, false, refuse(refusedUser, errSignInRefused())
+	case rec.State == StatePending:
+		// Tailscale identity never activates an invite (spec section 2).
+		return rec, false, false, refuse(refusedDevice, errSignInRefused())
+	case rec.State != StateActive:
+		return rec, false, false, refuse(refusedUser, errSignInRefused())
 	}
-	return rec, !pinned.Valid, nil
+	return rec, !pinned.Valid, rec.lastStep > 0, nil
+}
+
+// remembered reports whether userID's device row for stableID exists.
+func remembered(ctx context.Context, q querier, userID, stableID string) (bool, error) {
+	var n int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM core_user_tailnet_devices WHERE user_id = ? AND stable_id = ?`,
+		userID, stableID).Scan(&n); err != nil {
+		return false, fmt.Errorf("auth: read the remembered devices: %w", err)
+	}
+	return n > 0, nil
 }
 
 // tailscaleOn loads the method's settings and refuses while it is off.
@@ -110,74 +172,101 @@ func tailscaleOn(ctx context.Context, q querier) (TailscaleSettings, error) {
 	return st.Tailscale, nil
 }
 
-// TailscaleMatchFor answers which user the node of r may continue as.
+// TailscaleMatchFor answers which user the node of r may continue as, and
+// whether that sign-in needs no code (Remembered) or can ask one
+// (CodeReady). A pending user is answered with neither.
 func (s *Service) TailscaleMatchFor(ctx context.Context, r TailscaleRequest) (TailscaleMatch, error) {
-	set, err := tailscaleOn(ctx, s.db.Read())
+	q := s.db.Read()
+	if _, err := tailscaleOn(ctx, q); err != nil {
+		return TailscaleMatch{}, err
+	}
+	if err := s.checkTailnetNode(ctx, q, r.Remote, r.Whois); err != nil {
+		return TailscaleMatch{}, err
+	}
+	rec, _, codeReady, err := tailnetUser(ctx, q, r.Whois)
+	m := TailscaleMatch{Username: rec.Username, LoginName: r.Whois.LoginName, NodeName: r.Whois.NodeName}
 	if err != nil {
+		if rec.State == StatePending && refusedCause(err) == refusedDevice {
+			return m, nil
+		}
 		return TailscaleMatch{}, err
 	}
-	if err := s.checkTailnetNode(ctx, s.db.Read(), r.Remote, r.Whois); err != nil {
+	if m.Remembered, err = remembered(ctx, q, rec.ID, r.Whois.StableID); err != nil {
 		return TailscaleMatch{}, err
 	}
-	rec, _, err := tailnetUser(ctx, s.db.Read(), r.Whois, set.RequireTOTP)
-	if err != nil {
-		return TailscaleMatch{}, err
-	}
-	return TailscaleMatch{Username: rec.Username, LoginName: r.Whois.LoginName, NodeName: r.Whois.NodeName}, nil
+	m.CodeReady = codeReady
+	return m, nil
 }
 
-// SignInTailscale signs the node of r in as its linked user: it pins the
-// tailnet user id on the first sign-in, activates an invited user, and
-// with the code step on answers a ticket for FinishTOTPStep instead of a
-// session. Every outcome is audited with method tailscale.
+// SignInTailscale signs the node of r in as its linked active user. With
+// the code step off, a node remembered for the user opens a session at
+// once; otherwise a code-ready user gets a ticket for FinishTOTPStep, which
+// pins the tailnet user id and, with Remember, remembers the node. A user
+// who has never typed a code is refused, and so is an invited one: Tailscale
+// identity never activates an invite. The node checks and the device read
+// share one write transaction, so a forget either lands before the sign-in
+// reads the row or after its session is open. Every outcome is audited with
+// method tailscale.
 func (s *Service) SignInTailscale(ctx context.Context, r TailscaleRequest) (SignInResult, error) {
 	var res SignInResult
 	var rec userRecord
-	err := s.checkTailnetNode(ctx, s.db.Read(), r.Remote, r.Whois)
-	if err == nil {
-		err = s.db.Write(ctx, func(tx *sql.Tx) error {
-			set, err := tailscaleOn(ctx, tx)
-			if err != nil {
-				return err
-			}
-			var pin bool
-			if rec, pin, err = tailnetUser(ctx, tx, r.Whois, set.RequireTOTP); err != nil {
-				return err
-			}
-			userID := strconv.FormatInt(r.Whois.UserID, 10)
-			if set.RequireTOTP {
-				t := signInTicket{ID: randomID(), UserID: rec.ID, Method: MethodTailscale, Expires: s.now().Add(SignInTicketTTL)}
-				if pin {
-					t.TailnetUserID = userID
-				}
-				res.Ticket, err = s.sealJSON(signInTicketAD, t)
-				res.TicketExpires = t.Expires
-				return err
-			}
-			now := formatTime(s.now())
-			if pin {
-				if _, err := tx.ExecContext(ctx, `UPDATE core_users SET tailnet_user_id = ?, updated_at = ? WHERE id = ?`,
-					userID, now, rec.ID); err != nil {
-					return fmt.Errorf("auth: pin the tailnet user: %w", err)
-				}
-			}
-			if rec.State == StatePending {
-				// The enrollment link stays usable, as for OIDC (spec 1.5).
-				if _, err := tx.ExecContext(ctx, `UPDATE core_users SET state = ?, updated_at = ? WHERE id = ?`,
-					StateActive, now, rec.ID); err != nil {
-					return fmt.Errorf("auth: activate on Tailscale sign-in: %w", err)
-				}
-				rec.State = StateActive
-			}
-			res.LoginResult, err = s.openSession(ctx, tx, rec.User, r.Source, r.UserAgent)
+	extra := map[string]string{"login": r.Whois.LoginName, "node": r.Whois.NodeName}
+	err := s.db.Write(ctx, func(tx *sql.Tx) error {
+		set, err := tailscaleOn(ctx, tx)
+		if err != nil {
 			return err
-		})
-	}
+		}
+		if err := s.checkTailnetNode(ctx, tx, r.Remote, r.Whois); err != nil {
+			return err
+		}
+		var pin, codeReady bool
+		if rec, pin, codeReady, err = tailnetUser(ctx, tx, r.Whois); err != nil {
+			return err
+		}
+		if !set.RequireTOTP {
+			used, err := tx.ExecContext(ctx, `UPDATE core_user_tailnet_devices SET last_used_at = ?, node_name = ?
+				WHERE user_id = ? AND stable_id = ?`, formatTime(s.now()), r.Whois.NodeName, rec.ID, r.Whois.StableID)
+			if err != nil {
+				return fmt.Errorf("auth: use the remembered device: %w", err)
+			}
+			n, err := used.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("auth: use the remembered device: %w", err)
+			}
+			if n == 1 {
+				extra["device"] = "remembered"
+				res.LoginResult, err = s.openSession(ctx, tx, rec.User, r.Source, r.UserAgent)
+				return err
+			}
+		}
+		if !codeReady {
+			return refuse(refusedDevice, errSignInRefused())
+		}
+		addrs, err := nodeAddrs(r.Remote, r.Whois)
+		if err != nil {
+			return err
+		}
+		t := signInTicket{ID: randomID(), UserID: rec.ID, Method: MethodTailscale, Expires: s.now().Add(SignInTicketTTL),
+			StableID: r.Whois.StableID, NodeName: r.Whois.NodeName, Login: r.Whois.LoginName,
+			WhoisUserID: strconv.FormatInt(r.Whois.UserID, 10)}
+		for _, a := range addrs {
+			t.Addrs = append(t.Addrs, a.String())
+		}
+		if pin {
+			t.TailnetUserID = t.WhoisUserID
+		}
+		res.Remember = !set.RequireTOTP
+		res.Ticket, err = s.sealJSON(signInTicketAD, t)
+		res.TicketExpires = t.Expires
+		return err
+	})
 	code := errcode.Code("")
 	if err != nil {
 		code = errcode.From(err).Code
+		if cause := refusedCause(err); cause != "" {
+			extra["refused"] = cause
+		}
 	}
-	extra := map[string]string{"login": r.Whois.LoginName, "node": r.Whois.NodeName}
 	if res.Ticket != "" {
 		extra["step"] = "ticket"
 	}
