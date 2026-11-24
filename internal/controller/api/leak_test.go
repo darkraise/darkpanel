@@ -66,6 +66,10 @@ func TestNoControllerReadLeaksAnotherHost(t *testing.T) {
 			VALUES ('disk-almost-full', 'h-in', '/', 'firing', '2026-11-24T00:00:00Z', 93)`,
 		`INSERT INTO metrics_alerts (rule_id, host_id, subject, state, since, value)
 			VALUES ('disk-almost-full', 'h-out', '/', 'firing', '2026-11-24T00:00:00Z', 93)`,
+		// A tunnel and a hostname, tied to no host, that only fleet principals see.
+		`INSERT INTO cloudflare_tunnels (id, name, change_id, created_at) VALUES ('t-out', 'tunnel-outside-host', 'c-t', '` + at + `')`,
+		`INSERT INTO cloudflare_hostnames (hostname, tunnel_id, service, phase, change_id, updated_at)
+			VALUES ('outside-host.example.com', 't-out', 'http://192.0.2.9:80', 'active', 'c-h', '` + at + `')`,
 	} {
 		if _, err := db.Writer().Exec(q); err != nil {
 			t.Fatal(err)
