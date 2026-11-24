@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import type { AlertRule, FiredAlert, HostGroup } from "@/api/types"
+import { formatTime } from "@/lib/format"
 import { makeChange, makePlan, memberSession, renderWithProviders, stubFetch } from "@/test/utils"
 import { AlertsPage } from "./alerts"
 
@@ -59,7 +60,8 @@ test("UI-5 firing alerts come first with severity as text and icon, host, alert,
   expect(within(disk!).getByText("Warning")).toBeTruthy()
   expect(within(disk!).getByText("Disk almost full on /")).toBeTruthy()
   expect(within(disk!).getByText("93.4 %")).toBeTruthy()
-  expect(within(disk!).getAllByRole("cell")[4]!.textContent).not.toBe("")
+  expect(within(disk!).getAllByRole("cell")[4]!.textContent).toBe(formatTime("2026-11-24T08:51:00Z"))
+  expect(within(offline!).getAllByRole("cell")[4]!.textContent).toBe(formatTime("2026-11-24T09:28:00Z"))
   expect(within(resolved).getByText("Disk almost full on /srv")).toBeTruthy()
 
   const table = screen.getByRole("table", { name: "Alert rules" })
