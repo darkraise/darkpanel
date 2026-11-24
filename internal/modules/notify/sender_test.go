@@ -343,6 +343,38 @@ func TestRetrySchedule(t *testing.T) {
 	})
 }
 
+func TestFailedRecordHoldsTheDelivery(t *testing.T) {
+	x := newOutboxEnv(t)
+	hook := x.webhook("hook", nil)
+	ev := x.emit(rollout("rollout.failed:r"))
+	x.exec(`CREATE TRIGGER notify_test_fail BEFORE UPDATE ON notify_deliveries BEGIN SELECT RAISE(ABORT, 'disk full'); END`)
+	select {
+	case <-x.n.wake:
+	default:
+	}
+	x.drain(x.o)
+	if got := len(x.fake.callsOf(hook, ev)); got != 1 {
+		t.Fatalf("%d sends before the record failed, want 1", got)
+	}
+	if len(x.n.wake) != 0 {
+		t.Error("a failed record woke the sender")
+	}
+	x.clock.Advance(30 * time.Second)
+	x.drain(x.o)
+	if got := len(x.fake.callsOf(hook, ev)); got != 1 {
+		t.Errorf("%d sends while the record keeps failing, want 1 until the next retry offset", got)
+	}
+	x.exec(`DROP TRIGGER notify_test_fail`)
+	x.clock.Advance(30 * time.Second)
+	x.drain(x.o)
+	if got := minutes(x.fake.callsOf(hook, ev)); !slices.Equal(got, []int{0, 1}) {
+		t.Errorf("sends at minutes %v, want 0 and 1", got)
+	}
+	if d, _ := x.delivery(ev, hook); d.State != "sent" || d.Attempts != 1 {
+		t.Errorf("delivery %+v, want sent with the recorded attempt", d)
+	}
+}
+
 func TestDeliveriesSurviveRestart(t *testing.T) {
 	x := newOutboxEnv(t)
 	hook := x.webhook("hook", nil)

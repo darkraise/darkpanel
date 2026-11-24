@@ -57,6 +57,7 @@ type outbox struct {
 	cfg       outboxConfig
 	mu        sync.Mutex
 	inFlight  map[deliveryKey]bool
+	held      map[deliveryKey]time.Time // a delivery whose attempt could not be recorded, until its next retry offset
 	wg        sync.WaitGroup
 	lastPurge time.Time
 }
@@ -84,7 +85,7 @@ func newOutbox(cfg outboxConfig) *outbox {
 		db := cfg.DB
 		cfg.Suspended = func(ctx context.Context) (bool, error) { return quarantine.Active(ctx, db) }
 	}
-	return &outbox{cfg: cfg, inFlight: map[deliveryKey]bool{}}
+	return &outbox{cfg: cfg, inFlight: map[deliveryKey]bool{}, held: map[deliveryKey]time.Time{}}
 }
 
 func (o *outbox) service() ext.Service {
@@ -132,8 +133,14 @@ func (o *outbox) pass(ctx context.Context) int {
 		return 0
 	}
 	o.purgeIfDue(ctx)
+	now := o.cfg.Clock.Now()
 	o.mu.Lock()
 	free := maxSending - len(o.inFlight)
+	for k, until := range o.held {
+		if !now.Before(until) {
+			delete(o.held, k)
+		}
+	}
 	o.mu.Unlock()
 	if free <= 0 {
 		return 0
@@ -152,8 +159,9 @@ func (o *outbox) pass(ctx context.Context) int {
 		}
 		o.mu.Lock()
 		running := o.inFlight[d.key]
+		_, held := o.held[d.key]
 		o.mu.Unlock()
-		if running {
+		if running || held {
 			continue
 		}
 		// One alert's events go out in order on a channel: only the oldest
@@ -260,14 +268,27 @@ func alertHeads(ctx context.Context, db *sql.DB) (map[alertHead]string, error) {
 }
 
 // deliver makes one attempt of d on ch and records it. An attempt cut short
-// by the sender stopping is not recorded, so the delivery stays due.
+// by the sender stopping is not recorded, so the delivery stays due. An
+// attempt whose record fails is held until its next retry offset, and does
+// not wake the sender, so a failing database does not resend it at once.
 func (o *outbox) deliver(ctx context.Context, d due, ch channelRow) {
+	hold := false
 	defer func() {
 		o.mu.Lock()
 		delete(o.inFlight, d.key)
+		if hold {
+			now := o.cfg.Clock.Now()
+			until, ok := nextAttempt(d.created, now)
+			if !ok {
+				until = now.Add(time.Hour)
+			}
+			o.held[d.key] = until
+		}
 		o.mu.Unlock()
 		o.wg.Done()
-		o.cfg.Notifier.signal()
+		if !hold {
+			o.cfg.Notifier.signal()
+		}
 	}()
 	var code string
 	var sendErr error
@@ -283,7 +304,8 @@ func (o *outbox) deliver(ctx context.Context, d due, ch channelRow) {
 		return
 	}
 	if err := o.record(context.WithoutCancel(ctx), d, ch, code, sendErr == nil); err != nil {
-		o.cfg.Log.Warn("notify: cannot record a delivery attempt", "channel", ch.ID, "event", d.key.event, "error", err)
+		o.cfg.Log.Warn("notify: cannot record a delivery attempt; holding it until its next retry", "channel", ch.ID, "event", d.key.event, "error", err)
+		hold = true
 	}
 }
 
