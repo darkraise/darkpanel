@@ -54,10 +54,15 @@ type outboxConfig struct {
 
 // outbox sends the due deliveries of the outbox.
 type outbox struct {
-	cfg       outboxConfig
-	mu        sync.Mutex
-	inFlight  map[deliveryKey]bool
-	held      map[deliveryKey]time.Time // a delivery whose attempt could not be recorded, until its next retry offset
+	cfg      outboxConfig
+	mu       sync.Mutex
+	inFlight map[deliveryKey]bool
+	held     map[deliveryKey]time.Time // a delivery whose attempt could not be recorded, until its next retry offset
+	// settled counts the attempts that have finished, and ended holds the
+	// count at which each recent one finished: a read that began before
+	// then may list it as pending although its attempt was recorded.
+	settled   uint64
+	ended     map[deliveryKey]uint64
 	wg        sync.WaitGroup
 	lastPurge time.Time
 }
@@ -85,7 +90,7 @@ func newOutbox(cfg outboxConfig) *outbox {
 		db := cfg.DB
 		cfg.Suspended = func(ctx context.Context) (bool, error) { return quarantine.Active(ctx, db) }
 	}
-	return &outbox{cfg: cfg, inFlight: map[deliveryKey]bool{}, held: map[deliveryKey]time.Time{}}
+	return &outbox{cfg: cfg, inFlight: map[deliveryKey]bool{}, held: map[deliveryKey]time.Time{}, ended: map[deliveryKey]uint64{}}
 }
 
 func (o *outbox) service() ext.Service {
@@ -135,6 +140,7 @@ type dueSnapshot struct {
 	list     []due
 	heads    map[alertHead]string
 	channels map[string]channelRow
+	settled  uint64 // the outbox's settled count when the read began
 }
 
 // due reads the deliveries a pass may start; false when the outbox is
@@ -159,6 +165,13 @@ func (o *outbox) due(ctx context.Context) (dueSnapshot, bool) {
 			delete(o.held, k)
 		}
 	}
+	settled := o.settled
+	// An attempt that finished by now is in what this read sees.
+	for k, at := range o.ended {
+		if at <= settled {
+			delete(o.ended, k)
+		}
+	}
 	o.mu.Unlock()
 	if free <= 0 {
 		return dueSnapshot{}, false
@@ -170,7 +183,7 @@ func (o *outbox) due(ctx context.Context) (dueSnapshot, bool) {
 		}
 		return dueSnapshot{}, false
 	}
-	return dueSnapshot{list: list, heads: heads, channels: channels}, true
+	return dueSnapshot{list: list, heads: heads, channels: channels, settled: settled}, true
 }
 
 // start starts the deliveries of snap that may go, up to maxSending running
@@ -187,8 +200,9 @@ func (o *outbox) start(ctx context.Context, snap dueSnapshot) int {
 		o.mu.Lock()
 		running := o.inFlight[d.key]
 		_, held := o.held[d.key]
+		stale := o.ended[d.key] > snap.settled
 		o.mu.Unlock()
-		if running || held {
+		if running || held || stale {
 			continue
 		}
 		// One alert's events go out in order on a channel: only the oldest
@@ -303,6 +317,8 @@ func (o *outbox) deliver(ctx context.Context, d due, ch channelRow) {
 	defer func() {
 		o.mu.Lock()
 		delete(o.inFlight, d.key)
+		o.settled++
+		o.ended[d.key] = o.settled
 		if hold {
 			now := o.cfg.Clock.Now()
 			until, ok := nextAttempt(d.created, now)

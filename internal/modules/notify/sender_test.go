@@ -787,3 +787,35 @@ func (x *outboxEnv) sortedIDs(ids ...string) []string {
 	slices.Sort(out)
 	return out
 }
+
+// TestStaleReadSendsNoDeliveryTwice: a delivery in flight when a pass reads
+// the due list, and settled before the pass starts its sends, is not sent
+// again from that list.
+func TestStaleReadSendsNoDeliveryTwice(t *testing.T) {
+	x := newOutboxEnv(t)
+	hook := x.webhook("hook", nil)
+	ev := x.emit(rolloutEvent("rollout.failed:r"))
+	gate, started := make(chan struct{}), make(chan struct{}, 1)
+	x.fake.mu.Lock()
+	x.fake.gate, x.fake.started = gate, started
+	x.fake.mu.Unlock()
+	ctx := context.Background()
+	if n := x.o.pass(ctx); n != 1 {
+		t.Fatalf("first pass started %d, want 1", n)
+	}
+	<-started
+	snap, ok := x.o.due(ctx)
+	if !ok || len(snap.list) != 1 {
+		t.Fatalf("read %d due deliveries (%v), want the one in flight", len(snap.list), ok)
+	}
+	close(gate)
+	x.o.wait()
+	if d, _ := x.delivery(ev, hook); d.State != "sent" {
+		t.Fatalf("delivery %+v, want sent", d)
+	}
+	x.o.start(ctx, snap)
+	x.o.wait()
+	if got := len(x.fake.callsOf(hook, ev)); got != 1 {
+		t.Errorf("%d sends, want 1: a stale read sent a settled delivery again", got)
+	}
+}
