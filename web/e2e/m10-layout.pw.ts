@@ -28,8 +28,8 @@ const channels: NotifyChannel[] = [
   { id: "c3", kind: "email", name: "oncall", minSeverity: "info", kinds: [], groupIds: [], enabled: false, createdAt: "2026-11-20T08:00:00Z", email: { host: "smtp.example.com", port: 587, security: "starttls", username: "dp", passwordSet: true, from: "dp@example.com", recipients: ["a@example.com"] }, lastDelivery: null },
 ]
 const alerts: FiredAlert[] = Array.from({ length: 20 }, (_, i) => ({
-  ruleId: "r2", ruleName: i % 4 === 0 ? "Host offline" : "Disk almost full", metric: i % 4 === 0 ? "offline" : "disk", severity: i % 4 === 0 ? "critical" : "warning",
-  hostId: HOST_ID, hostName: `web-${String(i).padStart(3, "0")}`, subject: i % 4 === 0 ? "" : `/srv/data-${i}`, state: "firing", since: "2026-11-24T08:00:00Z", value: i % 4 === 0 ? 12 : 90 + (i % 9),
+  ruleId: i % 4 === 0 ? "r1" : "r2", ruleName: i % 4 === 0 ? "Host offline" : "Disk almost full", metric: i % 4 === 0 ? "offline" : "disk", severity: i % 4 === 0 ? "critical" : "warning",
+  hostId: i % 4 === 0 ? `${HOST_ID.slice(0, -3)}H${String(i).padStart(2, "0")}` : HOST_ID, hostName: `web-${String(i).padStart(3, "0")}`, subject: i % 4 === 0 ? "" : `/srv/data-${i}`, state: "firing", since: "2026-11-24T08:00:00Z", value: i % 4 === 0 ? 12 : 90 + (i % 9),
 }))
 const rules: AlertRule[] = [
   { id: "r1", name: "Host offline", metric: "offline", comparator: ">", threshold: 0, durationMin: 5, severity: "critical", target: "*", targetName: "", enabled: true, createdAt: "2026-11-20T08:00:00Z", updatedAt: "2026-11-20T08:00:00Z" },
@@ -95,6 +95,12 @@ for (const theme of THEMES) {
           const tops = await charts.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)))
           const perRow = 5 / new Set(tops).size
           expect(perRow, "charts per row").toBe(vp.width === 1440 ? 5 / 3 : 1)
+          // The shell scrolls inside its own container, so the page shot stops at the viewport: each card gets its own.
+          if (vp.width === 1440) {
+            for (const [i, chart] of (await charts.all()).entries()) {
+              await chart.locator("xpath=../..").screenshot({ path: `${EVIDENCE}/metrics-charts-${vp.width}-${theme}-${i + 1}.png` })
+            }
+          }
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${p.id} has no sideways scroll`).toBe(true)
         await page.screenshot({ path: `${EVIDENCE}/${p.id}-${vp.width}-${theme}.png`, fullPage: true })
