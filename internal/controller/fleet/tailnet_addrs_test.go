@@ -32,23 +32,14 @@ type remoteConn struct {
 
 func (c remoteConn) RemoteAddr() net.Addr { return c.remote }
 
-// readerFunc is a ResourceReader.
-type readerFunc func(ctx context.Context, p core.Principal, hostID, name string) (json.RawMessage, error)
-
-func (f readerFunc) Resource(ctx context.Context, p core.Principal, hostID, name string) (json.RawMessage, error) {
-	return f(ctx, p, hostID, name)
-}
-
-// tailnetEnv is a registry whose resource reader asks the host's agent over
-// its live session; the agent answers tailscale.status with status, or with
-// statusErr when that is set.
+// tailnetEnv is a registry whose host's agent answers tailscale.status with
+// status, or with err when that is set: a report the registry must not trust.
 type tailnetEnv struct {
 	r      *Registry
 	env    *registryEnv
 	mu     sync.Mutex
 	status string
 	err    error
-	reads  []string // "<actor> <host> <name>"
 }
 
 func newTailnetEnv(t *testing.T) *tailnetEnv {
@@ -73,19 +64,8 @@ func newTailnetEnvOn(t *testing.T, db *store.DB) *tailnetEnv {
 	}
 	serial := transport.SerialText(issue(t, a, db, "H1").SerialNumber)
 	e := &tailnetEnv{}
-	reader := readerFunc(func(ctx context.Context, p core.Principal, hostID, name string) (json.RawMessage, error) {
-		e.mu.Lock()
-		e.reads = append(e.reads, p.Actor+" "+hostID+" "+name)
-		e.mu.Unlock()
-		c, _, err := e.r.Client(ctx, hostID)
-		if err != nil {
-			return nil, err
-		}
-		return c.Resource(ctx, p, name)
-	})
 	r, err := NewRegistry(RegistryConfig{
 		DB: db, Clock: clock, CheckPeer: a.CheckPeer, Version: "1.2.3", ControllerID: "C1", Log: quietLog,
-		Resources: func() ResourceReader { return reader },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -245,12 +225,6 @@ func TestAddressesPersistAtConnect(t *testing.T) {
 	e.r.Close()
 	if got := e.rows(t); !maps.Equal(got, want) {
 		t.Errorf("after the host went offline: rows %v, want %v", got, want)
-	}
-	e.mu.Lock()
-	reads := append([]string(nil), e.reads...)
-	e.mu.Unlock()
-	if len(reads) != 0 {
-		t.Errorf("reads %v, want none: the host's own report is never asked for", reads)
 	}
 
 	svc := auth.New(e.env.db, newSealer(t), e.env.clock, nil, auth.Options{})

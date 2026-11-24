@@ -3,7 +3,6 @@ package fleet
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -47,18 +46,6 @@ type RegistryConfig struct {
 	// of one host arrive in order; it must return at once and must not call
 	// the registry. Nil drops them.
 	OnOnline func(hostID string, online bool)
-	// Resources returns the reader of each connecting host's
-	// tailscale.status, whose addresses Register records in
-	// core_host_tailnet. It is called after a session registers, so it may
-	// return a dispatcher built after the registry. Nil, or a nil reader,
-	// records only the session's own tailnet address.
-	Resources func() ResourceReader
-}
-
-// ResourceReader reads a resource on a host's agent: the dispatcher's
-// Resource.
-type ResourceReader interface {
-	Resource(ctx context.Context, p core.Principal, hostID, name string) (json.RawMessage, error)
 }
 
 // Registry holds the live agent session of each host and is the
@@ -103,9 +90,6 @@ func NewRegistry(cfg RegistryConfig) (*Registry, error) {
 	}
 	if cfg.OnOnline == nil {
 		cfg.OnOnline = func(string, bool) {}
-	}
-	if cfg.Resources == nil {
-		cfg.Resources = func() ResourceReader { return nil }
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Registry{

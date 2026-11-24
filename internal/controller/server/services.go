@@ -100,7 +100,7 @@ func (s *Server) startServices(ctx context.Context) error {
 		s.sessions, err = fleet.NewRegistry(fleet.RegistryConfig{
 			DB: s.controllerDB, Clock: s.clock, CheckPeer: s.authority.CheckPeer,
 			Version: buildinfo.Version, ControllerID: s.authority.ControllerID(), Log: s.log,
-			OnOnline: hostOnline(s.events), Resources: s.hostResources,
+			OnOnline: hostOnline(s.events),
 		})
 		if err != nil {
 			return fmt.Errorf("server: %w", err)
@@ -198,16 +198,6 @@ func (s *Server) moduleNotifier() core.Notifier {
 		}
 	}
 	return core.NopNotifier{}
-}
-
-// hostResources is the session registry's reader of host resources: the
-// dispatcher, which exists before the agent listener starts and so before
-// any session registers.
-func (s *Server) hostResources() fleet.ResourceReader {
-	if s.dispatcher == nil {
-		return nil
-	}
-	return s.dispatcher
 }
 
 // hostOnline publishes the session registry's online changes as host
