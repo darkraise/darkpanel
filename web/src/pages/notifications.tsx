@@ -36,6 +36,7 @@ function ChannelCard({ channel, groups, onPick }: { channel: NotifyChannel; grou
   const [test, setTest] = useState<TestState | null>(null)
   const Icon = ICONS[channel.kind]
   const last = channel.lastDelivery
+  const pending = test?.state === "pending"
 
   async function sendTest() {
     setTest({ state: "pending" })
@@ -76,15 +77,18 @@ function ChannelCard({ channel, groups, onPick }: { channel: NotifyChannel; grou
       <CardContent className="flex flex-col gap-3 text-sm">
         <p className="wrap-anywhere">{routingText(channel, groups)}</p>
         <p className="flex items-center gap-1.5 text-muted-foreground">
-          {LastIcon !== null && <LastIcon aria-hidden className="size-4 shrink-0" />}
-          <span className={last?.state === "failed" ? "font-medium text-foreground" : undefined}>{`Last delivery: ${lastDeliveryText(channel, formatTime)}`}</span>
+          {LastIcon !== null && !pending && <LastIcon aria-hidden className="size-4 shrink-0" />}
+          <span className={last?.state === "failed" && !pending ? "font-medium text-foreground" : undefined}>
+            {`Last delivery: ${pending ? "Sending test…" : lastDeliveryText(channel, formatTime)}`}
+          </span>
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <Button variant="outline" size="sm" loading={test?.state === "pending"} disabled={test?.state === "pending"} onClick={() => void sendTest()}>
-            Send test
+          <Button variant="outline" size="sm" loading={pending} disabled={pending} onClick={() => void sendTest()}>
+            {pending ? "Sending test…" : "Send test"}
           </Button>
+          {/* While pending, the button and the delivery line show it; the live region only announces it. */}
           <span role="status" className={test?.state === "done" && !test.ok ? "font-medium" : "text-muted-foreground"}>
-            {test === null ? "" : test.state === "pending" ? "Sending test…" : test.text}
+            {test === null ? "" : pending ? <span className="sr-only">Sending test…</span> : test.text}
           </span>
         </div>
       </CardContent>
