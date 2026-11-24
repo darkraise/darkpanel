@@ -97,7 +97,7 @@ export function StartRolloutFlow({ onClose }: { onClose: () => void }) {
           <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
             <fieldset className="flex flex-col gap-2" aria-describedby={errors.hosts !== undefined ? `${id}-hosts-error` : undefined}>
               <legend className="text-sm font-medium">Hosts</legend>
-              <div className="flex max-h-60 flex-col gap-2 overflow-y-auto">
+              <div className="relative flex max-h-60 flex-col gap-2 overflow-y-auto">
                 {enrolled.map((h, i) => (
                   <div key={h.id} className="flex items-center gap-2">
                     <Checkbox

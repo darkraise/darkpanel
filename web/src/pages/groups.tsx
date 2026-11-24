@@ -131,7 +131,7 @@ function MembersForm({ group, onCancel, onPlan }: { group: HostGroup; onCancel: 
         {shown.length === 0 ? (
           <p className="text-sm text-muted-foreground">{`No hosts match "${search.trim()}".`}</p>
         ) : (
-          <ul className="flex max-h-72 flex-col gap-2 overflow-y-auto text-sm" aria-label="Hosts">
+          <ul className="relative flex max-h-72 flex-col gap-2 overflow-y-auto text-sm" aria-label="Hosts">
             {shown.map((h) => (
               <li key={h.id} className="flex min-w-0 items-center gap-2">
                 <Checkbox id={`member-${h.id}`} checked={chosen.has(h.id)} onCheckedChange={(on) => toggle(h.id, on === true)} />

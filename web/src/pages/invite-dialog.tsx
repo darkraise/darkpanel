@@ -58,7 +58,7 @@ export function AccessFields({ prefix, value, onChange }: { prefix: string; valu
       <AccessRow id={`${prefix}-all`} name="All hosts" role={value.all ?? undefined} onChange={(role) => onChange({ ...value, all: role })} />
       {groups.isPending && <p className="text-sm text-muted-foreground">Loading the host groups…</p>}
       {groups.isError && <p className="text-sm text-destructive-text">{`Couldn't load host groups: ${errorMessage(groups.error)}`}</p>}
-      <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+      <div className="relative flex max-h-64 flex-col gap-2 overflow-y-auto">
         {groups.data?.groups.map((g) => (
           <AccessRow key={g.id} id={`${prefix}-group-${g.id}`} name={g.name} role={value.groups[g.id]} onChange={(role) => setGroup(g, role)} />
         ))}

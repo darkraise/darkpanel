@@ -278,6 +278,13 @@ for (const theme of THEMES) {
           await settle(page)
           expect(await shown(), `${id} dialog's lowest button scrolls into view`).toBe(true)
           expect(await page.evaluate(() => window.scrollY), `${id} scrolls inside the dialog, not the page`).toBe(0)
+          // Scrolled to its end, the dialog ends at its footer: nothing hidden stretches it.
+          const gap = await last.evaluate((el) => {
+            const d = el.closest('[role="dialog"]') as HTMLElement
+            d.scrollTop = d.scrollHeight
+            return d.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom
+          })
+          expect(gap, `${id} dialog ends at its footer`).toBeLessThanOrEqual(48)
           await page.screenshot({ path: `${EVIDENCE}/${id}-${vp.width}-${theme}-dialog-footer.png` })
         }
       }

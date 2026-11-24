@@ -53,7 +53,7 @@ function Ticks({ legend, hint, items, value, onChange }: { legend: string; hint:
     <fieldset className="flex flex-col gap-2">
       <legend className="mb-1 text-sm font-medium">{legend}</legend>
       <p className="text-xs text-muted-foreground">{hint}</p>
-      <div className="flex max-h-40 flex-col gap-2 overflow-y-auto">
+      <div className="relative flex max-h-40 flex-col gap-2 overflow-y-auto">
         {items.map((it) => (
           <div key={it.id} className="flex min-w-0 items-center gap-2 text-sm">
             <Checkbox
