@@ -56,5 +56,9 @@ for (const c of [
     const elapsed = Date.now() - answered
     expect(answered).toBeGreaterThan(0)
     expect(elapsed, `five charts drew ${elapsed} ms after the response`).toBeLessThan(1000)
+    // A monotone line is one C command per segment between drawn rows.
+    const disk = page.getByRole("img", { name: new RegExp(`^Disk per mount \\(%\\), ${c.label}\\.`) })
+    const rows = await disk.locator("path.recharts-line-curve").first().evaluate((el) => (el.getAttribute("d") ?? "").split("C").length)
+    expect(rows, "rows drawn by the first mount's line").toBeLessThanOrEqual(2400)
   })
 }

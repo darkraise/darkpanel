@@ -2,7 +2,7 @@ import { useMemo } from "react"
 import { Area, AreaChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { ChartContainer, type ChartConfig } from "darkraise-ui/components/chart"
-import { summary, type ChartData } from "@/lib/metrics"
+import { summary, thinSeries, type ChartData } from "@/lib/metrics"
 
 // The dash patterns repeat every four series, the first of each four solid,
 // so lines differ by more than colour.
@@ -26,10 +26,11 @@ const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" 
 // it; missing minutes are null, so the line breaks there.
 export function MetricChart({ title, unit, data, area = false, daily, rangeText }: { title: string; unit: string; data: ChartData; area?: boolean; daily: boolean; rangeText: string }) {
   const config: ChartConfig = useMemo(() => Object.fromEntries(data.series.map((s, i) => [s.key, { label: s.label, color: colour(i) }])), [data.series])
-  const rows = useMemo(
-    () => data.times.map((t, i) => Object.fromEntries([["ts", t], ...data.series.map((s) => [s.key, s.values[i] ?? null])])),
-    [data.times, data.series],
-  )
+  // The drawing is thinned; the summary below reads every sample.
+  const rows = useMemo(() => {
+    const thin = thinSeries(data.times, data.series)
+    return thin.times.map((t, i) => Object.fromEntries([["ts", t], ...thin.series.map((s) => [s.key, s.values[i] ?? null])]))
+  }, [data.times, data.series])
   const lines = data.series.map((s) => ({ label: s.label, text: summary(s.values, unit) }))
   const hidden = data.hidden === null ? "" : ` Showing the ${data.hidden.shown} highest of ${data.hidden.of} ${data.hidden.noun}.`
   const label = `${title}, ${rangeText}. ${lines.map((l) => `${l.label}: ${l.text}`).join("; ")}.${hidden}`

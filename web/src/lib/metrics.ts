@@ -124,6 +124,34 @@ export function charts(history: MetricsHistory, cpus: number | null): MetricsCha
   }
 }
 
+// thinSeries cuts a range longer than maxPoints rows to two rows per bucket,
+// at the bucket's first and last time, carrying each series' min and max in
+// the order they occurred, so spikes stay drawn. Recharts draws 10,080 rows
+// (7 days of minutes) in about 930 ms, near the 1 s budget.
+export function thinSeries(times: number[], series: Series[], maxPoints = 2400): { times: number[]; series: Series[] } {
+  if (times.length <= maxPoints) return { times, series }
+  const size = Math.ceil(times.length / Math.floor(maxPoints / 2))
+  const starts: number[] = []
+  for (let b = 0; b < times.length; b += size) starts.push(b)
+  const last = (b: number) => Math.min(b + size, times.length) - 1
+  const thinTimes = starts.flatMap((b) => (last(b) === b ? [times[b]!] : [times[b]!, times[last(b)]!]))
+  const thin = (values: (number | null)[]) =>
+    starts.flatMap((b) => {
+      let lo = -1
+      let hi = -1
+      for (let i = b; i <= last(b); i++) {
+        const v = values[i]
+        if (v === null || v === undefined) continue
+        if (lo < 0 || v < values[lo]!) lo = i
+        if (hi < 0 || v > values[hi]!) hi = i
+      }
+      if (last(b) === b) return [lo < 0 ? null : values[lo]!]
+      if (lo < 0) return [null, null]
+      return lo <= hi ? [values[lo]!, values[hi]!] : [values[hi]!, values[lo]!]
+    })
+  return { times: thinTimes, series: series.map((s) => ({ ...s, values: thin(s.values) })) }
+}
+
 export function summary(values: (number | null)[], unit: string): string {
   const v = values.filter((x): x is number => x !== null)
   if (v.length === 0) return "no samples"
