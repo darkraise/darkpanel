@@ -44,7 +44,7 @@ func auditLog() core.Audit {
 }
 
 // sender sends every notification of the module.
-var sender = send.New(send.Options{})
+var sender = sync.OnceValue(func() send.Sender { return send.New(send.Options{}) })
 
 func testAction() core.ActionDef {
 	return core.DefineRead[ChannelIDInput, TestResult](core.ActionSpec{
@@ -82,7 +82,7 @@ func (channelTestRead) Read(ctx context.Context, env core.Env, in ChannelIDInput
 	}
 	ev := send.Event{ID: id.String(), Kind: core.NotifyTest, Severity: core.SeverityInfo, Title: testTitle,
 		Body: "Channel " + r.Name + " can deliver Darkpanel notifications.", CreatedAt: now}
-	code, sendErr := sender.Send(ctx, sendChannel(r, secrets), ev)
+	code, sendErr := sender().Send(ctx, sendChannel(r, secrets), ev)
 	out := TestResult{Delivered: sendErr == nil, Code: code}
 	// core_audit accepts only its listed phases and results: a test is a
 	// check, and a failed one carries the provider's code as its error code.

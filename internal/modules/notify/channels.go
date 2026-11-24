@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -40,13 +41,17 @@ const (
 	maxSecretBytes    = 512
 )
 
+// Built on first use: every agent links this controller-only package, and
+// init-time values count against the agent's RSS budget (TestFootprint).
 var (
-	channelNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$`)
-	ntfyTopicPattern   = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
-	botTokenPattern    = regexp.MustCompile(`^[0-9]{1,20}:[A-Za-z0-9_-]{1,128}$`)
-	chatIDPattern      = regexp.MustCompile(`^(-?[0-9]{1,20}|@[A-Za-z][A-Za-z0-9_]{4,31})$`)
-	hostLabels         = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)
-	discordHosts       = []string{"discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"}
+	channelNamePattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$`) })
+	ntfyTopicPattern   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`) })
+	botTokenPattern    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9]{1,20}:[A-Za-z0-9_-]{1,128}$`) })
+	chatIDPattern      = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(-?[0-9]{1,20}|@[A-Za-z][A-Za-z0-9_]{4,31})$`) })
+	hostLabels         = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)
+	})
+	discordHosts = []string{"discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"}
 )
 
 // The keys of a channel's sealed secrets.
@@ -257,7 +262,7 @@ func build(kind string, d definition, was *storedConfig, prev map[string]string)
 			add("/ntfy/server", "is an http or https URL with a host and no user information, query or fragment")
 		}
 		s[secretTopic] = value("/ntfy/topic", secretTopic, n.Topic, true, func(v string) string {
-			if !ntfyTopicPattern.MatchString(v) {
+			if !ntfyTopicPattern().MatchString(v) {
 				return "is 1 to 64 letters, digits, hyphens or underscores"
 			}
 			return ""
@@ -267,12 +272,12 @@ func build(kind string, d definition, was *storedConfig, prev map[string]string)
 	case kindTelegram:
 		t := d.Telegram
 		s[secretBotToken] = value("/telegram/botToken", secretBotToken, t.BotToken, true, func(v string) string {
-			if !botTokenPattern.MatchString(v) {
+			if !botTokenPattern().MatchString(v) {
 				return "is a bot token as BotFather issues it: digits, a colon, then letters, digits, hyphens or underscores"
 			}
 			return ""
 		})
-		if !chatIDPattern.MatchString(t.ChatID) {
+		if !chatIDPattern().MatchString(t.ChatID) {
 			add("/telegram/chatId", "is a number, or @ and a public channel's name")
 		}
 		c.ChatID = t.ChatID
@@ -288,7 +293,7 @@ func build(kind string, d definition, was *storedConfig, prev map[string]string)
 		if was != nil && (e.Host != was.Host || e.Port != was.Port || e.Security != was.Security) {
 			moved[secretPassword] = "is entered again when the host, port or security changes"
 		}
-		if a, err := netip.ParseAddr(e.Host); (err != nil || a.Zone() != "") && (len(e.Host) > 253 || !hostLabels.MatchString(e.Host)) {
+		if a, err := netip.ParseAddr(e.Host); (err != nil || a.Zone() != "") && (len(e.Host) > 253 || !hostLabels().MatchString(e.Host)) {
 			add("/email/host", "is a host name or an IP address")
 		}
 		if e.Port < 1 || e.Port > 65535 {
@@ -363,7 +368,7 @@ func checkDefinition(ctx context.Context, q querier, id, kind string, d definiti
 	prev map[string]string) (storedConfig, map[string]string, error) {
 	var fields []errcode.FieldError
 	add := func(path, msg string) { fields = append(fields, errcode.FieldError{Path: path, Message: msg}) }
-	if !channelNamePattern.MatchString(d.Name) {
+	if !channelNamePattern().MatchString(d.Name) {
 		add("/name", "is 1 to 48 letters, digits, spaces, dots, underscores or hyphens, starting with a letter or digit")
 	} else {
 		var n int

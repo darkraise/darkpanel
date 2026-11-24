@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -21,10 +22,10 @@ const maxHostName = 64
 // factPattern is what an id, action name, state, version or error code
 // in a template may be. Agents supply some facts, and bodies leave for
 // third parties, so anything else is written as "unknown".
-var factPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$`)
+var factPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$`) })
 
 func fact(s string) string {
-	if !factPattern.MatchString(s) {
+	if !factPattern().MatchString(s) {
 		return "unknown"
 	}
 	return s

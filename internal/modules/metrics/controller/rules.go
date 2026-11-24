@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -46,7 +47,9 @@ const allHosts = "*"
 // maxLoadThreshold bounds a load rule's threshold, in load per logical CPU.
 const maxLoadThreshold = 1000
 
-var ruleNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$`)
+// Built on first use: every agent links this controller-only package, and
+// init-time values count against the agent's RSS budget (TestFootprint).
+var ruleNamePattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$`) })
 
 // RuleInput is the input of metrics.alert.create/v1.
 type RuleInput struct {
@@ -129,7 +132,7 @@ func invalid(msg string) error { return errcode.New(errcode.InvalidInput, msg) }
 // normalize checks in as rule id's definition (id is "" for a new rule) and
 // returns it as stored: an offline rule stores '>' and 0.
 func normalize(ctx context.Context, q querier, id string, in RuleInput) (RuleInput, error) {
-	if !ruleNamePattern.MatchString(in.Name) {
+	if !ruleNamePattern().MatchString(in.Name) {
 		return in, invalid("the name must be 1 to 64 letters, digits, spaces, dots, underscores or hyphens, starting with a letter or digit")
 	}
 	if !slices.Contains(ruleMetrics, in.Metric) {

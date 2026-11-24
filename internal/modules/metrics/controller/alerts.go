@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -195,7 +196,7 @@ const maxTextHost = 64
 
 // mountText is what a mount point may be in a notification: agents supply
 // mount points, and bodies leave for third parties.
-var mountText = regexp.MustCompile(`^/[A-Za-z0-9/._@+-]{0,127}$`)
+var mountText = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^/[A-Za-z0-9/._@+-]{0,127}$`) })
 
 func metricLabel(metric, subject string) string {
 	switch metric {
@@ -208,7 +209,7 @@ func metricLabel(metric, subject string) string {
 	case metricLoad:
 		return "Load"
 	}
-	if mountText.MatchString(subject) {
+	if mountText().MatchString(subject) {
 		return "Disk " + subject
 	}
 	return "A disk"

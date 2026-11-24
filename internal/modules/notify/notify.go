@@ -69,7 +69,7 @@ func (module) Controller(deps ext.Deps) ([]ext.Route, []ext.Service, error) {
 	if !ok {
 		n = newNotifier(deps.Clock)
 	}
-	o := newOutbox(outboxConfig{DB: deps.DB, Sealer: deps.Sealer, Clock: deps.Clock, Log: deps.Log, Send: sender, Notifier: n})
+	o := newOutbox(outboxConfig{DB: deps.DB, Sealer: deps.Sealer, Clock: deps.Clock, Log: deps.Log, Send: sender(), Notifier: n})
 	if err := o.restore(context.Background()); err != nil {
 		return nil, nil, err
 	}
