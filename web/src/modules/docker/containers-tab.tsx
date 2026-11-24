@@ -13,6 +13,7 @@ import { StatusPill } from "@/components/visual/status-pill"
 import { formatBytes } from "@/lib/format"
 import { DockerChange } from "./docker-change"
 import { DOCKER_MODULE, containerStatus, dockerKey, type DockerContainer, type DockerPort, type DockerUsage } from "./types"
+import { Can } from "@/session/can"
 
 interface Pending {
   action: string
@@ -53,7 +54,7 @@ function ContainerRow({ container: c, onChange }: { container: DockerContainer; 
   const act = (verb: string, action: string, Icon: LucideIcon) => {
     const label = `${verb} ${c.name}`
     return (
-      <Button
+      <Can need="operate"><Button
         size="sm"
         variant="outline"
         aria-label={label}
@@ -62,7 +63,7 @@ function ContainerRow({ container: c, onChange }: { container: DockerContainer; 
       >
         <Icon aria-hidden />
         {verb}
-      </Button>
+      </Button></Can>
     )
   }
   return (

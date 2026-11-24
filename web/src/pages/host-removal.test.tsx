@@ -50,7 +50,7 @@ test("UX-3, UX-4, UX-5: each control shows only for the host states it applies t
   expect(shown({ state: "enrolled" })).toEqual(["Revoke host"])
   expect(shown({ state: "pending" })).toEqual(["New enrollment token", "Revoke host", "Delete host"])
   expect(shown({ state: "revoked" })).toEqual(["New enrollment token", "Delete host"])
-  expect(shown({ state: "enrolled", isLocal: true })).toEqual([])
+  expect(shown({ state: "enrolled", scope: "admin", isLocal: true })).toEqual([])
 })
 
 test("UX-4: deleting a host applies and returns to the host list", async () => {

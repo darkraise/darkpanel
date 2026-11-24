@@ -46,7 +46,7 @@ export const moduleRegistry: ModuleEntry[] = [
     icon: Globe,
     routes: lazy(() => import("./npm/routes")),
     containerActions: [
-      { id: "npm.expose", label: "Expose", render: lazy(() => import("./npm/container-actions").then((m) => ({ default: m.ExposeAction }))) },
+      { id: "npm.expose", label: "Expose", scope: "admin", render: lazy(() => import("./npm/container-actions").then((m) => ({ default: m.ExposeAction }))) },
     ],
   },
   {
@@ -57,12 +57,14 @@ export const moduleRegistry: ModuleEntry[] = [
       {
         id: "cloudflare.expose",
         label: "Expose via tunnel",
+        scope: "admin",
         render: lazy(() => import("./cloudflare/container-actions").then((m) => ({ default: m.ExposeAction }))),
       },
     ],
     global: { path: "cloudflare", label: "Cloudflare", routes: lazy(() => import("./cloudflare/global")) },
   },
-  { id: "panel", label: "Panel exposure", icon: ExternalLink, routes: lazy(() => import("./panel/routes")) },
+  // Every panel action, the status read included, needs admin.
+  { id: "panel", label: "Panel exposure", icon: ExternalLink, routes: lazy(() => import("./panel/routes")), scope: "admin" },
 ]
 
 // HostModuleEntry is an entry that has host pages.

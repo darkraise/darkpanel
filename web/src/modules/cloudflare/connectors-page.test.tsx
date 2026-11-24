@@ -19,7 +19,7 @@ function cnHost(id: string, name: string, enabled = true): Host {
   return {
     id,
     name,
-    isLocal: false,
+    scope: "admin", isLocal: false,
     state: "enrolled",
     online: true,
     lastSeenAt: "2026-11-11T08:00:00Z",

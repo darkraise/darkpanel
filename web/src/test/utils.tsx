@@ -3,8 +3,10 @@ import { render, type RenderResult } from "@testing-library/react"
 import { QueryClient } from "@tanstack/react-query"
 import { MemoryRouter } from "react-router"
 import { vi } from "vitest"
-import type { Change, Host, Plan } from "@/api/types"
+import type { Change, Host, Plan, Scope, Session } from "@/api/types"
 import { Providers } from "@/providers"
+import { HostScope } from "@/session/can"
+import { SessionContext } from "@/session/session-context"
 import { LocationProbe } from "./location-probe"
 
 export interface FetchCall {
@@ -58,13 +60,35 @@ export function stubFetch(routes: Record<string, StubHandler>): FetchCall[] {
   return calls
 }
 
-export function renderWithProviders(ui: ReactElement, { path = "/" }: { path?: string } = {}): RenderResult & { client: QueryClient } {
+export const adminSession: Session = {
+  user: { id: "u-admin", username: "admin", role: "admin", allHosts: "admin", state: "active", createdAt: "2026-10-19T08:00:00Z" },
+  csrfToken: "csrf-1",
+  expiresAt: "2026-10-19T20:00:00Z",
+  token: null,
+}
+
+export function memberSession(allHosts: Scope | "" = ""): Session {
+  return { ...adminSession, user: { ...adminSession.user, id: "u-member", username: "mia", role: "member", allHosts } }
+}
+
+// session is what a page rendered without a SessionProvider sees, and
+// hostScope what a module component rendered alone sees; the host and
+// change pages provide their own host scope.
+export function renderWithProviders(
+  ui: ReactElement,
+  { path = "/", session = adminSession, hostScope = "admin" }: { path?: string; session?: Session | null; hostScope?: Scope | "" } = {},
+): RenderResult & { client: QueryClient } {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const sessionValue = { status: "ready" as const, session, loggedOut: false, setSession: () => undefined, logout: async () => undefined }
   const result = render(
     <MemoryRouter initialEntries={[path]}>
       <Providers client={client}>
-        {ui}
-        <LocationProbe />
+        <SessionContext value={sessionValue}>
+          <HostScope value={hostScope}>
+            {ui}
+            <LocationProbe />
+          </HostScope>
+        </SessionContext>
       </Providers>
     </MemoryRouter>,
   )
@@ -75,7 +99,7 @@ export function makeHost(over: Partial<Host> = {}): Host {
   return {
     id: "h1",
     name: "web-1",
-    isLocal: false,
+    scope: "admin", isLocal: false,
     state: "enrolled",
     online: true,
     lastSeenAt: "2026-11-11T08:00:00Z",

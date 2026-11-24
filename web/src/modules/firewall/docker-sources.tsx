@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { Textarea } from "darkraise-ui/components/textarea"
 import { FirewallChange } from "./firewall-change"
 import type { DockerProto, DockerStatus, Exemption } from "./types"
+import { Can, useCanOnHost } from "@/session/can"
 
 const PROTOS: DockerProto[] = ["tcp", "udp"]
 
@@ -104,6 +105,7 @@ export function DockerSources({ hostId, docker, fallbackFocus }: {
   docker: DockerStatus
   fallbackFocus?: RefObject<HTMLElement | null>
 }) {
+  const operate = useCanOnHost("operate")
   const sources = docker.settings.privateSources ?? []
   const exemptions = docker.settings.forwardExemptions ?? []
   const proposed = docker.foreignForwards ?? []
@@ -164,12 +166,12 @@ export function DockerSources({ hostId, docker, fallbackFocus }: {
           <form aria-label="Private sources" className="flex flex-col gap-4" onSubmit={submitSources}>
             <div className="flex flex-col gap-2">
               <Label htmlFor="ds-sources">Private source ranges</Label>
-              <Textarea id="ds-sources" rows={6} className="font-mono" value={text} onChange={(e) => setSourcesDraft({ base: current, text: e.target.value })} />
+              <Textarea id="ds-sources" rows={6} className="font-mono" readOnly={!operate} value={text} onChange={(e) => setSourcesDraft({ base: current, text: e.target.value })} />
               <p className="text-sm text-muted-foreground">One CIDR per line.</p>
             </div>
-            <div>
+            <Can need="operate"><div>
               <Button type="submit" disabled={unchanged}>Set private sources</Button>
-            </div>
+            </div></Can>
           </form>
         </CardContent>
       </Card>
@@ -183,21 +185,21 @@ export function DockerSources({ hostId, docker, fallbackFocus }: {
             <p>No forward exemptions.</p>
           ) : (
             <ExemptionTable label="Forward exemptions" rows={exemptions} actions={(i) => (
-              <Button variant="outline" size="sm" aria-label={`Remove exemption ${i + 1}`}
+              <Can need="operate"><Button variant="outline" size="sm" aria-label={`Remove exemption ${i + 1}`}
                 onClick={() => plan("Remove a forward exemption", exemptions.filter((_, j) => j !== i))}>
                 Remove
-              </Button>
+              </Button></Can>
             )} />
           )}
-          {proposed.length > 0 && (
+          <Can need="operate">{proposed.length > 0 && (
             <ExemptionTable label="Proposed forward exemptions" rows={proposed} actions={(i) => (
               <Button variant="outline" size="sm" aria-label={`Add proposed exemption ${i + 1}`}
                 onClick={() => plan("Add a forward exemption", [...exemptions, proposed[i] as Exemption])}>
                 Add
               </Button>
             )} />
-          )}
-          <form aria-label="Add forward exemption" className="flex flex-col gap-4" onSubmit={submitAdd}>
+          )}</Can>
+          <Can need="operate"><form aria-label="Add forward exemption" className="flex flex-col gap-4" onSubmit={submitAdd}>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field id="ds-in-interface" label="In interface (optional)" value={add.inInterface} onChange={(v) => setField("inInterface", v)} />
               <Field id="ds-orig-destination" label="Original destination" value={add.origDestination} onChange={(v) => setField("origDestination", v)} />
@@ -220,7 +222,7 @@ export function DockerSources({ hostId, docker, fallbackFocus }: {
             <div>
               <Button type="submit">Add exemption</Button>
             </div>
-          </form>
+          </form></Can>
         </CardContent>
       </Card>
       <FirewallChange

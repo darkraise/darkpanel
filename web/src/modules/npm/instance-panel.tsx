@@ -15,6 +15,7 @@ import { dockerQueryKey, FIREWALL_MODULE, statusQueryKey, type DockerStatus, typ
 import { NpmChange, NpmControllerChange } from "./npm-change"
 import { messageOf, readInstanceStatus } from "./status"
 import { NPM_DEPLOY_PUBLIC_VERSION, npmKey, type AdminPassword, type InstanceStatus } from "./types"
+import { Can, useCanOnHost } from "@/session/can"
 
 type Pending = null | { scope: "host" | "controller"; action: string; version?: number; title: string; input: Record<string, unknown> }
 
@@ -192,6 +193,7 @@ function RevealDialog({ credentials, onHide }: { credentials: AdminPassword; onH
 // admin password is fetched on demand and held only in component state, so
 // it never enters the query cache.
 export function InstancePanel({ hostId }: { hostId: string }) {
+  const admin = useCanOnHost("admin")
   const [pending, setPending] = useState<Pending>(null)
   const [dialog, setDialog] = useState<null | "expose" | "reveal">(null)
   const [revealed, setRevealed] = useState<AdminPassword | null>(null)
@@ -247,7 +249,7 @@ export function InstancePanel({ hostId }: { hostId: string }) {
             </Alert>
           )}
           <div className="flex flex-wrap items-center gap-2">
-            {status.public !== "confirmed" && (
+            <Can need="operate">{status.public !== "confirmed" && (
               <Button variant="outline" onClick={() => host("npm.instance.confirm-public", "Confirm that the instance is public")}>
                 Confirm public
               </Button>
@@ -257,8 +259,8 @@ export function InstancePanel({ hostId }: { hostId: string }) {
             </Button>
             <Button variant="outline" onClick={() => host("npm.instance.remove", "Remove Nginx Proxy Manager")}>
               Remove instance
-            </Button>
-            <Button variant="outline" disabled={revealing} onClick={() => void reveal()}>
+            </Button></Can>
+            <Can need="admin"><Button variant="outline" disabled={revealing} onClick={() => void reveal()}>
               Reveal admin password
             </Button>
             {exposure !== null && exposure !== undefined ? (
@@ -279,7 +281,7 @@ export function InstancePanel({ hostId }: { hostId: string }) {
               <Button variant="outline" onClick={() => setDialog("expose")}>
                 Expose admin interface
               </Button>
-            )}
+            )}</Can>
           </div>
           {revealError !== null && (
             <Alert variant="destructive" role="alert">
@@ -288,7 +290,12 @@ export function InstancePanel({ hostId }: { hostId: string }) {
           )}
         </>
       ) : (
-        <DeployForm hostId={hostId} onPlan={setPending} />
+        <>
+          <Can need="admin">
+            <DeployForm hostId={hostId} onPlan={setPending} />
+          </Can>
+          {!admin && <p>Nginx Proxy Manager is not deployed on this host.</p>}
+        </>
       )}
       {dialog === "expose" && (
         <ExposeDialog

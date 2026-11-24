@@ -59,7 +59,7 @@ test("renderWithProviders renders at the path with a location probe", () => {
 test("makeHost fills every Host field and applies overrides", () => {
   const h = makeHost({ id: "h9", state: "pending", lastSeenAt: null })
   expect(h).toEqual({
-    id: "h9", name: "web-1", isLocal: false, state: "pending", online: true, lastSeenAt: null,
+    id: "h9", name: "web-1", scope: "admin", isLocal: false, state: "pending", online: true, lastSeenAt: null,
     agentVersion: "1.0.0", protocolVersion: 1, os: "debian-12", arch: "amd64", supported: true, modules: [], ingestion: null,
   })
 })

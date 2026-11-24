@@ -14,6 +14,7 @@ import { readProxyHostList } from "./list-replies"
 import { NpmChange } from "./npm-change"
 import { parseDomains, parseOptionalId, parsePort } from "./parse"
 import { npmKey, type ProxyHostView } from "./types"
+import { Can } from "@/session/can"
 
 interface Pending {
   action: string
@@ -165,14 +166,14 @@ function ProxyHostTable({ items, onEdit, onRemove }: { items: ProxyHostView[]; o
             </TableCell>
             <TableCell>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" aria-label={`Edit ${namesOf(h)}`} disabled={h.reserved !== ""} onClick={() => onEdit(h)}>
+                <Can need="operate"><Button size="sm" variant="outline" aria-label={`Edit ${namesOf(h)}`} disabled={h.reserved !== ""} onClick={() => onEdit(h)}>
                   <Pencil aria-hidden />
                   Edit
                 </Button>
                 <Button size="sm" variant="outline" aria-label={`Remove ${namesOf(h)}`} disabled={h.reserved !== ""} onClick={() => onRemove(h)}>
                   <Trash2 aria-hidden />
                   Remove
-                </Button>
+                </Button></Can>
               </div>
             </TableCell>
           </TableRow>
@@ -222,7 +223,7 @@ export function ProxyHostsTab({ hostId }: { hostId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button onClick={() => setDialog({ editing: null })}>Add proxy host</Button>
+        <Can need="operate"><Button onClick={() => setDialog({ editing: null })}>Add proxy host</Button></Can>
       </div>
       {content}
       {dialog !== null && (

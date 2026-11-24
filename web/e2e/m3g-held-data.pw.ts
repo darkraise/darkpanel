@@ -22,7 +22,7 @@ const UNCHECKED = "Could not check whether the NPM admin UI is exposed."
 
 function cfHost(id: string, name: string): Host {
   return {
-    id, name, isLocal: false, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1,
+    id, name, scope: "admin", isLocal: false, state: "enrolled", online: true, lastSeenAt: "2026-11-11T08:00:00Z", agentVersion: "1.0.0", protocolVersion: 1,
     os: "debian-12", arch: "amd64", supported: true,
     modules: [{ id: "cloudflare", version: 1, enabled: true, available: true, reason: null, checkedAt: null }], ingestion: null,
   }

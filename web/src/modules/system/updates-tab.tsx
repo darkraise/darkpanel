@@ -15,6 +15,7 @@ import { StatusPill } from "@/components/visual/status-pill"
 import { SystemChange, type PendingChange } from "./system-change"
 import { TileError } from "./tile"
 import { SYSTEM_MODULE, type Updates, type Upgradable } from "./types"
+import { Can } from "@/session/can"
 
 function Group({ label, tip, children }: { label: string; tip?: string; children: ReactNode }) {
   return (
@@ -134,9 +135,9 @@ export function UpdatesTab({ host }: { host: Host }) {
           <AlertTitle as="h3">Package installation was interrupted</AlertTitle>
           <AlertDescription className="flex flex-col items-start gap-2">
             <span>The updates cannot be read until the packages are repaired.</span>
-            <Button size="sm" variant="outline" onClick={() => setPending({ action: "system.packages.repair", title: "Repair packages", input: {} })}>
+            <Can need="operate"><Button size="sm" variant="outline" onClick={() => setPending({ action: "system.packages.repair", title: "Repair packages", input: {} })}>
               Repair packages
-            </Button>
+            </Button></Can>
           </AlertDescription>
         </Alert>
         {notices}
@@ -173,13 +174,13 @@ export function UpdatesTab({ host }: { host: Host }) {
     <div className="@container flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
         <span className="text-muted-foreground text-sm tabular-nums">{`${names.length} of ${choosable.length} selected`}</span>
-        <Button
+        <Can need="operate"><Button
           size="sm"
           disabled={names.length === 0}
           onClick={() => setPending({ action: "system.packages.upgrade", title: `Upgrade ${names.length} ${names.length === 1 ? "package" : "packages"}`, input: { all: false, names } })}
         >
           Upgrade selected
-        </Button>
+        </Button></Can>
       </div>
       {security.length > 0 && (
         <Group label="Security">

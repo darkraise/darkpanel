@@ -1,5 +1,5 @@
 import type { ComponentType, LazyExoticComponent } from "react"
-import type { Host } from "@/api/types"
+import type { Host, Scope } from "@/api/types"
 import type { LucideIcon } from "lucide-react"
 
 // What a module's route bundle receives: the host whose pages it renders.
@@ -22,6 +22,7 @@ export interface ContainerRef {
 export interface ContainerAction {
   id: string // "firewall.allow"
   label: string
+  scope?: Scope // the host scope the action needs, operate when absent
   render: LazyExoticComponent<ComponentType<{ container: ContainerRef; onDone: () => void }>>
 }
 
@@ -55,4 +56,7 @@ export interface ModuleEntry {
   containerActions?: ContainerAction[]
   hostCreate?: HostCreateExtension
   global?: GlobalPage
+  // The scope on a host its host pages need, read when absent; a host whose
+  // scope is lower has no tab for the module.
+  scope?: Scope
 }

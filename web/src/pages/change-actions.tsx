@@ -7,9 +7,11 @@ import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { Textarea } from "darkraise-ui/components/textarea"
 import {
+  HOSTS_QUERY_KEY,
   changeQueryKey,
   effectsQueryKey,
   errorMessage,
+  listHosts,
   listSteps,
   releaseChange,
   repairChange,
@@ -19,6 +21,8 @@ import {
 import type { Change, Plan } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { undoOffered } from "@/lib/undo"
+import { canOnHost, isAdmin } from "@/session/can"
+import { useSession } from "@/session/use-session"
 
 const MAX_RELEASE_REASON = 500
 
@@ -183,8 +187,19 @@ function StepDecision({ change, onError }: { change: Change; onError: (m: string
 // ChangeActions offers what can be done to a change: Undo on an undoable
 // one, and Repair, Release and, for a composite, a step decision on one
 // that needs repair.
+// useCanOperate reports whether the caller may undo or repair change: a
+// change on a host needs operate there, a controller change needs admin.
+function useCanOperate(change: Change): boolean {
+  const admin = isAdmin(useSession().session)
+  const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts, enabled: !admin && change.hostId !== null })
+  const host = hosts.data?.hosts.find((h) => h.id === change.hostId)
+  return admin || (host !== undefined && canOnHost(host, "operate"))
+}
+
 export function ChangeActions({ change }: { change: Change }) {
   const client = useQueryClient()
+  const admin = isAdmin(useSession().session)
+  const operate = useCanOperate(change)
   const [dialog, setDialog] = useState<"undo" | "release" | null>(null)
   const [repairPlan, setRepairPlan] = useState<Plan | null>(null)
   const [repairing, setRepairing] = useState(false)
@@ -221,7 +236,7 @@ export function ChangeActions({ change }: { change: Change }) {
 
   // A release moves the change out of needs_repair; the report of what it
   // abandoned must outlive that.
-  if (!undoOffered(change) && !needsRepair && notice === null) return null
+  if (!operate || (!undoOffered(change) && !needsRepair && notice === null)) return null
   return (
     <section aria-label="Actions" className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2">
@@ -235,9 +250,11 @@ export function ChangeActions({ change }: { change: Change }) {
             <Button loading={repairing} onClick={() => void repair()}>
               Repair
             </Button>
-            <Button variant="destructive" onClick={() => setDialog("release")}>
-              Release
-            </Button>
+            {admin && (
+              <Button variant="destructive" onClick={() => setDialog("release")}>
+                Release
+              </Button>
+            )}
           </>
         )}
       </div>

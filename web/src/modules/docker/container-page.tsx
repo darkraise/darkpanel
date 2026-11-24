@@ -1,4 +1,4 @@
-import { Suspense } from "react"
+import { Suspense, useContext } from "react"
 import { Link, useParams } from "react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
@@ -13,6 +13,7 @@ import { FIREWALL_MODULE, exposureQueryKey, type ExposureView } from "@/modules/
 import { moduleRegistry } from "@/modules/registry"
 import type { ContainerRef } from "@/modules/types"
 import { LogsPanel } from "./logs-panel"
+import { HostScope, scopeAllows } from "@/session/can"
 import { StatsPanel } from "./stats-panel"
 import { DOCKER_ACTION_VERSION, containerStatus, type ContainerDetail, type DockerPort } from "./types"
 
@@ -203,6 +204,7 @@ function Exposure({
 /** ContainerPage is the page of one container: what the daemon knows, its logs and statistics, its firewall exposure and the actions other modules offer for it. */
 export function ContainerPage({ hostId }: { hostId: string }) {
   const { containerId = "" } = useParams()
+  const scope = useContext(HostScope)
   const queryClient = useQueryClient()
   const container = useQuery({
     queryKey: ["resource", hostId, "docker.container", containerId],
@@ -229,6 +231,7 @@ export function ContainerPage({ hostId }: { hostId: string }) {
   const actions = moduleRegistry
     .filter((entry) => modules.some((s) => s.id === entry.id && s.enabled))
     .flatMap((entry) => entry.containerActions ?? [])
+    .filter((action) => scopeAllows(scope, action.scope ?? "operate"))
 
   return (
     <div className="flex flex-col gap-6">

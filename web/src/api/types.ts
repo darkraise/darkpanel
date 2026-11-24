@@ -1,13 +1,17 @@
 // The controller API's JSON shapes (spec section 12).
 export type Scope = "read" | "operate" | "admin"
-export interface User { id: string; username: string; role: string; state: string; createdAt: string }
+export type Role = "admin" | "member"
+export interface User { id: string; username: string; role: Role; state: string; createdAt: string }
+// allHosts is the scope the session holds on every host: admin for an admin, "" when no grant covers them all.
+export interface SessionUser extends User { allHosts: Scope | "" }
 export interface TokenInfo { id: string; name: string; scope: string; createdAt: string; expiresAt: string; lastUsedAt: string | null; revokedAt: string | null }
 export interface NewToken extends TokenInfo { token: string }
 export interface TokenList { tokens: TokenInfo[] }
-export interface Session { user: User; csrfToken: string | null; expiresAt: string | null; token: TokenInfo | null }
+export interface Session { user: SessionUser; csrfToken: string | null; expiresAt: string | null; token: TokenInfo | null }
 export interface ModuleState { id: string; version: number; enabled: boolean; available: boolean; reason: string | null; checkedAt: string | null }
 export type HostState = "pending" | "enrolled" | "revoked"
-export interface Host { id: string; name: string; isLocal: boolean; state: HostState; online: boolean; lastSeenAt: string | null; agentVersion: string | null; protocolVersion: number | null; os: string | null; arch: string | null; supported: boolean; modules: ModuleState[]; ingestion: { ok: boolean; since: string; error: string | null } | null }
+// scope is what the caller may do on the host.
+export interface Host { id: string; name: string; scope: Scope | ""; isLocal: boolean; state: HostState; online: boolean; lastSeenAt: string | null; agentVersion: string | null; protocolVersion: number | null; os: string | null; arch: string | null; supported: boolean; modules: ModuleState[]; ingestion: { ok: boolean; since: string; error: string | null } | null }
 export interface ErrorDetail { code: string; message: string }
 export interface EnrollmentGrant { host: Host; token: string; expiresAt: string; bundle?: string }
 export type Channel = "stable" | "beta"

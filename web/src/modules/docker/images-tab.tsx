@@ -14,6 +14,7 @@ import { errorMessage, readResource } from "@/api/client"
 import { formatBytes } from "@/lib/format"
 import { DockerChange } from "./docker-change"
 import { DOCKER_MODULE, dockerKey, type DockerImage } from "./types"
+import { Can } from "@/session/can"
 
 interface Pending {
   action: string
@@ -57,10 +58,10 @@ function ImageTable({ images, onRemove }: { images: DockerImage[]; onRemove: (i:
             <TableCell>{i.created.slice(0, 10)}</TableCell>
             <TableCell>{i.containers.length === 0 ? "—" : i.containers.join(", ")}</TableCell>
             <TableCell>
-              <Button size="sm" variant="outline" aria-label={`Remove image ${imageName(i)}`} disabled={i.containers.length > 0} onClick={() => onRemove(i)}>
+              <Can need="operate"><Button size="sm" variant="outline" aria-label={`Remove image ${imageName(i)}`} disabled={i.containers.length > 0} onClick={() => onRemove(i)}>
                 <Trash2 aria-hidden />
                 Remove
-              </Button>
+              </Button></Can>
             </TableCell>
           </TableRow>
         ))}
@@ -114,10 +115,10 @@ export function ImagesTab({ hostId }: { hostId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end gap-2">
-        <Button onClick={() => setPulling(true)}>Pull image</Button>
+        <Can need="operate"><Button onClick={() => setPulling(true)}>Pull image</Button>
         <Button variant="outline" disabled={!prunable} onClick={() => setPending({ action: "docker.image.prune", title: "Prune dangling images", input: {} })}>
           Prune images
-        </Button>
+        </Button></Can>
       </div>
       {content}
       <Dialog open={pulling} onOpenChange={setPulling}>

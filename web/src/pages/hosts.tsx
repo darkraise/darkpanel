@@ -14,6 +14,8 @@ import { SkeletonTiles } from "@/components/visual/skeleton-tiles"
 import { StatusPill } from "@/components/visual/status-pill"
 import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
+import { isAdmin } from "@/session/can"
+import { useSession } from "@/session/use-session"
 import { CreateHostDialog } from "./create-host-dialog"
 import { HostCard, MemoryCell, ModuleIcons } from "./host-card"
 import { hostStatus } from "./host-status"
@@ -23,6 +25,7 @@ type View = "cards" | "table"
 const GRID = "grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
 
 function HostsBody({ view }: { view: View }) {
+  const admin = isAdmin(useSession().session)
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
   if (hosts.isPending) return <SkeletonTiles count={4} label="Loading the hosts" />
   if (hosts.isError) {
@@ -44,7 +47,11 @@ function HostsBody({ view }: { view: View }) {
     return (
       <>
         <h2 className="sr-only">Host list</h2>
-        <EmptyState icon={<Server aria-hidden />} title="No hosts yet" description="Add host enrolls the first server." />
+        {admin ? (
+          <EmptyState icon={<Server aria-hidden />} title="No hosts yet" description="Add host enrolls the first server." />
+        ) : (
+          <EmptyState icon={<Server aria-hidden />} title="No hosts yet" description="An admin can give you access to hosts." />
+        )}
       </>
     )
   }
@@ -122,6 +129,7 @@ function HostsBody({ view }: { view: View }) {
 
 export function HostsPage() {
   usePageTitle("Hosts")
+  const admin = isAdmin(useSession().session)
   const [params, setParams] = useSearchParams()
   const view: View = params.get("view") === "table" ? "table" : "cards"
   function choose(next: string) {
@@ -148,7 +156,7 @@ export function HostsPage() {
               <ToggleGroupItem value="cards">Cards</ToggleGroupItem>
               <ToggleGroupItem value="table">Table</ToggleGroupItem>
             </ToggleGroup>
-            <CreateHostDialog />
+            {admin && <CreateHostDialog />}
           </>
         }
       />

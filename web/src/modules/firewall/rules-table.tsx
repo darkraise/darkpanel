@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { FirewallChange } from "./firewall-change"
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Ban, Check, Gauge as Limit, X } from "lucide-react"
 import type { Rule } from "./types"
+import { Can } from "@/session/can"
 
 const ACTION_ICON = { allow: Check, deny: X, reject: Ban, limit: Limit } as const
 const ACTION_CLASS = { allow: "text-success-text", deny: "text-destructive-text", reject: "text-destructive-text", limit: "text-warning-text" } as const
@@ -151,11 +152,11 @@ export function RulesTable({ hostId, rules }: { hostId: string; rules: Rule[] })
                   <OriginBadge rule={r} />
                 </TableCell>
                 <TableCell>
-                  {!readOnly && r.id !== undefined && (
+                  <Can need="operate">{!readOnly && r.id !== undefined && (
                     <Button variant="outline" size="sm" aria-label={`Delete rule ${i + 1}`} onClick={() => startDelete(r)}>
                       Delete
                     </Button>
-                  )}
+                  )}</Can>
                 </TableCell>
               </TableRow>
             )

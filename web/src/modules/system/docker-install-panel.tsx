@@ -20,6 +20,7 @@ import { INSTALL_ACTION, useLatestInstall } from "./install-lookup"
 import { installSteps, lastDeadline, stepAt } from "./install-steps"
 import { TileError } from "./tile"
 import { SYSTEM_ACTION_VERSION, SYSTEM_MODULE, type DockerState } from "./types"
+import { Can } from "@/session/can"
 
 // The firewall step's confirmation window (UX-5).
 const CONFIRM_SECONDS = 900
@@ -177,12 +178,12 @@ function Panel({ host, reason, lastInstall }: { host: Host; reason: string; last
     ) : firewallPending ? (
       <Skeleton className="h-9 w-36" aria-busy />
     ) : (
-      <div className={layout === "center" ? "flex justify-center" : "flex"}>
+      <Can need="admin"><div className={layout === "center" ? "flex justify-center" : "flex"}>
         <Button size={layout === "inline" ? "sm" : undefined} variant={layout === "inline" ? "outline" : undefined} onClick={() => setOpen(true)}>
           {icon}
           {label}
         </Button>
-      </div>
+      </div></Can>
     )
 
   let body

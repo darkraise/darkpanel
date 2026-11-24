@@ -8,6 +8,7 @@ import { formatDuration, formatTime } from "@/lib/format"
 import { SystemChange, type PendingChange } from "./system-change"
 import { LastSeen, Tile, TileError, TileSkeleton } from "./tile"
 import { HOST_OFFLINE, type RebootOutput, type RebootState } from "./types"
+import { Can } from "@/session/can"
 
 const REBOOT_ACTION = "system.host.reboot"
 const NOT_STARTED_AFTER_MS = 2 * 60_000
@@ -151,7 +152,7 @@ export function RebootTile({ host, bootTime, lastReboot, now: fixedNow, state, r
       loading={state === undefined && read?.pending === true && !offline}
       status={offline && phase.kind === "idle" ? HOST_OFFLINE : phaseStatus(phase, state)}
       actions={
-        <Button
+        <Can need="operate"><Button
           size="sm"
           variant="outline"
           disabled={offline || busy || (state === undefined && read?.pending === true)}
@@ -165,7 +166,7 @@ export function RebootTile({ host, bootTime, lastReboot, now: fixedNow, state, r
           }
         >
           Reboot
-        </Button>
+        </Button></Can>
       }
     >
       {body}

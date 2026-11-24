@@ -16,6 +16,7 @@ import { PeersTable } from "./peers-table"
 import { PrefsForm } from "./prefs-form"
 import { StatusPanel } from "./status-panel"
 import { backendPill, TAILSCALE_MODULE, type TailscaleStatus } from "./types"
+import { useCanOnHost } from "@/session/can"
 
 const TAG = /^tag:[a-z0-9][a-z0-9-]{0,62}$/
 
@@ -63,6 +64,8 @@ function JoinControl({ hostId, install }: { hostId: string; install: boolean }) 
 // TailscalePage is /hosts/:hostId/tailscale: the node's status, peers,
 // latency, preferences and package, and the join when it is not on a tailnet.
 export function TailscalePage({ hostId }: { hostId: string }) {
+  const operate = useCanOnHost("operate")
+  const admin = useCanOnHost("admin")
   const query = useQuery({
     queryKey: ["resource", hostId, "tailscale.status"],
     queryFn: () => readResource<TailscaleStatus>(hostId, TAILSCALE_MODULE, "status"),
@@ -79,8 +82,8 @@ export function TailscalePage({ hostId }: { hostId: string }) {
           <Alert variant="warning" role="status">
             <AlertDescription>{`Tailscale is not available on this host: ${message}`}</AlertDescription>
           </Alert>
-          <JoinControl hostId={hostId} install />
-          <PackagePanel hostId={hostId} available={false} />
+          {admin && <JoinControl hostId={hostId} install />}
+          {operate && <PackagePanel hostId={hostId} available={false} />}
         </div>
       )
     }
@@ -98,13 +101,13 @@ export function TailscalePage({ hostId }: { hostId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <SectionHeader icon={Network} title="Tailscale" status={backendPill(status.backendState)} />
-      {status.self === null && <JoinControl hostId={hostId} install={false} />}
+      {status.self === null && admin && <JoinControl hostId={hostId} install={false} />}
       <Tabs defaultValue="status">
         <TabsList aria-label="Tailscale">
           <TabsTrigger value="status">Status</TabsTrigger>
           <TabsTrigger value="latency">Latency</TabsTrigger>
-          <TabsTrigger value="preferences">Preferences</TabsTrigger>
-          <TabsTrigger value="package">Package</TabsTrigger>
+          {operate && <TabsTrigger value="preferences">Preferences</TabsTrigger>}
+          {operate && <TabsTrigger value="package">Package</TabsTrigger>}
         </TabsList>
         <TabsContent value="status">
           <div className="flex flex-col gap-4">
@@ -115,15 +118,19 @@ export function TailscalePage({ hostId }: { hostId: string }) {
         <TabsContent value="latency">
           <LatencyPanel hostId={hostId} />
         </TabsContent>
-        <TabsContent value="preferences">
-          <div className="flex flex-col gap-4">
-            <PrefsForm hostId={hostId} status={status} prefs={status.prefs ?? {}} />
-            <NodeControls hostId={hostId} status={status} />
-          </div>
-        </TabsContent>
-        <TabsContent value="package">
-          <PackagePanel hostId={hostId} available />
-        </TabsContent>
+        {operate && (
+          <TabsContent value="preferences">
+            <div className="flex flex-col gap-4">
+              <PrefsForm hostId={hostId} status={status} prefs={status.prefs ?? {}} />
+              <NodeControls hostId={hostId} status={status} />
+            </div>
+          </TabsContent>
+        )}
+        {operate && (
+          <TabsContent value="package">
+            <PackagePanel hostId={hostId} available />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )

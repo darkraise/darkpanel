@@ -15,6 +15,7 @@ import { formatTime } from "@/lib/format"
 import { FirewallChange } from "./firewall-change"
 import { CompareDialog, type ComparePair } from "./snapshot-compare"
 import { FIREWALL_MODULE, snapshotsQueryKey, type SnapshotInfo, type SnapshotList } from "./types"
+import { Can } from "@/session/can"
 
 function Flags({ s }: { s: SnapshotInfo }) {
   return (
@@ -166,9 +167,9 @@ export function SnapshotsPanel({ hostId }: { hostId: string }) {
                 <Flags s={s} />
               </TableCell>
               <TableCell>
-                <Button variant="outline" size="sm" aria-label={`Restore the snapshot taken ${formatTime(s.createdAt)}`} onClick={() => setAsking(s)}>
+                <Can need="operate"><Button variant="outline" size="sm" aria-label={`Restore the snapshot taken ${formatTime(s.createdAt)}`} onClick={() => setAsking(s)}>
                   Restore
-                </Button>
+                </Button></Can>
               </TableCell>
             </TableRow>
           ))}

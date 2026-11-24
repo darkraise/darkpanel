@@ -5,6 +5,7 @@ import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { FirewallChange } from "./firewall-change"
 import type { FirewallStatus, Policy } from "./types"
+import { Can } from "@/session/can"
 
 type PolicyDirection = "incoming" | "outgoing" | "routed"
 type PolicyWord = "allow" | "deny" | "reject"
@@ -89,15 +90,15 @@ export function StateControls({ hostId, status }: { hostId: string; status: Fire
       <CardContent className="flex flex-col gap-6">
         <div className="flex items-center gap-4">
           <span>{status.active ? "UFW is active." : "UFW is inactive."}</span>
-          {status.active ? (
+          <Can need="operate">{status.active ? (
             <Button variant="outline" onClick={() => setPending({ action: "firewall.state.disable", title: "Disable the firewall", input: {} })}>
               Disable
             </Button>
           ) : (
             <Button onClick={() => setPending({ action: "firewall.state.enable", title: "Enable the firewall", input: {} })}>Enable</Button>
-          )}
+          )}</Can>
         </div>
-        <form aria-label="Default policy" className="flex flex-col gap-3" onSubmit={setDefault}>
+        <Can need="operate"><form aria-label="Default policy" className="flex flex-col gap-3" onSubmit={setDefault}>
           <Choice name="direction" label="Default policy for" options={DIRECTIONS} value={direction} onChange={(v) => chooseDirection(v as PolicyDirection)} />
           <Choice name="policy" label="Policy" options={POLICIES} value={policy} onChange={(v) => setPolicy(v as PolicyWord)} />
           <div>
@@ -113,7 +114,7 @@ export function StateControls({ hostId, status }: { hostId: string; status: Fire
               Set logging
             </Button>
           </div>
-        </form>
+        </form></Can>
       </CardContent>
       <FirewallChange
         hostId={hostId}

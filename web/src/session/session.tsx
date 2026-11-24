@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { ApiError, request, sessionGeneration, setCsrfRejectedHandler, setCsrfToken, setUnauthorizedHandler } from "@/api/client"
 import type { Session } from "@/api/types"
+import { isAdmin } from "./can"
 import { SessionContext, type SessionState } from "./session-context"
 import { useSession } from "./use-session"
 
@@ -97,6 +98,20 @@ export function RequireSession({ children }: { children: ReactNode }) {
   if (session === null) {
     const next = location.pathname + location.search
     return <Navigate to={loggedOut || next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`} replace />
+  }
+  return <>{children}</>
+}
+
+// RequireAdmin keeps a page for admins: anyone else reaching it by a deep
+// link is told why it is not there. The navigation never offers it to them.
+export function RequireAdmin({ children }: { children: ReactNode }) {
+  const { session } = useSession()
+  if (!isAdmin(session)) {
+    return (
+      <div className="dr-empty-state">
+        <h1 className="dr-empty-state-title">Only admins can see this page.</h1>
+      </div>
+    )
   }
   return <>{children}</>
 }

@@ -7,6 +7,7 @@ import { Button } from "darkraise-ui/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/components/card"
 import { FirewallChange } from "./firewall-change"
 import type { ChainDifference, FirewallStatus, Policy } from "./types"
+import { Can } from "@/session/can"
 
 const POLICY_WORDS: Record<Policy, string> = { ACCEPT: "allow", DROP: "deny", REJECT: "reject" }
 
@@ -63,9 +64,9 @@ export function StatusBanners({ hostId, status, fallbackFocus }: {
                 </ul>
               </>
             )}
-            <Button className="mt-2" size="sm" variant="outline" onClick={() => setRepairing(true)}>
+            <Can need="operate"><Button className="mt-2" size="sm" variant="outline" onClick={() => setRepairing(true)}>
               Repair
-            </Button>
+            </Button></Can>
           </AlertDescription>
         </Alert>
       )}

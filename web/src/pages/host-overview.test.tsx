@@ -37,7 +37,7 @@ test("UI-4: a pending host says its agent has not reported and reads nothing", (
 
 test("UI-2: the controller's own host says why it has no removal controls", () => {
   stubFetch({ [STATUS]: { body: { output: { transactions: [] } } } })
-  renderWithProviders(<HostOverview host={makeHost({ isLocal: true })} />)
+  renderWithProviders(<HostOverview host={makeHost({ scope: "admin", isLocal: true })} />)
   const card = within(screen.getByRole("region", { name: "Enrollment and removal" }))
   card.getByText("The controller's own host cannot be revoked, deleted or given a new enrollment token.")
   expect(card.queryAllByRole("button")).toHaveLength(0)

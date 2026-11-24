@@ -15,6 +15,7 @@ import { StatusPill } from "@/components/visual/status-pill"
 import { formatTime } from "@/lib/format"
 import { DockerChange } from "./docker-change"
 import { DOCKER_MODULE, dockerKey, type DockerProject } from "./types"
+import { Can } from "@/session/can"
 
 interface Pending {
   action: string
@@ -84,6 +85,7 @@ function ProjectCard({ project, onChange }: { project: DockerProject; onChange: 
               <Fact key={label} label={label} value={value} mono={label !== "Last run"} />
             ))}
           </div>
+          <Can need="admin">
           <div className="flex flex-col gap-2">
             <Label htmlFor={profilesId}>Profiles</Label>
             <Input id={profilesId} value={typed} placeholder="none" autoComplete="off" onChange={(e) => setTyped(e.target.value)} />
@@ -106,7 +108,7 @@ function ProjectCard({ project, onChange }: { project: DockerProject; onChange: 
                 {v.verb}
               </Button>
             ))}
-          </div>
+          </div></Can>
         </CardContent>
       </Card>
     </section>

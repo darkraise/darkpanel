@@ -24,6 +24,7 @@ import type { Summary } from "@/modules/hostinfo/summary-page"
 import { Tile, TileSkeleton } from "@/modules/system/tile"
 import type { RebootState, Updates } from "@/modules/system/types"
 import { TAILSCALE_MODULE, type TailscaleStatus } from "@/modules/tailscale/types"
+import { useCanOnHost } from "@/session/can"
 import { HostRemoval } from "./host-removal"
 import { UpdateNowButton } from "./update-now-dialog"
 import { UpdatePolicyButton } from "./update-policy-dialog"
@@ -285,15 +286,18 @@ function TailscaleTile({ host }: { host: Host }) {
 
 // AgentTile folds the agent's facts and its update actions into one tile.
 function AgentTile({ host }: { host: Host }) {
+  const admin = useCanOnHost("admin")
   return (
     <Tile
       title="Agent"
       status={!host.supported && host.agentVersion !== null ? { status: "error", label: "Unsupported" } : undefined}
       actions={
-        <>
-          <UpdateNowButton host={host} label="Update agent" size="sm" disabled={!host.online} />
-          <UpdatePolicyButton host={host} label="Change policy" size="sm" />
-        </>
+        admin && (
+          <>
+            <UpdateNowButton host={host} label="Update agent" size="sm" disabled={!host.online} />
+            <UpdatePolicyButton host={host} label="Change policy" size="sm" />
+          </>
+        )
       }
     >
       <span className="font-mono text-sm tabular-nums break-all">{host.agentVersion ?? "Not reported"}</span>
@@ -367,6 +371,7 @@ function UpdateHistory({ hostId }: { hostId: string }) {
 }
 
 export function HostOverview({ host }: { host: Host }) {
+  const admin = useCanOnHost("admin")
   return (
     <div className="flex flex-col gap-4">
       {/* The tiles are h3s under the page's h1; this keeps the levels from skipping one. */}
@@ -388,15 +393,17 @@ export function HostOverview({ host }: { host: Host }) {
           <p className="text-sm text-muted-foreground">The update history is unavailable while the host is offline.</p>
         )}
       </OverviewCard>
-      <OverviewCard title="Enrollment and removal">
-        {host.isLocal ? (
-          <p className="text-sm text-muted-foreground">The controller's own host cannot be revoked, deleted or given a new enrollment token.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            <HostRemoval host={host} />
-          </div>
-        )}
-      </OverviewCard>
+      {admin && (
+        <OverviewCard title="Enrollment and removal">
+          {host.isLocal ? (
+            <p className="text-sm text-muted-foreground">The controller's own host cannot be revoked, deleted or given a new enrollment token.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <HostRemoval host={host} />
+            </div>
+          )}
+        </OverviewCard>
+      )}
     </div>
   )
 }

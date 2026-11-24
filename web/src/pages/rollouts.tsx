@@ -24,6 +24,8 @@ import { formatTime } from "@/lib/format"
 import { useReturnFocus } from "@/lib/return-focus"
 import { focusableScroller } from "@/lib/table"
 import { usePageTitle } from "@/lib/page-title"
+import { isAdmin } from "@/session/can"
+import { useSession } from "@/session/use-session"
 import { StartRolloutFlow, StartRolloutTrigger } from "./start-rollout-dialog"
 
 const ACTIVE = new Set(["running", "draining"])
@@ -146,6 +148,7 @@ function CancelRollout({ rollout, active, fallback }: { rollout: Rollout; active
 }
 
 function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, string> }) {
+  const admin = isAdmin(useSession().session)
   const id = useId()
   const title = useRef<HTMLHeadingElement>(null)
   return (
@@ -158,7 +161,7 @@ function RolloutCard({ rollout, names }: { rollout: Rollout; names: Map<string, 
             </CardTitle>
             <StatusPill {...rolloutState(rollout.state)} />
           </div>
-          <CancelRollout rollout={rollout} active={ACTIVE.has(rollout.state)} fallback={title} />
+          {admin && <CancelRollout rollout={rollout} active={ACTIVE.has(rollout.state)} fallback={title} />}
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-1">
@@ -248,6 +251,7 @@ function RolloutsBody({ startAction }: { startAction: ReactNode }) {
 // cannot unmount it; focus falls back to the header's button.
 export function RolloutsPage() {
   usePageTitle("Rollouts")
+  const admin = isAdmin(useSession().session)
   const [starting, setStarting] = useState(false)
   const header = useRef<HTMLButtonElement>(null)
   const openerRef = useReturnFocus(starting, header)
@@ -260,12 +264,14 @@ export function RolloutsPage() {
       <PageHeader
         title="Rollouts"
         actions={
-          <div className="flex flex-wrap gap-2">
-            <StartRolloutTrigger ref={header} onOpen={start} />
-          </div>
+          admin && (
+            <div className="flex flex-wrap gap-2">
+              <StartRolloutTrigger ref={header} onOpen={start} />
+            </div>
+          )
         }
       />
-      <RolloutsBody startAction={<StartRolloutTrigger onOpen={start} />} />
+      <RolloutsBody startAction={admin ? <StartRolloutTrigger onOpen={start} /> : undefined} />
       {starting && <StartRolloutFlow onClose={() => setStarting(false)} />}
     </>
   )

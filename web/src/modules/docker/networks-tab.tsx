@@ -13,6 +13,7 @@ import { Lock, Trash2 } from "lucide-react"
 import { errorMessage, readResource } from "@/api/client"
 import { DockerChange } from "./docker-change"
 import { DOCKER_MODULE, dockerKey, type DockerNetwork } from "./types"
+import { Can } from "@/session/can"
 
 interface Pending {
   action: string
@@ -162,7 +163,7 @@ function NetworkTable({ networks, onRemove }: { networks: DockerNetwork[]; onRem
               ) : null}
             </TableCell>
             <TableCell>
-              <Button
+              <Can need="operate"><Button
                 size="sm"
                 variant="outline"
                 aria-label={`Remove ${n.name}`}
@@ -171,7 +172,7 @@ function NetworkTable({ networks, onRemove }: { networks: DockerNetwork[]; onRem
               >
                 <Trash2 aria-hidden />
                 Remove
-              </Button>
+              </Button></Can>
             </TableCell>
           </TableRow>
         ))}
@@ -210,9 +211,9 @@ export function NetworksTab({ hostId }: { hostId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <CreateNetwork
+        <Can need="operate"><CreateNetwork
           onPlan={(input) => setPending({ action: "docker.network.create", title: `Create network ${String(input.name)}`, input })}
-        />
+        /></Can>
       </div>
       {content}
       <DockerChange

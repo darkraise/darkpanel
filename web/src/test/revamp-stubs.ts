@@ -99,7 +99,7 @@ const stubs: Record<string, ScreenStubs> = {
     props: { hostId: "h1" },
     routes: {
       "POST /api/v1/actions/panel.exposure.status/v1/read": { body: { output: paStatus(paExposure()) } },
-      "POST /api/v1/actions/core.host.list/v1/read": { body: { output: { hosts: [makeHost({ isLocal: true })] } } },
+      "POST /api/v1/actions/core.host.list/v1/read": { body: { output: { hosts: [makeHost({ scope: "admin", isLocal: true })] } } },
     },
   },
   AuditPage: {

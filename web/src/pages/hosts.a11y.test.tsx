@@ -10,7 +10,7 @@ const HOSTS = "POST /api/v1/actions/core.host.list/v1/read"
 
 const hosts: Host[] = [
   makeHost({
-    id: "h1", name: "web-1", isLocal: true,
+    id: "h1", name: "web-1", scope: "admin", isLocal: true,
     modules: [
       { id: "hostinfo", version: 1, enabled: true, available: true, reason: null, checkedAt: null },
       { id: "docker", version: 1, enabled: true, available: false, reason: "docker is not installed", checkedAt: null },

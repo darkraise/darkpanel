@@ -11,6 +11,7 @@ import { readCertificateList } from "./list-replies"
 import { NpmChange } from "./npm-change"
 import { parseDomains } from "./parse"
 import { npmKey, type CertificateView } from "./types"
+import { Can } from "@/session/can"
 
 interface Pending {
   action: string
@@ -68,10 +69,10 @@ function CertificateTable({ items, onRemove }: { items: CertificateView[]; onRem
               <MarkBadges reserved={c.reserved} unclaimed={c.unclaimed} />
             </TableCell>
             <TableCell>
-              <Button size="sm" variant="outline" aria-label={`Remove ${certLabel(c)}`} disabled={c.reserved !== ""} onClick={() => onRemove(c)}>
+              <Can need="operate"><Button size="sm" variant="outline" aria-label={`Remove ${certLabel(c)}`} disabled={c.reserved !== ""} onClick={() => onRemove(c)}>
                 <Trash2 aria-hidden />
                 Remove
-              </Button>
+              </Button></Can>
             </TableCell>
           </TableRow>
         ))}
@@ -108,7 +109,7 @@ export function CertificatesTab({ hostId }: { hostId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button onClick={() => setOpen(true)}>Request certificate</Button>
+        <Can need="operate"><Button onClick={() => setOpen(true)}>Request certificate</Button></Can>
       </div>
       {content}
       {open && (

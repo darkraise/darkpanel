@@ -11,6 +11,7 @@ import { StatusPill } from "@/components/visual/status-pill"
 import { DockerSources } from "./docker-sources"
 import { FirewallChange } from "./firewall-change"
 import { FIREWALL_MODULE, dockerQueryKey, type DockerIssue, type DockerNetwork, type DockerStatus } from "./types"
+import { Can } from "@/session/can"
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline"
 
@@ -143,7 +144,7 @@ function DockerBody({ hostId, docker }: { hostId: string; docker: DockerStatus }
         </div>
       )}
       {docker.networks.length > 0 && <Networks networks={docker.networks} />}
-      <div className="flex flex-wrap gap-2">
+      <Can need="operate"><div className="flex flex-wrap gap-2">
         {!docker.enabled && (
           <Button
             disabled={!docker.supported}
@@ -177,7 +178,7 @@ function DockerBody({ hostId, docker }: { hostId: string; docker: DockerStatus }
             Repair and discard foreign rules
           </Button>
         )}
-      </div>
+      </div></Can>
       <DockerSources hostId={hostId} docker={docker} fallbackFocus={region} />
       <FirewallChange
         hostId={hostId}

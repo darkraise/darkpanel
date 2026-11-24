@@ -10,7 +10,7 @@ import { renderWithProviders, stubFetch, type StubResponse } from "@/test/utils"
 import { LoginPage } from "./login"
 
 const session: Session = {
-  user: { id: "u1", username: "admin", role: "admin", state: "active", createdAt: "2026-10-19T08:00:00Z" },
+  user: { id: "u1", username: "admin", role: "admin", allHosts: "admin", state: "active", createdAt: "2026-10-19T08:00:00Z" },
   csrfToken: "csrf-1",
   expiresAt: "2026-10-19T20:00:00Z",
   token: null,

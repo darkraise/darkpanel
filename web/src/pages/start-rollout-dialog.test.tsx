@@ -11,7 +11,7 @@ const HOSTS = "POST /api/v1/actions/core.host.list/v1/read"
 const PLAN = "POST /api/v1/actions/core.update.rollout/v1/plan"
 const APPLY = "POST /api/v1/actions/core.update.rollout/v1/apply"
 const fleet = [
-  makeHost({ id: "c", name: "controller", isLocal: true }),
+  makeHost({ id: "c", name: "controller", scope: "admin", isLocal: true }),
   makeHost({ id: "a", name: "web-1" }),
   makeHost({ id: "p", name: "new-1", state: "pending" }),
   makeHost({ id: "b", name: "web-2" }),

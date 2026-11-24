@@ -6,6 +6,7 @@ import { Label } from "darkraise-ui/components/label"
 import { RadioGroup, RadioGroupItem } from "darkraise-ui/components/radio-group"
 import { FirewallChange } from "./firewall-change"
 import type { Rule, RuleAction, RuleDirection, RuleFamily, RuleLog, RuleProto } from "./types"
+import { Can } from "@/session/can"
 
 const ACTIONS: RuleAction[] = ["allow", "deny", "limit", "reject"]
 const DIRECTIONS: RuleDirection[] = ["in", "out", "route"]
@@ -115,7 +116,7 @@ export function AddRule({ hostId }: { hostId: string }) {
   const portless = PORTLESS.has(draft.proto)
   return (
     <>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Can need="operate"><Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
           <Button>Add rule</Button>
         </DialogTrigger>
@@ -145,7 +146,7 @@ export function AddRule({ hostId }: { hostId: string }) {
             </DialogFooter>
           </form>
         </DialogContent>
-      </Dialog>
+      </Dialog></Can>
       <FirewallChange
         hostId={hostId}
         action="firewall.rule.add"

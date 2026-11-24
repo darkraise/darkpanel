@@ -13,6 +13,7 @@ import type { Status } from "@/components/visual/status"
 import { formatTime } from "@/lib/format"
 import type { Summary } from "@/modules/hostinfo/summary-page"
 import { UpdateNowButton } from "@/pages/update-now-dialog"
+import { Can, useCanOnHost } from "@/session/can"
 import { DockerTile } from "./docker-tile"
 import { RebootTile } from "./reboot-tile"
 import { SystemChange, type PendingChange } from "./system-change"
@@ -64,8 +65,9 @@ function retryTarget(host: Host, action: string): { change: PendingChange } | { 
 }
 
 function RetryButton({ host, change, disabled, onRetry }: { host: Host; change: Change; disabled: boolean; onRetry: (p: PendingChange) => void }) {
+  const operate = useCanOnHost("operate")
   const target = retryTarget(host, change.action)
-  if (target === undefined) return null
+  if (target === undefined || !operate) return null
   const label = (
     <>
       <RotateCcw aria-hidden />
@@ -141,9 +143,11 @@ function LastChangeTile({ host, change, onRetry }: { host: Host; change: Change;
         )}
         <span className="flex flex-wrap items-center gap-2">
           {REPAIRABLE.has(error.code) ? (
-            <Button size="sm" variant="outline" disabled={offline} onClick={() => onRetry(REPAIR)}>
-              Repair packages
-            </Button>
+            <Can need="operate">
+              <Button size="sm" variant="outline" disabled={offline} onClick={() => onRetry(REPAIR)}>
+                Repair packages
+              </Button>
+            </Can>
           ) : (
             <RetryButton host={host} change={change} disabled={offline} onRetry={onRetry} />
           )}
@@ -172,6 +176,7 @@ function UpdatesTile({
   busy: Change | undefined
   onChange: (p: PendingChange) => void
 }) {
+  const operate = useCanOnHost("operate")
   const updates = useSystemResource<Updates>(host, "updates")
   const offline = !host.online
   const data = updates.data
@@ -210,7 +215,7 @@ function UpdatesTile({
   )
 
   return (
-    <Tile title="Updates" greyed={offline} loading={updates.isPending && !offline} status={status} actions={actions}>
+    <Tile title="Updates" greyed={offline} loading={updates.isPending && !offline} status={status} actions={operate ? actions : undefined}>
       {offline && <LastSeen host={host} testId="state-offline" />}
       {!offline && updates.isError && <TileError error={updates.error} onRetry={() => void updates.refetch()} />}
       {!offline && updates.isPending && <TileSkeleton />}
@@ -230,9 +235,11 @@ function UpdatesTile({
               <AlertTitle as="h4">Package installation was interrupted</AlertTitle>
               <AlertDescription className="flex flex-col items-start gap-2">
                 <span>The updates cannot be read until the packages are repaired.</span>
-                <Button size="sm" variant="outline" onClick={() => onChange(REPAIR)}>
-                  Repair packages
-                </Button>
+                <Can need="operate">
+                  <Button size="sm" variant="outline" onClick={() => onChange(REPAIR)}>
+                    Repair packages
+                  </Button>
+                </Can>
               </AlertDescription>
             </Alert>
           )}
@@ -366,6 +373,7 @@ function OverviewTiles({ host }: { host: Host }) {
 // automatic updates and Docker Engine tiles, each reading on its own so one
 // failed read leaves the others usable.
 export function OverviewTab({ host }: { host: Host }) {
+  const admin = useCanOnHost("admin")
   const state = host.modules.find((m) => m.id === SYSTEM_MODULE)
   if (state === undefined) {
     return (
@@ -374,7 +382,7 @@ export function OverviewTab({ host }: { host: Host }) {
         icon={<Server aria-hidden />}
         title="Agent update needed"
         description="This agent predates the system module."
-        action={<UpdateNowButton host={host} label="Update agent" />}
+        action={admin ? <UpdateNowButton host={host} label="Update agent" /> : undefined}
       />
     )
   }

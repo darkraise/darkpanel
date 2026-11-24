@@ -13,6 +13,7 @@ import { errorMessage, readResource } from "@/api/client"
 import { formatTime } from "@/lib/format"
 import { DockerChange } from "./docker-change"
 import { DOCKER_MODULE, dockerKey, type DockerVolume } from "./types"
+import { Can } from "@/session/can"
 
 interface Pending {
   action: string
@@ -116,7 +117,7 @@ function VolumeTable({ volumes, onRemove }: { volumes: DockerVolume[]; onRemove:
               ) : null}
             </TableCell>
             <TableCell>
-              <Button
+              <Can need="operate"><Button
                 size="sm"
                 variant="outline"
                 aria-label={`Remove ${v.name}`}
@@ -125,7 +126,7 @@ function VolumeTable({ volumes, onRemove }: { volumes: DockerVolume[]; onRemove:
               >
                 <Trash2 aria-hidden />
                 Remove
-              </Button>
+              </Button></Can>
             </TableCell>
           </TableRow>
         ))}
@@ -164,9 +165,9 @@ export function VolumesTab({ hostId }: { hostId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <CreateVolume
+        <Can need="operate"><CreateVolume
           onPlan={(input) => setPending({ action: "docker.volume.create", title: `Create volume ${String(input.name)}`, input })}
-        />
+        /></Can>
       </div>
       {content}
       <DockerChange

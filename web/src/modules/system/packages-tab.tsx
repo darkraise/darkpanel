@@ -14,6 +14,7 @@ import { StatusPill } from "@/components/visual/status-pill"
 import { SystemChange, type PendingChange } from "./system-change"
 import { TileError } from "./tile"
 import { SYSTEM_ACTION_VERSION, SYSTEM_MODULE, type InstalledPackage } from "./types"
+import { Can } from "@/session/can"
 
 // The server's package-name pattern: a search term must match it too.
 const TERM = /^[a-z0-9][a-z0-9+.-]{1,63}$/
@@ -84,14 +85,14 @@ function SearchPanel({ host, onChange }: { host: Host; onChange: (p: PendingChan
               {hit.installed ? (
                 <StatusPill status="ok" label="Installed" />
               ) : (
-                <Button
+                <Can need="operate"><Button
                   size="sm"
                   variant="outline"
                   aria-label={`Install ${hit.name}`}
                   onClick={() => onChange({ action: "system.packages.install", title: `Install ${hit.name}`, input: { names: [hit.name] } })}
                 >
                   Install
-                </Button>
+                </Button></Can>
               )}
             </li>
           ))}
@@ -194,7 +195,7 @@ function InstalledPanel({ host, onChange }: { host: Host; onChange: (p: PendingC
                         the host.
                       </InfoTip>
                     ) : (
-                      <Button
+                      <Can need="operate"><Button
                         size="sm"
                         variant="outline"
                         aria-label={`Remove ${p.name}`}
@@ -203,7 +204,7 @@ function InstalledPanel({ host, onChange }: { host: Host; onChange: (p: PendingC
                       >
                         <Trash2 aria-hidden />
                         Remove
-                      </Button>
+                      </Button></Can>
                     )}
                   </TableCell>
                 </TableRow>

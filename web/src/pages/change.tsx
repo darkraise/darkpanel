@@ -30,6 +30,8 @@ import { Stepper } from "@/components/visual/stepper"
 import { statusText, type Status } from "@/components/visual/status"
 import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
+import { isAdmin } from "@/session/can"
+import { useSession } from "@/session/use-session"
 import { ChangeActions } from "./change-actions"
 
 // stateStatus covers the change, step and effect states.
@@ -324,6 +326,7 @@ function Effects({ change }: { change: Change }) {
     placeholderData: keepPreviousData,
   })
   const [resolving, setResolving] = useState<Effect | null>(null)
+  const admin = isAdmin(useSession().session)
 
   if (effects.isPending) return <Spinner aria-label="Loading the effects" />
   if (effects.isError) {
@@ -361,7 +364,7 @@ function Effects({ change }: { change: Change }) {
                   <StateText state={e.state} text={e.reason === "" ? stateLabel(e.state) : `${stateLabel(e.state)}: ${e.reason}`} />
                 </TableCell>
                 <TableCell>
-                  {e.state === "unresolved" ? (
+                  {e.state === "unresolved" && admin ? (
                     <Button size="sm" variant="outline" onClick={() => setResolving(e)}>
                       {`Preview effect ${e.seq}`}
                     </Button>

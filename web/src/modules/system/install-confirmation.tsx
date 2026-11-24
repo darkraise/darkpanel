@@ -7,6 +7,7 @@ import { changeQueryKey, confirmChange, errorMessage, listSteps, revertChange, s
 import { Stepper } from "@/components/visual/stepper"
 import { latestInstallKey, useLatestInstall } from "./install-lookup"
 import { installSteps, lastDeadline } from "./install-steps"
+import { Can } from "@/session/can"
 
 function useClock(running: boolean): number {
   const [now, setNow] = useState(() => Date.now())
@@ -53,12 +54,12 @@ export function Confirmation({ changeId, deadline, onDecided }: { changeId: stri
             Reverts in <span className="font-mono tabular-nums">{mmss((Date.parse(deadline) - now) / 1000)}</span>
           </span>
         )}
-        <Button loading={busy} onClick={() => void decide(true)}>
+        <Can need="operate"><Button loading={busy} onClick={() => void decide(true)}>
           Keep
         </Button>
         <Button variant="outline" disabled={busy} onClick={() => void decide(false)}>
           Revert
-        </Button>
+        </Button></Can>
       </div>
       {error !== null && (
         <Alert variant="destructive" role="alert">

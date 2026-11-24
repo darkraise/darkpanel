@@ -14,6 +14,7 @@ import { readAccessListList } from "./list-replies"
 import { NpmChange } from "./npm-change"
 import { parseRules } from "./parse"
 import { npmKey, type AccessClientInput, type AccessListView } from "./types"
+import { Can } from "@/session/can"
 
 interface Pending {
   action: string
@@ -89,10 +90,10 @@ function AccessListTable({ items, onRemove }: { items: AccessListView[]; onRemov
               <MarkBadges reserved={a.reserved} unclaimed={a.unclaimed} />
             </TableCell>
             <TableCell>
-              <Button size="sm" variant="outline" aria-label={`Remove ${a.name}`} disabled={a.reserved !== ""} onClick={() => onRemove(a)}>
+              <Can need="operate"><Button size="sm" variant="outline" aria-label={`Remove ${a.name}`} disabled={a.reserved !== ""} onClick={() => onRemove(a)}>
                 <Trash2 aria-hidden />
                 Remove
-              </Button>
+              </Button></Can>
             </TableCell>
           </TableRow>
         ))}
@@ -129,7 +130,7 @@ export function AccessListsTab({ hostId }: { hostId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <Button onClick={() => setOpen(true)}>Add access list</Button>
+        <Can need="operate"><Button onClick={() => setOpen(true)}>Add access list</Button></Can>
       </div>
       {content}
       {open && (

@@ -11,7 +11,7 @@ import { HostsPage } from "@/pages/hosts"
 import { LoginPage } from "@/pages/login"
 import { RolloutsPage } from "@/pages/rollouts"
 import { TokensPage } from "@/pages/tokens"
-import { RequireSession, SessionProvider } from "@/session/session"
+import { RequireAdmin, RequireSession, SessionProvider } from "@/session/session"
 import { Shell } from "@/shell"
 
 // The M10 state boards are a development tool: in a production build the
@@ -27,8 +27,21 @@ function GlobalPageView({ page }: { page: GlobalPage }) {
   )
 }
 
+// SettingsPage holds an admin settings route until its page is built.
+function SettingsPage({ title }: { title: string }) {
+  return <EmptyState title={title} description="This page is not built yet." />
+}
+
+const adminSettings = [
+  { path: "settings/users", title: "Users" },
+  { path: "settings/groups", title: "Host groups" },
+  { path: "settings/sign-in", title: "Sign-in" },
+  { path: "settings/notifications", title: "Notifications" },
+]
+
 // The routes of spec section 17. Every route but /login and the development
-// boards sits behind the session guard, the modules' global pages included.
+// boards sits behind the session guard, the modules' global pages included;
+// the admin settings and the Network pages also sit behind the admin guard.
 export function App() {
   return (
     <SessionProvider>
@@ -58,8 +71,11 @@ export function App() {
           <Route path="rollouts" element={<RolloutsPage />} />
           <Route path="changes/:changeId" element={<ChangePage />} />
           <Route path="settings/tokens" element={<TokensPage />} />
+          {adminSettings.map((page) => (
+            <Route key={page.path} path={page.path} element={<RequireAdmin><SettingsPage title={page.title} /></RequireAdmin>} />
+          ))}
           {globalPages(moduleRegistry).map((page) => (
-            <Route key={page.path} path={`${page.path}/*`} element={<GlobalPageView page={page} />} />
+            <Route key={page.path} path={`${page.path}/*`} element={<RequireAdmin><GlobalPageView page={page} /></RequireAdmin>} />
           ))}
           <Route path="*" element={<EmptyState title="Page not found" description="Nothing lives at this address." />} />
         </Route>

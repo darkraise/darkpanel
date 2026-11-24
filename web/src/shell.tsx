@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Outlet } from "react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { History, KeyRound, RefreshCw, Server } from "lucide-react"
+import { Bell, Boxes, History, KeyRound, LogIn, RefreshCw, Server, Users } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { SidebarLayout, type NavGroup, type NavItem } from "darkraise-ui/layout"
 import { HOSTS_QUERY_KEY, errorMessage, getListenerState, listHosts } from "@/api/client"
@@ -13,23 +13,41 @@ import type { Status } from "@/components/visual/status"
 import { AdminExposureBanner } from "@/modules/npm/banner"
 import { PanelExposureBanner } from "@/modules/panel/banner"
 import { enabledModules, moduleRegistry } from "@/modules/registry"
+import { canOnHost, isAdmin } from "@/session/can"
 import { useSession } from "@/session/use-session"
 
 // navigation lists each host with its module pages under Hosts, and the
 // pages that belong to no host in their own group. Until the host list has
-// loaded, Hosts has no children; a failed load is said in the footer.
-function navigation(hosts: Host[]): NavGroup[] {
+// loaded, Hosts has no children; a failed load is said in the footer. The
+// Network pages and the admin settings are left out for anyone but an admin,
+// and a module page out of the host's scope is left out of its host.
+function navigation(hosts: Host[], admin: boolean): NavGroup[] {
   const hostItems: NavItem[] = hosts.map((host) => {
     const href = `/hosts/${encodeURIComponent(host.id)}`
     return {
       label: host.name,
       href,
-      children: enabledModules(moduleRegistry, host).map((m) => ({ label: m.label, href: `${href}/${m.id}`, icon: m.icon })),
+      children: enabledModules(moduleRegistry, host)
+        .filter((m) => canOnHost(host, m.scope ?? "read"))
+        .map((m) => ({ label: m.label, href: `${href}/${m.id}`, icon: m.icon })),
     }
   })
-  const globals: NavItem[] = moduleRegistry.flatMap((entry) =>
-    entry.global === undefined ? [] : [{ label: entry.global.label, href: `/${entry.global.path}`, icon: entry.icon }],
-  )
+  const globals: NavItem[] = !admin
+    ? []
+    : moduleRegistry.flatMap((entry) =>
+        entry.global === undefined ? [] : [{ label: entry.global.label, href: `/${entry.global.path}`, icon: entry.icon }],
+      )
+  const settings: NavItem[] = [
+    ...(admin
+      ? [
+          { label: "Users", href: "/settings/users", icon: Users },
+          { label: "Host groups", href: "/settings/groups", icon: Boxes },
+          { label: "Sign-in", href: "/settings/sign-in", icon: LogIn },
+          { label: "Notifications", href: "/settings/notifications", icon: Bell },
+        ]
+      : []),
+    { label: "API tokens", href: "/settings/tokens", icon: KeyRound },
+  ]
   return [
     {
       items: [
@@ -39,7 +57,7 @@ function navigation(hosts: Host[]): NavGroup[] {
       ],
     },
     ...(globals.length === 0 ? [] : [{ label: "Network", items: globals }]),
-    { label: "Settings", items: [{ label: "API tokens", href: "/settings/tokens", icon: KeyRound }] },
+    { label: "Settings", items: settings },
   ]
 }
 
@@ -71,6 +89,7 @@ export function Shell() {
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const client = useQueryClient()
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
+  const admin = isAdmin(session)
   useEffect(() => connectEvents(client), [client])
 
   async function logOut() {
@@ -84,7 +103,7 @@ export function Shell() {
 
   return (
     <SidebarLayout
-      nav={navigation(hosts.data?.hosts ?? [])}
+      nav={navigation(hosts.data?.hosts ?? [], admin)}
       showThemeSwitcher
       showLayoutSwitcher={false}
       notificationSlot={null}
@@ -106,8 +125,12 @@ export function Shell() {
           <AlertDescription>{logoutError}</AlertDescription>
         </Alert>
       )}
-      <AdminExposureBanner />
-      <PanelExposureBanner />
+      {admin && (
+        <>
+          <AdminExposureBanner />
+          <PanelExposureBanner />
+        </>
+      )}
       <Outlet />
     </SidebarLayout>
   )

@@ -11,6 +11,8 @@ import type { Host } from "@/api/types"
 import { SectionHeader } from "@/components/visual/section-header"
 import { SkeletonTiles } from "@/components/visual/skeleton-tiles"
 import { usePageTitle } from "@/lib/page-title"
+import { HostScope, canOnHost, isAdmin } from "@/session/can"
+import { useSession } from "@/session/use-session"
 import { enabledModules, moduleRegistry, moduleView, type ModuleView } from "@/modules/registry"
 import { AdapterLink } from "@/router/adapter-link"
 import { HostOverview } from "./host-overview"
@@ -75,6 +77,16 @@ function ModuleBody({ view, host }: { view: ModuleView; host: Host }) {
   }
 }
 
+// A module whose pages need more than the host's scope: only admin pages
+// exist above operate, so this is the deep link the navigation never offers.
+function OnlyAdmins() {
+  return (
+    <div className="dr-empty-state">
+      <h2 className="dr-empty-state-title">Only admins can see this page.</h2>
+    </div>
+  )
+}
+
 type Tab = { label: string; value: string; href: string }
 
 // The kit's PageHeader takes its title as a string, so the host page draws the
@@ -118,6 +130,7 @@ function HostLoading() {
 }
 
 export function HostPage() {
+  const { session } = useSession()
   const { hostId = "", moduleId } = useParams()
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
   const host = hosts.data?.hosts.find((h) => h.id === hostId)
@@ -136,22 +149,22 @@ export function HostPage() {
   const base = `/hosts/${encodeURIComponent(host.id)}`
   const tabs: Tab[] = [
     { label: "Overview", value: "overview", href: base },
-    ...enabledModules(moduleRegistry, host).map((m) => ({ label: m.label, value: m.id, href: `${base}/${m.id}` })),
+    ...enabledModules(moduleRegistry, host)
+      .filter((m) => canOnHost(host, m.scope ?? "read", session))
+      .map((m) => ({ label: m.label, value: m.id, href: `${base}/${m.id}` })),
   ]
   const header = <HostHeader host={host} tabs={tabs} />
+  const scope = isAdmin(session) ? "admin" : host.scope
+  const entry = moduleRegistry.find((m) => m.id === moduleId)
 
-  if (moduleId === undefined) {
-    return (
-      <>
-        {header}
-        <HostOverview host={host} />
-      </>
-    )
-  }
+  let body
+  if (moduleId === undefined) body = <HostOverview host={host} />
+  else if (entry !== undefined && !canOnHost(host, entry.scope ?? "read", session)) body = <OnlyAdmins />
+  else body = <ModuleBody view={moduleView(moduleRegistry, host, moduleId)} host={host} />
   return (
-    <>
+    <HostScope value={scope}>
       {header}
-      <ModuleBody view={moduleView(moduleRegistry, host, moduleId)} host={host} />
-    </>
+      {body}
+    </HostScope>
   )
 }

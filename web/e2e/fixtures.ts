@@ -19,7 +19,7 @@ const EXPOSE_CHANGE_ID = "01JE000000000000000000C002"
 const NOW = "2026-11-05T09:00:00Z"
 
 const session: Session = {
-  user: { id: "01JE000000000000000000U001", username: "admin", role: "admin", state: "active", createdAt: NOW },
+  user: { id: "01JE000000000000000000U001", username: "admin", role: "admin", allHosts: "admin", state: "active", createdAt: NOW },
   csrfToken: "csrf-fixture",
   expiresAt: null,
   token: null,
@@ -33,7 +33,7 @@ const hosts: Host[] = [
   {
     id: HOST_ID,
     name: "web-1",
-    isLocal: true,
+    scope: "admin", isLocal: true,
     state: "enrolled",
     online: true,
     lastSeenAt: "2026-11-11T08:00:00Z",
@@ -48,7 +48,7 @@ const hosts: Host[] = [
   {
     id: OFFLINE_HOST_ID,
     name: "db-1",
-    isLocal: false,
+    scope: "admin", isLocal: false,
     state: "enrolled",
     online: false,
     lastSeenAt: null,
@@ -70,7 +70,7 @@ function fleetHost(id: string, name: string, over: Partial<Host> = {}): Host {
   return {
     id,
     name,
-    isLocal: false,
+    scope: "admin", isLocal: false,
     state: "enrolled",
     online: true,
     lastSeenAt: NOW,

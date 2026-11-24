@@ -11,6 +11,7 @@ import { FIREWALL_MODULE, dockerQueryKey, statusQueryKey, type DockerStatus, typ
 import { DockerUninstall } from "./docker-uninstall"
 import { LastSeen, Tile, TileError, TileSkeleton } from "./tile"
 import { SYSTEM_ACTION_VERSION, SYSTEM_MODULE, HOST_OFFLINE, type DockerState } from "./types"
+import { useCanOnHost } from "@/session/can"
 
 type Open = null | "install" | "update"
 
@@ -48,18 +49,20 @@ export function DockerTile({ host }: { host: Host }) {
     queryFn: () => readResource<DockerStatus>(host.id, FIREWALL_MODULE, "docker"),
     enabled: host.online && firewallOn && docker.data?.state === "docker-ce",
   })
+  const admin = useCanOnHost("admin")
+  const operate = useCanOnHost("operate")
   const flag = firewallOn && ufw.data?.active === true
   const d = docker.data
 
   let actions = null
-  if (d?.state === "absent") {
+  if (d?.state === "absent" && admin) {
     actions = (
       <Button size="sm" disabled={offline || (firewallOn && (ufw.isPending || ufw.isError))} onClick={() => setOpen("install")}>
         <Download aria-hidden />
         Install Docker
       </Button>
     )
-  } else if (d?.state === "docker-ce") {
+  } else if (d?.state === "docker-ce" && operate) {
     actions = (
       <>
         <Button size="sm" disabled={offline || d.updateAvailable !== true} onClick={() => setOpen("update")}>
