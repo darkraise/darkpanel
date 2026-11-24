@@ -61,11 +61,11 @@ func TestFpUnitParseRSS(t *testing.T) {
 			t.Errorf("fpParseRSS(%q) = %d, %v; want %d, %q", c.out, got, err, c.want, c.wantErr)
 		}
 	}
-	// 50 000 000 bytes is 48828.125 KiB: a sample of 48829 KiB is over the agent budget, one of 48828 KiB is not.
-	over, _ := fpParseRSS("48829\n")
-	under, _ := fpParseRSS("48828\n")
+	// 55 000 000 bytes is 53710.9375 KiB: a sample of 53711 KiB is over the agent budget, one of 53710 KiB is not.
+	over, _ := fpParseRSS("53711\n")
+	under, _ := fpParseRSS("53710\n")
 	if over <= fpAgentMax || under > fpAgentMax {
-		t.Errorf("48829 KiB = %d and 48828 KiB = %d bytes, want one over and one within %d", over, under, int64(fpAgentMax))
+		t.Errorf("53711 KiB = %d and 53710 KiB = %d bytes, want one over and one within %d", over, under, int64(fpAgentMax))
 	}
 }
 
@@ -82,7 +82,7 @@ func TestFpUnitBudget(t *testing.T) {
 	}{
 		{"every sample at the limit", within, fpAgentMax, 60, ""},
 		{"nine tenths of the samples", full(54, 1), fpAgentMax, 60, ""},
-		{"the maximum is the last sample", maxLast, fpAgentMax, 60, "50000001 bytes, over the 50000000"},
+		{"the maximum is the last sample", maxLast, fpAgentMax, 60, "55000001 bytes, over the 55000000"},
 		{"the maximum is the first sample", append([]int64{fpControllerMax + 1}, full(59, 1)...), fpControllerMax, 60, "150000001 bytes, over the 150000000"},
 		{"no samples", nil, fpAgentMax, 60, "0 RSS samples"},
 		{"too few samples", full(53, 1), fpAgentMax, 60, "53 RSS samples, want at least 54 of 60"},
