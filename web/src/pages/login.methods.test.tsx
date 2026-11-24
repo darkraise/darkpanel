@@ -50,12 +50,16 @@ describe("OIDC button", () => {
     expect(login.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  test("is absent when OIDC is off here, or the methods read fails", async () => {
-    const calls = render("/login", { "GET /api/v1/auth/methods": methods(null) })
+  test.each([
+    ["OIDC is off here", methods(null)],
+    ["the methods read fails", problem(500, "internal")],
+  ])("is absent when %s", async (_, answer) => {
+    const calls = render("/login", { "GET /api/v1/auth/methods": answer })
     await screen.findByLabelText("Username")
     await waitFor(() => expect(calls.some((c) => c.path === "/api/v1/auth/methods")).toBe(true))
     expect(screen.queryByRole("link", { name: /^Sign in with/ })).toBeNull()
     expect(calls.some((c) => c.path === "/api/v1/auth/tailscale")).toBe(false)
+    expect(screen.getByRole("button", { name: "Log in" })).toBeTruthy()
   })
 })
 
