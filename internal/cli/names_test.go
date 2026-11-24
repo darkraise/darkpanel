@@ -46,10 +46,11 @@ func TestEntries(t *testing.T) {
 		"group create", "group delete", "group list", "group rename", "group set-members",
 		"host create", "host delete", "host enroll-local", "host list", "host revoke", "host token", "host update-policy",
 		"module disable", "module enable", "module list",
+		"tailnetdevice forget", "tailnetdevice list",
 		"token create", "token list", "token revoke",
 		"user activate", "user cancel-invite", "user create", "user delete", "user directory", "user disable", "user enable",
-		"user invite", "user list", "user renew-invite", "user reset-password", "user reset-totp", "user set-grants",
-		"user set-identity", "user set-role",
+		"user forget-tailnet-device", "user invite", "user list", "user list-tailnet-devices", "user renew-invite",
+		"user reset-password", "user reset-totp", "user set-grants", "user set-identity", "user set-role",
 	}
 	if !slices.Equal(paths, want) {
 		t.Errorf("paths\n%q\nwant\n%q", paths, want)

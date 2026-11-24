@@ -1,0 +1,58 @@
+{
+  "name": "core.tailnetdevice.forget",
+  "version": 1,
+  "class": "irreversible",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TailnetDeviceInput",
+    "$defs": {
+      "TailnetDeviceInput": {
+        "properties": {
+          "stableId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Tailscale stable node id of one of the calling user's remembered devices."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "stableId"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/TailnetDevice",
+    "$defs": {
+      "TailnetDevice": {
+        "properties": {
+          "stableId": {
+            "type": "string"
+          },
+          "nodeName": {
+            "type": "string"
+          },
+          "rememberedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stableId",
+          "nodeName",
+          "rememberedAt",
+          "lastUsedAt"
+        ]
+      }
+    }
+  }
+}
