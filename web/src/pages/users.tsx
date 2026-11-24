@@ -12,11 +12,13 @@ import { Label } from "darkraise-ui/components/label"
 import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise-ui/components/segment-group"
 import { Skeleton } from "darkraise-ui/components/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
-import { GROUPS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups, listUsers } from "@/api/client"
+import { GROUPS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups, listUsers, readAction } from "@/api/client"
 import { useFocusFallback, useMenuDialogFocus } from "@/lib/return-focus"
-import type { DirectoryUser, Grant, HostGroup, Invitation, Role } from "@/api/types"
+import type { DirectoryUser, Grant, HostGroup, Invitation, Role, TailnetDevice } from "@/api/types"
 import { ChangeDialog, type ChangeTarget } from "@/components/change-dialog"
+import { TailnetDevicesTable } from "@/components/tailnet-devices-table"
 import { usePageTitle } from "@/lib/page-title"
+import { deviceName } from "@/lib/tailnet-devices"
 import { STACKED_BODY, STACKED_CELL, STACKED_FRAME, STACKED_HEAD, STACKED_ROW, STACKED_TABLE } from "@/lib/table"
 import { accessText, applied, draftOf, grantsOf, invitationOf, methodsText, type AccessDraft } from "@/lib/users"
 import { AccessFields, InviteUser, LinkDialog } from "./invite-dialog"
@@ -36,6 +38,7 @@ type Dialogue =
   | { kind: "access"; user: DirectoryUser }
   | { kind: "identity"; user: DirectoryUser }
   | { kind: "change"; user: DirectoryUser; title: string; target: ChangeTarget; input: Record<string, unknown>; link?: boolean }
+  | { kind: "devices"; user: DirectoryUser }
 
 function RowMenu({ user, onPick }: { user: DirectoryUser; onPick: (d: Dialogue) => void }) {
   const { trigger, pick, onCloseAutoFocus } = useMenuDialogFocus(onPick)
@@ -58,13 +61,14 @@ function RowMenu({ user, onPick }: { user: DirectoryUser; onPick: (d: Dialogue) 
         <DropdownMenuItem onSelect={() => pick({ kind: "role", user })}>Change role</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => pick({ kind: "access", user })}>Edit access</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => pick({ kind: "identity", user })}>Edit sign-in links</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => pick({ kind: "devices", user })}>Tailscale devices</DropdownMenuItem>
+        {(user.state === "pending" || !user.signIn.includes("password")) && (
+          <DropdownMenuItem onSelect={() => pick(simple(`New enrollment link for ${user.username}`, "core.user.renew-invite", true))}>
+            New enrollment link
+          </DropdownMenuItem>
+        )}
         {user.state === "pending" && (
-          <>
-            <DropdownMenuItem onSelect={() => pick(simple(`New enrollment link for ${user.username}`, "core.user.renew-invite", true))}>
-              New enrollment link
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => pick(simple(`Cancel the invite of ${user.username}`, "core.user.cancel-invite"))}>Cancel invite</DropdownMenuItem>
-          </>
+          <DropdownMenuItem onSelect={() => pick(simple(`Cancel the invite of ${user.username}`, "core.user.cancel-invite"))}>Cancel invite</DropdownMenuItem>
         )}
         {user.disabled ? (
           <DropdownMenuItem onSelect={() => pick(simple(`Enable ${user.username}`, "core.user.enable"))}>Enable</DropdownMenuItem>
@@ -73,6 +77,57 @@ function RowMenu({ user, onPick }: { user: DirectoryUser; onPick: (d: Dialogue) 
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+function userDevicesKey(username: string) {
+  return ["user-tailnet-devices", username] as const
+}
+
+// DevicesDialog lists a user's remembered Tailscale devices. Its forget runs
+// a change dialog of its own, so closing that leaves this one open: the
+// page's focus fallback acts only when this dialog closes.
+function DevicesDialog({ user, onClose }: { user: DirectoryUser; onClose: () => void }) {
+  const client = useQueryClient()
+  const key = userDevicesKey(user.username)
+  const list = useQuery({
+    queryKey: key,
+    queryFn: () => readAction<{ devices: TailnetDevice[] }>("core.user.list-tailnet-devices", 1, { username: user.username }),
+  })
+  const [forgetting, setForgetting] = useState<TailnetDevice | null>(null)
+  const title = useRef<HTMLHeadingElement>(null)
+  return (
+    <>
+      <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+        <DialogContent className="sm:max-w-3xl" aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle ref={title} tabIndex={-1} className="wrap-anywhere">{`Tailscale devices of ${user.username}`}</DialogTitle>
+          </DialogHeader>
+          <TailnetDevicesTable
+            devices={list.data?.devices}
+            isLoading={list.isPending}
+            error={list.error}
+            onForget={setForgetting}
+            emptyText={`${user.username} has no remembered devices.`}
+            focusFallback={title}
+          />
+        </DialogContent>
+      </Dialog>
+      {forgetting !== null && (
+        <ChangeDialog
+          open
+          onOpenChange={(next) => (next ? undefined : setForgetting(null))}
+          title={`Forget device ${deviceName(forgetting)} of ${user.username}`}
+          target={{ name: "core.user.forget-tailnet-device", version: 1 }}
+          input={{ username: user.username, stableId: forgetting.stableId }}
+          onApplied={(change) => {
+            if (!applied(change)) return
+            void client.invalidateQueries({ queryKey: key })
+            setForgetting(null)
+          }}
+        />
+      )}
+    </>
   )
 }
 
@@ -268,6 +323,7 @@ export function UsersPage() {
           onPlan={(email, tailnetLogin) => plan(dialogue.user, `Edit the sign-in links of ${dialogue.user.username}`, "core.user.set-identity", { email, tailnetLogin })}
         />
       )}
+      {dialogue?.kind === "devices" && <DevicesDialog user={dialogue.user} onClose={close} />}
       {dialogue?.kind === "change" && (
         <ChangeDialog
           open

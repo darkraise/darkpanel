@@ -1,7 +1,8 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { expect, test } from "vitest"
-import type { DirectoryUser, HostGroup } from "@/api/types"
+import { afterEach, expect, test } from "vitest"
+import type { DirectoryUser, HostGroup, TailnetDevice } from "@/api/types"
+import { expectNoAxeViolations } from "@/test/a11y"
 import { makeChange, makePlan, renderWithProviders, stubFetch } from "@/test/utils"
 import { UsersPage } from "./users"
 
@@ -122,10 +123,12 @@ test("UI-1 row menu and access column", async () => {
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
     return items
   }
-  const common = ["Change role", "Edit access", "Edit sign-in links"]
+  const common = ["Change role", "Edit access", "Edit sign-in links", "Tailscale devices"]
   expect(await menu("noor")).toEqual([...common, "New enrollment link", "Cancel invite"])
   expect(await menu("mia")).toEqual([...common, "Disable"])
   expect(await menu("ola")).toEqual([...common, "Enable"])
+  // A31: an active user without a password of its own may get a new link.
+  expect(await menu("sam")).toEqual([...common, "New enrollment link", "Disable"])
 })
 
 test("New enrollment link renews the invite and shows the new link once", async () => {
@@ -174,4 +177,76 @@ test("UX-6: a failed load says so and retries", async () => {
   fail = false
   await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }))
   expect(await screen.findByText("admin")).toBeTruthy()
+})
+
+const DEVICES = route("core.user.list-tailnet-devices", "read")
+const FORGET_PLAN = route("core.user.forget-tailnet-device", "plan")
+const FORGET_APPLY = route("core.user.forget-tailnet-device", "apply")
+const mia = dirUser({ username: "mia" })
+const laptop: TailnetDevice = { stableId: "nL", nodeName: "laptop.tail1234.ts.net", rememberedAt: "2026-10-02T09:00:00Z", lastUsedAt: "2026-11-02T09:30:00Z" }
+
+async function openDevices(name: string) {
+  const user = userEvent.setup()
+  const trigger = await screen.findByRole("button", { name: `Actions for ${name}` })
+  await user.click(trigger)
+  await user.click(await screen.findByRole("menuitem", { name: "Tailscale devices" }))
+  const dialog = await screen.findByRole("dialog", { name: `Tailscale devices of ${name}` })
+  return { user, trigger, dialog }
+}
+
+afterEach(() => {
+  document.documentElement.classList.remove("dark")
+})
+
+test("A22 UI-3 UX-7 Tailscale devices lists the user's devices, and Escape returns focus to the row menu", async () => {
+  const calls = stub(() => [admin, mia], { [DEVICES]: { body: { output: { devices: [laptop] } } } })
+  renderWithProviders(<UsersPage />)
+  const { user, trigger, dialog } = await openDevices("mia")
+  expect(await within(dialog).findByText("laptop.tail1234.ts.net")).toBeTruthy()
+  expect(within(dialog).getByRole("button", { name: "Forget device laptop" })).toBeTruthy()
+  expect(calls.find((c) => c.path.endsWith("core.user.list-tailnet-devices/v1/read"))?.body).toEqual({ input: { username: "mia" } })
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(trigger))
+})
+
+test("UX-5 a user without devices says so in the dialog", async () => {
+  stub(() => [admin, mia], { [DEVICES]: { body: { output: { devices: [] } } } })
+  renderWithProviders(<UsersPage />)
+  const { dialog } = await openDevices("mia")
+  expect(await within(dialog).findByText("mia has no remembered devices.")).toBeTruthy()
+})
+
+test("A21 forgetting the only device keeps the devices dialog open and focuses its title", async () => {
+  let devices = [laptop]
+  const calls = stub(() => [admin, mia], {
+    [DEVICES]: () => ({ body: { output: { devices } } }),
+    [FORGET_PLAN]: { body: makePlan("core.user.forget-tailnet-device", { planId: "p7", confirmation: "nL" }) },
+    [FORGET_APPLY]: () => {
+      devices = []
+      return { body: makeChange("core.user.forget-tailnet-device", laptop) }
+    },
+  })
+  renderWithProviders(<UsersPage />)
+  const { user, dialog } = await openDevices("mia")
+  await user.click(await within(dialog).findByRole("button", { name: "Forget device laptop" }))
+  const change = await screen.findByRole("dialog", { name: "Forget device laptop of mia" })
+  await user.type(await within(change).findByLabelText("Type nL to confirm"), "nL")
+  await user.click(within(change).getByRole("button", { name: "Apply" }))
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Forget device laptop of mia" })).toBeNull())
+  const still = screen.getByRole("dialog", { name: "Tailscale devices of mia" })
+  expect(await within(still).findByText("mia has no remembered devices.")).toBeTruthy()
+  const title = within(still).getByRole("heading", { name: "Tailscale devices of mia" })
+  await waitFor(() => expect(document.activeElement).toBe(title))
+  expect(title.getAttribute("tabindex")).toBe("-1")
+  expect(calls.find((c) => c.path.endsWith("forget-tailnet-device/v1/plan"))?.body).toEqual({ input: { username: "mia", stableId: "nL" } })
+})
+
+test.each(["light", "dark"] as const)("A23 the open devices dialog has no axe violations in %s", async (theme) => {
+  document.documentElement.classList.toggle("dark", theme === "dark")
+  stub(() => [admin, mia], { [DEVICES]: { body: { output: { devices: [laptop, { ...laptop, stableId: "nE", nodeName: "" }] } } } })
+  renderWithProviders(<UsersPage />)
+  const { dialog } = await openDevices("mia")
+  await within(dialog).findByText("Unnamed device")
+  await expectNoAxeViolations(dialog)
 })
