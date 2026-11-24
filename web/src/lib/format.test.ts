@@ -33,10 +33,19 @@ describe("formatTime", () => {
     expect(formatTime("not a time")).toBe("not a time")
   })
 
-  test("formats a timestamp in the browser's locale", () => {
-    const iso = "2026-10-19T08:30:00Z"
-    const want = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso))
+  test("formats this year's timestamp as day and 24-hour time in the browser's locale", () => {
+    const iso = `${new Date().getFullYear()}-10-19T08:30:00Z`
+    const want = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso))
     expect(formatTime(iso)).toBe(want)
+    expect(formatTime(iso)).toMatch(/\d{2}:30$/)
+    expect(formatTime(iso)).not.toContain(String(new Date().getFullYear()))
+  })
+
+  test("names the year of a timestamp from another year", () => {
+    const iso = "2020-10-19T08:30:00Z"
+    const want = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso))
+    expect(formatTime(iso)).toBe(want)
+    expect(formatTime(iso)).toContain("2020")
   })
 })
 

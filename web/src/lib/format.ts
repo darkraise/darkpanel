@@ -1,6 +1,8 @@
 const BYTE_UNITS = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
 
-const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" })
+const TIME_PARTS = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" } as const
+const timeFormat = new Intl.DateTimeFormat(undefined, TIME_PARTS)
+const yearTimeFormat = new Intl.DateTimeFormat(undefined, { ...TIME_PARTS, year: "numeric" })
 
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "—"
@@ -36,5 +38,6 @@ export function formatUptime(totalSeconds: number): string {
 export function formatTime(iso: string | null): string {
   if (iso === null) return "—"
   const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? iso : timeFormat.format(date)
+  if (Number.isNaN(date.getTime())) return iso
+  return (date.getFullYear() === new Date().getFullYear() ? timeFormat : yearTimeFormat).format(date)
 }
