@@ -210,6 +210,27 @@ test("A22 UI-3 UX-7 Tailscale devices lists the user's devices, and Escape retur
   await waitFor(() => expect(document.activeElement).toBe(trigger))
 })
 
+test("UX-7 the row menu's Tailscale devices and Forget are reachable by keyboard alone", async () => {
+  stub(() => [admin, mia], { [DEVICES]: { body: { output: { devices: [laptop] } } } })
+  renderWithProviders(<UsersPage />)
+  const user = userEvent.setup()
+  const trigger = await screen.findByRole("button", { name: "Actions for mia" })
+  for (let i = 0; i < 60 && document.activeElement !== trigger; i++) await user.tab()
+  expect(document.activeElement).toBe(trigger)
+  await user.keyboard("{Enter}")
+  const item = await screen.findByRole("menuitem", { name: "Tailscale devices" })
+  for (let i = 0; i < 20 && document.activeElement !== item; i++) await user.keyboard("{ArrowDown}")
+  expect(document.activeElement).toBe(item)
+  await user.keyboard("{Enter}")
+  const dialog = await screen.findByRole("dialog", { name: "Tailscale devices of mia" })
+  const forget = await within(dialog).findByRole("button", { name: "Forget device laptop" })
+  for (let i = 0; i < 20 && document.activeElement !== forget; i++) await user.tab()
+  expect(document.activeElement).toBe(forget)
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(trigger))
+})
+
 test("UX-5 a user without devices says so in the dialog", async () => {
   stub(() => [admin, mia], { [DEVICES]: { body: { output: { devices: [] } } } })
   renderWithProviders(<UsersPage />)

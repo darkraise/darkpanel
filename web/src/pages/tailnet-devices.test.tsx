@@ -119,6 +119,34 @@ describe("the Tailscale devices page", () => {
   })
 })
 
+test("UX-7 Forget completes by keyboard alone", async () => {
+  let current = [laptop, device("n3", "gamma.ts.net")]
+  stubFetch({
+    [LIST]: () => listed(current),
+    [PLAN]: { body: makePlan("core.tailnetdevice.forget", { planId: "p9", confirmation: "nL" }) },
+    [APPLY]: () => {
+      current = current.filter((d) => d.stableId !== "nL")
+      return { body: makeChange("core.tailnetdevice.forget", null) }
+    },
+  })
+  renderWithProviders(<TailnetDevicesPage />)
+  const user = userEvent.setup()
+  const tabTo = async (target: HTMLElement) => {
+    for (let i = 0; i < 40 && document.activeElement !== target; i++) await user.tab()
+    expect(document.activeElement).toBe(target)
+  }
+  await tabTo(await screen.findByRole("button", { name: "Forget device laptop" }))
+  await user.keyboard("{Enter}")
+  const dialog = await screen.findByRole("dialog", { name: "Forget device laptop" })
+  await tabTo(await within(dialog).findByLabelText("Type nL to confirm"))
+  await user.keyboard("nL")
+  await tabTo(within(dialog).getByRole("button", { name: "Apply" }))
+  await user.keyboard("{Enter}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  await waitFor(() => expect(screen.queryByText("nL")).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Forget device gamma" })))
+})
+
 describe("UX-4 forget moves focus", () => {
   const three = [device("n1", "alpha.ts.net"), device("nL", "laptop.ts.net"), device("n3", "gamma.ts.net")]
 

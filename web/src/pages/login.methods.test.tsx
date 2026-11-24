@@ -14,8 +14,8 @@ const session: Session = {
   token: null,
 }
 
-function problem(status: number, code: string): StubResponse {
-  return { status, body: { type: "about:blank", title: code, status, detail: `server detail for ${code}`, code } }
+function problem(status: number, code: string, headers: Record<string, string> = {}): StubResponse {
+  return { status, headers, body: { type: "about:blank", title: code, status, detail: `server detail for ${code}`, code } }
 }
 
 const signedOut = problem(401, "auth.required")
@@ -24,6 +24,12 @@ const matchOf = (fields: { remembered: boolean; codeReady: boolean; username?: s
   body: { username: "mia", loginName: "mia@github", nodeName: "laptop", ...fields },
 })
 const match = matchOf({ remembered: true, codeReady: true })
+// tabTo presses Tab until target holds the focus, as a keyboard user would.
+async function tabTo(user: ReturnType<typeof userEvent.setup>, target: HTMLElement) {
+  for (let i = 0; i < 40 && document.activeElement !== target; i++) await user.tab()
+  expect(document.activeElement).toBe(target)
+}
+
 const NOTE = "Continue as needs your authenticator code once. Finish account setup or sign in below."
 
 function app() {
@@ -159,6 +165,46 @@ describe("continue as", () => {
     await userEvent.setup().click(await screen.findByRole("button", { name: /^Continue as mia/ }))
     expect(await screen.findByText("The sign-in was refused. Try again, or use your username, password and code.")).toBeTruthy()
     expect(screen.getByLabelText("Username")).toBeTruthy()
+  })
+
+  test.each([
+    ["rate limited", problem(429, "auth.rate_limited", { "Retry-After": "42" })],
+    ["off", problem(403, "auth.method_off")],
+  ])("UX-6 a match refused as %s shows no button and no message", async (_, answer) => {
+    const calls = render("/login", { "GET /api/v1/auth/methods": methods(null, true), "GET /api/v1/auth/tailscale": answer })
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/v1/auth/tailscale")).toBe(true))
+    await screen.findByLabelText("Username")
+    expect(screen.queryByRole("button", { name: /^Continue as/ })).toBeNull()
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(screen.queryByText(NOTE)).toBeNull()
+  })
+
+  test.each([
+    ["off", problem(403, "auth.method_off"), "This sign-in method is off. Use your username, password and code."],
+    ["rate limited", problem(429, "auth.rate_limited", { "Retry-After": "42" }), "Too many attempts. Try again in 42 seconds."],
+  ])("UX-6 a Continue as refused as %s shows the existing copy and keeps the form", async (_, answer, text) => {
+    render("/login", { "GET /api/v1/auth/methods": methods(null, true), "GET /api/v1/auth/tailscale": match, "POST /api/v1/auth/tailscale": answer })
+    await userEvent.setup().click(await screen.findByRole("button", { name: /^Continue as mia/ }))
+    expect(await screen.findByText(text)).toBeTruthy()
+    expect(screen.getByLabelText("Username")).toBeTruthy()
+  })
+
+  test("UX-7 Continue as and its code step complete by keyboard alone", async () => {
+    const calls = render("/login", {
+      "GET /api/v1/auth/methods": methods(null, true),
+      "GET /api/v1/auth/tailscale": matchOf({ remembered: false, codeReady: true }),
+      "POST /api/v1/auth/tailscale": { body: { totp: true, remember: true } },
+      "POST /api/v1/auth/totp": { body: session },
+    })
+    const user = userEvent.setup()
+    const button = await screen.findByRole("button", { name: /^Continue as mia/ })
+    await tabTo(user, button)
+    await user.keyboard("{Enter}")
+    const field = await screen.findByLabelText("Authentication code")
+    await tabTo(user, field)
+    await user.keyboard("123456{Enter}")
+    expect(await screen.findByText("Hosts content")).toBeTruthy()
+    expect(calls.filter((c) => c.path === "/api/v1/auth/totp").map((c) => c.body)).toEqual([{ code: "123456" }])
   })
 
   test("nothing shows without a match", async () => {
