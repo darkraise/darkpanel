@@ -162,9 +162,17 @@ func TestSampleFromFixtures(t *testing.T) {
 		if err := m.s.pass(context.Background(), tc); err != nil {
 			t.Fatal(err)
 		}
+		got := map[string]FSUsage{}
 		for _, f := range m.s.ring.snapshot()[0].FS {
 			if f.Mount == "/data01" {
 				t.Error("the unmeasurable /data01 is in the sample")
+			}
+			got[f.Mount] = f
+		}
+		// The other mounts stay, with their figures.
+		for _, mount := range []string{"/", "/data02"} {
+			if f, ok := got[mount]; !ok || f.Used != 1<<30 || f.Total != 4<<30 {
+				t.Errorf("mount %s = %+v (present %v), want used 1 GiB of 4 GiB", mount, f, ok)
 			}
 		}
 	})
