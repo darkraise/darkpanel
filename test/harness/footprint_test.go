@@ -50,10 +50,11 @@ type fpRun struct {
 	problems []string
 }
 
-// TestFootprint is the footprint gate of spec section 9 (R76, S6): the real agent of an enrolled VM, idle with
-// every module enabled, stays within fpAgentMax of resident memory, and the controller, which manages its own host,
-// that VM and fpExtraAgents harness-only agents on that VM and has its host list requested every fpHostsEvery,
-// stays within fpControllerMax. Both are sampled every fpSampleEvery for fpWindow after fpWarmup. The workflow
+// TestFootprint is the footprint gate of spec section 9 (R76, S6) and of the M10 spec's OP-5 (A46): the real agent
+// of an enrolled VM, idle with every module enabled, the metrics sampler among them, stays within fpAgentMax of
+// resident memory, and the controller, which manages its own host, that VM and fpExtraAgents harness-only agents
+// on that VM, holds fpFixtureMinutes minute rows and fpFixtureHours hour rows of metrics for each of those
+// fpExtraAgents+1 hosts and has its host list requested every fpHostsEvery, stays within fpControllerMax. Both are sampled every fpSampleEvery for fpWindow after fpWarmup. The workflow
 // selects it with -run, -os, -m2 and -fp.
 func TestFootprint(t *testing.T) {
 	if *osFlag == "" || *m2Flag == "" || !*fpFlag {
@@ -75,6 +76,7 @@ func TestFootprint(t *testing.T) {
 		run  func(t *testing.T)
 	}{
 		{"extra-agents", true, r.extraAgents},
+		{"metrics-fixture", true, r.metricsFixture},
 		{"warm-up", true, r.warmUp},
 		{"window", true, r.window},
 		{"budgets", false, r.budgets},
@@ -147,6 +149,33 @@ func (r *fpRun) extraAgents(t *testing.T) {
 	}
 	if err := fpFleetOnline(hosts, fpExtraAgents+2); err != nil {
 		t.Error(err)
+	}
+}
+
+// metricsFixture preloads the metrics history of the real agent's host and the extra hosts through the controller
+// database, one transaction per host, and checks that every row is there.
+func (r *fpRun) metricsFixture(t *testing.T) {
+	v := r.f.controller
+	ids := []string{r.f.agentID}
+	for _, h := range r.extra {
+		ids = append(ids, h.ID)
+	}
+	if len(ids) != fpFixtureHosts {
+		t.Fatalf("the fixture has %d hosts, want %d", len(ids), fpFixtureHosts)
+	}
+	now := time.Unix(vmNow(r.ctx, t, v), 0)
+	db := paths.Production().ControllerDB()
+	for _, id := range ids {
+		script := ".timeout 30000\n" + fpFixtureSQL(id, now)
+		if out, err := v.RunInput(r.ctx, "sudo sqlite3 -bail "+db, strings.NewReader(script)); err != nil {
+			t.Fatalf("the metrics fixture of host %s: %v\n%s", id, err, out)
+		}
+	}
+	for _, q := range fpFixtureCounts(ids) {
+		out := m3Run(r.ctx, t, v, "sudo sqlite3 "+db+" "+m3Quote(q.query))
+		if got, err := strconv.Atoi(strings.TrimSpace(out)); err != nil || got < q.least {
+			t.Errorf("%s holds %q rows of the fixture's hosts, want at least %d", q.table, strings.TrimSpace(out), q.least)
+		}
 	}
 }
 
@@ -470,4 +499,82 @@ func fpNoReconcile(journal string) error {
 		}
 	}
 	return nil
+}
+
+// The metrics fixture: every minute of the 7 days the controller keeps minute rows and every hour of the 90 days it
+// keeps hour rows, but the newest, for fpFixtureHosts hosts with fpFixtureMounts and fpFixtureIfaces each.
+const (
+	fpFixtureMinutes = 7*24*60 - 1
+	fpFixtureHours   = 90*24 - 1
+	fpFixtureHosts   = fpExtraAgents + 1
+)
+
+var (
+	fpFixtureMounts = []string{"/", "/srv"}
+	fpFixtureIfaces = []string{"eth0", "eth1"}
+)
+
+// fpFixtureSQL is the sqlite3 script that writes the fixture's rows of hostID, ending the minute or hour before now.
+// It writes with INSERT OR IGNORE, so a minute the poller stored already keeps its row.
+func fpFixtureSQL(hostID string, now time.Time) string {
+	minute := now.UTC().Truncate(time.Minute).Format(time.DateTime)
+	hour := now.UTC().Truncate(time.Hour).Format(time.DateTime)
+	id := "'" + strings.ReplaceAll(hostID, "'", "''") + "'"
+	var b strings.Builder
+	b.WriteString("BEGIN IMMEDIATE;\n")
+	for _, p := range []struct {
+		table, anchor, unit string
+		count               int
+	}{{"metrics_minute", minute, "minutes", fpFixtureMinutes}, {"metrics_hour", hour, "hours", fpFixtureHours}} {
+		series := fmt.Sprintf("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < %d)\n", p.count)
+		ts := fmt.Sprintf("strftime('%%Y-%%m-%%dT%%H:%%M:%%SZ', '%s', '-' || i || ' %s')", p.anchor, p.unit)
+		fmt.Fprintf(&b, "%sINSERT OR IGNORE INTO %s (host_id, ts, cpu, mem_used, mem_total, swap_used, swap_total, load1, load5, load15)\n"+
+			"SELECT %s, %s, (i %% 97) * 1.0, 1073741824 + (i %% 89) * 1048576, 4294967296, (i %% 7) * 1048576, 1073741824, "+
+			"(i %% 13) * 0.1, (i %% 11) * 0.1, (i %% 5) * 0.1 FROM n;\n", series, p.table, id, ts)
+		fmt.Fprintf(&b, "%sINSERT OR IGNORE INTO %s_fs (host_id, ts, mount, used, total)\n"+
+			"SELECT %s, %s, m.v, 5368709120 + (i %% 83) * 1048576, 21474836480 FROM n, (%s) AS m;\n", series, p.table, id, ts, fpFixtureValues(fpFixtureMounts))
+		fmt.Fprintf(&b, "%sINSERT OR IGNORE INTO %s_net (host_id, ts, iface, rx_bps, tx_bps)\n"+
+			"SELECT %s, %s, f.v, (i %% 71) * 1000.0, (i %% 67) * 500.0 FROM n, (%s) AS f;\n", series, p.table, id, ts, fpFixtureValues(fpFixtureIfaces))
+	}
+	b.WriteString("COMMIT;\n")
+	return b.String()
+}
+
+// fpFixtureValues is a subquery with one row per value, its column v.
+func fpFixtureValues(vs []string) string {
+	rows := make([]string, len(vs))
+	for i, v := range vs {
+		rows[i] = "SELECT '" + v + "' AS v"
+	}
+	return strings.Join(rows, " UNION ALL ")
+}
+
+// fpFixtureCount is a table's row count over the fixture's hosts and the least it may be.
+type fpFixtureCount struct {
+	table, query string
+	least        int
+}
+
+// fpFixtureCounts are the counts metricsFixture checks for the hosts ids.
+func fpFixtureCounts(ids []string) []fpFixtureCount {
+	quoted := make([]string, len(ids))
+	for i, id := range ids {
+		quoted[i] = "'" + strings.ReplaceAll(id, "'", "''") + "'"
+	}
+	in := strings.Join(quoted, ", ")
+	var cs []fpFixtureCount
+	for _, p := range []struct {
+		table string
+		count int
+	}{{"metrics_minute", fpFixtureMinutes}, {"metrics_hour", fpFixtureHours}} {
+		for _, c := range []struct {
+			suffix string
+			per    int
+		}{{"", 1}, {"_fs", len(fpFixtureMounts)}, {"_net", len(fpFixtureIfaces)}} {
+			table := p.table + c.suffix
+			cs = append(cs, fpFixtureCount{table: table, least: len(ids) * p.count * c.per,
+				query: "SELECT count(*) FROM " + table + " WHERE host_id IN (" + in + ")"})
+		}
+	}
+	return cs
 }

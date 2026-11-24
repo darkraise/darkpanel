@@ -3,12 +3,17 @@
 package harness
 
 import (
+	"context"
+	"database/sql"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/store"
+	"github.com/darkraise/darkpanel/internal/modules"
 	"github.com/darkraise/darkpanel/internal/paths"
 )
 
@@ -260,4 +265,91 @@ func TestFpUnitNoReconcile(t *testing.T) {
 	if err := fpNoReconcile("task firewall.RECONCILE pass\n"); err == nil {
 		t.Error("an upper-case RECONCILE passes: the match must ignore case")
 	}
+}
+
+// TestFpUnitMetricsFixture runs the fixture script twice on a migrated controller database, as the poller may have
+// stored some of its minutes: every row fits the schema, each table holds the counts metricsFixture checks, and the
+// newest and oldest rows lie inside the minute and hour retention, in the stored timestamp format.
+func TestFpUnitMetricsFixture(t *testing.T) {
+	ctx := context.Background()
+	path := fpUnitControllerDB(t)
+	now := time.Date(2026, 11, 24, 12, 34, 56, 0, time.UTC)
+	ids := []string{"01JW7RAGENT0000000000000A1", "01JW7RAGENT0000000000000A2"}
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for _, id := range ids {
+		if _, err := db.ExecContext(ctx, `INSERT INTO core_hosts (id, name, is_local, created_at, state) VALUES (?, ?, 0, ?, 'enrolled')`,
+			id, "host-"+id, now.Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		for _, id := range ids {
+			if _, err := db.ExecContext(ctx, fpFixtureSQL(id, now)); err != nil {
+				t.Fatalf("the fixture does not fit the controller schema: %v", err)
+			}
+		}
+	}
+	for _, c := range fpFixtureCounts(ids) {
+		var n int
+		if err := db.QueryRowContext(ctx, c.query).Scan(&n); err != nil {
+			t.Fatalf("%s: %v", c.query, err)
+		}
+		if n != c.least {
+			t.Errorf("%s holds %d rows, want %d", c.table, n, c.least)
+		}
+	}
+	for _, c := range []struct{ query, want string }{
+		{"SELECT max(ts) FROM metrics_minute", "2026-11-24T12:33:00Z"},
+		{"SELECT min(ts) FROM metrics_minute", "2026-11-17T12:35:00Z"},
+		{"SELECT max(ts) FROM metrics_hour", "2026-11-24T11:00:00Z"},
+		{"SELECT min(ts) FROM metrics_hour", "2026-08-26T13:00:00Z"},
+		{"SELECT group_concat(DISTINCT mount) FROM metrics_minute_fs", "/,/srv"},
+		{"SELECT count(*) FROM metrics_minute_net WHERE ts NOT GLOB '????-??-??T??:??:00Z'", "0"},
+	} {
+		var got string
+		if err := db.QueryRowContext(ctx, c.query).Scan(&got); err != nil {
+			t.Fatalf("%s: %v", c.query, err)
+		}
+		if got != c.want {
+			t.Errorf("%s = %q, want %q", c.query, got, c.want)
+		}
+	}
+	if minute, hour := now.Add(-7*24*time.Hour), now.Add(-90*24*time.Hour); fpFixtureMinutes*time.Minute >= now.Sub(minute) ||
+		fpFixtureHours*time.Hour >= now.Sub(hour) {
+		t.Error("the fixture reaches past the retention of minute or hour rows")
+	}
+}
+
+// fpUnitControllerDB returns the path of a new controller database with the core and every module's migrations.
+func fpUnitControllerDB(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controller.db")
+	db, err := store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	coreSet, err := store.CoreMigrations(store.SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sets []store.MigrationSet
+	for _, m := range modules.All() {
+		man := m.Manifest()
+		if fsys, ok := man.Migrations[core.SideController]; ok && fsys != nil {
+			sets = append(sets, store.MigrationSet{Module: man.ID, FS: fsys})
+		}
+	}
+	if _, err := store.Migrate(ctx, db, store.MigrateOptions{
+		Side: store.SideController, BinaryVersion: "dev", BackupRoot: filepath.Join(dir, "backups"), Keep: 1, Now: time.Now(),
+	}, coreSet, sets); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
