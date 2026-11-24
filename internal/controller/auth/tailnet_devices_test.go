@@ -633,6 +633,34 @@ func TestCodeStepAfterHostRecorded(t *testing.T) {
 	}
 }
 
+// TestTwoFirstTicketsBothSignIn: an unpinned user starts Continue-as on two
+// nodes before finishing either; the second right code finds the pin the
+// first one set and still signs in.
+func TestTwoFirstTicketsBothSignIn(t *testing.T) {
+	ctx := context.Background()
+	e := newTSEnv(t, false)
+	e.active("mia", "mia@github", 7)
+	laptop := e.miaTicket()
+	desk := miaWhois()
+	desk.NodeName, desk.StableID, desk.Addresses = "desk.tail1234.ts.net", "nD", []string{"100.64.0.9"}
+	req := tsReq(desk)
+	req.Remote = netip.MustParseAddr("100.64.0.9")
+	res, err := e.s.SignInTailscale(ctx, req)
+	if err != nil || res.Ticket == "" {
+		t.Fatalf("SignInTailscale from the desk = %+v, %v; want a ticket", res, err)
+	}
+	if got, err := e.s.FinishTOTPStep(ctx, stepReq(laptop, e.code("mia"), "100.64.0.5")); err != nil || got.SessionID == "" {
+		t.Fatalf("the laptop's code step = %+v, %v; want a session", got, err)
+	}
+	e.clock.Advance(30 * time.Second)
+	if got, err := e.s.FinishTOTPStep(ctx, stepReq(res.Ticket, e.code("mia"), "100.64.0.9")); err != nil || got.SessionID == "" {
+		t.Fatalf("the desk's code step after the laptop pinned mia = %+v, %v; want a session", got, err)
+	}
+	if e.pinned("mia") != "42" || e.device("mia", "nL") == "" || e.device("mia", "nD") == "" {
+		t.Errorf("pin %q, laptop %q, desk %q; want 42 and both nodes remembered", e.pinned("mia"), e.device("mia", "nL"), e.device("mia", "nD"))
+	}
+}
+
 func TestListTailnetDevicesOrder(t *testing.T) {
 	e := newTSEnv(t, false)
 	e.active("mia", "mia@github", 7)

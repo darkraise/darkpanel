@@ -535,8 +535,11 @@ func (s *Service) FinishTOTPStep(ctx context.Context, r TOTPStepRequest) (LoginR
 			}
 		}
 		if t.TailnetUserID != "" {
+			// A second first-time ticket of the same tailnet user finds the pin
+			// the first one set; checkTicketNode has matched it in this
+			// transaction already.
 			pinned, err := tx.ExecContext(ctx, `UPDATE core_users SET tailnet_user_id = ?, updated_at = ?
-				WHERE id = ? AND tailnet_user_id IS NULL`, t.TailnetUserID, now, cur.ID)
+				WHERE id = ? AND (tailnet_user_id IS NULL OR tailnet_user_id = ?)`, t.TailnetUserID, now, cur.ID, t.TailnetUserID)
 			if err != nil {
 				return fmt.Errorf("auth: pin the tailnet user: %w", err)
 			}
