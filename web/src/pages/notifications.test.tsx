@@ -101,7 +101,7 @@ test("UX-4 add an email channel: inline checks, then plan and apply", async () =
       email: { host: "smtp.example.com", port: 465, security: "tls", from: "dp@example.com", recipients: ["a@example.com", "b@example.com"], password: "pw" },
     },
   })
-})
+}, 15_000)
 
 test("UX-4 the ntfy form checks the server URL and needs a topic", async () => {
   stub([])

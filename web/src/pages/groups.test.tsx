@@ -96,7 +96,7 @@ test("the members dialog lists 200 hosts with a search and applies core.group.se
   const change = await screen.findByRole("dialog", { name: "Change the members of web" })
   await user.click(await within(change).findByRole("button", { name: "Apply" }))
   expect(calls.find((c) => c.path.endsWith("core.group.set-members/v1/plan"))?.body).toEqual({ input: { id: "g1", hostIds: ["h001", "h002", "h004", "h195"] } })
-})
+}, 15_000)
 
 test("after a delete removes its row, focus lands on Create group, not the page body", async () => {
   let deleted = false

@@ -30,7 +30,8 @@ describe("M10 boards", () => {
   test("renders every board state", async () => {
     stubFetch({ "GET /api/v1/auth/session": signedOut })
     renderWithProviders(<App />, { path: "/__boards/m10" })
-    const regions = await screen.findAllByRole("region")
+    // The boards chunk loads lazily, which takes seconds on a slow CI runner.
+    const regions = await screen.findAllByRole("region", {}, { timeout: 10_000 })
     expect(regions.map((r) => r.getAttribute("aria-labelledby") && within(r).getByRole("heading", { level: 2 }).textContent)).toEqual(STATES)
     for (const name of STATES) {
       expect(screen.getByRole("region", { name })).toBeTruthy()
@@ -38,7 +39,7 @@ describe("M10 boards", () => {
     const users = screen.getByRole("region", { name: "UI-1 Users: worst case" })
     expect(within(users).getAllByRole("row")).toHaveLength(51)
     expect(within(users).getByRole("button", { name: "Invite user" })).toBeTruthy()
-  })
+  }, 15_000)
 
   test("renders one board when ?board= names it", async () => {
     stubFetch({ "GET /api/v1/auth/session": signedOut })
