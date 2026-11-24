@@ -114,8 +114,12 @@ describe("OP-3 selected segment", () => {
     })
     for (const group of groups) {
       const name = group.getAttribute("aria-label") ?? group.getAttribute("aria-labelledby")
-      await waitFor(() => expect(group.querySelector('.dr-segment-group-indicator[data-active="true"]'), `${name} has an active indicator`).not.toBeNull())
+      // A group with no choice yet (an unticked invite group) shows none.
+      const chosen = group.querySelector('[aria-checked="true"]') !== null
+      if (chosen) await waitFor(() => expect(group.querySelector('.dr-segment-group-indicator[data-active="true"]'), `${name} has an active indicator`).not.toBeNull())
+      else expect(group.querySelector('.dr-segment-group-indicator[data-active="true"]'), `${name} shows no choice`).toBeNull()
     }
+    expect(groups.some((g) => g.querySelector('[aria-checked="true"]') !== null), "some group has a choice").toBe(true)
   })
 })
 

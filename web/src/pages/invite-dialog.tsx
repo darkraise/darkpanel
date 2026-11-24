@@ -20,9 +20,10 @@ import { applied, enrollLink, grantsOf, invitationOf, type AccessDraft } from "@
 
 const USERNAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
 
-function RolePick({ label, value, disabled, onChange }: { label: string; value: GrantRole; disabled: boolean; onChange: (r: GrantRole) => void }) {
+// RolePick shows no role chosen while value is null: an unticked group.
+function RolePick({ label, value, disabled, onChange }: { label: string; value: GrantRole | null; disabled: boolean; onChange: (r: GrantRole) => void }) {
   return (
-    <SegmentGroup value={value} onValueChange={(v) => onChange(v as GrantRole)} aria-label={label} variant="outline" disabled={disabled}>
+    <SegmentGroup value={value ?? ""} onValueChange={(v) => onChange(v as GrantRole)} aria-label={label} variant="outline" disabled={disabled}>
       <SegmentGroupIndicator />
       <SegmentGroupItem value="viewer">Viewer</SegmentGroupItem>
       <SegmentGroupItem value="operator">Operator</SegmentGroupItem>
@@ -39,7 +40,7 @@ function AccessRow({ id, name, role, onChange }: { id: string; name: string; rol
           {name}
         </Label>
       </div>
-      <RolePick label={`Role on ${name}`} value={role ?? "viewer"} disabled={role === undefined} onChange={onChange} />
+      <RolePick label={`Role on ${name}`} value={role ?? null} disabled={role === undefined} onChange={onChange} />
     </div>
   )
 }
