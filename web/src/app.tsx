@@ -1,4 +1,4 @@
-import { Suspense } from "react"
+import { lazy, Suspense } from "react"
 import { Route, Routes } from "react-router"
 import { EmptyState } from "darkraise-ui/components/empty-state"
 import { Spinner } from "darkraise-ui/components/spinner"
@@ -14,6 +14,10 @@ import { TokensPage } from "@/pages/tokens"
 import { RequireSession, SessionProvider } from "@/session/session"
 import { Shell } from "@/shell"
 
+// The M10 state boards are a development tool: in a production build the
+// condition is false, so the route and its chunk are left out.
+const M10Boards = import.meta.env.DEV ? lazy(() => import("@/boards/m10-boards").then((m) => ({ default: m.M10Boards }))) : null
+
 function GlobalPageView({ page }: { page: GlobalPage }) {
   const PageRoutes = page.routes
   return (
@@ -23,13 +27,23 @@ function GlobalPageView({ page }: { page: GlobalPage }) {
   )
 }
 
-// The routes of spec section 17. Every route but /login sits behind the
-// session guard, the modules' global pages included.
+// The routes of spec section 17. Every route but /login and the development
+// boards sits behind the session guard, the modules' global pages included.
 export function App() {
   return (
     <SessionProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {M10Boards && import.meta.env.DEV && (
+          <Route
+            path="/__boards/m10"
+            element={
+              <Suspense fallback={<Spinner aria-label="Loading boards" />}>
+                <M10Boards />
+              </Suspense>
+            }
+          />
+        )}
         <Route
           element={
             <RequireSession>
