@@ -61,16 +61,11 @@ func (m module) deviceOwner(ctx context.Context, p core.Principal, manage bool) 
 	if err != nil {
 		return nil, "", err
 	}
-	users, err := svc.ListUsers(ctx)
+	username, err := svc.UsernameOf(ctx, userID)
 	if err != nil {
 		return nil, "", err
 	}
-	for _, u := range users {
-		if u.ID == userID {
-			return svc, u.Username, nil
-		}
-	}
-	return nil, "", errcode.New(errcode.NotFound, "the calling user is not a user")
+	return svc, username, nil
 }
 
 func listDevices(ctx context.Context, svc *auth.Service, username string) (TailnetDeviceList, error) {

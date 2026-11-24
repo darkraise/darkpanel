@@ -422,6 +422,19 @@ func (s *Service) GetUser(ctx context.Context, username string) (User, error) {
 	return r.User, err
 }
 
+// UsernameOf returns the username of the user with id, or not_found.
+func (s *Service) UsernameOf(ctx context.Context, id string) (string, error) {
+	var username string
+	err := s.db.Read().QueryRowContext(ctx, `SELECT username FROM core_users WHERE id = ?`, id).Scan(&username)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errcode.New(errcode.NotFound, "the signed-in user no longer exists")
+	}
+	if err != nil {
+		return "", fmt.Errorf("auth: look up user %s: %w", id, err)
+	}
+	return username, nil
+}
+
 // refuseLastAdmin fails with user.last_admin when u is the last active
 // admin that is not disabled, the one user that must keep signing in. It
 // counts inside the caller's write transaction, so two changes cannot each
