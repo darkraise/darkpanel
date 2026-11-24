@@ -1735,3 +1735,84 @@ func TestA52_changes_ended_while_stopped_emit_once(t *testing.T) {
 		t.Errorf("stored events of those kinds: %d, want exactly 2", stored)
 	}
 }
+
+func TestA53_polling_metrics_writes_no_audit(t *testing.T) {
+	opts := embeddedOptions(t)
+	e := &e2e{t: t, clock: opts.Clock.(*coretest.FakeClock), home: t.TempDir()}
+	e.s = start(t, opts)
+	e.url = baseURL(t, e.s)
+	e.loginAdmin()
+	count := func(q string) (n int) {
+		if err := e.s.controllerDB.Read().QueryRow(q).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	audit := func() int { return count(`SELECT count(*) FROM core_audit`) }
+	minutes := func() int { return count(`SELECT count(*) FROM metrics_minute`) }
+	before := audit()
+	eventually(t, "the poller storing minutes of the local host", func() {
+		e.clock.Advance(15 * time.Second)
+		time.Sleep(10 * time.Millisecond)
+	}, func() bool { return minutes() >= 4 })
+	// Several more once-a-minute polls.
+	for i := 0; i < 24; i++ {
+		e.clock.Advance(15 * time.Second)
+		time.Sleep(10 * time.Millisecond)
+	}
+	if audit() != before {
+		rows, _ := e.s.controllerDB.Read().Query(`SELECT actor, action, phase FROM core_audit ORDER BY rowid DESC LIMIT 5`)
+		var got []string
+		for rows.Next() {
+			var a, b, c string
+			_ = rows.Scan(&a, &b, &c)
+			got = append(got, a+" "+b+" "+c)
+		}
+		_ = rows.Close()
+		t.Errorf("polling metrics wrote %d audit rows (latest: %v), want none", audit()-before, got)
+	}
+	if n := count(`SELECT count(*) FROM core_audit WHERE action LIKE 'metrics.%'`); n != 0 {
+		t.Errorf("%d audit rows name a metrics action", n)
+	}
+}
+
+func TestA32_default_rules_listed_after_first_start(t *testing.T) {
+	e := qaStart(t)
+	var out struct {
+		Output struct {
+			Rules []struct {
+				Name        string  `json:"name"`
+				Metric      string  `json:"metric"`
+				Comparator  string  `json:"comparator"`
+				Threshold   float64 `json:"threshold"`
+				DurationMin int     `json:"durationMin"`
+				Severity    string  `json:"severity"`
+				Target      string  `json:"target"`
+				Enabled     bool    `json:"enabled"`
+			} `json:"rules"`
+		} `json:"output"`
+	}
+	e.want(e.qaRead(e.admin(), "metrics.alert.list-rules", nil), 200, &out)
+	rules := out.Output.Rules
+	if len(rules) != 2 {
+		t.Fatalf("rules after first start: %+v, want the two defaults", rules)
+	}
+	byName := map[string]int{}
+	for i, r := range rules {
+		byName[r.Name] = i
+	}
+	off, ok := byName["Host offline"]
+	if !ok {
+		t.Fatalf("no Host offline rule in %+v", rules)
+	}
+	if r := rules[off]; r.Metric != "offline" || r.DurationMin != 5 || r.Severity != "critical" || r.Target != "*" || !r.Enabled {
+		t.Errorf("Host offline is %+v, want offline, 5 minutes, critical, all hosts, enabled", r)
+	}
+	disk, ok := byName["Disk almost full"]
+	if !ok {
+		t.Fatalf("no Disk almost full rule in %+v", rules)
+	}
+	if r := rules[disk]; r.Metric != "disk" || r.Comparator != ">" || r.Threshold != 90 || r.DurationMin != 10 || r.Severity != "warning" || r.Target != "*" || !r.Enabled {
+		t.Errorf("Disk almost full is %+v, want disk > 90 for 10 minutes, warning, all hosts, enabled", r)
+	}
+}
