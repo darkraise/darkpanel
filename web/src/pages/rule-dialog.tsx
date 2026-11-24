@@ -74,7 +74,7 @@ export function RuleForm({ rule, onCancel, onPlan }: { rule: AlertRule | null; o
         </DialogHeader>
         <form className="flex flex-col gap-4" noValidate onSubmit={submit}>
           <Field id="rule-name" label="Name" error={errors.name}>
-            <Input {...note("rule-name", errors.name, false)} value={name} autoComplete="off" autoFocus maxLength={64} onChange={(e) => setName(e.target.value)} />
+            <Input {...note("rule-name", errors.name, false)} value={name} autoComplete="off" maxLength={64} onChange={(e) => setName(e.target.value)} />
           </Field>
           <div className="flex flex-col gap-2">
             <span id="rule-metric" className="text-sm font-medium">

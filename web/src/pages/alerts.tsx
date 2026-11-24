@@ -17,6 +17,7 @@ import { ChangeDialog } from "@/components/change-dialog"
 import { ALERTS_QUERY_KEY, ALERT_RULES_QUERY_KEY, SEVERITY_LABELS, alertTitle, conditionText, minutesText, targetText, valueText } from "@/lib/alerts"
 import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
+import { STACKED_BODY, STACKED_CELL, STACKED_HEAD, STACKED_ROW, STACKED_TABLE } from "@/lib/table"
 import { applied } from "@/lib/users"
 import { isAdmin } from "@/session/can"
 import { useSession } from "@/session/use-session"
@@ -71,8 +72,8 @@ function LoadError({ thing, error, onRetry }: { thing: string; error: unknown; o
 
 function AlertsTable({ label, alerts, when }: { label: string; alerts: FiredAlert[]; when: string }) {
   return (
-    <Table aria-label={label}>
-      <TableHeader>
+    <Table aria-label={label} className={STACKED_TABLE}>
+      <TableHeader className={STACKED_HEAD}>
         <TableRow>
           <TableHead>Severity</TableHead>
           <TableHead>Host</TableHead>
@@ -81,20 +82,20 @@ function AlertsTable({ label, alerts, when }: { label: string; alerts: FiredAler
           <TableHead>{when}</TableHead>
         </TableRow>
       </TableHeader>
-      <TableBody>
+      <TableBody className={STACKED_BODY}>
         {alerts.map((a) => (
-          <TableRow key={`${a.ruleId}/${a.hostId}/${a.subject}`}>
-            <TableCell>
+          <TableRow className={STACKED_ROW} key={`${a.ruleId}/${a.hostId}/${a.subject}`}>
+            <TableCell data-label="Severity" className={STACKED_CELL}>
               <SeverityBadge level={a.severity} />
             </TableCell>
-            <TableCell className="font-medium wrap-anywhere">
+            <TableCell data-label="Host" className={`font-medium wrap-anywhere ${STACKED_CELL}`}>
               <Link to={`/hosts/${encodeURIComponent(a.hostId)}`} className="underline-offset-4 hover:underline">
                 {a.hostName}
               </Link>
             </TableCell>
-            <TableCell className="max-w-96 whitespace-normal wrap-anywhere">{alertTitle(a)}</TableCell>
-            <TableCell className="text-right tabular-nums">{valueText(a)}</TableCell>
-            <TableCell className="tabular-nums">{formatTime(a.since)}</TableCell>
+            <TableCell data-label="Alert" className={`max-w-96 whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{alertTitle(a)}</TableCell>
+            <TableCell data-label="Value" className={`text-right tabular-nums ${STACKED_CELL}`}>{valueText(a)}</TableCell>
+            <TableCell data-label={when} className={`tabular-nums ${STACKED_CELL}`}>{formatTime(a.since)}</TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -165,8 +166,8 @@ function RulesSection({ onPick }: { onPick: (d: Dialogue) => void }) {
   else if (rules.data.rules.length === 0) body = <EmptyState icon={<BellRing aria-hidden />} title="No alert rules" description="Add one to hear about busy or full hosts." />
   else
     body = (
-      <Table aria-label="Alert rules">
-        <TableHeader>
+      <Table aria-label="Alert rules" className={STACKED_TABLE}>
+        <TableHeader className={STACKED_HEAD}>
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Condition</TableHead>
@@ -179,17 +180,17 @@ function RulesSection({ onPick }: { onPick: (d: Dialogue) => void }) {
             </TableHead>
           </TableRow>
         </TableHeader>
-        <TableBody>
+        <TableBody className={STACKED_BODY}>
           {rules.data.rules.map((r) => (
-            <TableRow key={r.id}>
-              <TableCell className="max-w-72 font-medium whitespace-normal wrap-anywhere">{r.name}</TableCell>
-              <TableCell>{conditionText(r)}</TableCell>
-              <TableCell>{minutesText(r.durationMin)}</TableCell>
-              <TableCell>
+            <TableRow className={STACKED_ROW} key={r.id}>
+              <TableCell data-label="Name" className={`max-w-72 font-medium whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{r.name}</TableCell>
+              <TableCell data-label="Condition" className={STACKED_CELL}>{conditionText(r)}</TableCell>
+              <TableCell data-label="For" className={STACKED_CELL}>{minutesText(r.durationMin)}</TableCell>
+              <TableCell data-label="Severity" className={STACKED_CELL}>
                 <SeverityBadge level={r.severity} />
               </TableCell>
-              <TableCell className="max-w-72 whitespace-normal wrap-anywhere">{targetText(r)}</TableCell>
-              <TableCell>
+              <TableCell data-label="Hosts" className={`max-w-72 whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{targetText(r)}</TableCell>
+              <TableCell data-label="Enabled" className={STACKED_CELL}>
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={r.enabled}
@@ -201,7 +202,7 @@ function RulesSection({ onPick }: { onPick: (d: Dialogue) => void }) {
                   <span className="text-sm text-muted-foreground">{r.enabled ? "On" : "Off"}</span>
                 </div>
               </TableCell>
-              <TableCell>
+              <TableCell data-label="Actions" className={STACKED_CELL}>
                 <RuleMenu rule={r} onPick={onPick} />
               </TableCell>
             </TableRow>

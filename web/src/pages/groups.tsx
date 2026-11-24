@@ -16,6 +16,7 @@ import { GROUPS_QUERY_KEY, HOSTS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listG
 import type { HostGroup } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { usePageTitle } from "@/lib/page-title"
+import { STACKED_BODY, STACKED_CELL, STACKED_HEAD, STACKED_ROW, STACKED_TABLE } from "@/lib/table"
 import { applied } from "@/lib/users"
 
 const GROUP_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,47}$/
@@ -75,7 +76,6 @@ function NameForm({ title, initial, submit, onCancel, onPlan }: { title: string;
           id="group-name"
           value={name}
           autoComplete="off"
-          autoFocus
           maxLength={48}
           aria-invalid={problem !== null}
           aria-describedby={problem !== null ? "group-name-error" : undefined}
@@ -181,8 +181,8 @@ function RowMenu({ group, onPick }: { group: HostGroup; onPick: (d: Dialogue) =>
 
 function GroupsTable({ groups, onPick }: { groups: HostGroup[]; onPick: (d: Dialogue) => void }) {
   return (
-    <Table>
-      <TableHeader>
+    <Table className={STACKED_TABLE}>
+      <TableHeader className={STACKED_HEAD}>
         <TableRow>
           <TableHead>Name</TableHead>
           <TableHead className="text-right">Hosts</TableHead>
@@ -192,13 +192,13 @@ function GroupsTable({ groups, onPick }: { groups: HostGroup[]; onPick: (d: Dial
           </TableHead>
         </TableRow>
       </TableHeader>
-      <TableBody>
+      <TableBody className={STACKED_BODY}>
         {groups.map((g) => (
-          <TableRow key={g.id}>
-            <TableCell className="max-w-96 font-medium whitespace-normal wrap-anywhere">{g.name}</TableCell>
-            <TableCell className="text-right tabular-nums">{g.hostCount}</TableCell>
-            <TableCell className="text-right tabular-nums">{g.grantCount}</TableCell>
-            <TableCell>
+          <TableRow className={STACKED_ROW} key={g.id}>
+            <TableCell data-label="Name" className={`max-w-96 font-medium whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{g.name}</TableCell>
+            <TableCell data-label="Hosts" className={`text-right tabular-nums ${STACKED_CELL}`}>{g.hostCount}</TableCell>
+            <TableCell data-label="Grants" className={`text-right tabular-nums ${STACKED_CELL}`}>{g.grantCount}</TableCell>
+            <TableCell data-label="Actions" className={STACKED_CELL}>
               <RowMenu group={g} onPick={onPick} />
             </TableCell>
           </TableRow>

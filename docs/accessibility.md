@@ -17,6 +17,7 @@ Set `E2E_CHROMIUM` to the path of a Chromium executable when the build that Play
 - Firewall change with confirm and revert: the firewall page, the rule form and the change dialog through its pending, confirm and revert states.
 - Container actions: the Docker containers table, its change dialogs and the container page with the firewall allow and deny forms.
 - Expose a container: the expose form of the container page and its change dialog.
+- Settings, alerts and metrics: the Users, Host groups, Sign-in and Notifications settings pages, the Alerts page and the host overview's Metrics section, with their dialogs.
 
 The confirm and revert states covered are those of a revertible change. A composite change that waits for confirmation, such as a public deploy of Nginx Proxy Manager with the firewall integration on, shows the same countdown with Confirm and Revert in the change dialog, counted to the deadline of its last step. The Vitest tests of the change dialog (`web/src/components/change-dialog.test.tsx` and `web/src/components/change-dialog.a11y.test.tsx`) check that state; the browser pass does not render it.
 
@@ -134,6 +135,18 @@ Both pages were read on 2026-11-05 for heading order and for link text that name
 | 1.4.11 Non-text contrast | AA | manual | `web/e2e/a11y.pw.ts` |
 | 2.4.7 Focus visible | AA | manual | `web/e2e/a11y.pw.ts` |
 | 4.1.2 Name, role, value | A | manual | `web/e2e/a11y.pw.ts`, `docs/accessibility/expose-plan-light-names.png`, `docs/accessibility/expose-plan-dark-names.png` |
+
+### Settings, alerts and metrics
+
+| Criterion | Level | Method | Evidence |
+|---|---|---|---|
+| 1.1.1 Non-text content | A | automated | `web/src/pages/m10.a11y.test.tsx` (each metrics chart is an image named by its latest, min and max) |
+| 1.3.1 Info and relationships | A | automated | `web/src/pages/m10.a11y.test.tsx` |
+| 1.4.10 Reflow | AA | automated | `web/e2e/m10-layout.pw.ts` (tables stack as cards at 375 px, no sideways scroll) |
+| 2.1.1 Keyboard | A | automated | `web/src/pages/m10.a11y.test.tsx`, `web/src/pages/host-metrics.test.tsx` (the range is a radio group moved by arrow keys) |
+| 2.1.2 No keyboard trap | A | automated | `web/src/pages/m10.a11y.test.tsx` (Escape closes each dialog and returns focus to its trigger) |
+| 2.4.3 Focus order | A | automated | `web/src/pages/m10.a11y.test.tsx` |
+| 4.1.2 Name, role, value | A | automated | `web/src/pages/m10.a11y.test.tsx` |
 
 ## Known issues
 

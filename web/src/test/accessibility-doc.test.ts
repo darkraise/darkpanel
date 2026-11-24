@@ -13,6 +13,7 @@ const FLOWS = [
   "Firewall change with confirm and revert",
   "Container actions",
   "Expose a container",
+  "Settings, alerts and metrics",
 ]
 
 const CRITERIA: Record<string, string> = {

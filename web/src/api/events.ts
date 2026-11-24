@@ -1,5 +1,7 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query"
-import { HOSTS_QUERY_KEY } from "./client"
+import { ALERT_RULES_QUERY_KEY } from "@/lib/alerts"
+import { CHANNELS_QUERY_KEY } from "@/lib/notify"
+import { GROUPS_QUERY_KEY, HOSTS_QUERY_KEY, SIGN_IN_SETTINGS_QUERY_KEY, USERS_QUERY_KEY } from "./client"
 
 export type EventSourceFactory = (url: string) => EventSource
 
@@ -57,7 +59,9 @@ export function connectEvents(client: QueryClient, factory: EventSourceFactory =
         for (const queryKey of keys(data)) void client.invalidateQueries({ queryKey })
       })
     }
-    on("change", ["changeId"], (d) => [["changes"], ["change", d.changeId], ["audit"]])
+    // A change applied elsewhere may be a user, group, sign-in, channel or
+    // rule change, whose pages have no event of their own.
+    on("change", ["changeId"], (d) => [["changes"], ["change", d.changeId], ["audit"], USERS_QUERY_KEY, GROUPS_QUERY_KEY, SIGN_IN_SETTINGS_QUERY_KEY, CHANNELS_QUERY_KEY, ALERT_RULES_QUERY_KEY])
     on("composite.step", ["changeId"], (d) => [["change", d.changeId], ["steps", d.changeId]])
     on("host", [], () => [HOSTS_QUERY_KEY])
     on("module", ["hostId"], (d) => [HOSTS_QUERY_KEY, ["resource", d.hostId]])

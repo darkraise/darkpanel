@@ -167,7 +167,6 @@ export function InviteUser({ onDone }: { onDone: (username: string) => void }) {
                 id="invite-username"
                 value={username}
                 autoComplete="off"
-                autoFocus
                 maxLength={64}
                 aria-invalid={problem !== null}
                 aria-describedby={problem !== null ? "invite-username-error" : undefined}

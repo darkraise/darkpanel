@@ -16,6 +16,7 @@ import { GROUPS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups, listUsers 
 import type { DirectoryUser, Grant, HostGroup, Invitation, Role } from "@/api/types"
 import { ChangeDialog, type ChangeTarget } from "@/components/change-dialog"
 import { usePageTitle } from "@/lib/page-title"
+import { STACKED_BODY, STACKED_CELL, STACKED_HEAD, STACKED_ROW, STACKED_TABLE } from "@/lib/table"
 import { accessText, applied, draftOf, grantsOf, invitationOf, methodsText, type AccessDraft } from "@/lib/users"
 import { AccessFields, InviteUser, LinkDialog } from "./invite-dialog"
 
@@ -146,8 +147,8 @@ function IdentityForm({ user, onCancel, onPlan }: { user: DirectoryUser; onCance
 
 function UsersTable({ users, groups, onPick }: { users: DirectoryUser[]; groups: HostGroup[] | undefined; onPick: (d: Dialogue) => void }) {
   return (
-    <Table>
-      <TableHeader>
+    <Table className={STACKED_TABLE}>
+      <TableHeader className={STACKED_HEAD}>
         <TableRow>
           <TableHead>Username</TableHead>
           <TableHead>Role</TableHead>
@@ -159,21 +160,21 @@ function UsersTable({ users, groups, onPick }: { users: DirectoryUser[]; groups:
           </TableHead>
         </TableRow>
       </TableHeader>
-      <TableBody>
+      <TableBody className={STACKED_BODY}>
         {users.map((u) => {
           const access = accessText(u, groups)
           return (
-            <TableRow key={u.id} data-username={u.username} tabIndex={-1}>
-              <TableCell className="max-w-48 font-medium whitespace-normal wrap-anywhere">{u.username}</TableCell>
-              <TableCell>
+            <TableRow className={STACKED_ROW} key={u.id} data-username={u.username} tabIndex={-1}>
+              <TableCell data-label="Username" className={`max-w-48 font-medium whitespace-normal wrap-anywhere ${STACKED_CELL}`}>{u.username}</TableCell>
+              <TableCell data-label="Role" className={STACKED_CELL}>
                 <Badge variant={u.role === "admin" ? "default" : "secondary"}>{u.role === "admin" ? "Admin" : "Member"}</Badge>
               </TableCell>
-              <TableCell className="max-w-72 truncate" title={access}>
+              <TableCell data-label="Access" className={`max-w-72 truncate ${STACKED_CELL}`} title={access}>
                 {access}
               </TableCell>
-              <TableCell className="whitespace-normal">{methodsText(u.signIn)}</TableCell>
-              <TableCell>{stateText(u)}</TableCell>
-              <TableCell>
+              <TableCell data-label="Sign-in methods" className={`whitespace-normal ${STACKED_CELL}`}>{methodsText(u.signIn)}</TableCell>
+              <TableCell data-label="State" className={STACKED_CELL}>{stateText(u)}</TableCell>
+              <TableCell data-label="Actions" className={STACKED_CELL}>
                 <RowMenu user={u} onPick={onPick} />
               </TableCell>
             </TableRow>
