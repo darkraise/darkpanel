@@ -2,18 +2,23 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
@@ -23,6 +28,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
 // Acceptance tests of the M10 foundations spec through the API's HTTP
@@ -1080,4 +1086,138 @@ func newQABus() *qaBus { return &qaBus{bus: events.NewBus(nil)} }
 
 func (b *qaBus) host(id string) {
 	b.bus.Publish(events.TypeHost, events.HostEvent{HostID: id, Online: true})
+}
+
+// qaUpTo is the core controller migrations up to and including number.
+func qaUpTo(t *testing.T, number int) store.MigrationSet {
+	t.Helper()
+	set, err := store.CoreMigrations(store.SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := fstest.MapFS{}
+	entries, err := fs.ReadDir(set.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		n, _ := strconv.Atoi(strings.SplitN(e.Name(), "_", 2)[0])
+		if n > number || n == 0 {
+			continue
+		}
+		b, err := fs.ReadFile(set.FS, e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[e.Name()] = &fstest.MapFile{Data: b}
+	}
+	return store.MigrationSet{Module: set.Module, FS: out}
+}
+
+func TestA1_existing_rows_survive_the_migration(t *testing.T) {
+	ctx := context.Background()
+	// The donor is a server that made an admin, two tokens and a session; its
+	// rows are copied by their pre-0017 columns into a database at 0016, as
+	// an upgrading controller holds them.
+	donor := newHarnessWith(t, qaMatrixModule{})
+	readTok, opTok := donor.token(core.ScopeRead), donor.token(core.ScopeOperate)
+	sess, csrf := donor.login()
+	copyPath := filepath.Join(t.TempDir(), "donor.db")
+	if _, err := donor.db.Writer().Exec(`VACUUM INTO ?`, copyPath); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	db, err := store.Open(ctx, filepath.Join(dir, "controller.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	opts := store.MigrateOptions{Side: store.SideController, BinaryVersion: "test", BackupRoot: filepath.Join(dir, "backups"), Keep: 5, Now: testStart}
+	if _, err := store.Migrate(ctx, db, opts, qaUpTo(t, 16), nil); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Writer().Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, `ATTACH DATABASE ? AS donor`, copyPath); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"core_users", "core_tokens", "core_sessions"} {
+		rows, err := conn.QueryContext(ctx, `SELECT name FROM pragma_table_info(?)`, table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cols []string
+		for rows.Next() {
+			var c string
+			_ = rows.Scan(&c)
+			cols = append(cols, c)
+		}
+		_ = rows.Close()
+		list := strings.Join(cols, ", ")
+		if _, err := conn.ExecContext(ctx, `INSERT INTO main.`+table+` (`+list+`) SELECT `+list+` FROM donor.`+table); err != nil {
+			t.Fatalf("copy %s: %v", table, err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, `DETACH DATABASE donor`); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+	var cols int
+	if err := db.Read().QueryRow(`SELECT count(*) FROM pragma_table_info('core_users') WHERE name IN ('disabled_at', 'email')`).Scan(&cols); err != nil || cols != 0 {
+		t.Fatalf("the database before 0017 already has the new user columns (%d, %v)", cols, err)
+	}
+	// Migration 0017 and the rest.
+	set, err := store.CoreMigrations(store.SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Migrate(ctx, db, opts, set, nil); err != nil {
+		t.Fatal(err)
+	}
+	var role string
+	var disabled sql.NullString
+	if err := db.Read().QueryRow(`SELECT role, disabled_at FROM core_users WHERE username = 'admin'`).Scan(&role, &disabled); err != nil {
+		t.Fatal(err)
+	}
+	if role != "admin" || disabled.Valid {
+		t.Errorf("the existing user after the migration is %q disabled %v, want an enabled admin", role, disabled)
+	}
+	for _, tb := range []string{"core_host_groups", "core_user_grants", "core_user_enrollments"} {
+		if n := qaCount(t, &harness{db: db}, `SELECT count(*) FROM `+tb); n != 0 {
+			t.Errorf("%s holds %d rows after migration, want none", tb, n)
+		}
+	}
+	h := newHarnessWith(t, qaMatrixModule{})
+	h.db, h.auth = db, auth.New(db, coretest.Sealer{}, donor.clock, donor.audit, auth.Options{Params: testParams})
+	h.cfg.Auth = h.auth
+	qaFake(h)
+	h.clock = donor.clock
+	qaRebuild(t, h)
+	creds := map[string]func(*http.Request) *http.Request{
+		"session":       func(r *http.Request) *http.Request { return withSession(r, sess, csrf) },
+		"read token":    func(r *http.Request) *http.Request { return withToken(r, readTok) },
+		"operate token": func(r *http.Request) *http.Request { return withToken(r, opTok) },
+	}
+	for name, cred := range creds {
+		for _, p := range []string{"/api/v1/controller/listeners", "/api/v1/openapi.json", "/healthz"} {
+			if rec := h.serve(cred(request("GET", p, ""))); rec.Code != 200 {
+				t.Errorf("a pre-migration %s on %s = %d %s, want 200", name, p, rec.Code, rec.Body)
+			}
+		}
+		if rec := h.serve(cred(request("POST", "/api/v1/actions/qam.fleet.get/v1/read", `{"input":{}}`))); rec.Code != 200 {
+			t.Errorf("a pre-migration %s on a fleet read = %d %s, want 200", name, rec.Code, rec.Body)
+		}
+	}
+	if rec := h.serve(creds["operate token"](request("POST", "/api/v1/hosts/"+testHostID+"/actions/qam.thing.rev/v1/plan", `{"input":{"name":"a"}}`))); rec.Code != 200 {
+		t.Errorf("a pre-migration operate token planning an agent action = %d %s, want 200", rec.Code, rec.Body)
+	}
+	decodeProblem(t, h.serve(creds["read token"](request("POST", "/api/v1/hosts/"+testHostID+"/actions/qam.thing.rev/v1/plan", `{"input":{"name":"a"}}`))), 403, errcode.Forbidden)
+	// The old password still signs the old admin in.
+	donor.clock.Advance(auth.TOTPPeriod)
+	code, _ := auth.TOTPCode(donor.secret, donor.clock.Now())
+	if _, err := h.auth.Login(ctx, auth.LoginRequest{Username: "admin", Password: testPassword, Code: code, Source: "192.0.2.10"}); err != nil {
+		t.Errorf("the existing admin's password login after the migration: %v", err)
+	}
 }
