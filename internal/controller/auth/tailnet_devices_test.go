@@ -632,3 +632,169 @@ func TestCodeStepAfterHostRecorded(t *testing.T) {
 		t.Error("a wrong code on a clean ticket spent no failure")
 	}
 }
+
+func TestListTailnetDevicesOrder(t *testing.T) {
+	e := newTSEnv(t, false)
+	e.active("mia", "mia@github", 7)
+	e.active("ben", "ben@github", 7)
+	t2 := e.clock.Now().Add(2 * time.Hour)
+	t3 := t2.Add(time.Hour)
+	e.remember("mia", "nB", "b-node", t2)
+	e.remember("mia", "nA", "a-node", t3)
+	e.remember("mia", "nA2", "a2-node", t2)
+	e.remember("ben", "nX", "ben-node", t3.Add(time.Hour))
+	got, err := e.s.ListTailnetDevices(context.Background(), "mia")
+	want := []TailnetDevice{
+		{StableID: "nA", NodeName: "a-node", RememberedAt: t3, LastUsedAt: t3},
+		{StableID: "nA2", NodeName: "a2-node", RememberedAt: t2, LastUsedAt: t2},
+		{StableID: "nB", NodeName: "b-node", RememberedAt: t2, LastUsedAt: t2},
+	}
+	if err != nil || len(got) != len(want) {
+		t.Fatalf("ListTailnetDevices(mia) = %+v, %v; want %+v", got, err, want)
+	}
+	for i := range want {
+		if got[i].StableID != want[i].StableID || got[i].NodeName != want[i].NodeName ||
+			!got[i].RememberedAt.Equal(want[i].RememberedAt) || !got[i].LastUsedAt.Equal(want[i].LastUsedAt) {
+			t.Errorf("device %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	e.active("ann", "ann@github", 7)
+	if none, err := e.s.ListTailnetDevices(context.Background(), "ann"); err != nil || none == nil || len(none) != 0 {
+		t.Errorf("ListTailnetDevices(ann) = %#v, %v; want an empty, non-nil list", none, err)
+	}
+}
+
+func TestForgetTailnetDevice(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name     string
+		stableID string
+		wantErr  errcode.Code
+		check    func(e *tsEnv, d TailnetDevice)
+	}{
+		{name: "a row with an empty node name", stableID: "nE", check: func(e *tsEnv, d TailnetDevice) {
+			if d.StableID != "nE" || d.NodeName != "" || !d.LastUsedAt.Equal(e.clock.Now().UTC()) {
+				e.t.Errorf("forgot %+v, want nE with an empty node name", d)
+			}
+			if ok, err := e.s.TailnetDeviceExists(ctx, "mia", "nE"); err != nil || ok || e.device("mia", "nE") != "" {
+				e.t.Errorf("TailnetDeviceExists(mia, nE) after forgetting = %v, %v; want the row gone", ok, err)
+			}
+		}},
+		{name: "a missing stable id", stableID: "nZ", wantErr: errcode.NotFound},
+		{name: "another user's device", stableID: "nB", wantErr: errcode.NotFound, check: func(e *tsEnv, _ TailnetDevice) {
+			if ok, err := e.s.TailnetDeviceExists(ctx, "ben", "nB"); err != nil || !ok {
+				e.t.Errorf("TailnetDeviceExists(ben, nB) = %v, %v; want ben's row kept", ok, err)
+			}
+		}},
+		{name: "the next Continue-as asks the code", stableID: "nL", check: func(e *tsEnv, _ TailnetDevice) {
+			res, err := e.s.SignInTailscale(ctx, tsReq(miaWhois()))
+			if err != nil || res.Ticket == "" || !res.Remember || e.sessions() != 0 {
+				e.t.Errorf("SignInTailscale after forgetting = ticket %q, remember %v, %v, %d sessions; want a ticket with remember",
+					res.Ticket, res.Remember, err, e.sessions())
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTSEnv(t, false)
+			e.active("mia", "mia@github", 1)
+			e.active("ben", "ben@github", 1)
+			e.remember("mia", "nE", "", e.clock.Now())
+			e.remember("mia", "nL", "laptop.tail1234.ts.net", e.clock.Now())
+			e.remember("ben", "nB", "ben-node", e.clock.Now())
+			d, err := e.s.ForgetTailnetDevice(ctx, "mia", tc.stableID)
+			if (tc.wantErr == "" && err != nil) || (tc.wantErr != "" && errcode.From(err).Code != tc.wantErr) {
+				t.Fatalf("ForgetTailnetDevice(mia, %s) = %v, want %q", tc.stableID, err, tc.wantErr)
+			}
+			if tc.check != nil {
+				tc.check(e, d)
+			}
+		})
+	}
+}
+
+func TestForgetEvents(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		kept bool
+		// act forgets, or keeps, mia's devices; invited mia holds an
+		// enrollment link instead of an active account.
+		act     func(e *tsEnv, invite string) error
+		invited bool
+	}{
+		{name: "reset TOTP", act: func(e *tsEnv, _ string) error {
+			_, _, err := e.s.ResetTOTP(ctx, "mia")
+			return err
+		}},
+		{name: "begin an enrollment", invited: true, act: func(e *tsEnv, token string) error {
+			_, err := e.s.BeginEnrollment(ctx, token, "192.0.2.8", false)
+			return err
+		}},
+		{name: "change the tailnet login", act: func(e *tsEnv, _ string) error {
+			_, err := e.s.SetIdentity(ctx, "mia", "", "mia2@github")
+			return err
+		}},
+		{name: "the same login in another case and an email", kept: true, act: func(e *tsEnv, _ string) error {
+			_, err := e.s.SetIdentity(ctx, "mia", "mia@example.com", "MIA@github")
+			return err
+		}},
+		{name: "delete the user", act: func(e *tsEnv, _ string) error {
+			return e.s.DeleteUser(ctx, "mia")
+		}},
+		{name: "disable then enable", kept: true, act: func(e *tsEnv, _ string) error {
+			if _, err := e.s.SetDisabled(ctx, "mia", true); err != nil {
+				return err
+			}
+			_, err := e.s.SetDisabled(ctx, "mia", false)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTSEnv(t, false)
+			e.active("ben", "ben@github", 1)
+			var token string
+			if tc.invited {
+				inv, err := e.s.Invite(ctx, InviteRequest{Username: "mia", Role: RoleMember, TailnetLogin: "mia@github"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				token = inv.Token
+			} else {
+				e.active("mia", "mia@github", 1)
+			}
+			e.remember("mia", "nL", "laptop", e.clock.Now())
+			e.remember("mia", "nM", "phone", e.clock.Now())
+			e.remember("ben", "nB", "ben-node", e.clock.Now())
+			if err := tc.act(e, token); err != nil {
+				t.Fatal(err)
+			}
+			want := 0
+			if tc.kept {
+				want = 2
+			}
+			if n := e.count(`SELECT count(*) FROM core_user_tailnet_devices WHERE stable_id IN ('nL', 'nM')`); n != want {
+				t.Errorf("%d of mia's devices left, want %d", n, want)
+			}
+			if e.device("ben", "nB") == "" {
+				t.Error("ben's device was forgotten")
+			}
+		})
+	}
+}
+
+func TestForgetEndsNoSession(t *testing.T) {
+	ctx := context.Background()
+	e := newTSEnv(t, false)
+	e.active("mia", "mia@github", 1)
+	e.remember("mia", "nL", "laptop", e.clock.Now())
+	res, err := e.s.SignInTailscale(ctx, tsReq(miaWhois()))
+	if err != nil || res.SessionID == "" {
+		t.Fatalf("SignInTailscale = %+v, %v; want a session", res, err)
+	}
+	if _, err := e.s.ForgetTailnetDevice(ctx, "mia", "nL"); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := e.s.Authenticate(ctx, Credentials{Session: res.SessionID, Source: "100.64.0.5"}); err != nil || id.User.Username != "mia" {
+		t.Errorf("Authenticate after forgetting = %+v, %v; want mia's session still valid", id.User, err)
+	}
+}

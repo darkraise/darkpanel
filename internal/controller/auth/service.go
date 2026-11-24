@@ -312,6 +312,9 @@ func (s *Service) ResetTOTP(ctx context.Context, username string) (User, string,
 		if err := endEnrollmentLinks(ctx, tx, r.ID); err != nil {
 			return err
 		}
+		if err := forgetTailnetDevices(ctx, tx, r.ID); err != nil {
+			return err
+		}
 		return endSessions(ctx, tx, r.ID)
 	})
 	if err != nil {
@@ -1003,12 +1006,18 @@ func (s *Service) SetIdentity(ctx context.Context, username, email, tailnetLogin
 		if !strings.EqualFold(cur.Email, email) {
 			q += `, oidc_issuer = NULL, oidc_subject = NULL`
 		}
-		if !strings.EqualFold(cur.TailnetLogin, tailnetLogin) {
+		loginChanged := !strings.EqualFold(cur.TailnetLogin, tailnetLogin)
+		if loginChanged {
 			q += `, tailnet_user_id = NULL`
 		}
 		if _, err := tx.ExecContext(ctx, q+` WHERE id = ?`, nullable(email), nullable(tailnetLogin),
 			formatTime(s.now()), cur.ID); err != nil {
 			return fmt.Errorf("auth: set identity: %w", err)
+		}
+		if loginChanged {
+			if err := forgetTailnetDevices(ctx, tx, cur.ID); err != nil {
+				return err
+			}
 		}
 		d, err = profile(ctx, tx, username)
 		return err
@@ -1116,6 +1125,9 @@ func (s *Service) BeginEnrollment(ctx context.Context, token, source string, tru
 		if _, err := tx.ExecContext(ctx, `UPDATE core_users SET totp_secret_ct = ?, totp_last_step = 0, updated_at = ? WHERE id = ?`,
 			ct, formatTime(s.now()), e.user.ID); err != nil {
 			return fmt.Errorf("auth: begin enrollment: %w", err)
+		}
+		if err := forgetTailnetDevices(ctx, tx, e.user.ID); err != nil {
+			return err
 		}
 		secret := encodeTOTPSecret(key)
 		out = EnrollmentStart{Username: e.user.Username, Secret: secret, URI: totpURI(e.user.Username, secret), ExpiresAt: e.expires}
