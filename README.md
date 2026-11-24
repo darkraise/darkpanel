@@ -32,7 +32,14 @@ itself from signed releases with automatic rollback.
   new version fails its health check.
 - **Private by default.** There is no default account. The web interface
   listens on loopback and on Tailscale addresses only, and sign-in needs a
-  password and a TOTP code.
+  password and a TOTP code, or an [OIDC provider or Tailscale
+  identity](docs/user/sign-in.md) linked to a user an admin added.
+- **Members.** Admins invite [members](docs/user/users-and-roles.md) who see
+  and act only on the host groups their grants name, as viewers or operators.
+- **Metrics and alerts.** Each host's CPU, memory, disk, network and load are
+  [charted](docs/user/metrics-and-alerts.md) for up to 90 days, and alert rules
+  send [notifications](docs/user/notifications.md) to ntfy, Telegram, Discord,
+  email or a webhook, as do failed changes and updates.
 - **One look.** The web interface follows one
   [design language](docs/dev/design-language.md), Glass on
   darkraise-ui: status shows as dots, pills, gauges and charts that always

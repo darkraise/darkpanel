@@ -19,12 +19,17 @@ var duPages = []string{
 	"docs/user/lockout-recovery.md",
 	"docs/user/uninstall.md",
 	"docs/user/administration.md",
+	"docs/user/users-and-roles.md",
+	"docs/user/sign-in.md",
+	"docs/user/notifications.md",
+	"docs/user/metrics-and-alerts.md",
 }
 
 // duIndexed are the link targets docs/user/README.md must carry, relative to
 // docs/user.
 var duIndexed = []string{
 	"install.md", "first-admin.md", "lockout-recovery.md", "uninstall.md", "administration.md",
+	"users-and-roles.md", "sign-in.md", "notifications.md", "metrics-and-alerts.md",
 	"modules/hostinfo.md", "modules/firewall.md", "modules/docker.md", "modules/tailscale.md", "modules/tailnet.md",
 	"modules/derp.md", "modules/npm.md", "modules/cloudflare.md", "modules/panel.md", "modules/system.md",
 	"../dev/module-guide.md", "../api/README.md", "../versioning.md",

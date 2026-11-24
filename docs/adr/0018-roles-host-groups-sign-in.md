@@ -4,7 +4,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -28,6 +28,22 @@ name, address or state.
   `core.ActionSpec.HostData`. A read without a class is served only to fleet
   principals, so a new read fails closed. Internal reads are exempt. A read
   whose required scope is above read needs that scope on every host.
+- **Users join by invitation.** An admin invites a user with its role and
+  grants; the user sets a password and an authenticator code through a
+  one-time enrollment link valid 72 hours. A disabled user is refused by every
+  sign-in method, its sessions and its tokens, and the last active admin
+  cannot be demoted, disabled or deleted.
+- **OIDC links, never provisions.** One provider is configured. A first
+  sign-in links a verified email an admin set on an existing user and pins the
+  provider's issuer and subject; later sign-ins match the pin. No sign-in
+  creates a user.
+- **Tailscale identity on the tailnet listener only.** The controller host's
+  agent reads the peer's whois; tagged and shared-in nodes, and any node or
+  address of a Darkpanel host, are refused, and the tailnet user id is pinned
+  at the first sign-in.
+- **Provider trust by default.** OIDC and Tailscale identity trust the
+  provider's or the tailnet's own sign-in; each method can require the
+  Darkpanel code on top.
 
 ### Host data classes
 
@@ -42,14 +58,22 @@ and every row tied to no host unless the caller has fleet access.
 | `cloudflare.account.get` | fleet | The connected account is fleet configuration. |
 | `cloudflare.hostname.list` | filtered | Hostnames are tied to no host, so only fleet callers see them. |
 | `cloudflare.tunnel.list` | filtered | Tunnels are tied to no host, so only fleet callers see them. |
+| `auth.settings.get` | fleet | The panel's sign-in settings. |
 | `core.audit.list` | filtered | Entries of hosts outside the grants, and host-less entries, are dropped. |
+| `core.group.list` | fleet | Host groups and their members span the fleet. |
 | `core.host.list` | filtered | Lists only the hosts inside the grants. |
 | `core.module.list` | input (`/hostId`) | Lists the modules of the one host it names. |
 | `core.token.list` | none | The caller's own tokens. |
 | `core.update.rollouts` | filtered | Hosts outside the grants are dropped; a rollout left with none is hidden. |
+| `core.user.directory` | fleet | Every user of the panel, with grants and sign-in links. |
 | `core.user.list` | fleet | Every user of the panel. |
 | `derp.server.list` | filtered | Servers on hosts outside the grants are dropped. |
 | `derp.server.probe` | input (`/hostId`, `/agents`) | Probes one host's server; probe sources and nodes are cut to the grants. |
+| `metrics.alert.list` | filtered | Alerts of hosts outside the grants are dropped. |
+| `metrics.alert.list-rules` | fleet | Alert rules target every host or a group. |
+| `metrics.history.get` | input (`/hostId`) | Reads the metrics of the one host it names. |
+| `notify.channel.list` | fleet | Channels and their routing are fleet configuration. |
+| `notify.channel.test` | fleet | Sends a test through a fleet-wide channel. |
 | `npm.instance.list` | filtered | Instances and unreadable hosts outside the grants are dropped. |
 | `panel.exposure.status` | fleet | The exposure of the controller's own interface. |
 | `tailnet.account.get` | fleet | The connected tailnet account. |
@@ -67,6 +91,12 @@ that no other host's id, name or address comes back.
   know which fields name a host and would miss nested rows.
 - **Per-host scopes on tokens only.** Tokens alone cannot give a person signed
   in through the browser less than the whole fleet.
+- **Creating users at the first OIDC sign-in.** The provider would decide who
+  gets access; linking only users an admin added keeps that decision in
+  Darkpanel.
+- **Requiring the Darkpanel code for every method.** It would make OIDC and
+  Tailscale identity no faster than a password; each method offers it as an
+  option instead.
 
 ## Consequences
 

@@ -16,6 +16,14 @@ and safe self-update.
 
 - [Administer Darkpanel](administration.md) covers users, API tokens, hosts,
   modules, the audit log, updates, and backup and restore.
+- [Users and roles](users-and-roles.md) gives people access to some hosts or
+  all of them, with host groups and enrollment links.
+- [Sign-in methods](sign-in.md) adds an OIDC provider and Tailscale identity
+  to the password and code.
+- [Notifications](notifications.md) sends alerts, failed changes and failed
+  updates to ntfy, Telegram, Discord, email or a webhook.
+- [Metrics and alerts](metrics-and-alerts.md) charts each host's history and
+  raises alerts from it.
 
 Each module has a page of its own:
 

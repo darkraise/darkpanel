@@ -4,7 +4,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 ## Scope
 
-- Covered: the controller, the agents it manages, the modules shipped in v1 (firewall, Docker, Tailscale, tailnet, DERP, Nginx Proxy Manager, Cloudflare, panel exposure and system), the CLI, the web UI, backup and restore, and the update path.
+- Covered: the controller, the agents it manages, the modules shipped in v1 (firewall, Docker, Tailscale, tailnet, DERP, Nginx Proxy Manager, Cloudflare, panel exposure, system, notifications and metrics), the sign-in methods (password and TOTP, OIDC, Tailscale identity), the CLI, the web UI, backup and restore, and the update path.
 - Not covered: a compromised root account on a host (the agent runs as root, so a root attacker already holds the host), physical access, and the security of Tailscale, Cloudflare, Let's Encrypt and Docker themselves.
 - Not covered: a malicious administrator. An admin can do everything an admin may do; the model limits what a lower scope, a stolen credential or a mistake can do.
 
@@ -21,12 +21,14 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The reachability of every host, that is, what the firewall allows. A wrong change cuts the operator off or opens a port to the internet.
 - The trusted release keys in the binary and the signed release and derper artifacts. Tampering would run attacker code as root on every host that updates.
 - The DERP node key. Theft lets an attacker impersonate the relay.
+- Notification channel credentials: ntfy topics and tokens, Telegram bot tokens, Discord and webhook URLs, webhook signing keys and SMTP passwords, and the OIDC client secret. Theft lets an attacker post to those destinations or act as Darkpanel at the provider.
 - The packages of every managed host and Docker's data on it. A wrong package change removes what keeps the host reachable or bootable; a purge deletes every container, image and volume.
 
 ## Actors
 
 - An unauthenticated network attacker. Reaches only the listeners: the web listeners, the enrollment listener and any exposure the operator created.
 - An authenticated user at each scope: `read` sees state, `operate` changes state through declared actions, `admin` also manages users, tokens, secrets and Compose projects.
+- A member, a user whose grants give `viewer` (read) or `operator` (operate) on some host groups or on every host. Reaches only those hosts, at most read on the controller's own host, and no fleet-wide data.
 - A holder of a stolen session cookie or API token. Has the scope of that credential until it expires or is revoked.
 - Hostile web content in an admin's browser, through cross-site requests or script injection. Can only act with what the browser sends automatically.
 - The operator, whose mistake, such as a firewall change, can lock them out.
@@ -62,6 +64,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 - Outbound HTTPS to the Tailscale and Cloudflare APIs with sealed credentials and 15-second timeouts. Only reads and deletes are retried, and a write whose outcome is uncertain has an explicit procedure.
 - Let's Encrypt is reached only through Nginx Proxy Manager on the agent's host.
+- Outbound notification requests to ntfy, Telegram, Discord, SMTP servers and webhooks, and OIDC discovery and token requests to the configured provider: 15-second timeouts, no redirects followed, and a provider's response body never reaches an error, a log or the UI.
 
 ## Areas
 
@@ -74,6 +77,10 @@ This page is the written threat model of Darkpanel. It states what the product p
 - Session theft, and cross-site request forgery against a cookie session.
 - A route that forgets its check, and a lower scope reaching an admin action.
 - An attacker erasing their traces.
+- A member reaching, or learning the names of, hosts outside its grants, through a per-host route, a controller-side read, a list or the event stream.
+- An OIDC account whose email the provider reassigns, or a colliding subject at another issuer, taking over a Darkpanel user.
+- A server on the tailnet signing in as the person who owns its node.
+- A stolen or replayed enrollment link.
 
 #### Mitigations
 
@@ -82,6 +89,12 @@ This page is the written threat model of Darkpanel. It states what the product p
 - Sessions have an idle and an absolute lifetime and only their hash is stored. API tokens carry a `read`, `operate` or `admin` scope and an expiry, and only their hash is stored (`internal/controller/auth`).
 - One authentication middleware on every listener applies to every method and denies unless the route is public. Cookies are SameSite=Strict and HttpOnly, a CSRF token guards unsafe methods, and runtime listeners check the Origin (`internal/controller/api`).
 - Break-glass user commands run only on the controller socket, which is root-only through `SO_PEERCRED` (`internal/controller/api`). The network routes and event stream hide break-glass changes, including the child change ids of composite steps that run a break-glass action (`internal/controller/api`, `internal/controller/server`).
+- A member's access is resolved at each request from its grants, a token never exceeds its user, and a host outside the grants answers `request.not_found`, the answer for an unknown host. Every per-host route checks the scope on its host, lists filter in their query, and the event stream drops events of hosts the principal cannot see (`internal/core/access.go`, `internal/controller/api`).
+- Every controller-side read declares the host data it returns (`none`, `fleet`, `input` or `filtered`), and a read without a class is served only to fleet principals, so a new read fails closed. A registry test fails for an unclassified read and a leak test reads every class as a member of one host, checking that no other host's id, name or address comes back (`internal/registry/hostdata_test.go`, `internal/controller/api/leak_test.go`).
+- OIDC uses the authorization code flow with PKCE, state and nonce in a short-lived signed cookie, and verifies the ID token's signature, issuer, audience, expiry and nonce. A first sign-in links only a verified email an admin set on an existing user, and pins the provider's issuer and subject; later sign-ins match the pin, and changing the email ends it. No user is ever created by a sign-in (`internal/controller/auth/oidc.go`).
+- Tailscale identity sign-in runs only on the Tailscale listener over TLS, never for a proxied request, and reads the peer through the whois of the controller host's agent. It refuses tagged and shared-in nodes and any address or node of a Darkpanel host or of the controller itself, pins the tailnet user id at the first sign-in, throttles lookups per source and requires a same-origin JSON request to sign in (`internal/controller/auth/tailscale.go`, `internal/controller/api/tailscale_signin.go`).
+- An enrollment link holds 32 random bytes, is stored hashed, is single-use, expires after 72 hours and is ended by a new link, a cancel, a disable or a role change; enrollment runs under the per-source budget (`internal/controller/coreactions/enroll.go`). A disabled user is refused by every sign-in method, its sessions and its tokens.
+- Every sign-in, refused or not, is audited with its method, and OIDC and the code step count failures on the login limiter (`internal/controller/auth`).
 - Every action leaves an audit entry (`internal/controller/audit`), including the rows the system services (the Cloudflare hostname driver and the tailnet key sweep) write, which the audit table accepts because its phase check lists the phases those services use (`internal/core/store/migrations/controller`).
 
 #### Residual risk
@@ -89,6 +102,9 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The rate limiter's counters live in memory, so a restart clears them.
 - Logins that arrive on a loopback or Tailscale listener, and not through a runtime proxy listener, are exempt from the limiter's refusal of new sources when its table is full, so a flood on a public listener cannot lock the operator out. Anything on the host that forwards traffic to loopback (a reverse proxy, a tunnel) gives its clients the same exemption. Every login still waits in the shared password-hashing queue (`MaxConcurrentHashes = 2`), so a flood of logins on any listener can slow sign-in for everyone: a denial-of-service path that remains.
 - TOTP uses SHA-1 because authenticator apps implement it.
+- Tailscale identity sign-in trusts the tailnet's own sign-in, unless the method requires the Darkpanel code too: a user-owned server on the tailnet that is not a Darkpanel host still signs in as its owner. The design accepts this risk.
+- OIDC trusts the provider's sign-in in the same way unless the method requires the code; a compromised provider account signs in as its linked user.
+- A member's operator grant runs every agent-side action on its hosts except the admin-only ones, so an operator can change those hosts' firewall, packages and containers.
 - The web listeners accept TLS 1.2 for browsers; the agent transport requires TLS 1.3.
 - An admin whose session and CSRF token are both stolen acts as that admin until the session ends. The accepted risk of a request without an Origin header is listed in Known residual risks.
 - A lock on the pair of user name and source gives each source its own attempts against a user name, so an attacker who uses many sources, many IPv6 /64 networks included, makes more guesses than one who uses few. A correct password is still not enough to sign in without a TOTP code.
@@ -191,6 +207,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The CLI builds the backup request from the passphrase bytes (`internal/cli`).
 - Removing an Nginx Proxy Manager instance deletes its upgrade archives, which hold Let's Encrypt private keys and the NPM database (`internal/modules/npm`).
 - An effect document holds a value it only compares as a keyed fingerprint, `hmac-sha256:` followed by the HMAC-SHA-256 of the value under a key derived from the role key, so nobody can check the fingerprint against a guess without that key. A value an undo restores goes into the effect's sealed secret instead. This covers the settings of Nginx Proxy Manager proxy hosts, custom locations included, and the labels of Docker networks and volumes (`internal/modules/npm`, `internal/modules/docker`, `internal/core/lifecycle`).
+- Notification channel secrets and the OIDC client secret are write-only inputs, sealed in their rows and never returned; channel reads mask the ntfy topic and the webhook URL, which act as credentials. A notification carries fixed templates of host name, action, change id, state and error code, never an action's input or output (`internal/modules/notify`, `internal/controller/auth`).
 - Network and volume label values are secret inputs: a plan shows a label's key and whether it is added, changed or removed, and never its value (`internal/modules/docker`).
 - Container inspection masks every element of a container's `Cmd`, because an image with an `Entrypoint` makes the first element an argument and not a program. An element of `Entrypoint` keeps the masking rule it had (`internal/modules/docker`).
 
