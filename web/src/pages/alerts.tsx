@@ -160,8 +160,12 @@ function ruleInput(rule: AlertRule, enabled: boolean): Record<string, unknown> {
   return input
 }
 
-function RulesSection({ onPick }: { onPick: (d: Dialogue) => void }) {
+// hold keeps the section out of the page, its read already running, until the
+// firing list above it has settled, so that list growing never pushes a drawn
+// skeleton down (a layout shift).
+function RulesSection({ onPick, hold }: { onPick: (d: Dialogue) => void; hold: boolean }) {
   const rules = useQuery({ queryKey: ALERT_RULES_QUERY_KEY, queryFn: listRules })
+  if (hold) return null
   let body
   if (rules.isPending) body = <Loading label="Loading the alert rules" />
   else if (rules.isError) body = <LoadError thing="alert rules" error={rules.error} onRetry={() => void rules.refetch()} />
@@ -234,6 +238,7 @@ export function AlertsPage() {
   const admin = isAdmin(session)
   const [dialogue, setDialogue] = useState<Dialogue | null>(null)
   const close = () => setDialogue(null)
+  const alerts = useQuery({ queryKey: ALERTS_QUERY_KEY, queryFn: listAlerts, refetchInterval: ALERTS_REFRESH_MS })
 
   return (
     <div className="flex flex-col gap-6">
@@ -243,7 +248,7 @@ export function AlertsPage() {
         actions={admin ? <Button onClick={() => setDialogue({ kind: "form", rule: null })}>New rule</Button> : undefined}
       />
       <AlertsSection />
-      {admin && <RulesSection onPick={setDialogue} />}
+      {admin && <RulesSection onPick={setDialogue} hold={alerts.isPending} />}
       {dialogue?.kind === "form" && (
         <RuleForm
           rule={dialogue.rule}
