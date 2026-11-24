@@ -23,6 +23,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/controller/rollout"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/ext"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/install"
@@ -58,6 +59,9 @@ type services struct {
 	rechecker   dispatcherRechecker // the event watchers' rechecker, live once the dispatcher exists
 	topo        topology            // the dispatcher's guard topology
 	events      *events.Bus
+	// notifier records notifications; it is the module provider's, or the
+	// no-op notifier.
+	notifier core.Notifier
 	// runtimeListeners are the controller's runtime listeners (spec 1.10),
 	// created before the engine so controller-side actions and contributions
 	// get them, and started with the network listeners.
@@ -82,6 +86,7 @@ func (s *Server) startServices(ctx context.Context) error {
 	s.runtimeListeners = listen.NewRuntime(listen.RuntimeConfig{DB: s.controllerDB, Clock: s.clock, Log: s.log, Bind: s.opts.Bind})
 	s.auditLog = audit.New(s.controllerDB, s.clock)
 	s.authService = auth.New(s.controllerDB, s.controllerSealer, s.clock, s.auditLog, auth.Options{Params: s.opts.AuthParams})
+	s.notifier = s.moduleNotifier()
 	var err error
 	if s.authority, err = fleet.LoadOrCreateAuthority(ctx, s.controllerDB, s.controllerSealer, s.clock); err != nil {
 		return err
@@ -177,6 +182,21 @@ func (s *Server) startServices(ctx context.Context) error {
 		return fmt.Errorf("server: recover composites: %w", err)
 	}
 	return s.startRollouts(clients)
+}
+
+// moduleNotifier is the notifier of the first compiled-in module that
+// provides one, or the no-op notifier. It is built before the dispatcher and
+// the hosts exist, so its deps carry only the stores, the clock, the log and
+// the audit log.
+func (s *Server) moduleNotifier() core.Notifier {
+	deps := ext.Deps{DB: s.controllerDB, Sealer: s.controllerSealer, Clock: s.clock, Log: s.log, Audit: s.auditLog,
+		LocalHostID: s.localHostID}
+	for _, m := range modules.All() {
+		if p, ok := m.(ext.NotifierProvider); ok {
+			return core.NotifierOrNop(p.Notifier(deps))
+		}
+	}
+	return core.NopNotifier{}
 }
 
 // hostResources is the session registry's reader of host resources: the

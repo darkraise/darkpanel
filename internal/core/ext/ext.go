@@ -54,6 +54,7 @@ type Deps struct {
 	Listeners   core.Listeners
 	Audit       core.Audit // services write their audit rows here (actor system:<Service.Name>)
 	LocalHostID string
+	Notifier    core.Notifier // records notifications (M10 spec section 4); nil records nothing
 }
 
 // Dispatcher is the controller's dispatcher (internal/controller/dispatch);
@@ -70,6 +71,14 @@ type Dispatcher interface {
 // directly; there is no adapter.
 type Publisher interface {
 	Publish(eventType string, data any)
+}
+
+// NotifierProvider is a module's optional notifier, found on a core.Module
+// by type assertion. The assembly asks for it before it builds anything that
+// records notifications, so deps may lack the dispatcher and the hosts, and
+// hands the result to every contribution as Deps.Notifier.
+type NotifierProvider interface {
+	Notifier(deps Deps) core.Notifier
 }
 
 // Controller is a module's optional controller-side contribution, found

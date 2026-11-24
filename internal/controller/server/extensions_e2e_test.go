@@ -81,7 +81,8 @@ func TestContributionsAreServed(t *testing.T) {
 	switch {
 	case deps.DB != s.controllerDB, deps.Sealer != core.Sealer(s.controllerSealer), deps.Clock != opts.Clock,
 		deps.Log == nil, deps.Hosts != core.HostDirectory(s.hosts), deps.Dispatch != ext.Dispatcher(s.dispatcher),
-		deps.Events != ext.Publisher(s.events), deps.Audit != core.Audit(s.auditLog), deps.LocalHostID != s.LocalHostID():
+		deps.Events != ext.Publisher(s.events), deps.Audit != core.Audit(s.auditLog), deps.LocalHostID != s.LocalHostID(),
+		deps.Notifier == nil || deps.Notifier != s.notifier || deps.Notifier == core.Notifier(core.NopNotifier{}):
 		t.Errorf("deps = %+v, want the server's stores and services", deps)
 	}
 

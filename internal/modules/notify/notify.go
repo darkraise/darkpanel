@@ -14,6 +14,8 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/ext"
 )
 
+var _ ext.NotifierProvider = module{}
+
 // ID is the module id.
 const ID = "notify"
 
@@ -47,14 +49,30 @@ func (module) Manifest() core.Manifest {
 	}
 }
 
+// Notifier is the module's core.Notifier, which writes the outbox.
+func (module) Notifier(deps ext.Deps) core.Notifier { return newNotifier(deps.Clock) }
+
 // Controller registers the channels' group referrer, so core.group.delete
-// refuses a group a channel routes to, and hands notify.channel.test the
-// audit log. It runs only in the controller, whose database holds the
-// module's tables.
+// refuses a group a channel routes to, hands notify.channel.test the audit
+// log, marks the deliveries a restore left pending, and contributes the
+// outbox's sender, woken by deps.Notifier when that is the module's. It runs
+// only in the controller, whose database holds the module's tables.
 func (module) Controller(deps ext.Deps) ([]ext.Route, []ext.Service, error) {
 	coreactions.RegisterGroupReferrer(ID+".channels", channelReferrer)
 	setAudit(deps.Audit)
-	return nil, nil, nil
+	if deps.DB == nil {
+		// An assembly with no controller database has no outbox to send.
+		return nil, nil, nil
+	}
+	n, ok := deps.Notifier.(*notifier)
+	if !ok {
+		n = newNotifier(deps.Clock)
+	}
+	o := newOutbox(outboxConfig{DB: deps.DB, Sealer: deps.Sealer, Clock: deps.Clock, Log: deps.Log, Send: sender, Notifier: n})
+	if err := o.restore(context.Background()); err != nil {
+		return nil, nil, err
+	}
+	return nil, []ext.Service{o.service()}, nil
 }
 
 // channelReferrer names each channel whose routing names groupID.
