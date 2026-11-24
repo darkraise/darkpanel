@@ -48,7 +48,7 @@ type TailscaleMatch struct {
 
 // checkTailnetNode refuses every whois answer but a node owned by a user
 // of this tailnet, and any node that is a Darkpanel host or the controller.
-func (s *Service) checkTailnetNode(ctx context.Context, remote netip.Addr, w TailnetWhois) error {
+func (s *Service) checkTailnetNode(ctx context.Context, q querier, remote netip.Addr, w TailnetWhois) error {
 	// A whois answer with no node has no stable id.
 	if w.StableID == "" || len(w.Tags) > 0 || w.Sharer != 0 || w.UserID == 0 || w.LoginName == "" || strings.EqualFold(w.LoginName, taggedDevices) {
 		return errSignInRefused()
@@ -61,7 +61,7 @@ func (s *Service) checkTailnetNode(ctx context.Context, remote netip.Addr, w Tai
 		}
 		addrs = append(addrs, addr)
 	}
-	managed, err := s.IsManagedTailnetNode(ctx, addrs, w.StableID)
+	managed, err := s.IsManagedTailnetNode(ctx, q, addrs)
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func (s *Service) TailscaleMatchFor(ctx context.Context, r TailscaleRequest) (Ta
 	if err != nil {
 		return TailscaleMatch{}, err
 	}
-	if err := s.checkTailnetNode(ctx, r.Remote, r.Whois); err != nil {
+	if err := s.checkTailnetNode(ctx, s.db.Read(), r.Remote, r.Whois); err != nil {
 		return TailscaleMatch{}, err
 	}
 	rec, _, err := tailnetUser(ctx, s.db.Read(), r.Whois, set.RequireTOTP)
@@ -133,7 +133,7 @@ func (s *Service) TailscaleMatchFor(ctx context.Context, r TailscaleRequest) (Ta
 func (s *Service) SignInTailscale(ctx context.Context, r TailscaleRequest) (SignInResult, error) {
 	var res SignInResult
 	var rec userRecord
-	err := s.checkTailnetNode(ctx, r.Remote, r.Whois)
+	err := s.checkTailnetNode(ctx, s.db.Read(), r.Remote, r.Whois)
 	if err == nil {
 		err = s.db.Write(ctx, func(tx *sql.Tx) error {
 			set, err := tailscaleOn(ctx, tx)

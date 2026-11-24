@@ -259,22 +259,19 @@ func TestAddressesPersistAtConnect(t *testing.T) {
 	}
 	a := netip.MustParseAddr
 	for _, tc := range []struct {
-		name   string
-		addrs  []netip.Addr
-		stable string
-		want   bool
+		name  string
+		addrs []netip.Addr
+		want  bool
 	}{
-		{"a session address", []netip.Addr{a("100.99.0.1"), a("fd7a:115c:a1e0::7")}, "", false},
-		{"a recorded session address", []netip.Addr{a("100.99.0.1"), a("fd7a:115c:a1e0::99")}, "", true},
-		{"a recorded session address, mapped", []netip.Addr{a("::ffff:100.127.255.254")}, "nOther", true},
-		{"a self-reported address", []netip.Addr{a("100.64.0.8")}, "nOther", false},
-		{"the self-reported stable id", []netip.Addr{a("100.99.0.1")}, "nH1", false},
-		{"the controller's own address", []netip.Addr{a("100.64.0.1")}, "nOther", true},
-		{"an unknown node", []netip.Addr{a("100.99.0.1")}, "nOther", false},
-		{"no stable id never matches a row without one", []netip.Addr{a("100.99.0.1")}, "", false},
-		{"nothing to look up", nil, "", false},
+		{"a self-reported IPv6 address", []netip.Addr{a("100.99.0.1"), a("fd7a:115c:a1e0::7")}, false},
+		{"a recorded session address", []netip.Addr{a("100.99.0.1"), a("fd7a:115c:a1e0::99")}, true},
+		{"a recorded session address, mapped", []netip.Addr{a("::ffff:100.127.255.254")}, true},
+		{"a self-reported address", []netip.Addr{a("100.64.0.8")}, false},
+		{"the controller's own address", []netip.Addr{a("100.64.0.1")}, true},
+		{"an unknown node", []netip.Addr{a("100.99.0.1")}, false},
+		{"nothing to look up", nil, false},
 	} {
-		got, err := svc.IsManagedTailnetNode(ctx, tc.addrs, tc.stable)
+		got, err := svc.IsManagedTailnetNode(ctx, e.env.db.Read(), tc.addrs)
 		if err != nil || got != tc.want {
 			t.Errorf("%s: IsManagedTailnetNode = %v, %v; want %v", tc.name, got, err, tc.want)
 		}
@@ -282,13 +279,13 @@ func TestAddressesPersistAtConnect(t *testing.T) {
 
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	if _, err := svc.IsManagedTailnetNode(cancelled, []netip.Addr{a("100.99.0.1")}, "nOther"); err == nil {
+	if _, err := svc.IsManagedTailnetNode(cancelled, e.env.db.Read(), []netip.Addr{a("100.99.0.1")}); err == nil {
 		t.Error("a failed table lookup answered no error")
 	}
 	if _, err := e.env.db.Writer().ExecContext(ctx, `UPDATE core_meta SET value = 'not json' WHERE key = 'tailscale_addrs'`); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := svc.IsManagedTailnetNode(ctx, []netip.Addr{a("100.99.0.1")}, "nOther"); err == nil {
+	if got, err := svc.IsManagedTailnetNode(ctx, e.env.db.Read(), []netip.Addr{a("100.99.0.1")}); err == nil {
 		t.Errorf("a failed read of the controller's addresses answered %v, no error", got)
 	}
 }

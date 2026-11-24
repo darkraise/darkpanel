@@ -905,22 +905,18 @@ func TestA54_tailscale_refused_from_darkpanel_hosts(t *testing.T) {
 		{"an enrolled host's address", func(q *qaTS) {
 			qaHosts(t, q.harness, "managed")
 			qaExec(t, q.harness, `UPDATE core_hosts SET state = 'enrolled' WHERE id = 'managed'`)
-			qaExec(t, q.harness, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('managed', ?, 'nManaged', '2026-11-24T00:00:00Z')`, qaTSNode)
+			qaExec(t, q.harness, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('managed', ?, '', '2026-11-24T00:00:00Z')`, qaTSNode)
 		}},
 		{"an enrolled host that is offline with its module disabled", func(q *qaTS) {
 			qaHosts(t, q.harness, "managed")
 			qaExec(t, q.harness, `UPDATE core_hosts SET state = 'enrolled' WHERE id = 'managed'`)
-			qaExec(t, q.harness, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('managed', ?, 'nManaged', '2026-11-24T00:00:00Z')`, qaTSNode)
+			qaExec(t, q.harness, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('managed', ?, '', '2026-11-24T00:00:00Z')`, qaTSNode)
 			qaExec(t, q.harness, `INSERT INTO core_module_state (host_id, module_id, enabled, available, checked_at) VALUES ('managed', 'tailscale', 0, 0, '2026-11-24T00:00:00Z')`)
 		}},
 		{"a node whose whois address is a host's", func(q *qaTS) {
 			qaHosts(t, q.harness, "managed")
-			qaExec(t, q.harness, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('managed', '100.64.0.77', 'nManaged', '2026-11-24T00:00:00Z')`)
+			qaExec(t, q.harness, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('managed', '100.64.0.77', '', '2026-11-24T00:00:00Z')`)
 			q.whois.Addresses = []string{qaTSNode, "100.64.0.77"}
-		}},
-		{"a node with a host's stable id", func(q *qaTS) {
-			qaHosts(t, q.harness, "managed")
-			qaExec(t, q.harness, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('managed', '100.64.0.88', 'nAlice', '2026-11-24T00:00:00Z')`)
 		}},
 		{"the controller's own address", func(*qaTS) {}},
 	} {

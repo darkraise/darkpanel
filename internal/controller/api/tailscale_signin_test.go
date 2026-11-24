@@ -283,8 +283,6 @@ func TestTailscaleRefusals(t *testing.T) {
 		}, post(tsPeer), 401, "auth.invalid_credentials", 1},
 		{"another node address is a host's", func(h *tsHarness) { h.managed("fd7a:115c:a1e0::5", "nOther") }, post(tsPeer), 401,
 			"auth.invalid_credentials", 1},
-		{"the node's stable id is a host's", func(h *tsHarness) { h.managed("100.100.9.9", "nLaptop") }, post(tsPeer), 401,
-			"auth.invalid_credentials", 1},
 		{"the controller's own address", func(h *tsHarness) {
 			if err := listen.SaveTailscaleAddrs(context.Background(), h.db, []netip.Addr{netip.MustParseAddr(tsPeer)}); err != nil {
 				h.t.Fatal(err)
