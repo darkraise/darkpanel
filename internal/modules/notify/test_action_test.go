@@ -126,8 +126,9 @@ func TestChannelTestIsOneAttempt(t *testing.T) {
 		t.Errorf("%d sends, first %v; want one test notification", sent, first)
 	}
 	a := audits()
-	if len(a) != 1 || a[0].Actor != admin.Actor || a[0].Result != "503" || !strings.Contains(string(a[0].Input), hook.ID) {
-		t.Errorf("audit %+v; want one row by %s with result 503 naming %s", a, admin.Actor, hook.ID)
+	if len(a) != 1 || a[0].Actor != admin.Actor || a[0].Phase != "check" || a[0].Result != "error" || a[0].ErrorCode != "503" ||
+		!strings.Contains(string(a[0].Input), hook.ID) {
+		t.Errorf("audit %+v; want one check row by %s, an error with code 503, naming %s", a, admin.Actor, hook.ID)
 	}
 
 	mu.Lock()
@@ -137,7 +138,7 @@ func TestChannelTestIsOneAttempt(t *testing.T) {
 	if err != nil || got != (TestResult{Delivered: true, Code: "200"}) {
 		t.Errorf("a 200 answered %+v, %v", got, err)
 	}
-	if a := audits(); len(a) != 2 || a[0].Result != "delivered" {
+	if a := audits(); len(a) != 2 || a[0].Result != "ok" || a[0].ErrorCode != "" {
 		t.Errorf("audit after a delivery %+v", a)
 	}
 

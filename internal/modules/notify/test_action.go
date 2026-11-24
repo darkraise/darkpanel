@@ -84,9 +84,11 @@ func (channelTestRead) Read(ctx context.Context, env core.Env, in ChannelIDInput
 		Body: "Channel " + r.Name + " can deliver Darkpanel notifications.", CreatedAt: now}
 	code, sendErr := sender.Send(ctx, sendChannel(r, secrets), ev)
 	out := TestResult{Delivered: sendErr == nil, Code: code}
-	result := code
-	if out.Delivered {
-		result = "delivered"
+	// core_audit accepts only its listed phases and results: a test is a
+	// check, and a failed one carries the provider's code as its error code.
+	result, errCode := "ok", ""
+	if !out.Delivered {
+		result, errCode = "error", code
 	}
 	input, err := json.Marshal(ChannelIDInput{ID: r.ID})
 	if err != nil {
@@ -95,7 +97,7 @@ func (channelTestRead) Read(ctx context.Context, env core.Env, in ChannelIDInput
 	// The attempt was made, so its record is written even when the caller
 	// has gone.
 	if err := audit.Record(context.WithoutCancel(ctx), core.AuditEntry{Actor: p.Actor, Action: ID + ".channel.test",
-		Phase: "send", Result: result, Source: p.Source, At: now, Version: 1, Input: input}); err != nil {
+		Phase: "check", Result: result, ErrorCode: errCode, Source: p.Source, At: now, Version: 1, Input: input}); err != nil {
 		return TestResult{}, fmt.Errorf("notify: audit the channel test: %w", err)
 	}
 	if sendErr != nil {
