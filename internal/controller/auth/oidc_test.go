@@ -495,3 +495,12 @@ func TestOIDCCodeStep(t *testing.T) {
 		t.Errorf("code step after OIDC was turned off: %v; want method_off", err)
 	}
 }
+
+func TestOIDCRefusalUnauditedAnswersInternal(t *testing.T) {
+	e := newOIDCEnv(t, false)
+	e.s.audit = &failingAudit{MemAudit: e.audit, fail: 1}
+	_, err := e.signIn(e.claims("sub-nobody", "nobody@example.com"))
+	if errcode.From(err).Code != errcode.Internal {
+		t.Errorf("a refused sign-in whose audit write failed answered %v, want internal", err)
+	}
+}

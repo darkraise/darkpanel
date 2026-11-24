@@ -274,7 +274,7 @@ func (s *Service) FinishOIDC(ctx context.Context, c OIDCCallback) (SignInResult,
 	if res.Ticket != "" {
 		extra["next"] = "totp"
 	}
-	if aerr := s.recordSignInWith(ctx, MethodOIDC, rec.Username, c.Source, rec.ID, code, extra); aerr != nil && err == nil {
+	if aerr := s.recordSignInWith(ctx, MethodOIDC, rec.Username, c.Source, rec.ID, code, extra); aerr != nil {
 		return SignInResult{}, aerr
 	}
 	if err != nil {
@@ -502,7 +502,7 @@ func (s *Service) FinishTOTPStep(ctx context.Context, r TOTPStepRequest) (LoginR
 		code = errcode.From(err).Code
 		s.limiter.failFor(rec.Username, src, trusted)
 	}
-	if aerr := s.recordSignInWith(ctx, t.Method, rec.Username, r.Source, rec.ID, code, map[string]string{"step": "totp"}); aerr != nil && err == nil {
+	if aerr := s.recordSignInWith(ctx, t.Method, rec.Username, r.Source, rec.ID, code, map[string]string{"step": "totp"}); aerr != nil {
 		return LoginResult{}, aerr
 	}
 	if err != nil {

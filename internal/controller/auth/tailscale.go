@@ -181,7 +181,7 @@ func (s *Service) SignInTailscale(ctx context.Context, r TailscaleRequest) (Sign
 	if res.Ticket != "" {
 		extra["step"] = "ticket"
 	}
-	if aerr := s.recordSignInWith(ctx, MethodTailscale, rec.Username, r.Source, rec.ID, code, extra); aerr != nil && err == nil {
+	if aerr := s.recordSignInWith(ctx, MethodTailscale, rec.Username, r.Source, rec.ID, code, extra); aerr != nil {
 		return SignInResult{}, aerr
 	}
 	if err != nil {

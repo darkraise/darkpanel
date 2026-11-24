@@ -1149,7 +1149,7 @@ func (s *Service) FinishEnrollment(ctx context.Context, r EnrollRequest) (LoginR
 			s.enrollFailed(ctx, r.Source, r.Trusted)
 		}
 	}
-	if aerr := s.recordSignIn(ctx, MethodEnrollment, username, r.Source, userID, code); aerr != nil && err == nil {
+	if aerr := s.recordSignIn(ctx, MethodEnrollment, username, r.Source, userID, code); aerr != nil {
 		return LoginResult{}, aerr
 	}
 	if err != nil {
