@@ -65,7 +65,7 @@ describe("sign-in outcomes", () => {
     const alert = await screen.findByText("No Darkpanel user is linked to this account. Ask an admin to add you.")
     await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("alert"))
     expect(document.activeElement?.contains(alert)).toBe(true)
-    expect(location()).toBe("/login")
+    await waitFor(() => expect(location()).toBe("/login"))
     expect(screen.getByLabelText("Username")).toBeTruthy()
   })
 
