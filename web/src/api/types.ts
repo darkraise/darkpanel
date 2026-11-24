@@ -91,3 +91,10 @@ export interface FiredAlert {
   state: "firing" | "resolved"; since: string; value: number
 }
 export interface AlertList { alerts: FiredAlert[] }
+export type MetricsRange = "1h" | "24h" | "7d" | "30d" | "90d"
+export interface MetricsPoint {
+  ts: string; cpu: number; memUsed: number; memTotal: number; swapUsed: number; swapTotal: number; load1: number; load5: number; load15: number
+  fs: { mount: string; used: number; total: number }[]; net: { iface: string; rxBps: number; txBps: number }[]
+}
+export interface PollStatus { lastOk: string | null; lastErrorCode: string | null; lastErrorAt: string | null; clockSkewS: number | null }
+export interface MetricsHistory { hostId: string; range: MetricsRange; resolution: "1m" | "1h"; points: MetricsPoint[]; status: PollStatus | null }

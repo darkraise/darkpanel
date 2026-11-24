@@ -25,6 +25,7 @@ import { Tile, TileSkeleton } from "@/modules/system/tile"
 import type { RebootState, Updates } from "@/modules/system/types"
 import { TAILSCALE_MODULE, type TailscaleStatus } from "@/modules/tailscale/types"
 import { useCanOnHost } from "@/session/can"
+import { MetricsSection } from "./host-metrics"
 import { HostRemoval } from "./host-removal"
 import { UpdateNowButton } from "./update-now-dialog"
 import { UpdatePolicyButton } from "./update-policy-dialog"
@@ -386,6 +387,7 @@ export function HostOverview({ host }: { host: Host }) {
         </div>
         <AgentTile host={host} />
       </div>
+      <MetricsSection host={host} />
       <OverviewCard title="Agent update history">
         {host.online ? (
           <UpdateHistory hostId={host.id} />

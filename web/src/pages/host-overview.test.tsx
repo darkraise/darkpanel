@@ -17,7 +17,7 @@ const tx = {
 test("UI-4: the Agent tile carries the agent's version, protocol and its update actions", async () => {
   stubFetch({ [STATUS]: { body: { output: { transactions: [] } } } })
   renderWithProviders(<HostOverview host={makeHost({ id: "h1", agentVersion: "1.2.0", protocolVersion: 3, os: "ubuntu-24.04", arch: "amd64" })} />)
-  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Overview", "Agent update history", "Enrollment and removal"])
+  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Overview", "Metrics", "Agent update history", "Enrollment and removal"])
   const agent = within(screen.getByRole("region", { name: "Agent" }))
   agent.getByText("1.2.0")
   agent.getByText("Protocol 3")
