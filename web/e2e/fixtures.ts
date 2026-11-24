@@ -915,6 +915,8 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
   }
   if (path === "/api/v1/auth/login") return problem(401, "auth.invalid", "Login failed.")
   if (path === "/api/v1/auth/logout") return { status: 204 }
+  // No OIDC provider and no Tailscale listener: the login page offers only the form.
+  if (path === "/api/v1/auth/methods") return { json: { oidc: null, tailscale: false } }
   if (path === "/api/v1/events") return { status: 204 }
   if (path === "/api/v1/controller/listeners") {
     return { json: { tailscaleBound: false, message: "No Tailscale address: the controller listens on loopback only." } }
