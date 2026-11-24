@@ -204,7 +204,7 @@ function TailscaleCard({ tailscale, onPlan }: { tailscale: TailscaleSettings; on
       <CardContent>
         <form className="flex flex-col gap-3" noValidate onSubmit={submit}>
           <SwitchRow id="tailscale-on" label="Sign in with Tailscale identity" checked={enabled} onChange={setEnabled} />
-          <SwitchRow id="tailscale-totp" label="Require Darkpanel code too" hint="Ask for the authenticator code after the tailnet match." checked={requireTotp} onChange={setRequireTotp} />
+          <SwitchRow id="tailscale-totp" label="Require the code every time" hint="When off, each device asks for the code once and is then remembered." checked={requireTotp} onChange={setRequireTotp} />
           <p className="text-sm text-muted-foreground">Works only when Darkpanel is opened at its tailnet address.</p>
           {listeners.data?.tailscaleBound === false && (
             <Alert variant="warning">

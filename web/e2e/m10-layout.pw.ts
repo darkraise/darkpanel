@@ -195,7 +195,7 @@ for (const theme of THEMES) {
       await page.addInitScript((mode) => localStorage.setItem("mode", mode), theme)
       await mockApi(page, { signedIn: false })
       await page.route(/\/api\/v1\/auth\/methods$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ oidc: { displayName: "Acme SSO" }, tailscale: true }) }))
-      await page.route(/\/api\/v1\/auth\/tailscale$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ username: "mia", loginName: "mia@github", nodeName: "laptop" }) }))
+      await page.route(/\/api\/v1\/auth\/tailscale$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ username: "mia", loginName: "mia@github", nodeName: "laptop", remembered: true, codeReady: true }) }))
       await page.route(/\/api\/v1\/enroll\/begin$/, (route) => route.fulfill(problem(410, "auth.enrollment_expired", "This link has expired.")))
       await page.goto(url("/login"))
       await expect(page.getByRole("link", { name: "Sign in with Acme SSO" })).toBeVisible()

@@ -63,7 +63,11 @@ export interface OIDCSettings { issuer: string; clientId: string; displayName: s
 export interface TailscaleSettings { enabled: boolean; requireTotp: boolean }
 export interface SignInSettings { oidc: OIDCSettings | null; tailscale: TailscaleSettings }
 export interface SignInMethods { oidc: { displayName: string } | null; tailscale: boolean }
-export interface TailscaleMatch { username: string; loginName: string; nodeName: string }
+export interface TailscaleMatch { username: string; loginName: string; nodeName: string; remembered: boolean; codeReady: boolean }
+// TailscaleCodeStep is the Continue-as answer while the code step waits;
+// remember is true when a right code will remember the node.
+export interface TailscaleCodeStep { totp: true; remember: boolean }
+export interface TailnetDevice { stableId: string; nodeName: string; rememberedAt: string; lastUsedAt: string }
 export type ChannelKind = "ntfy" | "telegram" | "discord" | "email" | "webhook"
 export type Severity = "info" | "warning" | "critical"
 export interface Delivery { state: "sent" | "failed"; at: string; error?: string }

@@ -93,7 +93,7 @@ test("an OIDC card that is off asks for every field, the secret included", async
   )
 })
 
-test("UI-3 the Tailscale card shows two switches and the tailnet-address note", async () => {
+test("UI-3 UI-5 the Tailscale card shows two switches and the tailnet-address note", async () => {
   const calls = stub(
     configured,
     {
@@ -109,7 +109,9 @@ test("UI-3 the Tailscale card shows two switches and the tailnet-address note", 
   expect(within(ts).getByText("Works only when Darkpanel is opened at its tailnet address.")).toBeTruthy()
   expect(await within(ts).findByText("Darkpanel is not listening on the tailnet now.")).toBeTruthy()
   const on = within(ts).getByRole("switch", { name: "Sign in with Tailscale identity" })
-  const totp = within(ts).getByRole("switch", { name: "Require Darkpanel code too" })
+  const totp = within(ts).getByRole("switch", { name: "Require the code every time" })
+  expect(totp.getAttribute("aria-describedby")).toBeTruthy()
+  expect(document.getElementById(totp.getAttribute("aria-describedby") ?? "")?.textContent).toBe("When off, each device asks for the code once and is then remembered.")
   expect(on.getAttribute("aria-checked")).toBe("false")
   expect(totp.getAttribute("aria-checked")).toBe("false")
   await user.click(on)

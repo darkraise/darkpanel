@@ -19,6 +19,7 @@ import type {
   Session,
   SignInMethods,
   SignInSettings,
+  TailscaleCodeStep,
   TailscaleMatch,
   Step,
   TokenList,
@@ -216,10 +217,9 @@ export function getTailscaleMatch(): Promise<TailscaleMatch> {
   return request<TailscaleMatch>("GET", "/api/v1/auth/tailscale")
 }
 
-// signInTailscale answers a session, or { totp: true } while the code step
-// waits.
-export function signInTailscale(): Promise<Session | { totp: true }> {
-  return request<Session | { totp: true }>("POST", "/api/v1/auth/tailscale", {})
+// signInTailscale answers a session, or the code step while it waits.
+export function signInTailscale(): Promise<Session | TailscaleCodeStep> {
+  return request<Session | TailscaleCodeStep>("POST", "/api/v1/auth/tailscale", {})
 }
 
 export function finishCodeStep(code: string): Promise<Session> {

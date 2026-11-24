@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "darkraise-ui/component
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { ApiError, OIDC_START_PATH, finishCodeStep, getSignInMethods, getTailscaleMatch, request, signInTailscale } from "@/api/client"
-import type { Session } from "@/api/types"
+import type { Session, TailscaleMatch } from "@/api/types"
 import { usePageTitle } from "@/lib/page-title"
 import { SessionSpinner } from "@/session/session"
 import { safeNext } from "@/session/safe-next"
@@ -17,6 +17,13 @@ const GENERIC_ERROR = "Login failed. Check the username, password and code, then
 const CODE_ERROR = "That code did not work. Try the current one, or sign in again."
 const METHOD_OFF = "This sign-in method is off. Use your username, password and code."
 const REFUSED = "The sign-in was refused. Try again, or use your username, password and code."
+const NOT_CODE_READY = "Continue as needs your authenticator code once. Finish account setup or sign in below."
+
+// rememberLine names the node by the first label of its tailnet name.
+function rememberLine(nodeName: string): string {
+  const label = nodeName.split(".")[0]
+  return `Enter your code once to remember ${label === "" ? "this device" : label}.`
+}
 
 // The outcomes the OIDC callback page navigates with (/?signin=<outcome>),
 // but for ok and totp, which need no message.
@@ -93,7 +100,7 @@ function ErrorAlert({ message }: { message: string | null }) {
 
 // CodeStep finishes an OIDC or Tailscale sign-in that waits for the
 // authenticator code; the session exists only after it.
-function CodeStep({ username, onSession, onBack }: { username: string | null; onSession: (s: Session) => void; onBack: () => void }) {
+function CodeStep({ username, remember, onSession, onBack }: { username: string | null; remember: string | null; onSession: (s: Session) => void; onBack: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -115,6 +122,7 @@ function CodeStep({ username, onSession, onBack }: { username: string | null; on
       <p className="text-sm text-muted-foreground">
         {username === null ? "Enter the code from your authenticator app to finish signing in." : `Enter the code from your authenticator app to finish signing in as ${username}.`}
       </p>
+      {remember !== null && <p className="text-sm text-muted-foreground">{remember}</p>}
       <form className="flex flex-col gap-4" onSubmit={(event) => void submit(event)}>
         <div className="flex flex-col gap-2">
           <Label htmlFor="step-code">Authentication code</Label>
@@ -138,7 +146,7 @@ export function LoginPage() {
   const outcome = useSignInOutcome()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [step, setStep] = useState<{ username: string | null } | null>(() => (outcome === "totp" ? { username: null } : null))
+  const [step, setStep] = useState<{ username: string | null; remember: string | null } | null>(() => (outcome === "totp" ? { username: null, remember: null } : null))
   const [continuing, setContinuing] = useState(false)
   const notice = outcome !== null && Object.prototype.hasOwnProperty.call(OUTCOME_MESSAGES, outcome) ? OUTCOME_MESSAGES[outcome] : undefined
   const noticeRef = useRef<HTMLDivElement>(null)
@@ -165,7 +173,7 @@ export function LoginPage() {
   if (step !== null) {
     return (
       <Frame>
-        <CodeStep username={step.username} onSession={setSession} onBack={() => setStep(null)} />
+        <CodeStep username={step.username} remember={step.remember} onSession={setSession} onBack={() => setStep(null)} />
       </Frame>
     )
   }
@@ -189,13 +197,13 @@ export function LoginPage() {
     }
   }
 
-  async function continueAs(username: string) {
+  async function continueAs(who: TailscaleMatch) {
     setContinuing(true)
     setError(null)
     try {
       const res = await signInTailscale()
       if ("totp" in res) {
-        setStep({ username })
+        setStep({ username: who.username, remember: res.remember ? rememberLine(who.nodeName) : null })
         return
       }
       setSession(res)
@@ -214,11 +222,14 @@ export function LoginPage() {
           <AlertDescription>{notice}</AlertDescription>
         </Alert>
       )}
-      {who !== undefined && (
-        <Button type="button" variant="secondary" className="h-auto min-h-(--btn-height) whitespace-normal" loading={continuing} onClick={() => void continueAs(who.username)}>
-          {`Continue as ${who.username} (${who.loginName}, from ${who.nodeName})`}
-        </Button>
-      )}
+      {who !== undefined &&
+        (who.remembered || who.codeReady ? (
+          <Button type="button" variant="secondary" className="h-auto min-h-(--btn-height) whitespace-normal" loading={continuing} onClick={() => void continueAs(who)}>
+            {`Continue as ${who.username} (${who.loginName}, from ${who.nodeName})`}
+          </Button>
+        ) : (
+          <p className="text-sm text-muted-foreground">{NOT_CODE_READY}</p>
+        ))}
       <form className="flex flex-col gap-4" onSubmit={(event) => void submit(event)}>
         <div className="flex flex-col gap-2">
           <Label htmlFor="login-username">Username</Label>

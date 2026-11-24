@@ -20,7 +20,11 @@ function problem(status: number, code: string): StubResponse {
 
 const signedOut = problem(401, "auth.required")
 const methods = (oidc: string | null, tailscale = false): StubResponse => ({ body: { oidc: oidc === null ? null : { displayName: oidc }, tailscale } })
-const match: StubResponse = { body: { username: "mia", loginName: "mia@github", nodeName: "laptop" } }
+const matchOf = (fields: { remembered: boolean; codeReady: boolean; username?: string; nodeName?: string }): StubResponse => ({
+  body: { username: "mia", loginName: "mia@github", nodeName: "laptop", ...fields },
+})
+const match = matchOf({ remembered: true, codeReady: true })
+const NOTE = "Continue as needs your authenticator code once. Finish account setup or sign in below."
 
 function app() {
   return (
@@ -131,15 +135,16 @@ describe("continue as", () => {
     expect(post?.headers.get("Content-Type")).toBe("application/json")
   })
 
-  test("with requireTotp it asks for the code as the matched user", async () => {
+  test("UX-2 with requireTotp it asks for the code as the matched user, with no remember line", async () => {
     render("/login", {
       "GET /api/v1/auth/methods": methods(null, true),
       "GET /api/v1/auth/tailscale": match,
-      "POST /api/v1/auth/tailscale": { body: { totp: true } },
+      "POST /api/v1/auth/tailscale": { body: { totp: true, remember: false } },
     })
     const user = userEvent.setup()
     await user.click(await screen.findByRole("button", { name: /^Continue as mia/ }))
     expect(await screen.findByText("Enter the code from your authenticator app to finish signing in as mia.")).toBeTruthy()
+    expect(screen.queryByText(/^Enter your code once to remember/)).toBeNull()
     await user.click(screen.getByRole("button", { name: "Use another way to sign in" }))
     const again = await screen.findByRole("button", { name: /^Continue as mia/ })
     expect(again.hasAttribute("disabled") || again.getAttribute("aria-busy") === "true", "Continue as is ready again").toBe(false)
@@ -164,5 +169,73 @@ describe("continue as", () => {
     await waitFor(() => expect(calls.some((c) => c.path === "/api/v1/auth/tailscale")).toBe(true))
     await screen.findByLabelText("Username")
     expect(screen.queryByRole("button", { name: /^Continue as/ })).toBeNull()
+  })
+
+  test.each([
+    ["a named node", "laptop.tail1234.ts.net", "Enter your code once to remember laptop."],
+    ["an empty node name", "", "Enter your code once to remember this device."],
+  ])("UX-1 a code-ready user on a node not remembered gets the code step with its remember line, for %s", async (_, nodeName, line) => {
+    const calls = render("/login", {
+      "GET /api/v1/auth/methods": methods(null, true),
+      "GET /api/v1/auth/tailscale": matchOf({ remembered: false, codeReady: true, nodeName }),
+      "POST /api/v1/auth/tailscale": { body: { totp: true, remember: true } },
+      "POST /api/v1/auth/totp": { body: session },
+    })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: `Continue as mia (mia@github, from ${nodeName})` }))
+    const instruction = await screen.findByText("Enter the code from your authenticator app to finish signing in as mia.")
+    const remember = screen.getByText(line)
+    expect(instruction.compareDocumentPosition(remember) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await user.type(screen.getByLabelText("Authentication code"), "123456")
+    await user.click(screen.getByRole("button", { name: "Log in" }))
+    expect(await screen.findByText("Hosts content")).toBeTruthy()
+    expect(calls.filter((c) => c.path === "/api/v1/auth/totp").map((c) => c.body)).toEqual([{ code: "123456" }])
+  })
+
+  test("UX-1 Back from the remember step returns to the login page", async () => {
+    const calls = render("/login", {
+      "GET /api/v1/auth/methods": methods(null, true),
+      "GET /api/v1/auth/tailscale": matchOf({ remembered: false, codeReady: true }),
+      "POST /api/v1/auth/tailscale": { body: { totp: true, remember: true } },
+    })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: /^Continue as mia/ }))
+    await screen.findByText("Enter your code once to remember laptop.")
+    await user.click(screen.getByRole("button", { name: "Use another way to sign in" }))
+    expect(await screen.findByLabelText("Username")).toBeTruthy()
+    expect(screen.getByRole("button", { name: /^Continue as mia/ })).toBeTruthy()
+    expect(calls.some((c) => c.path === "/api/v1/auth/totp")).toBe(false)
+  })
+
+  test.each([
+    ["A19 neither remembered nor code-ready", matchOf({ remembered: false, codeReady: false })],
+    ["A3 a pending user", matchOf({ remembered: false, codeReady: false, username: "zoe" })],
+  ])("UX-3 %s: no button, the note, and the password form still signs in", async (_, answer) => {
+    const calls = render("/login", {
+      "GET /api/v1/auth/methods": methods(null, true),
+      "GET /api/v1/auth/tailscale": answer,
+      "POST /api/v1/auth/login": { body: session },
+    })
+    expect(await screen.findByText(NOTE)).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /^Continue as/ })).toBeNull()
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText("Username"), "mia")
+    await user.type(screen.getByLabelText("Password"), "correct horse")
+    await user.type(screen.getByLabelText("Authentication code"), "123456")
+    await user.click(screen.getByRole("button", { name: "Log in" }))
+    expect(await screen.findByText("Hosts content")).toBeTruthy()
+    expect(calls.some((c) => c.method === "POST" && c.path === "/api/v1/auth/tailscale")).toBe(false)
+  })
+
+  test("UX-6 while the match is loading there is no button and no note, and the form is usable", async () => {
+    render("/login", {
+      "GET /api/v1/auth/methods": methods(null, true),
+      "GET /api/v1/auth/tailscale": () => new Promise<StubResponse>(() => undefined),
+    })
+    const username = await screen.findByLabelText("Username")
+    await userEvent.setup().type(username, "mia")
+    expect((username as HTMLInputElement).value).toBe("mia")
+    expect(screen.queryByRole("button", { name: /^Continue as/ })).toBeNull()
+    expect(screen.queryByText(NOTE)).toBeNull()
   })
 })

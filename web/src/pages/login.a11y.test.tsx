@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes } from "react-router"
-import { expect, test } from "vitest"
+import { afterEach, expect, test } from "vitest"
 import { SessionProvider } from "@/session/session"
 import { expectNoAxeViolations, focusedName, tabSequence } from "@/test/a11y"
 import { renderWithProviders, stubFetch, type StubResponse } from "@/test/utils"
@@ -76,4 +76,52 @@ test("the page title is Sign in", async () => {
   renderLogin()
   await screen.findByLabelText("Username")
   expect(document.title).toBe("Sign in · Darkpanel")
+})
+
+const THEMES = ["light", "dark"] as const
+const tailscaleMatch = (remembered: boolean, codeReady: boolean): StubResponse => ({
+  body: { username: "mia", loginName: "mia@github", nodeName: "laptop.tail1234.ts.net", remembered, codeReady },
+})
+
+function renderContinueAs(match: StubResponse) {
+  stubFetch({
+    "GET /api/v1/auth/session": problem(401, "auth.required"),
+    "GET /api/v1/auth/methods": { body: { oidc: null, tailscale: true } },
+    "GET /api/v1/auth/tailscale": match,
+    "POST /api/v1/auth/tailscale": { body: { totp: true, remember: true } },
+  })
+  return renderWithProviders(
+    <SessionProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+      </Routes>
+    </SessionProvider>,
+    { path: "/login" },
+  )
+}
+
+afterEach(() => {
+  document.documentElement.classList.remove("dark")
+})
+
+test.each(THEMES)("A23 the Continue-as note passes axe in %s", async (theme) => {
+  document.documentElement.classList.toggle("dark", theme === "dark")
+  const { container } = renderContinueAs(tailscaleMatch(false, false))
+  await screen.findByText("Continue as needs your authenticator code once. Finish account setup or sign in below.")
+  await expectNoAxeViolations(container)
+})
+
+test.each(THEMES)("A23 the code step with its remember line passes axe in %s", async (theme) => {
+  document.documentElement.classList.toggle("dark", theme === "dark")
+  const { container } = renderContinueAs(tailscaleMatch(false, true))
+  await userEvent.setup().click(await screen.findByRole("button", { name: /^Continue as mia/ }))
+  await screen.findByText("Enter your code once to remember laptop.")
+  await expectNoAxeViolations(container)
+})
+
+test.each(THEMES)("A23 the remembered Continue-as button passes axe in %s", async (theme) => {
+  document.documentElement.classList.toggle("dark", theme === "dark")
+  const { container } = renderContinueAs(tailscaleMatch(true, true))
+  await screen.findByRole("button", { name: /^Continue as mia/ })
+  await expectNoAxeViolations(container)
 })
