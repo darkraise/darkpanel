@@ -7,10 +7,12 @@ import type { GlobalPage } from "@/modules/types"
 import { AuditPage } from "@/pages/audit"
 import { ChangePage } from "@/pages/change"
 import { EnrollPage } from "@/pages/enroll"
+import { GroupsPage } from "@/pages/groups"
 import { HostPage } from "@/pages/host"
 import { HostsPage } from "@/pages/hosts"
 import { LoginPage } from "@/pages/login"
 import { RolloutsPage } from "@/pages/rollouts"
+import { SignInSettingsPage } from "@/pages/sign-in-settings"
 import { TokensPage } from "@/pages/tokens"
 import { UsersPage } from "@/pages/users"
 import { RequireAdmin, RequireSession, SessionProvider } from "@/session/session"
@@ -35,8 +37,6 @@ function SettingsPage({ title }: { title: string }) {
 }
 
 const adminSettings = [
-  { path: "settings/groups", title: "Host groups" },
-  { path: "settings/sign-in", title: "Sign-in" },
   { path: "settings/notifications", title: "Notifications" },
 ]
 
@@ -74,6 +74,8 @@ export function App() {
           <Route path="changes/:changeId" element={<ChangePage />} />
           <Route path="settings/tokens" element={<TokensPage />} />
           <Route path="settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
+          <Route path="settings/groups" element={<RequireAdmin><GroupsPage /></RequireAdmin>} />
+          <Route path="settings/sign-in" element={<RequireAdmin><SignInSettingsPage /></RequireAdmin>} />
           {adminSettings.map((page) => (
             <Route key={page.path} path={page.path} element={<RequireAdmin><SettingsPage title={page.title} /></RequireAdmin>} />
           ))}

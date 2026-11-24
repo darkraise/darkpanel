@@ -59,4 +59,7 @@ export interface Directory { users: DirectoryUser[] }
 export interface HostGroup { id: string; name: string; hostIds: string[]; hostCount: number; grantCount: number; createdAt: string }
 export interface GroupList { groups: HostGroup[] }
 export interface Invitation { user: User; token: string; expiresAt: string }
+export interface OIDCSettings { issuer: string; clientId: string; displayName: string; redirectBase: string; requireTotp: boolean; clientSecretSet: boolean }
+export interface TailscaleSettings { enabled: boolean; requireTotp: boolean }
+export interface SignInSettings { oidc: OIDCSettings | null; tailscale: TailscaleSettings }
 export interface EnrollmentStart { username: string; secret: string; uri: string; expiresAt: string }

@@ -63,8 +63,17 @@ describe("member navigation", () => {
     },
   )
 
+  test.each([
+    ["/settings/groups", "Host groups"],
+    ["/settings/sign-in", "Sign-in"],
+  ])("an admin's %s shows its page", async (path, title) => {
+    renderApp(adminSession, path, hostWith("admin"))
+    expect(await screen.findByRole("heading", { level: 1, name: title })).toBeTruthy()
+    expect(screen.queryByText("This page is not built yet.")).toBeNull()
+  })
+
   test("an admin reaches the admin settings routes", async () => {
-    renderApp(adminSession, "/settings/groups", hostWith("admin"))
+    renderApp(adminSession, "/settings/notifications", hostWith("admin"))
     expect(await screen.findByText("This page is not built yet.")).toBeTruthy()
     expect(screen.queryByText("Only admins can see this page.")).toBeNull()
   })

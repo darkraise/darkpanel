@@ -17,6 +17,7 @@ import type {
   Resolution,
   RolloutList,
   Session,
+  SignInSettings,
   Step,
   TokenList,
 } from "./types"
@@ -28,6 +29,7 @@ export const ROLLOUTS_QUERY_KEY = ["rollouts"] as const
 export const TOKENS_QUERY_KEY = ["tokens"] as const
 export const USERS_QUERY_KEY = ["users"] as const
 export const GROUPS_QUERY_KEY = ["groups"] as const
+export const SIGN_IN_SETTINGS_QUERY_KEY = ["sign-in-settings"] as const
 
 // The query keys of one change; connectEvents invalidates them on the
 // change and composite.step events.
@@ -184,6 +186,10 @@ export function listUsers(): Promise<Directory> {
 
 export function listGroups(): Promise<GroupList> {
   return readAction<GroupList>("core.group.list", 1)
+}
+
+export function getSignInSettings(): Promise<SignInSettings> {
+  return readAction<SignInSettings>("auth.settings.get", 1)
 }
 
 // The enrollment token travels in the request body only: the page reads it
