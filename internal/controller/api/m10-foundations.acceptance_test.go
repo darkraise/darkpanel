@@ -1156,7 +1156,7 @@ func TestA1_existing_rows_survive_the_migration(t *testing.T) {
 		}
 		_ = rows.Close()
 		list := strings.Join(cols, ", ")
-		if _, err := conn.ExecContext(ctx, `INSERT INTO main.`+table+` (`+list+`) SELECT `+list+` FROM donor.`+table); err != nil {
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf(`INSERT INTO main.%[1]s (%[2]s) SELECT %[2]s FROM donor.%[1]s`, table, list)); err != nil { //nolint:gosec // G202: table names of this test and column names of pragma_table_info
 			t.Fatalf("copy %s: %v", table, err)
 		}
 	}
