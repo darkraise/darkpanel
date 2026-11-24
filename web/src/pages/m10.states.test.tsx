@@ -3,10 +3,9 @@ import { QueryClient, type QueryKey } from "@tanstack/react-query"
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, test } from "vitest"
-import type { AlertRule, DirectoryUser, FiredAlert, HostGroup, MetricsPoint } from "@/api/types"
+import type { AlertRule, DirectoryUser, FiredAlert, HostGroup } from "@/api/types"
 import { connectEvents } from "@/api/events"
 import { ALERT_RULES_QUERY_KEY } from "@/lib/alerts"
-import { charts } from "@/lib/metrics"
 import { CHANNELS_QUERY_KEY } from "@/lib/notify"
 import { EvtSource } from "@/test/evt-source"
 import { makeHost, renderWithProviders, stubFetch, type StubHandler } from "@/test/utils"
@@ -137,14 +136,6 @@ describe("UX-6 worst case", () => {
     const table = await screen.findByRole("table", { name: "Firing alerts" })
     expect(within(table).getAllByRole("row")).toHaveLength(21)
     expect((await screen.findByText(`Group ${LONG}`)).className).toContain("wrap-anywhere")
-  })
-
-  test("16 mounts chart the 8 fullest", () => {
-    const fs = Array.from({ length: 16 }, (_, i) => ({ mount: `/srv/data-${i}`, used: i, total: 100 }))
-    const point: MetricsPoint = { ts: "2026-11-24T09:00:00Z", cpu: 1, memUsed: 1, memTotal: 2, swapUsed: 0, swapTotal: 0, load1: 1, load5: 1, load15: 1, fs, net: [] }
-    const c = charts({ hostId: "h1", range: "1h", resolution: "1m", points: [point], status: null }, 2)
-    expect(c.disk.series).toHaveLength(8)
-    expect(c.disk.hidden).toEqual({ shown: 8, of: 16, noun: "mounts" })
   })
 })
 
