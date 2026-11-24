@@ -23,6 +23,9 @@ import { Shell } from "@/shell"
 // The M10 state boards are a development tool: in a production build the
 // condition is false, so the route and its chunk are left out.
 const M10Boards = import.meta.env.DEV ? lazy(() => import("@/boards/m10-boards").then((m) => ({ default: m.M10Boards }))) : null
+const TailnetDevicesBoards = import.meta.env.DEV
+  ? lazy(() => import("@/boards/tailnet-devices-boards").then((m) => ({ default: m.TailnetDevicesBoards })))
+  : null
 
 function GlobalPageView({ page }: { page: GlobalPage }) {
   const PageRoutes = page.routes
@@ -48,6 +51,16 @@ export function App() {
             element={
               <Suspense fallback={<Spinner aria-label="Loading boards" />}>
                 <M10Boards />
+              </Suspense>
+            }
+          />
+        )}
+        {TailnetDevicesBoards && import.meta.env.DEV && (
+          <Route
+            path="/__boards/tailnet-devices"
+            element={
+              <Suspense fallback={<Spinner aria-label="Loading boards" />}>
+                <TailnetDevicesBoards />
               </Suspense>
             }
           />
