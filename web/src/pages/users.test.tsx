@@ -33,7 +33,7 @@ test("UX-1 invite flow: the form plans core.user.invite, the link shows once, fo
   let invited = false
   const noor = dirUser({ username: "noor", state: "pending", signIn: [], grants: [{ role: "operator", target: "g1" }] })
   const calls = stub(() => (invited ? [admin, noor] : [admin]), {
-    [route("core.user.invite", "plan")]: { body: makePlan("core.user.invite", { confirmation: "noor" }) },
+    [route("core.user.invite", "plan")]: { body: makePlan("core.user.invite", { confirmation: null }) },
     [route("core.user.invite", "apply")]: () => {
       invited = true
       return { body: makeChange("core.user.invite", { user: noor, token: "tok-123", expiresAt: "2026-11-26T09:40:00Z" }) }
@@ -52,8 +52,7 @@ test("UX-1 invite flow: the form plans core.user.invite, the link shows once, fo
   await user.click(within(form).getByRole("button", { name: "Review invite" }))
 
   const change = await screen.findByRole("dialog", { name: "Invite noor" })
-  await user.type(await within(change).findByLabelText("Type noor to confirm"), "noor")
-  await user.click(within(change).getByRole("button", { name: "Apply" }))
+  await user.click(await within(change).findByRole("button", { name: "Apply" }))
   expect(calls.find((c) => c.path.endsWith("invite/v1/plan"))?.body).toEqual({
     input: { username: "noor", role: "member", grants: [{ role: "operator", target: "g1" }], email: "noor@example.com", tailnetLogin: "noor@github" },
   })
@@ -68,15 +67,24 @@ test("UX-1 invite flow: the form plans core.user.invite, the link shows once, fo
 })
 
 test("an admin invite sends no grants and hides the access list", async () => {
-  stub(() => [admin])
+  const calls = stub(() => [admin], {
+    [route("core.user.invite", "plan")]: { body: makePlan("core.user.invite", { confirmation: null }) },
+  })
   renderWithProviders(<UsersPage />)
   const user = userEvent.setup()
   await user.click(await screen.findByRole("button", { name: "Invite user" }))
   const form = await screen.findByRole("dialog", { name: "Invite user" })
+  await user.click(await within(form).findByRole("checkbox", { name: "web" }))
   await user.click(within(form).getByRole("radio", { name: "Admin" }))
   expect(within(form).queryByRole("group", { name: "Access" })).toBeNull()
   await user.click(within(form).getByRole("button", { name: "Review invite" }))
   expect(await within(form).findByText(/A username is 1 to 64/)).toBeTruthy()
+  await user.type(within(form).getByLabelText("Username"), "ada")
+  await user.click(within(form).getByRole("button", { name: "Review invite" }))
+  await screen.findByRole("dialog", { name: "Invite ada" })
+  expect(calls.find((c) => c.path.endsWith("invite/v1/plan"))?.body).toEqual({
+    input: { username: "ada", role: "admin", grants: [], email: "", tailnetLogin: "" },
+  })
 })
 
 test("UI-1 row menu and access column", async () => {
