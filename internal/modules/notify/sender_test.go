@@ -255,7 +255,7 @@ func (x *outboxEnv) exec(query string, args ...any) {
 	}
 }
 
-func rollout(key string) core.NotifyEvent {
+func rolloutEvent(key string) core.NotifyEvent {
 	return core.NotifyEvent{Kind: core.NotifyRolloutFailed, Severity: core.SeverityCritical, Title: "Rollout failed",
 		Body: "A host failed its update.", DedupeKey: key}
 }
@@ -283,7 +283,7 @@ func TestRetrySchedule(t *testing.T) {
 	}
 	x.fake.setAnswer(answerBy(map[string]string{five: "503", network: send.CodeNetwork, smtp4: "421", refused: "404", smtp5: "550"}))
 
-	ev := x.emit(rollout("rollout.failed:r1:h1"))
+	ev := x.emit(rolloutEvent("rollout.failed:r1:h1"))
 	x.runUntilSettled(x.o, t0.Add(48*time.Hour))
 
 	want := []int{0, 1, 5, 15, 60}
@@ -313,7 +313,7 @@ func TestRetrySchedule(t *testing.T) {
 		x.fake.gate, x.fake.started = make(chan struct{}), make(chan struct{}, 10)
 		var events []string
 		for i := range 6 {
-			events = append(events, x.emit(rollout("rollout.failed:r"+strconv.Itoa(i))))
+			events = append(events, x.emit(rolloutEvent("rollout.failed:r"+strconv.Itoa(i))))
 		}
 		if n := x.o.pass(context.Background()); n != 4 {
 			t.Errorf("the first pass started %d sends, want 4", n)
@@ -346,7 +346,7 @@ func TestRetrySchedule(t *testing.T) {
 func TestFailedRecordHoldsTheDelivery(t *testing.T) {
 	x := newOutboxEnv(t)
 	hook := x.webhook("hook", nil)
-	ev := x.emit(rollout("rollout.failed:r"))
+	ev := x.emit(rolloutEvent("rollout.failed:r"))
 	x.exec(`CREATE TRIGGER notify_test_fail BEFORE UPDATE ON notify_deliveries BEGIN SELECT RAISE(ABORT, 'disk full'); END`)
 	select {
 	case <-x.n.wake:
@@ -381,7 +381,7 @@ func TestDeliveriesSurviveRestart(t *testing.T) {
 	x.fake.gate, x.fake.started = make(chan struct{}), make(chan struct{}, 10)
 
 	// The first service stops while its send of the event is in flight.
-	ev := x.emit(rollout("rollout.failed:r1"))
+	ev := x.emit(rolloutEvent("rollout.failed:r1"))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- x.o.Run(ctx) }()
@@ -398,7 +398,7 @@ func TestDeliveriesSurviveRestart(t *testing.T) {
 		t.Fatalf("after the stop the delivery is %+v, want pending with no attempt counted", d)
 	}
 	// An event emitted while no service runs.
-	ev2 := x.emit(rollout("rollout.failed:r2"))
+	ev2 := x.emit(rolloutEvent("rollout.failed:r2"))
 
 	// A new service on the same database file.
 	if err := x.db.Close(); err != nil {
@@ -475,17 +475,17 @@ func TestRoutingAndDedupe(t *testing.T) {
 	// stored and not delivered; one after 10 minutes is delivered.
 	x.drain(x.o)
 	x.clock.Advance(5 * time.Minute)
-	repeat := x.emit(rollout("rollout.failed:d"))
+	repeat := x.emit(rolloutEvent("rollout.failed:d"))
 	if got := x.recipients(repeat); len(got) != 4 {
 		t.Fatalf("the first rollout.failed:d reached %v", got)
 	}
 	x.drain(x.o)
 	x.clock.Advance(9 * time.Minute)
-	if id := x.emit(rollout("rollout.failed:d")); id == "" || len(x.recipients(id)) != 0 {
+	if id := x.emit(rolloutEvent("rollout.failed:d")); id == "" || len(x.recipients(id)) != 0 {
 		t.Errorf("a repeat after 9 minutes: event %q reached %v; want stored and not delivered", id, x.recipients(id))
 	}
 	x.clock.Advance(2 * time.Minute)
-	if id := x.emit(rollout("rollout.failed:d")); len(x.recipients(id)) != 4 {
+	if id := x.emit(rolloutEvent("rollout.failed:d")); len(x.recipients(id)) != 4 {
 		t.Errorf("a repeat 11 minutes after the delivered one reached %v; want 4 channels", x.recipients(id))
 	}
 	x.fake.setAnswer(answerBy(map[string]string{all: "503"}))
@@ -562,7 +562,7 @@ func TestRoutingAndDedupe(t *testing.T) {
 	t.Run("a channel disabled before the send", func(t *testing.T) {
 		x := newOutboxEnv(t)
 		hook, other := x.webhook("hook", nil), x.webhook("other", nil)
-		ev := x.emit(rollout("rollout.failed:off"))
+		ev := x.emit(rolloutEvent("rollout.failed:off"))
 		x.disable(hook, "hook")
 		x.drain(x.o)
 		if d, _ := x.delivery(ev, hook); d != (deliveryRow{State: "failed", LastError: "disabled"}) {
@@ -652,7 +652,7 @@ func TestFailureNotices(t *testing.T) {
 
 	// The first failure of a streak notifies every other enabled channel the
 	// routing matches, once; a second failure in the streak adds nothing.
-	first := x.emit(rollout("rollout.failed:1"))
+	first := x.emit(rolloutEvent("rollout.failed:1"))
 	x.drain(x.o)
 	notices := x.noticesFor(broken)
 	if len(notices) != 1 {
@@ -675,7 +675,7 @@ func TestFailureNotices(t *testing.T) {
 	}
 	_ = first
 	x.clock.Advance(time.Hour)
-	x.emit(rollout("rollout.failed:2"))
+	x.emit(rolloutEvent("rollout.failed:2"))
 	x.drain(x.o)
 	if n := x.noticesFor(broken); len(n) != 1 {
 		t.Errorf("%d notices after a second failure in the streak, want 1", len(n))
@@ -683,11 +683,11 @@ func TestFailureNotices(t *testing.T) {
 
 	// A delivery ends the streak; the next failure notifies again.
 	x.fake.setAnswer(nil)
-	x.emit(rollout("rollout.failed:3"))
+	x.emit(rolloutEvent("rollout.failed:3"))
 	x.drain(x.o)
 	x.fake.setAnswer(answerBy(map[string]string{broken: "404"}))
 	x.clock.Advance(time.Hour)
-	x.emit(rollout("rollout.failed:4"))
+	x.emit(rolloutEvent("rollout.failed:4"))
 	x.drain(x.o)
 	if n := x.noticesFor(broken); len(n) != 2 {
 		t.Errorf("%d notices after a new streak, want 2", len(n))
@@ -698,15 +698,19 @@ func TestFailureNotices(t *testing.T) {
 		x := newOutboxEnv(t)
 		hook, other := x.webhook("hook", nil), x.webhook("other", nil)
 		x.fake.setAnswer(answerBy(map[string]string{hook: "503", other: "503"}))
-		ev := x.emit(rollout("rollout.failed:r"))
+		ev := x.emit(rolloutEvent("rollout.failed:r"))
 		x.drain(x.o)
 		sent := len(x.fake.callsOf(""))
 		events := x.count("notify_events")
 
 		x.marker("tx-1")
 		services := x.contribute()
-		if len(services) != 1 || services[0].Name != "notify.sender" {
-			t.Fatalf("the contribution's services are %v, want notify.sender", services)
+		var names []string
+		for _, svc := range services {
+			names = append(names, svc.Name)
+		}
+		if !slices.Equal(names, []string{"notify.sender", "notify.changes"}) {
+			t.Fatalf("the contribution's services are %v, want notify.sender and notify.changes", names)
 		}
 		for _, ch := range []string{hook, other} {
 			if d, _ := x.delivery(ev, ch); d.State != "failed" || d.LastError != "restored" {
@@ -723,7 +727,7 @@ func TestFailureNotices(t *testing.T) {
 
 		// The same marker again changes nothing; while it is set nothing is
 		// sent.
-		later := x.emit(rollout("rollout.failed:later"))
+		later := x.emit(rolloutEvent("rollout.failed:later"))
 		x.contribute()
 		if err := x.o.restore(context.Background()); err != nil {
 			t.Fatal(err)
@@ -745,7 +749,7 @@ func TestFailureNotices(t *testing.T) {
 
 		// A new restore marks again.
 		x.fake.setAnswer(answerBy(map[string]string{hook: "503"}))
-		again := x.emit(rollout("rollout.failed:again"))
+		again := x.emit(rolloutEvent("rollout.failed:again"))
 		x.drain(x.o)
 		x.marker("tx-2")
 		x.contribute()
@@ -760,10 +764,10 @@ func TestFailureNotices(t *testing.T) {
 	t.Run("purge", func(t *testing.T) {
 		x := newOutboxEnv(t)
 		hook := x.webhook("hook", nil)
-		old := x.emit(rollout("rollout.failed:old"))
+		old := x.emit(rolloutEvent("rollout.failed:old"))
 		x.drain(x.o)
 		x.clock.Advance(24 * time.Hour)
-		young := x.emit(rollout("rollout.failed:young"))
+		young := x.emit(rolloutEvent("rollout.failed:young"))
 		x.drain(x.o)
 		x.clock.Advance(29*24*time.Hour + time.Minute)
 		o := x.newOutbox(x.db)

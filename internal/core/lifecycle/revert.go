@@ -29,8 +29,9 @@ const WatchdogExitCode = 70
 // The journal phase of the revert watchdog and the result of a revert that
 // overwrote unresolved effects (spec 1.2).
 const (
-	phaseWatchdog  = "revert-watchdog"
-	resultOverride = "override"
+	PhaseRevertWatchdog = "revert-watchdog"
+	phaseWatchdog       = PhaseRevertWatchdog
+	resultOverride      = "override"
 )
 
 var timerPrincipal = core.Principal{Actor: ActorRevertTimer, Scope: core.ScopeAdmin}

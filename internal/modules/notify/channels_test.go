@@ -641,8 +641,12 @@ func TestNotifyMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if err := e.db.Read().QueryRow(`SELECT updated_at FROM notify_cursor`).Scan(&cursor); err != nil || cursor != newest || newest == "" {
-		t.Errorf("the cursor is %q, %v; want the newest change %q", cursor, err, newest)
+	n, err := time.Parse(timeFormat, newest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.Read().QueryRow(`SELECT updated_at FROM notify_cursor`).Scan(&cursor); err != nil || cursor != n.Add(5*time.Second).Format(timeFormat) {
+		t.Errorf("the cursor is %q, %v; want 5 s after the newest change %q", cursor, err, newest)
 	}
 	var restored sql.NullString
 	if err := e.db.Read().QueryRow(`SELECT restored_tx FROM notify_state WHERE id = 1`).Scan(&restored); err != nil || restored.Valid {

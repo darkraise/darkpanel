@@ -150,6 +150,7 @@ func (s *Server) startServices(ctx context.Context) error {
 
 	s.ingester = audit.NewIngester(audit.IngesterConfig{
 		Store: s.auditLog, Agents: s.hosts, Clock: s.clock, Log: s.log, OnEntries: s.ingestedEntries(eng.Wake, s.agentChange, rechecks...),
+		Notifier: s.notifier,
 	})
 	if err := s.ingester.IngestAll(ctx); err != nil {
 		s.log.Warn("server: audit ingestion", "error", err)
@@ -360,6 +361,7 @@ func (s *Server) startRollouts(clients dispatch.ClientSource) error {
 	}
 	driver, err := rollout.NewDriver(rollout.DriverConfig{
 		DB: s.controllerDB, Dispatcher: s.dispatcher, Clock: s.clock, Log: s.log, Suspended: s.quarantined,
+		Notifier: s.notifier,
 	})
 	if err != nil {
 		return fmt.Errorf("server: %w", err)

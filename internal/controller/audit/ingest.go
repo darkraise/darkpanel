@@ -11,6 +11,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 )
 
 // IngestInterval is how often a started Ingester reads every host's journal
@@ -81,6 +82,9 @@ type IngesterConfig struct {
 	// once they are stored; it runs under the ingestion lock, so it must
 	// return quickly.
 	OnEntries func(hostID string, entries []core.JournalEntry)
+	// Notifier records the notifications of the stored entries in their
+	// write transaction (M10 spec section 4); nil records nothing.
+	Notifier core.Notifier
 }
 
 // Ingester copies agent journals into core_audit (ADR 0003, spec section
@@ -281,7 +285,7 @@ func (in *Ingester) ingest(ctx context.Context, hostID string) error {
 			}
 			prev = e.Seq
 		}
-		if err := in.cfg.Store.advance(ctx, hostID, epoch, entries, prev); err != nil {
+		if err := in.cfg.Store.advance(ctx, hostID, epoch, entries, prev, in.cfg.Notifier); err != nil {
 			return err
 		}
 		if in.cfg.OnEntries != nil {
@@ -359,9 +363,12 @@ func (s *Store) restart(ctx context.Context, hostID, epoch string) error {
 // advance stores entries of hostID's journal epoch epoch and moves its
 // cursor to (epoch, seq) in one transaction, so a crash between the two can
 // neither lose nor repeat rows.
-func (s *Store) advance(ctx context.Context, hostID, epoch string, entries []core.JournalEntry, seq int64) error {
+func (s *Store) advance(ctx context.Context, hostID, epoch string, entries []core.JournalEntry, seq int64, n core.Notifier) error {
 	return s.db.Write(ctx, func(tx *sql.Tx) error {
 		if err := s.ingest(ctx, tx, hostID, epoch, entries); err != nil {
+			return err
+		}
+		if err := notifyEntries(ctx, tx, core.NotifierOrNop(n), hostID, entries); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx,
@@ -374,4 +381,30 @@ func (s *Store) advance(ctx context.Context, hostID, epoch string, entries []cor
 		}
 		return nil
 	})
+}
+
+// notifyEntries emits the notification each of hostID's journal entries is,
+// from the entry alone: an apply that failed is change.failed, and a revert
+// by the revert timer or a revert-watchdog entry is change.auto_reverted.
+// A change's key is stored once, so entries ingested again emit nothing.
+func notifyEntries(ctx context.Context, tx *sql.Tx, n core.Notifier, hostID string, entries []core.JournalEntry) error {
+	for _, e := range entries {
+		var kind, state string
+		switch {
+		case e.ChangeID == "":
+			continue
+		case e.Phase == "apply" && e.Result == "error":
+			kind, state = core.NotifyChangeFailed, core.StateFailed
+		case e.Phase == "revert" && e.Actor == lifecycle.ActorRevertTimer, e.Phase == lifecycle.PhaseRevertWatchdog:
+			kind, state = core.NotifyChangeAutoReverted, core.StateReverted
+		default:
+			continue
+		}
+		err := n.Emit(ctx, tx, core.NotifyEvent{Kind: kind, HostID: hostID, DedupeKey: kind + ":" + e.ChangeID,
+			Facts: &core.NotifyFacts{ChangeID: e.ChangeID, Action: e.Action, State: state, ErrorCode: e.ErrorCode}})
+		if err != nil {
+			return fmt.Errorf("audit: notify change %s of %s: %w", e.ChangeID, hostID, err)
+		}
+	}
+	return nil
 }

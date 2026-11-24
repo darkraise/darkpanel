@@ -57,6 +57,10 @@ type DriverConfig struct {
 	// quarantine, spec 10): a pass that finds it true does nothing, and an
 	// error counts as true. nil is never suspended.
 	Suspended func(ctx context.Context) (bool, error)
+	// Notifier records rollout.failed and update.rolled_back in the
+	// transaction that ends the host (M10 spec section 4); nil records
+	// nothing.
+	Notifier core.Notifier
 }
 
 // Driver drives the active rollout from its rows, one host at a time (spec
@@ -242,7 +246,7 @@ func detailOf(err error) *core.ErrorDetail {
 // before the marker starts no update.
 func (d *Driver) handOff(ctx context.Context, r record, h *hostRecord) (bool, error) {
 	if r.State == core.RolloutDraining && !handedOff(h) {
-		return d.endHost(ctx, r, h, core.RolloutHostSkipped, nil)
+		return d.endHost(ctx, r, h, core.RolloutHostSkipped, nil, false)
 	}
 	gone, err := d.unenrolled(ctx, h.HostID)
 	if err != nil {
@@ -415,9 +419,9 @@ func (d *Driver) follow(ctx context.Context, r record, h *hostRecord) (bool, err
 		done, failure := operationResult(st.Transactions, r.Version)
 		switch {
 		case failure != nil:
-			return d.failHost(ctx, r, h, failure)
+			return d.endHost(ctx, r, h, core.RolloutHostFailed, failure, rolledBack(st.Transactions))
 		case done:
-			return d.endHost(ctx, r, h, core.RolloutHostCommitted, nil)
+			return d.endHost(ctx, r, h, core.RolloutHostCommitted, nil, false)
 		}
 	} else {
 		d.cfg.Log.Debug("rollout: operation status unavailable", "rollout", r.ID, "host", h.HostID, "error", err)
@@ -479,16 +483,33 @@ func sameVersion(a, b string) bool {
 // failHost records h failed with e. A running rollout fails with it at once
 // and skips its waiting hosts; a draining one ends in its outcome.
 func (d *Driver) failHost(ctx context.Context, r record, h *hostRecord, e *core.ErrorDetail) (bool, error) {
-	return d.endHost(ctx, r, h, core.RolloutHostFailed, e)
+	return d.endHost(ctx, r, h, core.RolloutHostFailed, e, false)
+}
+
+// rolledBack reports whether any of an operation's records rolled back.
+func rolledBack(trs []core.UpdateTransaction) bool {
+	for _, tr := range trs {
+		if tr.State == core.UpdateRolledBack {
+			return true
+		}
+	}
+	return false
 }
 
 // endHost records the end of h's turn. A draining rollout then ends in its
 // outcome; a running one fails when the host failed and otherwise moves on
-// to its next host.
-func (d *Driver) endHost(ctx context.Context, r record, h *hostRecord, state string, e *core.ErrorDetail) (bool, error) {
+// to its next host. A failed host emits rollout.failed, and
+// update.rolled_back too when its update rolled back, in the same
+// transaction.
+func (d *Driver) endHost(ctx context.Context, r record, h *hostRecord, state string, e *core.ErrorDetail, rollback bool) (bool, error) {
 	return d.write(ctx, r, func(tx *sql.Tx, now time.Time) error {
 		if err := setRolloutHost(ctx, tx, r.ID, h.HostID, state, e); err != nil {
 			return err
+		}
+		if state == core.RolloutHostFailed {
+			if err := d.notifyFailed(ctx, tx, r, h.HostID, e, rollback); err != nil {
+				return err
+			}
 		}
 		switch {
 		case r.State == core.RolloutDraining:
@@ -505,4 +526,26 @@ func (d *Driver) endHost(ctx context.Context, r record, h *hostRecord, state str
 		}
 		return nil
 	})
+}
+
+// notifyFailed emits rollout.failed for hostID, and update.rolled_back when
+// its update rolled back; e's message never leaves, only its code.
+func (d *Driver) notifyFailed(ctx context.Context, tx *sql.Tx, r record, hostID string, e *core.ErrorDetail, rollback bool) error {
+	n := core.NotifierOrNop(d.cfg.Notifier)
+	code := ""
+	if e != nil {
+		code = e.Code
+	}
+	facts := &core.NotifyFacts{RolloutID: r.ID, Version: r.Version, ErrorCode: code}
+	kinds := []string{core.NotifyRolloutFailed}
+	if rollback {
+		kinds = append(kinds, core.NotifyUpdateRolledBack)
+	}
+	for _, kind := range kinds {
+		err := n.Emit(ctx, tx, core.NotifyEvent{Kind: kind, HostID: hostID, DedupeKey: kind + ":" + r.ID + ":" + hostID, Facts: facts})
+		if err != nil {
+			return fmt.Errorf("rollout: notify %s of host %s: %w", kind, hostID, err)
+		}
+	}
+	return nil
 }

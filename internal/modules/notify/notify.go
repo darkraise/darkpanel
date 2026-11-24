@@ -55,7 +55,8 @@ func (module) Notifier(deps ext.Deps) core.Notifier { return newNotifier(deps.Cl
 // Controller registers the channels' group referrer, so core.group.delete
 // refuses a group a channel routes to, hands notify.channel.test the audit
 // log, marks the deliveries a restore left pending, and contributes the
-// outbox's sender, woken by deps.Notifier when that is the module's. It runs
+// outbox's sender, woken by deps.Notifier when that is the module's, and the
+// cursor that emits the controller's own failed and auto-reverted changes. It runs
 // only in the controller, whose database holds the module's tables.
 func (module) Controller(deps ext.Deps) ([]ext.Route, []ext.Service, error) {
 	coreactions.RegisterGroupReferrer(ID+".channels", channelReferrer)
@@ -72,7 +73,8 @@ func (module) Controller(deps ext.Deps) ([]ext.Route, []ext.Service, error) {
 	if err := o.restore(context.Background()); err != nil {
 		return nil, nil, err
 	}
-	return nil, []ext.Service{o.service()}, nil
+	cursor := newChangeCursor(deps.DB, deps.Clock, deps.Log, n)
+	return nil, []ext.Service{o.service(), cursor.service()}, nil
 }
 
 // channelReferrer names each channel whose routing names groupID.

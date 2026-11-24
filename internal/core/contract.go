@@ -824,6 +824,18 @@ func NotifyKinds() []string {
 // input or an output. HostID is empty for a host-less event.
 type NotifyEvent struct {
 	Kind, Severity, HostID, Title, Body, DedupeKey string
+	// Facts, when set, has the notifier write Title, Body and an empty
+	// Severity from the kind's fixed template, so a caller outside the
+	// notify module sends no text of its own.
+	Facts *NotifyFacts
+}
+
+// NotifyFacts are what a kind's template names: the change, action, state
+// and error code of a change event, the rollout and version of a rollout
+// event. They are never stored; only the text written from them is.
+type NotifyFacts struct {
+	ChangeID, Action, State, ErrorCode string
+	RolloutID, Version                 string
 }
 
 // Notifier records a notification in the transaction that writes its fact,

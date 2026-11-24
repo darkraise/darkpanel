@@ -37,7 +37,7 @@ func newNotifier(clock core.Clock) *notifier {
 }
 
 // Emit stores e and one pending delivery per enabled channel whose routing
-// matches it, in tx. A change's key (change.failed, change.auto_reverted) is
+// matches it, in tx. An event with Facts gets its kind's fixed text. A change's key (change.failed, change.auto_reverted) is
 // stored once: a repeat stores nothing and returns nil. A channel with a
 // sent or pending delivery of an event with the same key from the last 10
 // minutes gets no delivery.
@@ -49,6 +49,12 @@ func (n *notifier) Emit(ctx context.Context, tx *sql.Tx, e core.NotifyEvent) err
 func (n *notifier) emit(ctx context.Context, tx *sql.Tx, e core.NotifyEvent, skip string) error {
 	if !slices.Contains(core.NotifyKinds(), e.Kind) {
 		return fmt.Errorf("notify: unknown event kind %q", e.Kind)
+	}
+	if e.Facts != nil {
+		var err error
+		if e, err = render(ctx, tx, e); err != nil {
+			return err
+		}
 	}
 	if _, ok := severityRank[e.Severity]; !ok {
 		return fmt.Errorf("notify: unknown severity %q", e.Severity)

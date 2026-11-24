@@ -55,14 +55,18 @@ CREATE TABLE notify_deliveries (
 CREATE INDEX notify_deliveries_due ON notify_deliveries (state, next_at);
 CREATE INDEX notify_deliveries_channel ON notify_deliveries (channel_id, state, updated_at);
 
--- The notifier's high-water mark over core_changes.updated_at. It starts at
--- the newest existing change, or '' when there is none, so history is not
--- replayed.
+-- The notifier's high-water mark over core_changes.updated_at. The cursor
+-- reads 5 s before its mark again, for rows stamped before they committed;
+-- nothing is mid-commit while migrations run, so the mark starts 5 s after
+-- the newest existing change, or at '' when there is none, and history is
+-- not replayed.
 CREATE TABLE notify_cursor (
     id         INTEGER PRIMARY KEY CHECK (id = 1),
     updated_at TEXT NOT NULL
 ) STRICT;
-INSERT INTO notify_cursor (id, updated_at) SELECT 1, coalesce(max(updated_at), '') FROM core_changes;
+INSERT INTO notify_cursor (id, updated_at)
+    SELECT 1, coalesce(strftime('%Y-%m-%dT%H:%M:%S', max(updated_at), '+5 seconds') || substr(max(updated_at), 20), '')
+    FROM core_changes;
 
 -- restored_tx is the restore transaction whose pending deliveries the
 -- sender has already marked failed.
