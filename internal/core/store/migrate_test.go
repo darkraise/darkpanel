@@ -628,3 +628,62 @@ func TestMigration0018AddsSignInColumns(t *testing.T) {
 		}
 	}
 }
+
+func TestMigration0019EmptiesHostTailnet(t *testing.T) {
+	ctx := context.Background()
+	db := openTemp(t)
+	opts := migrateOpts(t, "v1", time.Date(2026, 11, 25, 1, 0, 0, 0, time.UTC))
+	if _, err := Migrate(ctx, db, opts, coreMigrationsBefore(t, 19), nil); err != nil {
+		t.Fatalf("Migrate to 0018: %v", err)
+	}
+	const at = "2026-11-25T01:00:00.000000000Z"
+	for _, q := range []string{
+		`INSERT INTO core_hosts (id, name, created_at) VALUES ('H1', 'web1', '` + at + `')`,
+		`INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('H1', '100.64.0.7', 'nX', '` + at + `')`,
+		`INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('H1', '100.64.0.8', '', '` + at + `')`,
+	} {
+		if _, err := db.Writer().Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	set, err := CoreMigrations(SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.BinaryVersion = "v2"
+	if _, err := Migrate(ctx, db, opts, set, nil); err != nil {
+		t.Fatalf("Migrate to 0019: %v", err)
+	}
+	var n int
+	if err := db.Read().QueryRow(`SELECT count(*) FROM core_host_tailnet`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("core_host_tailnet rows after 0019 = %d, %v; want 0", n, err)
+	}
+	columns := func(table string) map[string]int {
+		t.Helper()
+		rows, err := db.Read().Query(`SELECT name, pk FROM pragma_table_info(?)`, table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rows.Close() }()
+		out := map[string]int{}
+		for rows.Next() {
+			var name string
+			var pk int
+			if err := rows.Scan(&name, &pk); err != nil {
+				t.Fatal(err)
+			}
+			out[name] = pk
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if _, ok := columns("core_host_tailnet")["stable_id"]; !ok {
+		t.Error("core_host_tailnet lost stable_id: an older binary still writes it")
+	}
+	want := map[string]int{"user_id": 1, "stable_id": 2, "node_name": 0, "remembered_at": 0, "last_used_at": 0}
+	if got := columns("core_user_tailnet_devices"); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("core_user_tailnet_devices columns (name: primary key position) = %v, want %v", got, want)
+	}
+}
