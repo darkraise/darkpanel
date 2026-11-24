@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -34,8 +35,24 @@ func (q *qaTS) qaCodeStep(cookie, code, local, remote string, proxied bool) *htt
 			Transport: netip.MustParseAddrPort("127.0.0.1:9000"), PublicHost: "panel.example"}))
 		r.Header.Set("Origin", "https://panel.example")
 	}
-	r.AddCookie(&http.Cookie{Name: signInStepCookie, Value: cookie})
+	r.AddCookie(&http.Cookie{Name: signInStepCookie, Value: cookie, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	return q.serve(r)
+}
+
+// qaRefusedNode counts the sign-ins audited with refused: node.
+func qaRefusedNode(t *testing.T, h *harness) (n int) {
+	t.Helper()
+	entries, _, err := h.audit.List(context.Background(), core.AuditQuery{Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range entries {
+		var in map[string]any
+		if json.Unmarshal(a.Input, &in) == nil && in["refused"] == "node" {
+			n++
+		}
+	}
+	return n
 }
 
 func TestRemembered_A30_CodeStepBoundToNode(t *testing.T) {
@@ -51,12 +68,22 @@ func TestRemembered_A30_CodeStepBoundToNode(t *testing.T) {
 		{"from the ticket's address on another listener", "192.0.2.50", qaTSNode, false},
 		{"from the ticket's address, proxied", qaTSController, qaTSNode, true},
 	} {
+		before := qaRefusedNode(t, q.harness)
 		rec := q.qaCodeStep(cookie, q.code(), tc.local, tc.remote, tc.proxied)
 		if rec.Code != 401 || !strings.Contains(rec.Body.String(), `"auth.invalid_credentials"`) {
 			t.Errorf("%s: %d %s, want 401 auth.invalid_credentials", tc.name, rec.Code, rec.Body)
 		}
 		if n := qaCount(t, q.harness, `SELECT count(*) FROM core_sessions`); n != 0 {
 			t.Errorf("%s: %d sessions, want none", tc.name, n)
+		}
+		if n := qaRefusedNode(t, q.harness); n != before+1 {
+			t.Errorf("%s: %d sign-ins audited refused node, want %d", tc.name, n, before+1)
+		}
+		if n := qaCount(t, q.harness, `SELECT count(*) FROM core_user_tailnet_devices`); n != 0 {
+			t.Errorf("%s: %d devices remembered, want none", tc.name, n)
+		}
+		if n := qaCount(t, q.harness, `SELECT count(*) FROM core_users WHERE tailnet_user_id IS NOT NULL`); n != 0 {
+			t.Errorf("%s: %d users pinned, want none", tc.name, n)
 		}
 	}
 	if rec := q.qaCodeStep(cookie, q.code(), qaTSController, qaTSNode, false); rec.Code != 200 ||
