@@ -444,6 +444,11 @@ func LastAdminError(username string) error {
 	return errcode.New(errcode.UserLastAdmin, username+" is the last active admin; activate another admin first")
 }
 
+// AdminGrantsError is the refusal of grants given to an admin.
+func AdminGrantsError() error {
+	return invalidField("/grants", "an admin has every host; grants are for members")
+}
+
 // Invitations and enrollment links (M10 spec section 1.5).
 const (
 	EnrollmentTTL    = 72 * time.Hour
@@ -549,7 +554,7 @@ func (s *Service) Invite(ctx context.Context, r InviteRequest) (Invitation, erro
 	case r.Role != RoleAdmin && r.Role != RoleMember:
 		return Invitation{}, invalidField("/role", "must be admin or member")
 	case r.Role == RoleAdmin && len(r.Grants) > 0:
-		return Invitation{}, invalidField("/grants", "an admin has every host; grants are for members")
+		return Invitation{}, AdminGrantsError()
 	}
 	if err := checkIdentity("/email", r.Email, true); err != nil {
 		return Invitation{}, err
@@ -929,7 +934,7 @@ func (s *Service) SetGrants(ctx context.Context, username string, grants []Grant
 			return err
 		}
 		if r.Role != RoleMember {
-			return invalidField("/grants", "an admin has every host; grants are for members")
+			return AdminGrantsError()
 		}
 		if _, err := CheckGrants(ctx, tx, grants); err != nil {
 			return err

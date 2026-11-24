@@ -302,7 +302,7 @@ func (h userInvite) Plan(ctx context.Context, env core.Env, in InviteInput) (cor
 		return core.PlanOutcome{}, err
 	}
 	if in.Role == auth.RoleAdmin && len(in.Grants) > 0 {
-		return core.PlanOutcome{}, fieldRefusal("/grants", "an admin has every host; grants are for members")
+		return core.PlanOutcome{}, auth.AdminGrantsError()
 	}
 	names, err := auth.CheckGrants(ctx, env.DB.Read(), in.Grants)
 	if err != nil {
@@ -675,7 +675,7 @@ func (h userSetGrants) Plan(ctx context.Context, env core.Env, in SetGrantsInput
 		return core.PlanOutcome{}, err
 	}
 	if p.Role != auth.RoleMember {
-		return core.PlanOutcome{}, fieldRefusal("/grants", "an admin has every host; grants are for members")
+		return core.PlanOutcome{}, auth.AdminGrantsError()
 	}
 	names, err := auth.CheckGrants(ctx, env.DB.Read(), in.Grants)
 	if err != nil {
