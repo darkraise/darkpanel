@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"slices"
 	"strconv"
@@ -502,5 +503,20 @@ func TestOIDCRefusalUnauditedAnswersInternal(t *testing.T) {
 	_, err := e.signIn(e.claims("sub-nobody", "nobody@example.com"))
 	if errcode.From(err).Code != errcode.Internal {
 		t.Errorf("a refused sign-in whose audit write failed answered %v, want internal", err)
+	}
+}
+
+func TestOIDCRefusalAuditsItsCause(t *testing.T) {
+	e := newOIDCEnv(t, false)
+	a := e.authorize(e.claims("sub-1", "mia@example.com"), nil)
+	a.code = "a-code-the-provider-never-issued"
+	_, err := e.callback(a)
+	var ce *errcode.Error
+	if !errors.As(err, &ce) || ce.Code != errcode.InvalidCredentials || ce.Detail != "the sign-in was refused" {
+		t.Errorf("a failed token exchange answered %v, want the unchanged refusal", err)
+	}
+	audits := e.oidcAudits()
+	if len(audits) != 1 || audits[0]["cause"] != "exchange" || audits[0]["result"] != "error" {
+		t.Errorf("audits = %v, want one refusal with cause exchange", audits)
 	}
 }

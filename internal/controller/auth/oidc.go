@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -136,6 +137,17 @@ func errNoLinkedUser() error {
 
 func errSignInRefused() error {
 	return errcode.New(errcode.InvalidCredentials, "the sign-in was refused")
+}
+
+// refusalCause names the step of an OIDC callback that refused it. The audit
+// row records it as a fixed word; the provider's own error text, which can
+// carry its response body, is never recorded.
+type refusalCause string
+
+func (c refusalCause) Error() string { return "oidc: refused at " + string(c) }
+
+func errRefusedAt(c refusalCause) error {
+	return errcode.Wrap(errcode.InvalidCredentials, c, "the sign-in was refused")
 }
 
 func randomID() string {
@@ -271,6 +283,10 @@ func (s *Service) FinishOIDC(ctx context.Context, c OIDCCallback) (SignInResult,
 	if activated && err == nil {
 		extra["activated"] = "true"
 	}
+	var rc refusalCause
+	if errors.As(err, &rc) {
+		extra["cause"] = string(rc)
+	}
 	if res.Ticket != "" {
 		extra["next"] = "totp"
 	}
@@ -299,17 +315,17 @@ func (s *Service) finishOIDC(ctx context.Context, c OIDCCallback) (SignInResult,
 	var st oidcState
 	now := s.now()
 	if !s.openJSON(oidcStateAD, c.Cookie, &st) || c.State == "" || st.ID != c.State || !now.Before(st.Expires) {
-		return SignInResult{}, userRecord{}, false, errSignInRefused()
+		return SignInResult{}, userRecord{}, false, errRefusedAt("state")
 	}
 	if !s.oidc.spend("state:"+st.ID, now, st.Expires) {
-		return SignInResult{}, userRecord{}, false, errSignInRefused()
+		return SignInResult{}, userRecord{}, false, errRefusedAt("state")
 	}
 	set, secret, err := s.oidcSettings(ctx)
 	if err != nil {
 		return SignInResult{}, userRecord{}, false, err
 	}
 	if set.Issuer != st.Issuer || c.Code == "" {
-		return SignInResult{}, userRecord{}, false, errSignInRefused()
+		return SignInResult{}, userRecord{}, false, errRefusedAt("issuer")
 	}
 	p, err := s.provider(ctx, set.Issuer)
 	if err != nil {
@@ -318,16 +334,16 @@ func (s *Service) finishOIDC(ctx context.Context, c OIDCCallback) (SignInResult,
 	hctx := oidc.ClientContext(ctx, s.oidc.client)
 	tok, err := oauthConfig(set, secret, p).Exchange(hctx, c.Code, oauth2.VerifierOption(st.Verifier))
 	if err != nil {
-		return SignInResult{}, userRecord{}, false, errSignInRefused()
+		return SignInResult{}, userRecord{}, false, errRefusedAt("exchange")
 	}
 	raw, _ := tok.Extra("id_token").(string)
 	idt, err := p.Verifier(&oidc.Config{ClientID: set.ClientID, Now: s.clock.Now}).Verify(hctx, raw)
 	if err != nil || idt.Nonce != st.Nonce {
-		return SignInResult{}, userRecord{}, false, errSignInRefused()
+		return SignInResult{}, userRecord{}, false, errRefusedAt("id_token")
 	}
 	var claims idClaims
 	if err := idt.Claims(&claims); err != nil {
-		return SignInResult{}, userRecord{}, false, errSignInRefused()
+		return SignInResult{}, userRecord{}, false, errRefusedAt("claims")
 	}
 	return s.linkOIDC(ctx, c, set, idt.Issuer, idt.Subject, claims)
 }
