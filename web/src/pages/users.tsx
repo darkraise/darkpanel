@@ -228,7 +228,7 @@ export function UsersPage() {
   let body
   if (users.isPending) {
     body = (
-      <div className="flex flex-col gap-2" aria-label="Loading the users">
+      <div className="flex flex-col gap-2" role="status" aria-label="Loading the users">
         <Skeleton className="h-8 w-full" />
         <Skeleton className="h-8 w-full" />
         <Skeleton className="h-8 w-2/3" />

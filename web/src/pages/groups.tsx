@@ -127,7 +127,18 @@ function MembersForm({ group, onCancel, onPlan }: { group: HostGroup; onCancel: 
       <>
         <div className="relative">
           <Search aria-hidden className="absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input type="search" aria-label="Search hosts" placeholder="Search hosts" className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input
+            type="search"
+            aria-label="Search hosts"
+            placeholder="Search hosts"
+            className="pl-8"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter searches; it must not submit the members form.
+              if (e.key === "Enter") e.preventDefault()
+            }}
+          />
         </div>
         {shown.length === 0 ? (
           <p className="text-sm text-muted-foreground">{`No hosts match "${search.trim()}".`}</p>
@@ -227,7 +238,7 @@ export function GroupsPage() {
   let body
   if (groups.isPending) {
     body = (
-      <div className="flex flex-col gap-2" aria-label="Loading the host groups">
+      <div className="flex flex-col gap-2" role="status" aria-label="Loading the host groups">
         <Skeleton className="h-8 w-full" />
         <Skeleton className="h-8 w-full" />
         <Skeleton className="h-8 w-2/3" />

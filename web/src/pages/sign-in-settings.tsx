@@ -232,7 +232,7 @@ export function SignInSettingsPage() {
   let body
   if (settings.isPending) {
     body = (
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2" aria-label="Loading the sign-in settings">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2" role="status" aria-label="Loading the sign-in settings">
         <Skeleton className="h-96 w-full" />
         <Skeleton className="h-48 w-full" />
       </div>

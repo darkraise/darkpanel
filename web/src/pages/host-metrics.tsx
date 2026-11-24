@@ -65,7 +65,7 @@ function Charts({ host, range }: { host: Host; range: MetricsRange }) {
   })
   if (history.isPending)
     return (
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2" aria-label="Loading the metrics">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2" role="status" aria-label="Loading the metrics">
         {Array.from({ length: 5 }, (_, i) => (
           <Skeleton key={i} className="h-60 w-full" />
         ))}
