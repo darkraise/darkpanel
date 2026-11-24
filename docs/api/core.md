@@ -574,6 +574,64 @@ Returned in the `output` field of the response.
 | `modules[].reason` | string or null | yes |  |
 | `modules[].version` | integer | yes | Module version compiled into this binary. |
 
+## core.tailnetdevice.forget v1
+
+Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.tailnetdevice.forget/v1/plan` |
+| apply | `POST /api/v1/actions/core.tailnetdevice.forget/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `stableId` | string | yes | Tailscale stable node id of one of the calling user's remembered devices. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `lastUsedAt` | string (date-time) | yes |  |
+| `nodeName` | string | yes |  |
+| `rememberedAt` | string (date-time) | yes |  |
+| `stableId` | string | yes |  |
+
+## core.tailnetdevice.list v1
+
+List the calling user's remembered Tailscale devices.
+
+| Operation | Request |
+|---|---|
+| read | `POST /api/v1/actions/core.tailnetdevice.list/v1/read` |
+
+Minimum scope: `read`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `devices` | array of object | yes | The user's remembered Tailscale devices, most recently used first. Continue as from one of them asks no code. |
+| `devices[].lastUsedAt` | string (date-time) | yes |  |
+| `devices[].nodeName` | string | yes |  |
+| `devices[].rememberedAt` | string (date-time) | yes |  |
+| `devices[].stableId` | string | yes |  |
+
 ## core.token.create v1
 
 Create an API token for the calling user; the token is shown only once.
@@ -1044,6 +1102,37 @@ Returned in the `output` field of the change that apply returns.
 | `state` | string | yes |  |
 | `username` | string | yes |  |
 
+## core.user.forget-tailnet-device v1
+
+Forget one of a user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/core.user.forget-tailnet-device/v1/plan` |
+| apply | `POST /api/v1/actions/core.user.forget-tailnet-device/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `stableId` | string | yes | Tailscale stable node id of one of the user's remembered devices. |
+| `username` | string | yes | The user's name. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `lastUsedAt` | string (date-time) | yes |  |
+| `nodeName` | string | yes |  |
+| `rememberedAt` | string (date-time) | yes |  |
+| `stableId` | string | yes |  |
+
 ## core.user.invite v1
 
 Invite a user: a pending user with no usable credentials and a one-time enrollment link valid 72 hours.
@@ -1084,6 +1173,36 @@ Returned in the `output` field of the change that apply returns.
 | `user.role` | string | yes |  |
 | `user.state` | string | yes |  |
 | `user.username` | string | yes |  |
+
+## core.user.list-tailnet-devices v1
+
+List a user's remembered Tailscale devices.
+
+| Operation | Request |
+|---|---|
+| read | `POST /api/v1/actions/core.user.list-tailnet-devices/v1/read` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `username` | string | yes | The user's name. |
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `devices` | array of object | yes | The user's remembered Tailscale devices, most recently used first. Continue as from one of them asks no code. |
+| `devices[].lastUsedAt` | string (date-time) | yes |  |
+| `devices[].nodeName` | string | yes |  |
+| `devices[].rememberedAt` | string (date-time) | yes |  |
+| `devices[].stableId` | string | yes |  |
 
 ## core.user.renew-invite v1
 

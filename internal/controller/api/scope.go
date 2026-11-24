@@ -92,13 +92,15 @@ func authorizeController(p core.Principal, def core.ActionDef) error {
 	return errcode.New(errcode.Forbidden, "this request needs access to the whole fleet")
 }
 
-// ownTokenActions act only on the calling user's own tokens, so a principal
-// without fleet access may run them from a session (A47). A token is refused,
-// so a member's token cannot mint or revoke another; the handlers refuse a
-// member the admin scope.
+// ownTokenActions act only on the calling user's own tokens or remembered
+// Tailscale devices, so a principal without fleet access may run them from a
+// session (A47). A token is refused, so a member's token cannot mint or
+// revoke another, or forget a device; the handlers refuse a member the admin
+// scope.
 var ownTokenActions = map[core.ActionRef]bool{
-	{Name: "core.token.create", Version: 1}: true,
-	{Name: "core.token.revoke", Version: 1}: true,
+	{Name: "core.token.create", Version: 1}:         true,
+	{Name: "core.token.revoke", Version: 1}:         true,
+	{Name: "core.tailnetdevice.forget", Version: 1}: true,
 }
 
 // readsAnyHost reports whether a grants read on at least one host.

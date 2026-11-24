@@ -78,6 +78,7 @@ func (m module) Manifest() core.Manifest {
 		m.hostActions(),
 		m.moduleActions(),
 		m.tokenActions(),
+		m.tailnetDeviceActions(),
 		m.auditActions(),
 		m.userActions(),
 		m.inviteActions(),

@@ -178,9 +178,9 @@ func TestNoControllerReadLeaksAnotherHost(t *testing.T) {
 				}
 			}
 			code, body := read(input)
-			if s.HostData == core.HostDataFleet {
+			if s.HostData == core.HostDataFleet || !core.ScopeRead.Allows(core.RequiredScope(s)) {
 				if code != http.StatusForbidden || !strings.Contains(body, "auth.forbidden") {
-					t.Errorf("%s, %s (fleet): %d %s, want 403 auth.forbidden", how, s.Name, code, body)
+					t.Errorf("%s, %s (fleet or above read): %d %s, want 403 auth.forbidden", how, s.Name, code, body)
 				}
 				continue
 			}

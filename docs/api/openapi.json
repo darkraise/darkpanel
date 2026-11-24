@@ -3835,6 +3835,102 @@
         ],
         "type": "object"
       },
+      "core.tailnetdevice.forget.v1.input": {
+        "$ref": "#/components/schemas/core.tailnetdevice.forget.v1.input.TailnetDeviceInput"
+      },
+      "core.tailnetdevice.forget.v1.input.TailnetDeviceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "stableId": {
+            "description": "Tailscale stable node id of one of the calling user's remembered devices.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "stableId"
+        ],
+        "type": "object"
+      },
+      "core.tailnetdevice.forget.v1.output": {
+        "$ref": "#/components/schemas/core.tailnetdevice.forget.v1.output.TailnetDevice"
+      },
+      "core.tailnetdevice.forget.v1.output.TailnetDevice": {
+        "properties": {
+          "lastUsedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "nodeName": {
+            "type": "string"
+          },
+          "rememberedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "stableId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stableId",
+          "nodeName",
+          "rememberedAt",
+          "lastUsedAt"
+        ],
+        "type": "object"
+      },
+      "core.tailnetdevice.list.v1.input": {
+        "$ref": "#/components/schemas/core.tailnetdevice.list.v1.input.NoInput"
+      },
+      "core.tailnetdevice.list.v1.input.NoInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "core.tailnetdevice.list.v1.output": {
+        "$ref": "#/components/schemas/core.tailnetdevice.list.v1.output.TailnetDeviceList"
+      },
+      "core.tailnetdevice.list.v1.output.TailnetDevice": {
+        "properties": {
+          "lastUsedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "nodeName": {
+            "type": "string"
+          },
+          "rememberedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "stableId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stableId",
+          "nodeName",
+          "rememberedAt",
+          "lastUsedAt"
+        ],
+        "type": "object"
+      },
+      "core.tailnetdevice.list.v1.output.TailnetDeviceList": {
+        "properties": {
+          "devices": {
+            "description": "The user's remembered Tailscale devices, most recently used first. Continue as from one of them asks no code.",
+            "items": {
+              "$ref": "#/components/schemas/core.tailnetdevice.list.v1.output.TailnetDevice"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "devices"
+        ],
+        "type": "object"
+      },
       "core.token.create.v1.input": {
         "$ref": "#/components/schemas/core.token.create.v1.input.TokenCreateInput"
       },
@@ -5336,6 +5432,57 @@
         ],
         "type": "object"
       },
+      "core.user.forget-tailnet-device.v1.input": {
+        "$ref": "#/components/schemas/core.user.forget-tailnet-device.v1.input.UserTailnetDeviceInput"
+      },
+      "core.user.forget-tailnet-device.v1.input.UserTailnetDeviceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "stableId": {
+            "description": "Tailscale stable node id of one of the user's remembered devices.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "username": {
+            "description": "The user's name.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "stableId"
+        ],
+        "type": "object"
+      },
+      "core.user.forget-tailnet-device.v1.output": {
+        "$ref": "#/components/schemas/core.user.forget-tailnet-device.v1.output.TailnetDevice"
+      },
+      "core.user.forget-tailnet-device.v1.output.TailnetDevice": {
+        "properties": {
+          "lastUsedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "nodeName": {
+            "type": "string"
+          },
+          "rememberedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "stableId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stableId",
+          "nodeName",
+          "rememberedAt",
+          "lastUsedAt"
+        ],
+        "type": "object"
+      },
       "core.user.invite.v1.input": {
         "$ref": "#/components/schemas/core.user.invite.v1.input.InviteInput"
       },
@@ -5458,6 +5605,66 @@
           "role",
           "state",
           "createdAt"
+        ],
+        "type": "object"
+      },
+      "core.user.list-tailnet-devices.v1.input": {
+        "$ref": "#/components/schemas/core.user.list-tailnet-devices.v1.input.UsernameInput"
+      },
+      "core.user.list-tailnet-devices.v1.input.UsernameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "username": {
+            "description": "The user's name.",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "type": "object"
+      },
+      "core.user.list-tailnet-devices.v1.output": {
+        "$ref": "#/components/schemas/core.user.list-tailnet-devices.v1.output.TailnetDeviceList"
+      },
+      "core.user.list-tailnet-devices.v1.output.TailnetDevice": {
+        "properties": {
+          "lastUsedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "nodeName": {
+            "type": "string"
+          },
+          "rememberedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "stableId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "stableId",
+          "nodeName",
+          "rememberedAt",
+          "lastUsedAt"
+        ],
+        "type": "object"
+      },
+      "core.user.list-tailnet-devices.v1.output.TailnetDeviceList": {
+        "properties": {
+          "devices": {
+            "description": "The user's remembered Tailscale devices, most recently used first. Continue as from one of them asks no code.",
+            "items": {
+              "$ref": "#/components/schemas/core.user.list-tailnet-devices.v1.output.TailnetDevice"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "devices"
         ],
         "type": "object"
       },
@@ -22203,6 +22410,149 @@
         "summary": "List the state of every compiled-in module on one host."
       }
     },
+    "/api/v1/actions/core.tailnetdevice.forget/v1/apply": {
+      "post": {
+        "operationId": "core.tailnetdevice.forget.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id."
+      }
+    },
+    "/api/v1/actions/core.tailnetdevice.forget/v1/plan": {
+      "post": {
+        "operationId": "core.tailnetdevice.forget.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.tailnetdevice.forget.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Forget one of the calling user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id."
+      }
+    },
+    "/api/v1/actions/core.tailnetdevice.list/v1/read": {
+      "post": {
+        "operationId": "core.tailnetdevice.list.v1.read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.tailnetdevice.list.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/core.tailnetdevice.list.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the calling user's remembered Tailscale devices."
+      }
+    },
     "/api/v1/actions/core.token.create/v1/apply": {
       "post": {
         "operationId": "core.token.create.v1.apply",
@@ -22980,6 +23330,93 @@
         "summary": "Enable a disabled user, restoring its sessions and tokens."
       }
     },
+    "/api/v1/actions/core.user.forget-tailnet-device/v1/apply": {
+      "post": {
+        "operationId": "core.user.forget-tailnet-device.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Forget one of a user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id."
+      }
+    },
+    "/api/v1/actions/core.user.forget-tailnet-device/v1/plan": {
+      "post": {
+        "operationId": "core.user.forget-tailnet-device.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.forget-tailnet-device.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Forget one of a user's remembered Tailscale devices, so its next Continue as asks the code; the confirmation phrase is the stable id."
+      }
+    },
     "/api/v1/actions/core.user.invite/v1/apply": {
       "post": {
         "operationId": "core.user.invite.v1.apply",
@@ -23065,6 +23502,62 @@
           }
         ],
         "summary": "Invite a user: a pending user with no usable credentials and a one-time enrollment link valid 72 hours."
+      }
+    },
+    "/api/v1/actions/core.user.list-tailnet-devices/v1/read": {
+      "post": {
+        "operationId": "core.user.list-tailnet-devices.v1.read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/core.user.list-tailnet-devices.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/core.user.list-tailnet-devices.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List a user's remembered Tailscale devices."
       }
     },
     "/api/v1/actions/core.user.renew-invite/v1/apply": {

@@ -899,8 +899,8 @@ func TestA6_members_cannot_run_controller_side_actions(t *testing.T) {
 		if s.Side != core.SideController || s.Class == core.ClassRead || s.BreakGlass || s.Internal {
 			continue
 		}
-		if s.Name == "core.token.create" || s.Name == "core.token.revoke" {
-			continue // the named exceptions of A47
+		if s.Name == "core.token.create" || s.Name == "core.token.revoke" || s.Name == "core.tailnetdevice.forget" {
+			continue // the named exceptions of A47, on the caller's own tokens and devices
 		}
 		n++
 		path := "/api/v1/actions/" + s.Name + "/v" + fmt.Sprint(s.Version) + "/plan"
