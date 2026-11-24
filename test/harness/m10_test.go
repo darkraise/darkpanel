@@ -170,7 +170,7 @@ func (r *m10Run) memberAccess(t *testing.T) {
 		t.Error(err)
 	}
 	_, err = member.Apply(r.ctx, r.f.localID, "firewall.rule.add/v1", m3PortRule(m10Port), nil)
-	if err := m10xRefused(err, http.StatusNotFound, "request.not_found"); err != nil {
+	if err := m10xRefused(err, http.StatusNotFound, "not_found"); err != nil {
 		t.Errorf("a firewall change on the controller's host, outside the group: %v", err)
 	}
 	_, err = member.Apply(r.ctx, r.f.agentID, "firewall.rule.add/v1", m3PortRule(m10Port), nil)

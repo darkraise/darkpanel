@@ -163,7 +163,7 @@ func TestM10UnitMemberHosts(t *testing.T) {
 }
 
 func TestM10UnitRefused(t *testing.T) {
-	notFound := fmt.Errorf("plan firewall.rule.add: %w", &APIError{Status: http.StatusNotFound, Code: "request.not_found"})
+	notFound := fmt.Errorf("plan firewall.rule.add: %w", &APIError{Status: http.StatusNotFound, Code: "not_found"})
 	for _, c := range []struct {
 		name string
 		err  error
@@ -175,7 +175,7 @@ func TestM10UnitRefused(t *testing.T) {
 		{"right status, other code", &APIError{Status: http.StatusNotFound, Code: "module.not_found"}, "module.not_found"},
 		{"not an answer", errors.New("dial tcp: refused"), "dial tcp"},
 	} {
-		err := m10xRefused(c.err, http.StatusNotFound, "request.not_found")
+		err := m10xRefused(c.err, http.StatusNotFound, "not_found")
 		if (c.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.want)) {
 			t.Errorf("%s: %v, want %q", c.name, err, c.want)
 		}

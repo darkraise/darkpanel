@@ -39,7 +39,7 @@ func authorizeAction(p core.Principal, def core.ActionDef, hostID string) error 
 	return authorizeController(p, def)
 }
 
-// authorizeHost refuses p on hostID: request.not_found when the host is
+// authorizeHost refuses p on hostID: not_found when the host is
 // outside p's access, so host ids do not leak, and auth.forbidden when p's
 // scope there is below need.
 func authorizeHost(p core.Principal, hostID string, need core.Scope) error {
