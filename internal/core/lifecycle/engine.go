@@ -410,7 +410,7 @@ func (e *Engine) makePlan(ctx context.Context, p core.Principal, def core.Action
 	if err := checkGuards(def, overrides, &out); err != nil {
 		return core.PlanView{}, err
 	}
-	if def.Spec.Class != core.ClassIrreversible {
+	if !typedConfirmation(def.Spec) {
 		out.Confirmation = ""
 	} else if out.Confirmation == "" {
 		return core.PlanView{}, fmt.Errorf("lifecycle: %s returned no confirmation phrase", ref)

@@ -231,7 +231,7 @@ type PlanOutcome struct {
 	Diff         []DiffLine
 	Guards       []Guard
 	StateHash    string
-	Confirmation string // irreversible actions only: the phrase apply must repeat
+	Confirmation string // irreversible and TypedConfirmation actions only: the phrase apply must repeat
 }
 
 // ActionSpec is an action's declaration (ADR 0002).
@@ -242,15 +242,18 @@ type ActionSpec struct {
 	Side          Side
 	BreakGlass    bool
 	LockKeys      []string
-	CompensatedBy string        // compensable only, an action name
-	ForwardOnly   bool          // compensable: never reversed; requires Converges
-	Converges     bool          // apply run again with the same input, after a partial or complete apply, ends in the same state and plans an empty diff when the effect is present
-	RepairedBy    string        // revertible only, required: an action of the same module
-	ApplyTimeout  time.Duration // one budget for apply and verify; 0 means 30 s; above 45 s requires LongRunning; composites: computed at plan
-	LongRunning   bool          // apply answers once the intent is persisted
-	Task          bool          // the host sequences run in transient units; set by DefineTask
-	Unwind        Unwind        // composite only
-	Guards        []GuardSpec   // the guards the action's plan may report; the input type then embeds Guarded
+	CompensatedBy string // compensable only, an action name
+	ForwardOnly   bool   // compensable: never reversed; requires Converges
+	// TypedConfirmation makes a compensable action's apply repeat the phrase
+	// its plan names, as an irreversible action's always does.
+	TypedConfirmation bool
+	Converges         bool          // apply run again with the same input, after a partial or complete apply, ends in the same state and plans an empty diff when the effect is present
+	RepairedBy        string        // revertible only, required: an action of the same module
+	ApplyTimeout      time.Duration // one budget for apply and verify; 0 means 30 s; above 45 s requires LongRunning; composites: computed at plan
+	LongRunning       bool          // apply answers once the intent is persisted
+	Task              bool          // the host sequences run in transient units; set by DefineTask
+	Unwind            Unwind        // composite only
+	Guards            []GuardSpec   // the guards the action's plan may report; the input type then embeds Guarded
 	// Available is the action's own availability check; the error text is
 	// the reason. nil means available whenever the module is.
 	Available func(ctx context.Context, env Env) error

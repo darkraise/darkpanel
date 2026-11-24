@@ -57,7 +57,9 @@ Every ADR uses these definitions and does not redefine them.
 - **Action classes.** Every action is exactly one of:
   - `read`: changes nothing.
   - `revertible`: stores a snapshot and arms a confirm-or-revert timer.
-  - `compensable`: undone by a named compensating action; no timer.
+  - `compensable`: undone by a named compensating action; no timer. One may
+    also require typed confirmation (`TypedConfirmation`), as
+    `core.user.invite` does.
   - `irreversible`: cannot be undone (for example pruning volumes); requires
     typed confirmation.
 - **Errors.** RFC 9457 problem details with a stable `code` field, from the

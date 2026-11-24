@@ -161,7 +161,7 @@ func (e *Engine) begin(ctx context.Context, p core.Principal, planID string, opt
 		return nil, nil, errcode.New(errcode.PlanStateChanged,
 			"the apply names another parent change or step than the plan; plan again")
 	}
-	if def.Spec.Class == core.ClassIrreversible && opts.Confirmation != pl.confirmation {
+	if typedConfirmation(def.Spec) && opts.Confirmation != pl.confirmation {
 		return nil, nil, errcode.New(errcode.PlanConfirmationNeeded,
 			fmt.Sprintf("type the confirmation phrase %q to apply", pl.confirmation))
 	}
@@ -678,4 +678,9 @@ func (e *Engine) transitionTx(ctx context.Context, tx *sql.Tx, changeID string, 
 		entry.ErrorCode = tr.err.Code
 	}
 	return v, e.cfg.Journal.Append(ctx, tx, entry)
+}
+
+// typedConfirmation reports whether apply must repeat the plan's phrase.
+func typedConfirmation(s core.ActionSpec) bool {
+	return s.Class == core.ClassIrreversible || s.TypedConfirmation
 }

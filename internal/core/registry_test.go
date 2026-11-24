@@ -341,6 +341,9 @@ func TestLifecycleRegistryRules(t *testing.T) {
 			"exactly one of an undo handler, CompensatedBy or ForwardOnly"},
 		{"forward-only without Converges", module(regCompensable("demo.item.pin", ActionSpec{ForwardOnly: true}, echo{})),
 			"ForwardOnly action must declare Converges"},
+		{"typed confirmation on an irreversible action", module(DefineMutating[echoIn, echoOut](ActionSpec{
+			Name: "demo.item.purge", Version: 1, Class: ClassIrreversible, Side: SideAgent, TypedConfirmation: true}, echo{})),
+			"only a compensable action declares TypedConfirmation"},
 		{"undo handler on an irreversible action", module(DefineMutating[echoIn, echoOut](ActionSpec{
 			Name: "demo.item.purge", Version: 1, Class: ClassIrreversible, Side: SideAgent, LockKeys: []string{"demo"}}, regUndoEcho{})),
 			"undo handler needs a compensable action"},

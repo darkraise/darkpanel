@@ -475,6 +475,8 @@ func checkLifecycle(moduleID string, a ActionDef) error {
 		return fmt.Errorf("action %s: a compensable action declares exactly one of an undo handler, CompensatedBy or ForwardOnly", ref)
 	case s.ForwardOnly && !s.Converges:
 		return fmt.Errorf("action %s: a ForwardOnly action must declare Converges", ref)
+	case s.TypedConfirmation && s.Class != ClassCompensable:
+		return fmt.Errorf("action %s: only a compensable action declares TypedConfirmation; an irreversible one always asks", ref)
 	case undoes && (s.Class != ClassCompensable || len(s.LockKeys) == 0):
 		return fmt.Errorf("action %s: an undo handler needs a compensable action with at least one lock key", ref)
 	case s.ApplyTimeout > maxSyncApplyTimeout && !s.LongRunning:
