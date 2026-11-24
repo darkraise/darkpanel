@@ -384,9 +384,13 @@ func (s *Store) advance(ctx context.Context, hostID, epoch string, entries []cor
 }
 
 // notifyEntries emits the notification each of hostID's journal entries is,
-// from the entry alone: an apply that failed is change.failed, and a revert
-// by the revert timer or a revert-watchdog entry is change.auto_reverted.
-// A change's key is stored once, so entries ingested again emit nothing.
+// from the entry alone: an apply that failed is change.failed; a revert
+// that failed or overrode effects, which leaves the change needing repair
+// (the failed revert of a failed apply is journaled as a revert), is
+// change.failed too; a revert by the revert timer that succeeded, or a
+// revert-watchdog entry, is change.auto_reverted. Keys name the host, so an
+// agent's change ids never meet another host's; a change's key is stored
+// once, so entries ingested again emit nothing.
 func notifyEntries(ctx context.Context, tx *sql.Tx, n core.Notifier, hostID string, entries []core.JournalEntry) error {
 	for _, e := range entries {
 		var kind, state string
@@ -395,12 +399,14 @@ func notifyEntries(ctx context.Context, tx *sql.Tx, n core.Notifier, hostID stri
 			continue
 		case e.Phase == "apply" && e.Result == "error":
 			kind, state = core.NotifyChangeFailed, core.StateFailed
+		case e.Phase == "revert" && e.Result != "ok":
+			kind, state = core.NotifyChangeFailed, core.StateNeedsRepair
 		case e.Phase == "revert" && e.Actor == lifecycle.ActorRevertTimer, e.Phase == lifecycle.PhaseRevertWatchdog:
 			kind, state = core.NotifyChangeAutoReverted, core.StateReverted
 		default:
 			continue
 		}
-		err := n.Emit(ctx, tx, core.NotifyEvent{Kind: kind, HostID: hostID, DedupeKey: kind + ":" + e.ChangeID,
+		err := n.Emit(ctx, tx, core.NotifyEvent{Kind: kind, HostID: hostID, DedupeKey: kind + ":" + hostID + ":" + e.ChangeID,
 			Facts: &core.NotifyFacts{ChangeID: e.ChangeID, Action: e.Action, State: state, ErrorCode: e.ErrorCode}})
 		if err != nil {
 			return fmt.Errorf("audit: notify change %s of %s: %w", e.ChangeID, hostID, err)

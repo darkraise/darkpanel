@@ -123,6 +123,9 @@ func TestEachSourceEmits(t *testing.T) {
 		{Seq: 4, At: t0, Actor: "user:u1", Action: "files.write", Version: 1, Phase: "revert", ChangeID: "ca4", Result: "ok"},
 		{Seq: 5, At: t0, Actor: "user:u1", Action: "files.write", Version: 1, Phase: "apply", ChangeID: "ca5", Result: "ok"},
 		{Seq: 6, At: t0, Actor: "user:u1", Action: "files.write", Version: 1, Phase: "confirm", ChangeID: "ca1", Result: "error", ErrorCode: "x"},
+		{Seq: 7, At: t0, Actor: lifecycle.ActorRevertTimer, Action: "files.write", Version: 1, Phase: "revert", ChangeID: "ca7", Result: "error", ErrorCode: "change.needs_repair"},
+		{Seq: 8, At: t0, Actor: "user:u1", Action: "files.write", Version: 1, Phase: "revert", ChangeID: "ca8", Result: "error", ErrorCode: "change.needs_repair"},
+		{Seq: 9, At: t0, Actor: lifecycle.ActorRevertTimer, Action: "files.write", Version: 1, Phase: "revert", ChangeID: "ca9", Result: "override", ErrorCode: "change.needs_repair"},
 	}
 	agent := &coretest.FakeAgent{
 		JournalFunc: func(_ context.Context, after int64, _ int) ([]core.JournalEntry, error) {
@@ -144,7 +147,8 @@ func TestEachSourceEmits(t *testing.T) {
 		}
 	}
 	ingest()
-	if got, want := keys(x.events()), []string{"change.failed:ca1", "change.auto_reverted:ca2", "change.auto_reverted:ca3"}; !equal(got, want) {
+	if got, want := keys(x.events()), []string{"change.failed:h1:ca1", "change.auto_reverted:h1:ca2", "change.auto_reverted:h1:ca3",
+		"change.failed:h1:ca7", "change.failed:h1:ca8", "change.failed:h1:ca9"}; !equal(got, want) {
 		t.Fatalf("agent entries emitted %v, want %v", got, want)
 	}
 	for _, ev := range x.events() {
@@ -156,8 +160,8 @@ func TestEachSourceEmits(t *testing.T) {
 	sqlExec(t, x.db.Writer(), `DELETE FROM core_journal_cursor`)
 	sqlExec(t, x.db.Writer(), `DELETE FROM core_audit WHERE host_id = 'h1'`)
 	ingest()
-	if n := len(x.events()); n != 3 {
-		t.Errorf("a second ingestion of the entries left %d events, want 3", n)
+	if n := len(x.events()); n != 6 {
+		t.Errorf("a second ingestion of the entries left %d events, want 6", n)
 	}
 
 	// Controller-side changes, through the cursor over core_changes.
@@ -172,9 +176,13 @@ func TestEachSourceEmits(t *testing.T) {
 	changeRow(t, db, "cc5", "", "files.write", core.StateReverted, "change.apply_failed", "", at)
 	changeRow(t, db, "cc6", "", "files.write", core.StateReverted, "", "", at)
 	journalRow(t, db, "cc6", lifecycle.PhaseRevertWatchdog, lifecycle.ActorRevertTimer, at)
+	changeRow(t, db, "cc7", "", "files.write", core.StateNeedsRepair, "change.needs_repair", "", at)
+	changeRow(t, db, "cc8", "", "files.write", core.StateReverted, "", "", at)
+	sqlExec(t, db, `INSERT INTO core_audit (id, at, actor, host_id, action, version, phase, change_id, result)
+		VALUES ('a-cc8', ?, ?, '', 'files.write', 1, 'revert', 'cc8', 'error')`, at.UTC().Format(timeFormat), lifecycle.ActorRevertTimer)
 	x.cursorPass(x.cursor())
-	got := keys(x.events())[3:]
-	if want := []string{"change.failed:cc1", "change.auto_reverted:cc2", "change.failed:cc5", "change.auto_reverted:cc6"}; !equal(got, want) {
+	got := keys(x.events())[6:]
+	if want := []string{"change.failed:cc1", "change.auto_reverted:cc2", "change.failed:cc5", "change.auto_reverted:cc6", "change.failed:cc7"}; !equal(got, want) {
 		t.Errorf("controller changes emitted %v, want %v", got, want)
 	}
 
@@ -276,6 +284,9 @@ func TestBodiesAreTemplates(t *testing.T) {
 	changeRow(t, db, "c2", "h1", "files.write", core.StateReverted, "", canary, at)
 	journalRow(t, db, "c2", "revert", lifecycle.ActorRevertTimer, at)
 	changeRow(t, db, "c3", "", "core.group.create", core.StateFailed, "", canary, at)
+	changeRow(t, db, "c4", "h1", "files.write", core.StateNeedsRepair, "change.needs_repair", canary, at)
+	x.exec(`INSERT INTO core_hosts (id, name, created_at) VALUES ('h2', ?, ?)`, "db\n@everyone", ts)
+	changeRow(t, db, "c5", "h2", "files.write\n<https://evil.example>", core.StateFailed, "code with spaces", canary, at)
 	x.cursorPass(x.cursor())
 	disp := statusDispatcher{ops: map[string][]core.UpdateTransaction{"op1": {{ID: "t1", OperationID: "op1", Kind: "update",
 		State: core.UpdateRolledBack, Error: &core.ErrorDetail{Code: "update.health_failed", Message: canary}}}}}
@@ -295,6 +306,10 @@ func TestBodiesAreTemplates(t *testing.T) {
 			Body: "Change c2 (files.write) on web was reverted automatically and ended reverted."},
 		"change.failed:c3": {Severity: core.SeverityWarning, Title: "Change failed on the controller",
 			Body: "Change c3 (core.group.create) on the controller ended failed."},
+		"change.failed:c4": {Severity: core.SeverityWarning, Title: "Change failed on web",
+			Body: "Change c4 (files.write) on web ended needs_repair with error change.needs_repair."},
+		"change.failed:c5": {Severity: core.SeverityWarning, Title: "Change failed on db @everyone",
+			Body: "Change c5 (unknown) on db @everyone ended failed with error unknown."},
 		"rollout.failed:r1:h1": {Severity: core.SeverityCritical, Title: "Update rollout failed on web",
 			Body: "Rollout r1 of version 1.4.0 failed on web with error update.health_failed."},
 		"update.rolled_back:r1:h1": {Severity: core.SeverityCritical, Title: "Update rolled back on web",

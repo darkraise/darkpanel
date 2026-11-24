@@ -119,7 +119,7 @@ func (c *changeCursor) pass(ctx context.Context) error {
 // endedChanges reads the failed and reverted changes stamped after from.
 func endedChanges(ctx context.Context, tx *sql.Tx, from string) ([]changeSeen, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT id, host_id, action, state, coalesce(error_code, '') FROM core_changes
-		WHERE updated_at > ? AND state IN (?, ?) ORDER BY updated_at, id`, from, core.StateFailed, core.StateReverted)
+		WHERE updated_at > ? AND state IN (?, ?, ?) ORDER BY updated_at, id`, from, core.StateFailed, core.StateReverted, core.StateNeedsRepair)
 	if err != nil {
 		return nil, fmt.Errorf("notify: read the ended changes: %w", err)
 	}
@@ -136,16 +136,16 @@ func endedChanges(ctx context.Context, tx *sql.Tx, from string) ([]changeSeen, e
 }
 
 // changeKind is the event a controller change's end is: change.failed for
-// a failed change or one reverted after its apply failed, and
-// change.auto_reverted for one the revert timer or the revert watchdog
-// reverted (its journal says which); "" for any other.
+// a failed change, one left needing repair, or one reverted after its apply
+// failed, and change.auto_reverted for one the revert timer reverted, or
+// the revert watchdog (its journal says which); "" for any other.
 func changeKind(ctx context.Context, tx *sql.Tx, ch changeSeen) (string, error) {
-	if ch.state == core.StateFailed || ch.code != "" {
+	if ch.state == core.StateFailed || ch.state == core.StateNeedsRepair || ch.code != "" {
 		return core.NotifyChangeFailed, nil
 	}
 	var auto int
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM core_audit WHERE change_id = ?
-		AND (phase = 'revert' AND actor = ? OR phase = ?)`, ch.id, lifecycle.ActorRevertTimer, lifecycle.PhaseRevertWatchdog).Scan(&auto)
+		AND (phase = 'revert' AND actor = ? AND result = 'ok' OR phase = ?)`, ch.id, lifecycle.ActorRevertTimer, lifecycle.PhaseRevertWatchdog).Scan(&auto)
 	if err != nil {
 		return "", fmt.Errorf("notify: read the journal of change %s: %w", ch.id, err)
 	}
