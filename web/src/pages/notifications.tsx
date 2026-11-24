@@ -77,19 +77,19 @@ function ChannelCard({ channel, groups, onPick }: { channel: NotifyChannel; grou
       </CardHeader>
       <CardContent className="flex flex-col gap-3 text-sm">
         <p className="wrap-anywhere">{routingText(channel, groups)}</p>
-        <p className="flex items-center gap-1.5 text-muted-foreground">
+        <p className="flex items-center gap-1.5 text-muted-foreground" aria-live="polite">
           {LastIcon !== null && !pending && <LastIcon aria-hidden className="size-4 shrink-0" />}
           <span className={last?.state === "failed" && !pending ? "font-medium text-foreground" : undefined}>
             {`Last delivery: ${pending ? "Sending test…" : lastDeliveryText(channel, formatTime)}`}
           </span>
         </p>
         <div className="flex flex-wrap items-center gap-3">
+          {/* The delivery line says "Sending test…" while pending, once, and announces it. */}
           <Button variant="outline" size="sm" loading={pending} disabled={pending} onClick={() => void sendTest()}>
-            {pending ? "Sending test…" : "Send test"}
+            Send test
           </Button>
-          {/* While pending, the button and the delivery line show it; the live region only announces it. */}
           <span role="status" className={test?.state === "done" && !test.ok ? "font-medium" : "text-muted-foreground"}>
-            {test === null ? "" : pending ? <span className="sr-only">Sending test…</span> : test.text}
+            {test?.state === "done" ? test.text : ""}
           </span>
         </div>
       </CardContent>
@@ -137,7 +137,7 @@ export function NotificationsPage() {
   let body
   if (channels.isPending) {
     body = (
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Loading the channels">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3" role="status" aria-label="Loading the channels">
         <Skeleton className="h-40 w-full" />
         <Skeleton className="h-40 w-full" />
       </div>

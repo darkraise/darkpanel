@@ -345,7 +345,7 @@ for (const theme of THEMES) {
       })
       const card = page.getByRole("region", { name: "ops-phone" })
       await card.getByRole("button", { name: "Send test" }).click()
-      await expect(card.getByRole("status")).toHaveText("Sending test…")
+      await expect(card.getByText("Last delivery: Sending test…")).toBeVisible()
       await settle(page)
       await card.screenshot({ path: `${EVIDENCE}/notifications-${vp.width}-${theme}-send-test-pending.png` })
 
