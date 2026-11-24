@@ -10,6 +10,7 @@ import { Label } from "darkraise-ui/components/label"
 import { Skeleton } from "darkraise-ui/components/skeleton"
 import { Switch } from "darkraise-ui/components/switch"
 import { SIGN_IN_SETTINGS_QUERY_KEY, errorMessage, getListenerState, getSignInSettings } from "@/api/client"
+import { focusFirstInvalid } from "@/lib/focus-invalid"
 import type { OIDCSettings, TailscaleSettings } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { usePageTitle } from "@/lib/page-title"
@@ -107,7 +108,10 @@ function OIDCCard({ oidc, onPlan }: { oidc: OIDCSettings | null; onPlan: (p: Pen
     const base = httpsURL(redirectBase.trim())
     if (base === null) found.redirectBase = "Enter the https address users open Darkpanel at."
     setErrors(found)
-    if (Object.keys(found).length > 0 || base === null) return
+    if (Object.keys(found).length > 0 || base === null) {
+      focusFirstInvalid(event.currentTarget)
+      return
+    }
     onPlan({
       title: "Save the OIDC settings",
       name: "auth.oidc.set",

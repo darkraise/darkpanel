@@ -9,6 +9,7 @@ import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { Spinner } from "darkraise-ui/components/spinner"
 import { ApiError, beginEnrollment, errorMessage, finishEnrollment } from "@/api/client"
+import { focusFirstInvalid } from "@/lib/focus-invalid"
 import { usePageTitle } from "@/lib/page-title"
 import { useSession } from "@/session/use-session"
 
@@ -134,7 +135,10 @@ export function EnrollPage() {
     if (confirm !== password) errors.confirm = "The passwords do not match."
     if (!/^[0-9]{6}$/.test(code)) errors.form = "Enter the 6-digit code from your authenticator app."
     setShown(errors)
-    if (Object.keys(errors).length > 0) return
+    if (Object.keys(errors).length > 0) {
+      focusFirstInvalid(event.currentTarget)
+      return
+    }
     setBusy(true)
     try {
       setSession(await finishEnrollment(token, password, code))

@@ -71,6 +71,11 @@ test("UX-4 add an email channel: inline checks, then plan and apply", async () =
   await user.click(within(form).getByRole("button", { name: "Review channel" }))
   expect(within(form).getByText("Port must be 1 to 65535.")).toBeTruthy()
   expect(within(form).getByText("Enter 1 to 10 addresses.")).toBeTruthy()
+  // Focus moves to the first invalid field, whose note describes it.
+  const smtpHost = within(form).getByLabelText("SMTP host")
+  const first = smtpHost.getAttribute("aria-invalid") === "true" ? smtpHost : within(form).getByLabelText("Port")
+  await waitFor(() => expect(document.activeElement).toBe(first))
+  expect(first.getAttribute("aria-describedby")).toBeTruthy()
   expect(within(form).getByText("Enter the SMTP host.")).toBeTruthy()
   expect(within(form).getByLabelText("Port").getAttribute("aria-invalid")).toBe("true")
   expect(calls.some((c) => c.path.includes("notify.channel.create"))).toBe(false)

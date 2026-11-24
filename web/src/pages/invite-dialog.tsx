@@ -10,6 +10,7 @@ import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
 import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise-ui/components/segment-group"
 import { GROUPS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups } from "@/api/client"
+import { focusFirstInvalid } from "@/lib/focus-invalid"
 import type { GrantRole, HostGroup, Invitation, Role } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { FALLBACK_FOCUS } from "@/lib/return-focus"
@@ -142,6 +143,7 @@ export function InviteUser({ onDone }: { onDone: (username: string) => void }) {
     event.preventDefault()
     if (!USERNAME.test(username.trim())) {
       setProblem("A username is 1 to 64 lowercase letters, digits, dots, dashes or underscores, starting with a letter or digit.")
+      focusFirstInvalid(event.currentTarget)
       return
     }
     setProblem(null)

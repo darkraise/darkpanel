@@ -9,6 +9,7 @@ import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise
 import { Switch } from "darkraise-ui/components/switch"
 import { Textarea } from "darkraise-ui/components/textarea"
 import { GROUPS_QUERY_KEY, listGroups } from "@/api/client"
+import { focusFirstInvalid } from "@/lib/focus-invalid"
 import type { ChannelKind, NotifyChannel, Severity } from "@/api/types"
 import { EVENT_GROUPS, KIND_LABELS } from "@/lib/notify"
 
@@ -160,7 +161,10 @@ export function ChannelForm({ kind, channel, onCancel, onBack, onPlan }: { kind:
     if (!NAME.test(name.trim())) found.name = "A name is 1 to 48 letters, digits, spaces, dots, underscores or hyphens."
     const kindSettings = settings(found)
     setErrors(found)
-    if (Object.keys(found).length > 0) return
+    if (Object.keys(found).length > 0) {
+      focusFirstInvalid(event.currentTarget)
+      return
+    }
     const kinds = EVENT_GROUPS.filter((g) => events.has(g.id)).flatMap((g) => g.kinds)
     const common = { name: name.trim(), minSeverity: severity, kinds, groupIds: [...hostGroups].sort(), [kind]: kindSettings }
     onPlan(editing ? { id: channel.id, ...common, enabled } : { kind, ...common })

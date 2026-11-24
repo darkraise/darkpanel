@@ -7,6 +7,7 @@ import { Label } from "darkraise-ui/components/label"
 import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise-ui/components/segment-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "darkraise-ui/components/select"
 import { GROUPS_QUERY_KEY, listGroups } from "@/api/client"
+import { focusFirstInvalid } from "@/lib/focus-invalid"
 import type { AlertMetric, AlertRule, AlertSeverity } from "@/api/types"
 import { METRICS, METRIC_LABELS, thresholdMax, thresholdUnit } from "@/lib/alerts"
 
@@ -56,7 +57,10 @@ export function RuleForm({ rule, onCancel, onPlan }: { rule: AlertRule | null; o
     const minutes = Number(duration)
     if (!/^\d+$/.test(duration.trim()) || minutes < 1 || minutes > 1440) next.duration = "Enter whole minutes from 1 to 1440."
     setErrors(next)
-    if (Object.keys(next).length > 0) return
+    if (Object.keys(next).length > 0) {
+      focusFirstInvalid(event.currentTarget)
+      return
+    }
     const input: Record<string, unknown> = { name: name.trim(), metric, durationMin: minutes, severity, target }
     if (metric !== "offline") {
       input.comparator = comparator
