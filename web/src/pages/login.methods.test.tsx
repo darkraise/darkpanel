@@ -189,6 +189,17 @@ describe("continue as", () => {
     expect(screen.getByLabelText("Username")).toBeTruthy()
   })
 
+  test("Continue as shows its pending state while the sign-in runs", async () => {
+    render("/login", {
+      "GET /api/v1/auth/methods": methods(null, true),
+      "GET /api/v1/auth/tailscale": match,
+      "POST /api/v1/auth/tailscale": () => new Promise<StubResponse>(() => undefined),
+    })
+    const button = await screen.findByRole("button", { name: /^Continue as mia/ })
+    await userEvent.setup().click(button)
+    await waitFor(() => expect(button.hasAttribute("data-loading") && button.hasAttribute("disabled")).toBe(true))
+  })
+
   test("UX-7 Continue as and its code step complete by keyboard alone", async () => {
     const calls = render("/login", {
       "GET /api/v1/auth/methods": methods(null, true),

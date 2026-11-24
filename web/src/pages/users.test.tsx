@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, expect, test } from "vitest"
 import type { DirectoryUser, HostGroup, TailnetDevice } from "@/api/types"
 import { expectNoAxeViolations } from "@/test/a11y"
-import { makeChange, makePlan, renderWithProviders, stubFetch } from "@/test/utils"
+import { makeChange, makePlan, renderWithProviders, stubFetch, type StubResponse } from "@/test/utils"
 import { UsersPage } from "./users"
 
 const route = (action: string, op: string) => `POST /api/v1/actions/${action}/v1/${op}`
@@ -229,6 +229,20 @@ test("UX-7 the row menu's Tailscale devices and Forget are reachable by keyboard
   await user.keyboard("{Escape}")
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   await waitFor(() => expect(document.activeElement).toBe(trigger))
+})
+
+test("UX-5 the devices dialog shows the spinner while it loads", async () => {
+  stub(() => [admin, mia], { [DEVICES]: () => new Promise<StubResponse>(() => undefined) })
+  renderWithProviders(<UsersPage />)
+  const { dialog } = await openDevices("mia")
+  expect(await within(dialog).findByLabelText("Loading the devices")).toBeTruthy()
+})
+
+test("UX-5 the devices dialog shows a load error with its message", async () => {
+  stub(() => [admin, mia], { [DEVICES]: { status: 500, body: { type: "about:blank", title: "internal", status: 500, detail: "server detail for internal", code: "internal" } } })
+  renderWithProviders(<UsersPage />)
+  const { dialog } = await openDevices("mia")
+  expect((await within(dialog).findByRole("alert")).textContent).toBe("server detail for internal")
 })
 
 test("UX-5 a user without devices says so in the dialog", async () => {
