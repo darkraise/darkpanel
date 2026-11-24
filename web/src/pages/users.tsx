@@ -176,7 +176,7 @@ function UsersTable({ users, groups, onPick }: { users: DirectoryUser[]; groups:
                 <TableCell data-label="Role" className={STACKED_CELL}>
                   <Badge variant={u.role === "admin" ? "default" : "secondary"}>{u.role === "admin" ? "Admin" : "Member"}</Badge>
                 </TableCell>
-                <TableCell data-label="Access" className={`max-w-72 truncate ${STACKED_CELL}`} title={access}>
+                <TableCell data-label="Access" className={`max-w-72 whitespace-normal wrap-anywhere ${STACKED_CELL}`}>
                   {access}
                 </TableCell>
                 <TableCell data-label="Sign-in methods" className={`whitespace-normal ${STACKED_CELL}`}>{methodsText(u.signIn)}</TableCell>
