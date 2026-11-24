@@ -226,10 +226,12 @@ read_token() {
 		die "no terminal to read the enrollment token or bootstrap bundle from; pass --token-file"
 	fi
 	need_foreground ', or pass --token-file'
-	printf 'Enrollment token or bootstrap bundle: ' >/dev/tty
 	trap 'stty echo </dev/tty; exit 130' INT
 	trap 'stty echo </dev/tty; exit 143' TERM
+	# Echo goes off before the prompt shows, so text typed or pasted at the
+	# prompt is never echoed.
 	stty -echo </dev/tty
+	printf 'Enrollment token or bootstrap bundle: ' >/dev/tty
 	IFS= read -r token </dev/tty || token=
 	stty echo </dev/tty
 	trap 'exit 130' INT
@@ -397,9 +399,9 @@ ui_secret() {
 		answer=$(whiptail --title "$TITLE" --passwordbox "$1" 10 76 3>&1 1>"$TTY" 2>&3 <"$TTY") || cancel
 		return 0
 	fi
-	printf '%s: ' "$1" >"$TTY"
 	trap 'stty echo <"$TTY"; cancel' INT
 	stty -echo <"$TTY"
+	printf '%s: ' "$1" >"$TTY"
 	IFS= read -r answer <"$TTY" || answer=
 	stty echo <"$TTY"
 	trap cancel INT
