@@ -3,19 +3,25 @@ package server
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/buildinfo"
 	"github.com/darkraise/darkpanel/internal/cli"
 	"github.com/darkraise/darkpanel/internal/controller/api"
 	"github.com/darkraise/darkpanel/internal/controller/auth"
+	"github.com/darkraise/darkpanel/internal/controller/rollout"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -1127,5 +1133,605 @@ func TestA51_member_pages_are_full(t *testing.T) {
 	}
 	if seen != 6 {
 		t.Errorf("paging a member's audit log gave %d rows, want the 6 visible ones", seen)
+	}
+}
+
+// qaHook is a webhook destination that records what it receives.
+type qaHook struct {
+	srv    *httptest.Server
+	mu     sync.Mutex
+	reqs   []qaHookReq
+	status atomic.Int32
+	body   atomic.Value // string answered with every response
+	delay  atomic.Int64 // nanoseconds the first request is held
+	first  atomic.Bool
+}
+
+type qaHookReq struct {
+	Path   string
+	Header http.Header
+	Raw    []byte
+	Kind   string
+	ID     string
+	Title  string
+	BodyTx string
+}
+
+func qaNewHook(t *testing.T) *qaHook {
+	t.Helper()
+	h := &qaHook{}
+	h.status.Store(200)
+	h.body.Store("")
+	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var b struct {
+			ID, Kind, Title, Body string
+		}
+		_ = json.Unmarshal(raw, &b)
+		if d := h.delay.Load(); d > 0 && !h.first.Swap(true) {
+			time.Sleep(time.Duration(d))
+		}
+		h.mu.Lock()
+		h.reqs = append(h.reqs, qaHookReq{Path: r.URL.Path, Header: r.Header.Clone(), Raw: raw, Kind: b.Kind, ID: b.ID, Title: b.Title, BodyTx: b.Body})
+		h.mu.Unlock()
+		w.WriteHeader(int(h.status.Load()))
+		_, _ = io.WriteString(w, h.body.Load().(string))
+	}))
+	t.Cleanup(h.srv.Close)
+	return h
+}
+
+func (h *qaHook) got() []qaHookReq {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]qaHookReq(nil), h.reqs...)
+}
+
+func (h *qaHook) kinds() []string {
+	var out []string
+	for _, r := range h.got() {
+		out = append(out, r.Kind)
+	}
+	return out
+}
+
+// qaChannel creates a webhook channel and returns its id.
+func (e *e2e) qaChannel(name string, hook *qaHook, extra map[string]any) string {
+	e.t.Helper()
+	in := map[string]any{"kind": "webhook", "name": name, "minSeverity": "info",
+		"webhook": map[string]any{"url": hook.srv.URL + "/hook/" + name, "secret": "qa-hmac-secret-" + name}}
+	for k, v := range extra {
+		in[k] = v
+	}
+	var out struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(e.qaMust("notify.channel.create", in), &out); err != nil || out.ID == "" {
+		e.t.Fatalf("notify.channel.create %s: %v", name, err)
+	}
+	return out.ID
+}
+
+// qaEmit stores an event through the server's notifier, as a fact's writer
+// does, in its own transaction.
+func (e *e2e) qaEmit(ev core.NotifyEvent) {
+	e.t.Helper()
+	err := e.s.controllerDB.Write(context.Background(), func(tx *sql.Tx) error {
+		return e.s.notifier.Emit(context.Background(), tx, ev)
+	})
+	if err != nil {
+		e.t.Fatalf("Emit %s: %v", ev.Kind, err)
+	}
+}
+
+type qaDelivery struct {
+	Event, Channel, State, NextAt, LastError, Kind, DedupeKey, Created string
+	Attempts                                                           int
+}
+
+func (e *e2e) qaDeliveries() []qaDelivery {
+	e.t.Helper()
+	rows, err := e.s.controllerDB.Read().QueryContext(context.Background(), `SELECT d.event_id, d.channel_id, d.state, d.next_at, d.last_error, e.kind, e.dedupe_key, e.created_at, d.attempts
+		FROM notify_deliveries d JOIN notify_events e ON e.id = d.event_id ORDER BY e.created_at, e.rowid, d.channel_id`)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []qaDelivery
+	for rows.Next() {
+		var d qaDelivery
+		if err := rows.Scan(&d.Event, &d.Channel, &d.State, &d.NextAt, &d.LastError, &d.Kind, &d.DedupeKey, &d.Created, &d.Attempts); err != nil {
+			e.t.Fatal(err)
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// qaWaitDeliveries advances the fake clock one sender poll at a time until
+// cond holds of the deliveries.
+func (e *e2e) qaWaitDeliveries(what string, cond func([]qaDelivery) bool) []qaDelivery {
+	e.t.Helper()
+	var last []qaDelivery
+	eventually(e.t, what, func() { e.clock.Advance(time.Second) }, func() bool {
+		last = e.qaDeliveries()
+		return cond(last)
+	})
+	return last
+}
+
+func qaEv(kind, severity, host, key string) core.NotifyEvent {
+	return core.NotifyEvent{Kind: kind, Severity: severity, HostID: host, Title: "t " + key, Body: "b " + key, DedupeKey: key}
+}
+
+func TestA23_routing(t *testing.T) {
+	a := qaAccessFixture(t)
+	e := a.e
+	hook := qaNewHook(t)
+	crit := e.qaChannel("crit", hook, map[string]any{"minSeverity": "critical"})
+	firing := e.qaChannel("firing", hook, map[string]any{"kinds": []string{"alert.firing"}})
+	group := e.qaChannel("group", hook, map[string]any{"groupIds": []string{a.g}})
+	all := e.qaChannel("all", hook, nil)
+	hook.status.Store(200)
+	// Stop the sender from emptying the table: hold every delivery pending.
+	e.qaEmit(qaEv("alert.resolved", "warning", "h-g", "r1"))
+	e.qaEmit(qaEv("alert.firing", "critical", "h-x", "r2"))
+	e.qaEmit(qaEv("alert.firing", "warning", "", "r3"))
+	got := map[string][]string{}
+	for _, d := range e.qaDeliveries() {
+		got[d.DedupeKey] = append(got[d.DedupeKey], d.Channel)
+	}
+	names := map[string]string{crit: "crit", firing: "firing", group: "group", all: "all"}
+	for key, want := range map[string][]string{
+		"r1": {"group", "all"},
+		"r2": {"crit", "firing", "all"},
+		"r3": {"firing", "all"},
+	} {
+		var have []string
+		for _, id := range got[key] {
+			have = append(have, names[id])
+		}
+		sort.Strings(have)
+		sort.Strings(want)
+		if strings.Join(have, ",") != strings.Join(want, ",") {
+			t.Errorf("event %s was routed to %v, want %v", key, have, want)
+		}
+	}
+}
+
+func TestA24_dedupe(t *testing.T) {
+	e := qaStart(t)
+	hook := qaNewHook(t)
+	ch := e.qaChannel("one", hook, nil)
+	e.qaEmit(qaEv("alert.firing", "warning", "", "same-key"))
+	e.clock.Advance(time.Minute)
+	e.qaEmit(qaEv("alert.firing", "warning", "", "same-key"))
+	events := func() (n int) {
+		_ = e.s.controllerDB.Read().QueryRow(`SELECT count(*) FROM notify_events WHERE dedupe_key = 'same-key'`).Scan(&n)
+		return
+	}
+	e.qaWaitDeliveries("the first delivery sent", func(ds []qaDelivery) bool {
+		return len(ds) >= 1 && ds[0].State == "sent"
+	})
+	if n := events(); n != 2 {
+		t.Errorf("events stored with the repeated key: %d, want both stored", n)
+	}
+	n := 0
+	for _, d := range e.qaDeliveries() {
+		if d.Channel == ch && d.DedupeKey == "same-key" {
+			n++
+		}
+	}
+	if n != 1 || len(hook.got()) != 1 {
+		t.Errorf("a repeated key within 10 minutes: %d deliveries, %d requests, want 1 and 1", n, len(hook.got()))
+	}
+	// After the window the same key is delivered again.
+	e.clock.Advance(11 * time.Minute)
+	e.qaEmit(qaEv("alert.firing", "warning", "", "same-key"))
+	e.qaWaitDeliveries("a delivery after the window", func(ds []qaDelivery) bool { return len(hook.got()) == 2 })
+}
+
+func TestA58_fire_resolve_fire_in_order(t *testing.T) {
+	e := qaStart(t)
+	qaHost(e, "h-al")
+	hook := qaNewHook(t)
+	hook.delay.Store(int64(300 * time.Millisecond)) // the first send is slow: a later event must not overtake it
+	e.qaChannel("only", hook, nil)
+	e.qaEmit(qaEv("alert.firing", "critical", "h-al", "alert.firing:rule1:h-al:cpu:1792324800"))
+	e.qaEmit(qaEv("alert.resolved", "info", "h-al", "alert.resolved:rule1:h-al:cpu:1792324980"))
+	e.qaEmit(qaEv("alert.firing", "critical", "h-al", "alert.firing:rule1:h-al:cpu:1792325100"))
+	e.qaWaitDeliveries("all three delivered", func(ds []qaDelivery) bool {
+		n := 0
+		for _, d := range ds {
+			if d.State == "sent" {
+				n++
+			}
+		}
+		return n == 3
+	})
+	if got := strings.Join(hook.kinds(), ","); got != "alert.firing,alert.resolved,alert.firing" {
+		t.Errorf("a fire, resolve, fire sequence arrived as %s, want alert.firing,alert.resolved,alert.firing", got)
+	}
+}
+
+func TestA64_channel_test_is_one_attempt(t *testing.T) {
+	e := qaStart(t)
+	hook := qaNewHook(t)
+	ch := e.qaChannel("probe", hook, nil)
+	hook.status.Store(503)
+	hook.body.Store("PROVIDER-BODY-CANARY")
+	var out struct {
+		Output struct {
+			Delivered bool   `json:"delivered"`
+			Code      string `json:"code"`
+		} `json:"output"`
+	}
+	r := e.qaRead(e.admin(), "notify.channel.test", map[string]any{"id": ch})
+	if r.status != 200 {
+		t.Errorf("notify.channel.test answered %d %s, want 200 reporting the provider's status", r.status, r.body)
+	} else {
+		e.want(r, 200, &out)
+		if out.Output.Delivered || out.Output.Code != "503" {
+			t.Errorf("a test answered 503 reports %+v, want not delivered with code 503", out.Output)
+		}
+	}
+	if strings.Contains(string(r.body), "PROVIDER-BODY-CANARY") || strings.Contains(qaLog(t), "PROVIDER-BODY-CANARY") {
+		t.Errorf("the provider's body reached the test's answer or the log")
+	}
+	if n := len(hook.got()); n != 1 {
+		t.Errorf("a failed channel test reached the provider %d times, want one attempt", n)
+	}
+	hook.status.Store(200)
+	r = e.qaRead(e.admin(), "notify.channel.test", map[string]any{"id": ch})
+	if r.status != 200 {
+		t.Errorf("notify.channel.test answered %d %s, want 200 reporting the provider's status", r.status, r.body)
+	} else {
+		e.want(r, 200, &out)
+		if !out.Output.Delivered || out.Output.Code != "200" {
+			t.Errorf("a test answered 200 reports %+v, want delivered with code 200", out.Output)
+		}
+	}
+	if got := hook.got(); len(got) >= 2 {
+		if req := got[1]; req.Title != "Test notification from Darkpanel" || req.Kind != "notify.test" {
+			t.Errorf("the test notification is %q of kind %q, want the fixed test title", req.Title, req.Kind)
+		}
+	} else {
+		t.Errorf("the provider saw %d requests after two tests, want 2", len(got))
+	}
+	// A test is not a notification of the outbox: nothing is retried or stored for it.
+	e.clock.Advance(2 * time.Hour)
+	time.Sleep(200 * time.Millisecond)
+	if n := len(hook.got()); n != 2 {
+		t.Errorf("the provider saw %d requests after two tests and two hours, want 2: no retry", n)
+	}
+	if ds := e.qaDeliveries(); len(ds) != 0 {
+		t.Errorf("a channel test left %d outbox deliveries", len(ds))
+	}
+}
+
+func TestA62_failure_notices(t *testing.T) {
+	e := qaStart(t)
+	bad := qaNewHook(t)
+	bad.status.Store(400) // a client error is not retried, so the delivery fails at once
+	testOnly := qaNewHook(t)
+	testOnly.status.Store(400)
+	good1, good2 := qaNewHook(t), qaNewHook(t)
+	badID := e.qaChannel("bad", bad, map[string]any{"kinds": []string{"alert.firing"}})
+	e.qaChannel("testonly", testOnly, map[string]any{"kinds": []string{"notify.test"}})
+	g1 := e.qaChannel("good1", good1, nil)
+	g2 := e.qaChannel("good2", good2, nil)
+
+	// A notify.test event failing on its channel notifies nobody.
+	e.qaEmit(qaEv("notify.test", "info", "", "test-1"))
+	e.qaWaitDeliveries("the test event settled", func(ds []qaDelivery) bool {
+		for _, d := range ds {
+			if d.Kind == "notify.test" && d.State == "failed" {
+				return true
+			}
+		}
+		return false
+	})
+	e.clock.Advance(time.Minute)
+	for _, d := range e.qaDeliveries() {
+		if d.Kind == "notify.delivery_failed" {
+			t.Fatalf("a failed notify.test delivery emitted a notify.delivery_failed")
+		}
+	}
+
+	// Two events failing on one channel in one streak notify each other channel once.
+	e.qaEmit(qaEv("alert.firing", "warning", "", "a1"))
+	e.qaEmit(qaEv("alert.firing", "warning", "", "a2"))
+	e.qaWaitDeliveries("both alert deliveries failed", func(ds []qaDelivery) bool {
+		n := 0
+		for _, d := range ds {
+			if d.Kind == "alert.firing" && d.Channel == badID && d.State == "failed" {
+				n++
+			}
+		}
+		return n == 2
+	})
+	e.qaWaitDeliveries("the failure notices delivered", func(ds []qaDelivery) bool {
+		return len(good1.got()) >= 3 && len(good2.got()) >= 3
+	})
+	e.clock.Advance(time.Minute)
+	perChannel := map[string]int{}
+	for _, d := range e.qaDeliveries() {
+		if d.Kind == "notify.delivery_failed" {
+			perChannel[d.Channel]++
+		}
+	}
+	if perChannel[g1] != 1 || perChannel[g2] != 1 || len(perChannel) != 2 {
+		t.Errorf("failure notices per channel %v, want one each on good1 and good2 and none on the failing channels", perChannel)
+	}
+	for _, r := range good1.got() {
+		if r.Kind == "notify.delivery_failed" && !strings.Contains(r.Title, "bad") {
+			t.Errorf("a failure notice names no failing channel: %q", r.Title)
+		}
+	}
+
+	// A notice that itself fails emits no notice.
+	good1.status.Store(400)
+	e.qaEmit(qaEv("alert.firing", "warning", "", "a3"))
+	e.clock.Advance(time.Minute)
+	e.qaWaitDeliveries("a3 delivered", func([]qaDelivery) bool { return len(good2.got()) >= 4 })
+	for _, r := range good2.got() {
+		if strings.Contains(r.Title, "good1") {
+			t.Errorf("a failed failure notice produced a notice about its own channel: %q", r.Title)
+		}
+	}
+}
+
+func TestA20_retry_schedule(t *testing.T) {
+	e, opts := qaStartOpts(t)
+	hook := qaNewHook(t)
+	hook.status.Store(503)
+	ch := e.qaChannel("flaky", hook, nil)
+	e.qaChannel("witness", qaNewHook(t), map[string]any{"kinds": []string{"alert.resolved"}})
+	e.qaEmit(qaEv("alert.firing", "warning", "", "retry-1"))
+	d := e.qaWaitDeliveries("the first attempt", func(ds []qaDelivery) bool { return len(ds) > 0 && ds[0].Attempts >= 1 })[0]
+	created, err := time.Parse(qaTimeFormat, d.Created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offsets := []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, time.Hour}
+	for h := 2; h <= 24; h++ {
+		offsets = append(offsets, time.Duration(h)*time.Hour)
+	}
+	pending := func() qaDelivery {
+		for _, x := range e.qaDeliveries() {
+			if x.Channel == ch {
+				return x
+			}
+		}
+		t.Fatal("no delivery")
+		return qaDelivery{}
+	}
+	for i, off := range offsets {
+		cur := pending()
+		if cur.State != "pending" {
+			t.Fatalf("before the retry at +%v the delivery is %s (%s), want pending", off, cur.State, cur.LastError)
+		}
+		if cur.NextAt != created.Add(off).Format(qaTimeFormat) {
+			t.Fatalf("attempt %d scheduled the next try at %s, want created+%v = %s", i+1, cur.NextAt, off, created.Add(off).Format(qaTimeFormat))
+		}
+		before := len(hook.got())
+		e.qaRestartAt(opts, created.Add(off))
+		e.qaWaitDeliveries(fmt.Sprintf("the retry at +%v", off), func([]qaDelivery) bool { return len(hook.got()) > before })
+		e.qaWaitDeliveries("the retry recorded", func([]qaDelivery) bool { return pending().Attempts >= i+2 })
+	}
+	if fin := pending(); fin.State != "failed" || fin.Attempts != len(offsets)+1 {
+		t.Errorf("after the retry at 24 hours the delivery is %s with %d attempts, want failed after %d", fin.State, fin.Attempts, len(offsets)+1)
+	}
+	if n := len(hook.got()); n != len(offsets)+1 {
+		t.Errorf("the provider saw %d attempts, want %d", n, len(offsets)+1)
+	}
+}
+
+func TestA21_events_survive_a_restart(t *testing.T) {
+	e, opts := qaStartOpts(t)
+	hook := qaNewHook(t)
+	hook.status.Store(503)
+	e.qaChannel("durable", hook, nil)
+	e.qaEmit(qaEv("alert.firing", "critical", "", "durable-1"))
+	e.qaWaitDeliveries("an attempt before the restart", func([]qaDelivery) bool { return len(hook.got()) >= 1 })
+	hook.status.Store(200)
+	e.qaRestartAt(opts, e.clock.Now().Add(2*time.Minute))
+	e.qaWaitDeliveries("delivery after the restart", func(ds []qaDelivery) bool { return len(ds) == 1 && ds[0].State == "sent" })
+	if n := len(hook.got()); n != 2 {
+		t.Errorf("the provider saw %d requests, want the failed one and the one after the restart", n)
+	}
+}
+
+func TestA61_restore_marks_pending_failed(t *testing.T) {
+	e, opts := qaStartOpts(t)
+	hook := qaNewHook(t)
+	hook.status.Store(503)
+	e.qaChannel("restored", hook, nil)
+	e.qaEmit(qaEv("alert.firing", "critical", "", "pre-restore"))
+	e.qaWaitDeliveries("a pending delivery", func(ds []qaDelivery) bool { return len(ds) == 1 && ds[0].State == "pending" })
+	events := func(s *Server) (n int) {
+		_ = s.controllerDB.Read().QueryRow(`SELECT count(*) FROM notify_events`).Scan(&n)
+		return
+	}
+	eventsBefore := events(e.s)
+	sent := len(hook.got())
+	if err := e.s.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// A restore leaves the quarantine marker in the restored database.
+	db := openDB(t, opts.Paths.ControllerDB())
+	marker, _ := json.Marshal(map[string]any{"tx": "restore-tx-1", "restoredAt": e.clock.Now().UTC(), "backupCreatedAt": e.clock.Now().UTC().Add(-time.Hour)})
+	if _, err := db.Writer().Exec(`INSERT OR REPLACE INTO core_meta (key, value) VALUES ('restore_quarantine', ?)`, string(marker)); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	hook.status.Store(200)
+	opts.Clock = coretest.NewFakeClock(e.clock.Now().Add(2 * time.Minute))
+	e.clock = opts.Clock.(*coretest.FakeClock)
+	e.s = start(t, opts)
+	ds := e.qaDeliveries()
+	if len(ds) != 1 || ds[0].State != "failed" || ds[0].LastError != "restored" {
+		t.Errorf("a pending delivery after a restore: %+v, want failed with reason restored", ds)
+	}
+	e.clock.Advance(time.Hour)
+	time.Sleep(300 * time.Millisecond)
+	if n := events(e.s); n != eventsBefore {
+		t.Errorf("a restore changed the events from %d to %d, want it to emit nothing", eventsBefore, n)
+	}
+	if n := len(hook.got()); n != sent {
+		t.Errorf("a delivery was sent after the restore: %d requests, want %d", n, sent)
+	}
+}
+
+func TestA22_nothing_secret_leaves(t *testing.T) {
+	e, opts := qaStartOpts(t)
+	hook := qaNewHook(t)
+	hook.status.Store(500)
+	hook.body.Store("PROVIDER-BODY-CANARY")
+	ch := e.qaChannel("canary", hook, nil)
+	secrets := []string{hook.srv.URL + "/hook/canary", "/hook/canary", "qa-hmac-secret-canary"}
+
+	// A change whose error message and cause hold a canary.
+	n := qaSeedChange(e, 1, "", "core.group.create")
+	exec(e.t, e.s, `UPDATE core_changes SET state = 'failed', error_code = 'group.in_use', error_message = 'CAUSE-CANARY-MESSAGE', error_cause = 'CAUSE-CANARY-CAUSE', updated_at = ? WHERE id = ?`,
+		e.clock.Now().UTC().Add(time.Second).Format(qaTimeFormat), n)
+	e.clock.Advance(10 * time.Second)
+	e.qaWaitDeliveries("the change event delivered or attempted", func([]qaDelivery) bool { return len(hook.got()) >= 1 })
+	for _, r := range hook.got() {
+		if strings.Contains(string(r.Raw), "CAUSE-CANARY") {
+			t.Errorf("a notification body carries the change's error: %s", r.Raw)
+		}
+	}
+	if r := hook.got()[0]; r.Kind != "change.failed" {
+		t.Errorf("the first notification is %q, want change.failed", r.Kind)
+	}
+	// An error message from a test that cannot connect.
+	hook.srv.Close()
+	r := e.qaRead(e.admin(), "notify.channel.test", map[string]any{"id": ch})
+	surfaces := map[string]string{
+		"channel list": string(e.qaRead(e.admin(), "notify.channel.list", nil).body),
+		"channel test": string(r.body),
+		"audit":        string(e.qaRead(e.admin(), "core.audit.list", map[string]any{"limit": 500}).body),
+		"changes":      string(e.do("GET", "/api/v1/changes", nil, e.admin()).body),
+		"log":          qaLog(t),
+		"directory":    string(e.qaRead(e.admin(), "core.user.directory", nil).body),
+	}
+	rows, err := e.s.controllerDB.Read().Query(`SELECT coalesce(input_json, '') FROM core_audit`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var journal strings.Builder
+	for rows.Next() {
+		var s string
+		_ = rows.Scan(&s)
+		journal.WriteString(s)
+	}
+	_ = rows.Close()
+	surfaces["audit rows"] = journal.String()
+	for name, text := range surfaces {
+		for _, s := range secrets {
+			if strings.Contains(text, s) {
+				t.Errorf("the %s contains a channel secret %q", name, s)
+			}
+		}
+		if strings.Contains(text, "PROVIDER-BODY-CANARY") {
+			t.Errorf("the %s contains the provider's response body", name)
+		}
+	}
+	_ = opts
+}
+
+func TestA25_event_kinds(t *testing.T) {
+	opts := embeddedOptions(t)
+	e := &e2e{t: t, clock: opts.Clock.(*coretest.FakeClock), home: t.TempDir()}
+	e.s = start(t, opts)
+	e.url = baseURL(t, e.s)
+	e.loginAdmin()
+	hook := qaNewHook(t)
+	e.qaChannel("kinds", hook, nil)
+	// A failed controller-side change.
+	failed := qaSeedChange(e, 1, "", "core.group.create")
+	exec(e.t, e.s, `UPDATE core_changes SET state = 'failed', error_code = 'group.in_use', updated_at = ? WHERE id = ?`, e.clock.Now().UTC().Add(time.Second).Format(qaTimeFormat), failed)
+	// An automatically reverted one: the revert timer's journal row.
+	reverted := qaSeedChange(e, 2, "", "core.group.create")
+	exec(e.t, e.s, `UPDATE core_changes SET state = 'reverted', updated_at = ? WHERE id = ?`, e.clock.Now().UTC().Add(2*time.Second).Format(qaTimeFormat), reverted)
+	exec(e.t, e.s, `INSERT INTO core_audit (id, at, actor, action, version, phase, change_id, result) VALUES ('01QAREV', ?, 'system:revert-timer', 'core.group.create', 1, 'revert', ?, 'ok')`, e.clock.Now().UTC().Format(qaTimeFormat), reverted)
+	// A failed rollout: the embedded agent runs no updater.
+	id := e.s.LocalHostID()
+	exec(t, e.s, `UPDATE core_hosts SET state = 'enrolled' WHERE id = ?`, id)
+	if err := e.s.controllerDB.Write(context.Background(), func(tx *sql.Tx) error {
+		_, err := rollout.Create(context.Background(), tx, rollout.CreateParams{
+			Input:             core.RolloutInput{Hosts: []string{id}, Version: "0.2.0", Channel: core.ChannelStable},
+			ControllerVersion: buildinfo.Version, Now: e.clock.Now()})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.clock.Advance(rollout.PollInterval)
+	e.qaWaitDeliveries("the kinds delivered", func([]qaDelivery) bool {
+		k := strings.Join(hook.kinds(), ",")
+		return strings.Contains(k, "change.failed") && strings.Contains(k, "change.auto_reverted") && strings.Contains(k, "rollout.failed")
+	})
+	count := map[string]int{}
+	for _, k := range hook.kinds() {
+		count[k]++
+	}
+	for _, k := range []string{"change.failed", "change.auto_reverted", "rollout.failed"} {
+		if count[k] != 1 {
+			t.Errorf("event kind %s was emitted %d times, want once (all: %v)", k, count[k], count)
+		}
+	}
+}
+
+func TestA52_changes_ended_while_stopped_emit_once(t *testing.T) {
+	e, opts := qaStartOpts(t)
+	hook := qaNewHook(t)
+	e.qaChannel("restart", hook, nil)
+	if err := e.s.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// While the controller is stopped, a change fails and another is auto-reverted.
+	db := openDB(t, opts.Paths.ControllerDB())
+	at := e.clock.Now().UTC().Add(time.Minute)
+	seed := func(n int, state, code string) string {
+		id := fmt.Sprintf("01QB%022d", n)
+		ts := at.Add(time.Duration(n) * time.Second).Format(qaTimeFormat)
+		for _, q := range []string{
+			fmt.Sprintf(`INSERT INTO core_plans (id, host_id, action, version, actor, input_hash, state_hash, diff_json, guards_json, confirmation, created_at, expires_at)
+				VALUES ('P%s', '', 'core.group.create', 1, 'system', 'h', 'h', '[]', '[]', '', '%s', '%s')`, id, ts, ts),
+			fmt.Sprintf(`INSERT INTO core_changes (id, plan_id, host_id, action, version, class, compensated_by, actor, state, input_json, error_code, created_at, updated_at)
+				VALUES ('%s', 'P%s', '', 'core.group.create', 1, 'compensable', '', 'system', '%s', '{}', NULLIF('%s', ''), '%s', '%s')`, id, id, state, code, ts, ts),
+		} {
+			if _, err := db.Writer().Exec(q); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return id
+	}
+	seed(1, "failed", "group.in_use")
+	rev := seed(2, "reverted", "")
+	if _, err := db.Writer().Exec(`INSERT INTO core_audit (id, at, actor, action, version, phase, change_id, result) VALUES ('01QBREV', ?, 'system:revert-timer', 'core.group.create', 1, 'revert', ?, 'ok')`, at.Format(qaTimeFormat), rev); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	opts.Clock = coretest.NewFakeClock(at.Add(time.Minute))
+	e.clock = opts.Clock.(*coretest.FakeClock)
+	e.s = start(t, opts)
+	e.qaWaitDeliveries("the restart's events delivered", func([]qaDelivery) bool { return len(hook.got()) >= 2 })
+	for i := 0; i < 6; i++ {
+		e.clock.Advance(10 * time.Second)
+	}
+	time.Sleep(200 * time.Millisecond)
+	count := map[string]int{}
+	for _, k := range hook.kinds() {
+		count[k]++
+	}
+	if count["change.failed"] != 1 || count["change.auto_reverted"] != 1 {
+		t.Errorf("events after the restart: %v, want one change.failed and one change.auto_reverted", count)
+	}
+	var stored int
+	_ = e.s.controllerDB.Read().QueryRow(`SELECT count(*) FROM notify_events WHERE kind IN ('change.failed','change.auto_reverted')`).Scan(&stored)
+	if stored != 2 {
+		t.Errorf("stored events of those kinds: %d, want exactly 2", stored)
 	}
 }
