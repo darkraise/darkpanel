@@ -55,8 +55,9 @@ func authorizeHost(p core.Principal, hostID string, need core.Scope) error {
 
 // authorizeController refuses p a controller-side action. A mutating one
 // needs fleet access and its scope on every host, whatever hosts its input
-// names, so members are refused, except for their own tokens
-// (ownTokenActions). A read is served by its HostData class (ADR 0018); an
+// names, so members are refused, except for their own tokens and devices
+// (ownTokenActions). A read is served by its HostData class (ADR 0018),
+// except a read of the caller's own resources (ownReadActions); an
 // input read's hosts are checked once its input is decoded
 // (authorizeInputHosts).
 func authorizeController(p core.Principal, def core.ActionDef) error {
@@ -73,6 +74,9 @@ func authorizeController(p core.Principal, def core.ActionDef) error {
 			return nil
 		}
 		return errcode.New(errcode.Forbidden, fmt.Sprintf("this request needs the %s scope", need))
+	}
+	if ownReadActions[def.Ref()] && p.UserID != "" {
+		return nil
 	}
 	// A MinScope read needs that scope everywhere: the class rules alone would
 	// serve it to an admin's read token.
@@ -101,6 +105,12 @@ var ownTokenActions = map[core.ActionRef]bool{
 	{Name: "core.token.create", Version: 1}:         true,
 	{Name: "core.token.revoke", Version: 1}:         true,
 	{Name: "core.tailnetdevice.forget", Version: 1}: true,
+}
+
+// ownReadActions read only the calling user's own resources, so any
+// principal of a user may run them, even a member without a grant.
+var ownReadActions = map[core.ActionRef]bool{
+	{Name: "core.tailnetdevice.list", Version: 1}: true,
 }
 
 // readsAnyHost reports whether a grants read on at least one host.

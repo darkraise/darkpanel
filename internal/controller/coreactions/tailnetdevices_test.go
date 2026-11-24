@@ -26,47 +26,58 @@ type deviceEnv struct {
 func newDeviceEnv(t *testing.T) *deviceEnv {
 	t.Helper()
 	e, a := newTokenAPI(t)
-	ctx := context.Background()
 	e.addHost("h1", "web-1", false)
 	e.exec(`INSERT INTO core_host_groups (id, name, created_at) VALUES ('G', 'web', '2026-11-24T09:00:00.000000000Z')`)
 	e.exec(`INSERT INTO core_host_group_members (group_id, host_id) VALUES ('G', 'h1')`)
 	rootUser, rootP := e.activeUser("root")
 	ben, _ := e.activeUser("ben")
-	_, secret, err := e.auth.CreateUserWithRole(ctx, "mia", testPassword, auth.RoleMember)
+	d := &deviceEnv{testEnv: e, a: a, rootP: rootP, benID: ben.ID}
+	d.root = d.token(rootUser.ID, core.ScopeAdmin)
+	d.miaID, d.session = d.member("mia", auth.Grant{Target: "G", Role: auth.GrantViewer})
+	d.read, d.op = d.token(d.miaID, core.ScopeRead), d.token(d.miaID, core.ScopeOperate)
+	return d
+}
+
+// member adds an active member username with grants and returns its id and
+// a signed-in session.
+func (e *deviceEnv) member(username string, grants ...auth.Grant) (string, caller) {
+	e.t.Helper()
+	ctx := context.Background()
+	_, secret, err := e.auth.CreateUserWithRole(ctx, username, testPassword, auth.RoleMember)
 	if err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
 	code, err := auth.TOTPCode(secret, e.clock.Now())
 	if err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
-	mia, err := e.auth.ActivateUser(ctx, "mia", code)
+	u, err := e.auth.ActivateUser(ctx, username, code)
 	if err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
-	if _, err := e.auth.SetGrants(ctx, "mia", []auth.Grant{{Target: "G", Role: auth.GrantViewer}}); err != nil {
-		t.Fatal(err)
+	if len(grants) > 0 {
+		if _, err := e.auth.SetGrants(ctx, username, grants); err != nil {
+			e.t.Fatal(err)
+		}
 	}
 	e.clock.Advance(auth.TOTPPeriod)
 	if code, err = auth.TOTPCode(secret, e.clock.Now()); err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
-	login, err := e.auth.Login(ctx, auth.LoginRequest{Username: "mia", Password: testPassword, Code: code, Source: tokenRemote})
+	login, err := e.auth.Login(ctx, auth.LoginRequest{Username: username, Password: testPassword, Code: code, Source: tokenRemote})
 	if err != nil {
-		t.Fatal(err)
+		e.t.Fatal(err)
 	}
-	token := func(userID string, scope core.Scope) caller {
-		t.Helper()
-		_, tok, err := e.auth.CreateToken(ctx, userID, string(scope), scope, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return caller{token: tok}
+	return u.ID, caller{session: login.SessionID, csrf: login.CSRFToken}
+}
+
+func (e *deviceEnv) token(userID string, scope core.Scope) caller {
+	e.t.Helper()
+	_, tok, err := e.auth.CreateToken(context.Background(), userID, string(scope), scope, 0)
+	if err != nil {
+		e.t.Fatal(err)
 	}
-	return &deviceEnv{testEnv: e, a: a, root: token(rootUser.ID, core.ScopeAdmin), rootP: rootP,
-		session: caller{session: login.SessionID, csrf: login.CSRFToken},
-		read:    token(mia.ID, core.ScopeRead), op: token(mia.ID, core.ScopeOperate),
-		miaID: mia.ID, benID: ben.ID}
+	return caller{token: tok}
 }
 
 // remember inserts userID's device stableID, last used at minute used.
@@ -128,6 +139,15 @@ func TestTailnetDeviceListOwn(t *testing.T) {
 	if got := e.list(e.root, "core.tailnetdevice.list", `{}`); got != "" {
 		t.Errorf("root's list: %q, want none", got)
 	}
+	// A member without any grant still lists their own devices.
+	zoeID, zoe := e.member("zoe")
+	e.remember(zoeID, "nZ", "zoe-laptop", "02")
+	if got := e.list(zoe, "core.tailnetdevice.list", `{}`); got != "nZ" {
+		t.Errorf("zoe's list without grants: %q, want nZ", got)
+	}
+	if got := e.list(e.token(zoeID, core.ScopeRead), "core.tailnetdevice.list", `{}`); got != "nZ" {
+		t.Errorf("zoe's list through her read token: %q, want nZ", got)
+	}
 }
 
 func TestTailnetDeviceForgetOwn(t *testing.T) {
@@ -152,6 +172,24 @@ func TestTailnetDeviceForgetOwn(t *testing.T) {
 				t.Errorf("mia's devices after the forget: %q, want only nKeep", got)
 			}
 		})
+	}
+}
+
+func TestTailnetDeviceForgetOwnAnyGrants(t *testing.T) {
+	e := newDeviceEnv(t)
+	for _, tc := range []struct {
+		username string
+		grants   []auth.Grant
+	}{
+		{"nogrants", nil},
+		{"operator", []auth.Grant{{Target: "*", Role: auth.GrantOperator}}},
+	} {
+		userID, c := e.member(tc.username, tc.grants...)
+		e.remember(userID, "nM", "laptop", "03")
+		e.a.runAction(c, "core.tailnetdevice.forget", `{"stableId":"nM"}`)
+		if got := e.devices(userID); got != "" {
+			t.Errorf("member %s: devices after the forget %q, want none", tc.username, got)
+		}
 	}
 }
 
@@ -210,6 +248,11 @@ func TestUserTailnetDeviceAdmin(t *testing.T) {
 	if out["stableId"] != "nL" || e.devices(e.miaID) != "nP" {
 		t.Errorf("admin forget output %v, mia's devices %q; want nL forgotten and nP kept", out, e.devices(e.miaID))
 	}
+
+	e.a.refused(e.root, "/api/v1/actions/core.user.list-tailnet-devices/v1/read", `{"input":{"username":"nobody"}}`,
+		http.StatusNotFound, errcode.NotFound)
+	e.a.refused(e.root, "/api/v1/actions/core.user.forget-tailnet-device/v1/plan", `{"input":{"username":"nobody","stableId":"nP"}}`,
+		http.StatusNotFound, errcode.NotFound)
 
 	for _, c := range []caller{e.session, e.read, e.op} {
 		e.a.refused(c, "/api/v1/actions/core.user.list-tailnet-devices/v1/read", `{"input":{"username":"mia"}}`,
