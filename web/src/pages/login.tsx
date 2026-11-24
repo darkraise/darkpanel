@@ -201,8 +201,9 @@ export function LoginPage() {
       setSession(res)
     } catch (err) {
       setError(tailscaleError(err))
+    } finally {
+      setContinuing(false)
     }
-    setContinuing(false)
   }
 
   const who = match.data

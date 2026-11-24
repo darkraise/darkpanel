@@ -133,8 +133,12 @@ describe("continue as", () => {
       "GET /api/v1/auth/tailscale": match,
       "POST /api/v1/auth/tailscale": { body: { totp: true } },
     })
-    await userEvent.setup().click(await screen.findByRole("button", { name: /^Continue as mia/ }))
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: /^Continue as mia/ }))
     expect(await screen.findByText("Enter the code from your authenticator app to finish signing in as mia.")).toBeTruthy()
+    await user.click(screen.getByRole("button", { name: "Use another way to sign in" }))
+    const again = await screen.findByRole("button", { name: /^Continue as mia/ })
+    expect(again.hasAttribute("disabled") || again.getAttribute("aria-busy") === "true", "Continue as is ready again").toBe(false)
   })
 
   test("a refused continue says so and keeps the form", async () => {
