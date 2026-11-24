@@ -49,8 +49,8 @@ func TestEveryActionHasACommand(t *testing.T) {
 		if (cmd.Flags().Lookup("yes") != nil) != mutating {
 			t.Errorf("%s: --yes present %v, want %v", def.Spec.Name, !mutating, mutating)
 		}
-		if (cmd.Flags().Lookup("confirmation") != nil) != (def.Spec.Class == core.ClassIrreversible) {
-			t.Errorf("%s: --confirmation only on irreversible actions", def.Spec.Name)
+		if (cmd.Flags().Lookup("confirmation") != nil) != (def.Spec.Class == core.ClassIrreversible || def.Spec.TypedConfirmation) {
+			t.Errorf("%s: --confirmation only on irreversible and TypedConfirmation actions", def.Spec.Name)
 		}
 		if (cmd.Flags().Lookup("confirm") != nil) != (def.Spec.Class == core.ClassRevertible) {
 			t.Errorf("%s: --confirm only on revertible actions", def.Spec.Name)
@@ -381,5 +381,24 @@ func TestConfirmUnchanged(t *testing.T) {
 		"cov", "rule", "set", "--name", "web", "--override", "cov.lockout", "--yes", "--confirm", "--url", base)
 	if code != 0 || !strings.Contains(out, "Change c1: confirmed") || strings.Contains(out, "Confirm it before") {
 		t.Errorf("--confirm with --override: exit %d, out %q, err %q", code, out, errOut)
+	}
+}
+
+// An invite can be undone (cancel-invite) but still asks for the username:
+// the flag exists, and the prompts do not say it cannot be undone.
+func TestInviteAsksForItsPhrase(t *testing.T) {
+	plan := exchange{method: "POST", path: "/api/v1/actions/core.user.invite/v1/plan",
+		body: `{"input":{"role":"member","username":"noor"}}`, reply: planJSON("p1", "core.user.invite", "", "noor", "[]")}
+	base := newFakeAPI(t, testToken, plan, plan)
+	args := []string{"user", "invite", "--username", "noor", "--role", "member", "--url", base}
+	cli := cliEnv{env: tokenEnv}
+	if _, errOut, code := cli.run(t, append(args, "--yes")...); code != ExitRefused ||
+		!strings.Contains(errOut, "needs its confirmation phrase: pass --confirmation noor") {
+		t.Errorf("no terminal, no --confirmation: exit %d, err %q", code, errOut)
+	}
+	term := cliEnv{env: tokenEnv, terminal: true, stdin: "y\nnobody\n"}
+	if _, errOut, code := term.run(t, args...); code != ExitRefused ||
+		!strings.HasPrefix(errOut, "Apply? [y/N] Type noor to confirm: ") || strings.Contains(errOut, "cannot be undone") {
+		t.Errorf("terminal: exit %d, err %q", code, errOut)
 	}
 }

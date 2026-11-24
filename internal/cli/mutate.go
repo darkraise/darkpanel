@@ -87,14 +87,16 @@ func waitChange(ctx context.Context, c *client, ch changeWire, raw json.RawMessa
 	return ch, raw, nil
 }
 
-// addMutatingFlags adds --yes, --confirmation for an irreversible action or
-// --confirm and --confirm-timeout for a revertible one, and --override for
-// an action with Guards.
+// addMutatingFlags adds --yes, --confirmation for an action whose plan names
+// a phrase (irreversible, or TypedConfirmation), --confirm and
+// --confirm-timeout for a revertible one, and --override for an action with
+// Guards.
 func addMutatingFlags(cmd *cobra.Command, spec core.ActionSpec) {
-	cmd.Flags().Bool("yes", false, "apply without asking Apply? [y/N]; an irreversible action still needs its confirmation phrase")
-	switch spec.Class {
-	case core.ClassIrreversible:
+	cmd.Flags().Bool("yes", false, "apply without asking Apply? [y/N]; an action with a confirmation phrase still needs it")
+	if spec.Class == core.ClassIrreversible || spec.TypedConfirmation {
 		cmd.Flags().String("confirmation", "", "the confirmation phrase the plan names, instead of typing it")
+	}
+	switch spec.Class {
 	case core.ClassRevertible:
 		cmd.Flags().Bool("confirm", false, "confirm the change at once instead of leaving it pending until its revert deadline")
 		addConfirmTimeoutFlag(cmd)
@@ -218,14 +220,19 @@ func (a *app) applyAndShow(cmd *cobra.Command, calls actionCalls, input any, sec
 // or on the agent socket. apply returns the change and its JSON; a zero
 // confirmTimeout leaves the server's default.
 type actionCalls struct {
-	plan  func(ctx context.Context, input any) (planWire, error)
-	apply func(ctx context.Context, planID, confirmation string, confirmNow bool, confirmTimeout time.Duration) (changeWire, json.RawMessage, error)
+	// undoable is true for a compensable action that still asks for its
+	// confirmation phrase (TypedConfirmation): the prompt then does not say
+	// the change cannot be undone.
+	undoable bool
+	plan     func(ctx context.Context, input any) (planWire, error)
+	apply    func(ctx context.Context, planID, confirmation string, confirmNow bool, confirmTimeout time.Duration) (changeWire, json.RawMessage, error)
 }
 
 // apiCalls are def's plan and apply on the API c reaches, under host for an
 // agent-side action.
 func apiCalls(c *client, def core.ActionDef, host string) actionCalls {
 	return actionCalls{
+		undoable: def.Spec.Class == core.ClassCompensable,
 		plan: func(ctx context.Context, input any) (planWire, error) {
 			var plan planWire
 			err := c.do(ctx, http.MethodPost, actionPath(def, host, "plan"), map[string]any{"input": input}, &plan)
@@ -291,7 +298,7 @@ func (a *app) planAndApply(cmd *cobra.Command, calls actionCalls, input any, agr
 	}
 	var phrase string
 	if plan.Confirmation != nil && *plan.Confirmation != "" {
-		if phrase, err = a.confirmation(cmd, *plan.Confirmation); err != nil {
+		if phrase, err = a.confirmation(cmd, *plan.Confirmation, calls.undoable); err != nil {
 			return changeWire{}, nil, err
 		}
 	}
@@ -318,17 +325,24 @@ func (a *app) askApply(cmd *cobra.Command, agreed bool) error {
 	return nil
 }
 
-// confirmation returns the phrase an irreversible plan needs: from
-// --confirmation, else typed on the terminal. A phrase that differs is
-// refused here, before the apply.
-func (a *app) confirmation(cmd *cobra.Command, want string) (string, error) {
+// confirmation returns the phrase a plan needs: from --confirmation, else
+// typed on the terminal. A phrase that differs is refused here, before the
+// apply. undoable leaves out "cannot be undone" for a compensable action.
+func (a *app) confirmation(cmd *cobra.Command, want string, undoable bool) (string, error) {
 	given, _ := cmd.Flags().GetString("confirmation")
 	if given == "" {
 		if !a.term.isTerm {
+			if undoable {
+				return "", refusedf("this change needs its confirmation phrase: pass --confirmation %s, or run on a terminal", want)
+			}
 			return "", refusedf("this change cannot be undone: pass --confirmation %s, or run on a terminal", want)
 		}
+		prompt := "This cannot be undone. Type %s to confirm: "
+		if undoable {
+			prompt = "Type %s to confirm: "
+		}
 		var err error
-		given, err = a.term.line(fmt.Sprintf("This cannot be undone. Type %s to confirm: ", sanitize(want)))
+		given, err = a.term.line(fmt.Sprintf(prompt, sanitize(want)))
 		if err != nil && !errors.Is(err, io.EOF) {
 			return "", err
 		}

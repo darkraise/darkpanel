@@ -54,7 +54,8 @@ has expired. Ask an admin for a new one." Use New enrollment link on the user's
 row menu for a new one; the old link stops working.
 
 From the CLI, `darkpanel user invite --username <name> --role member` invites
-a user, with its grants in the `--input` JSON:
+a user; it asks you to type the username, or takes `--confirmation <name>`.
+Give its grants in the `--input` JSON:
 
 ```json
 {"username": "noor", "role": "member", "grants": [{"role": "operator", "target": "<group id>"}]}
