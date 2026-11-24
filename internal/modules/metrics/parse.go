@@ -20,24 +20,44 @@ const (
 
 // cpuTimes is the aggregate cpu line of /proc/stat in clock ticks: total
 // counts user through steal (guest time is already inside user and nice),
-// idle counts idle and iowait.
+// idle counts idle and iowait. cpus is the number of per-CPU lines, the
+// host's online logical CPUs.
 type cpuTimes struct {
 	total, idle uint64
+	cpus        int
 }
 
-// parseProcStat reads the aggregate "cpu" line of /proc/stat.
+// isCPULine reports whether field is a per-CPU line's name, "cpu<n>".
+func isCPULine(field string) bool {
+	n, ok := strings.CutPrefix(field, "cpu")
+	return ok && n != "" && strings.Trim(n, "0123456789") == ""
+}
+
+// parseProcStat reads the aggregate "cpu" line of /proc/stat and counts its
+// per-CPU lines.
 func parseProcStat(data []byte) (cpuTimes, error) {
+	var t cpuTimes
+	found := false
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	for sc.Scan() {
 		f := strings.Fields(sc.Text())
+		if len(f) > 0 && isCPULine(f[0]) {
+			t.cpus++
+			continue
+		}
+		if found {
+			// The cpu lines come first, and the intr line after them can
+			// outgrow the scanner's buffer on a host with many interrupts.
+			break
+		}
 		if len(f) == 0 || f[0] != "cpu" {
 			continue
 		}
+		found = true
 		f = f[1:]
 		if len(f) < 4 {
 			return cpuTimes{}, errors.New("stat: the cpu line has fewer than four fields")
 		}
-		var t cpuTimes
 		for i, s := range f[:min(len(f), 8)] {
 			n, err := strconv.ParseUint(s, 10, 64)
 			if err != nil {
@@ -51,9 +71,11 @@ func parseProcStat(data []byte) (cpuTimes, error) {
 				t.idle += n // at most total, which did not overflow
 			}
 		}
-		return t, nil
 	}
-	return cpuTimes{}, errors.New("stat: no cpu line")
+	if !found {
+		return cpuTimes{}, errors.New("stat: no cpu line")
+	}
+	return t, nil
 }
 
 // cpuBusy is the percent of the ticks between prev and cur not spent idle;

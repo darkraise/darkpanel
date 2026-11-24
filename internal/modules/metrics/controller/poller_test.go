@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -79,6 +80,7 @@ type fakeAgent struct {
 	ignoreSince bool  // answer every minute held, as an overlapping poll would
 	err         error // fail every read
 	extra       []Point
+	cpus        int // the logical CPUs answered
 }
 
 func pointAt(ts time.Time) Point {
@@ -109,7 +111,7 @@ func (a *fakeAgent) answer(now time.Time, in json.RawMessage) (json.RawMessage, 
 			return nil, errcode.New(errcode.InvalidInput, "since")
 		}
 	}
-	out := answer{Now: agentNow, Samples: append([]Point{}, a.extra...)}
+	out := answer{Now: agentNow, Samples: append([]Point{}, a.extra...), CPUs: a.cpus}
 	for m := from; !m.Add(time.Minute).After(agentNow) && len(out.Samples) < 60; m = m.Add(time.Minute) {
 		if since.IsZero() || m.After(since) {
 			out.Samples = append(out.Samples, pointAt(m))
@@ -213,7 +215,7 @@ func TestPollAndBackfill(t *testing.T) {
 	exec(t, e.db, `INSERT INTO core_module_state (host_id, module_id, enabled, available, reason, checked_at) VALUES ('h2', 'metrics', 0, 1, '', ?)`,
 		t0.Format(time.RFC3339Nano))
 	agentStart := time.Date(2026, 11, 24, 11, 30, 0, 0, time.UTC)
-	e.agents["h1"] = &fakeAgent{start: agentStart}
+	e.agents["h1"] = &fakeAgent{start: agentStart, cpus: 4}
 	e.agents["h2"] = &fakeAgent{start: agentStart}
 	e.agents["h4"] = &fakeAgent{start: agentStart}
 	e.agents["h5"] = &fakeAgent{start: agentStart, skew: 3 * time.Minute}
@@ -238,9 +240,31 @@ func TestPollAndBackfill(t *testing.T) {
 	if s, ok := status(t, e.db, "h1"); !ok || s.lastOK.String != "2026-11-24T12:00:30Z" || s.code.Valid || s.skew.Int64 != 0 {
 		t.Errorf("h1 status = %+v, want ok at 12:00:30 with no skew", s)
 	}
+	cpus := func(host string) string {
+		var n sql.NullInt64
+		if err := e.db.Read().QueryRow(`SELECT cpus FROM metrics_poll_status WHERE host_id = ?`, host).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Sprint(n)
+	}
+	if got := cpus("h1"); got != "{4 true}" {
+		t.Errorf("h1 cpus = %s, want 4", got)
+	}
+	for _, n := range []int{0, 1 << 15} {
+		if err := e.db.Write(context.Background(), func(tx *sql.Tx) error { return recordOK(context.Background(), tx, "h4", t0, 0, n) }); err != nil {
+			t.Fatal(err)
+		}
+		if got := cpus("h4"); got != "{0 false}" {
+			t.Errorf("a count of %d is stored as %s, want unknown", n, got)
+		}
+	}
 
+	e.agents["h1"].cpus = 8
 	e.clock.Advance(time.Minute)
 	e.pass(t)
+	if got := cpus("h1"); got != "{8 true}" {
+		t.Errorf("after a second poll h1 cpus = %s, want 8", got)
+	}
 	if got := e.readsOf("h1"); got[1] != `{"since":"2026-11-24T11:59:00Z"}` {
 		t.Errorf("the second poll passed %s, want the last stored minute", got[1])
 	}

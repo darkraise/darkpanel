@@ -61,6 +61,11 @@ func TestNoControllerReadLeaksAnotherHost(t *testing.T) {
 			VALUES ('h-in', 'ip', '192.0.2.1', 'v1.104.1', 1, '` + at + `')`,
 		`INSERT INTO derp_servers (host_id, mode, host_name, derper_version, unit_active, checked_at)
 			VALUES ('h-out', 'ip', '100.64.0.2', 'v1.104.1', 1, '` + at + `')`,
+		// A firing alert of the seeded disk rule on each host.
+		`INSERT INTO metrics_alerts (rule_id, host_id, subject, state, since, value)
+			VALUES ('disk-almost-full', 'h-in', '/', 'firing', '2026-11-24T00:00:00Z', 93)`,
+		`INSERT INTO metrics_alerts (rule_id, host_id, subject, state, since, value)
+			VALUES ('disk-almost-full', 'h-out', '/', 'firing', '2026-11-24T00:00:00Z', 93)`,
 	} {
 		if _, err := db.Writer().Exec(q); err != nil {
 			t.Fatal(err)
@@ -140,7 +145,7 @@ func TestNoControllerReadLeaksAnotherHost(t *testing.T) {
 	// rows are tied to no host and are hidden from members whole; the module
 	// and token lists answer about the named host or the caller alone.
 	wantIn := map[string]bool{"core.host.list": true, "core.audit.list": true, "core.update.rollouts": true,
-		"npm.instance.list": true, "derp.server.list": true, "derp.server.probe": true}
+		"npm.instance.list": true, "derp.server.list": true, "derp.server.probe": true, "metrics.alert.list": true}
 	leaks := []string{"h-out", "outside-host", "100.64.0.2"}
 	for how, credential := range creds {
 		served := map[string]bool{}

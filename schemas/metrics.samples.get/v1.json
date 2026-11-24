@@ -138,12 +138,17 @@
             },
             "type": "array",
             "description": "The averages of complete minutes after since, oldest first, at most 60."
+          },
+          "cpus": {
+            "type": "integer",
+            "description": "The host's online logical CPUs at the last sample; 0 before the first."
           }
         },
         "type": "object",
         "required": [
           "now",
-          "samples"
+          "samples",
+          "cpus"
         ]
       }
     }

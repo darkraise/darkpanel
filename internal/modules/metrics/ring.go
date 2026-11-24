@@ -18,6 +18,7 @@ type ring struct {
 	mu   sync.Mutex
 	buf  []Sample
 	next int // where the next sample goes once buf is full
+	cpus int // the logical CPUs at the last sample
 }
 
 func newRing() *ring { return &ring{buf: make([]Sample, 0, ringSize)} }
@@ -31,6 +32,20 @@ func (r *ring) add(s Sample) {
 	}
 	r.buf[r.next] = s
 	r.next = (r.next + 1) % ringSize
+}
+
+// setCPUs records the host's logical CPUs at the last sample.
+func (r *ring) setCPUs(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cpus = n
+}
+
+// cpuCount is the host's logical CPUs at the last sample, 0 before it.
+func (r *ring) cpuCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cpus
 }
 
 // snapshot is the samples held, oldest first.

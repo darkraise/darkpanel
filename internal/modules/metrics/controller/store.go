@@ -27,6 +27,7 @@ const (
 	maxEntries       = 16
 	maxMountLen      = 4096
 	maxIfaceLen      = 64
+	maxCPUs          = 1 << 14
 )
 
 // Point is one minute's or one hour's averages, as metrics.samples.get
@@ -63,6 +64,7 @@ type NetRate struct {
 type answer struct {
 	Now     time.Time `json:"now"`
 	Samples []Point   `json:"samples"`
+	CPUs    int       `json:"cpus"`
 }
 
 func nonNegative(vs ...float64) bool {
@@ -153,11 +155,17 @@ func lastMinute(ctx context.Context, q interface {
 	return last, nil
 }
 
-// recordOK marks hostID's poll at now successful, with the agent's skew.
-func recordOK(ctx context.Context, tx *sql.Tx, hostID string, now time.Time, skew int64) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO metrics_poll_status (host_id, last_ok, last_error_code, last_error_at, clock_skew_s)
-		VALUES (?, ?, NULL, NULL, ?) ON CONFLICT (host_id) DO UPDATE SET last_ok = excluded.last_ok,
-		last_error_code = NULL, last_error_at = NULL, clock_skew_s = excluded.clock_skew_s`, hostID, now.Format(tsFormat), skew)
+// recordOK marks hostID's poll at now successful, with the agent's skew
+// and its logical CPUs; a count out of range is stored as unknown.
+func recordOK(ctx context.Context, tx *sql.Tx, hostID string, now time.Time, skew int64, cpus int) error {
+	var n sql.NullInt64
+	if cpus > 0 && cpus <= maxCPUs {
+		n = sql.NullInt64{Int64: int64(cpus), Valid: true}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO metrics_poll_status (host_id, last_ok, last_error_code, last_error_at, clock_skew_s, cpus)
+		VALUES (?, ?, NULL, NULL, ?, ?) ON CONFLICT (host_id) DO UPDATE SET last_ok = excluded.last_ok,
+		last_error_code = NULL, last_error_at = NULL, clock_skew_s = excluded.clock_skew_s, cpus = excluded.cpus`,
+		hostID, now.Format(tsFormat), skew, n)
 	if err != nil {
 		return fmt.Errorf("metrics: record the poll of host %s: %w", hostID, err)
 	}

@@ -1,0 +1,92 @@
+{
+  "name": "metrics.alert.delete",
+  "version": 1,
+  "class": "irreversible",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RuleIDInput",
+    "$defs": {
+      "RuleIDInput": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Rule",
+    "$defs": {
+      "Rule": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "comparator": {
+            "type": "string",
+            "description": "\u003e or \u003c; \u003e for offline, which ignores it."
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "durationMin": {
+            "type": "integer"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "description": "* for every host, or a host group's id."
+          },
+          "targetName": {
+            "type": "string",
+            "description": "The target group's name; empty for every host."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "metric",
+          "comparator",
+          "threshold",
+          "durationMin",
+          "severity",
+          "target",
+          "targetName",
+          "enabled",
+          "createdAt",
+          "updatedAt"
+        ]
+      }
+    }
+  }
+}

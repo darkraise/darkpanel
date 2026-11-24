@@ -1,0 +1,94 @@
+{
+  "name": "metrics.alert.list",
+  "version": 1,
+  "class": "read",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NoInput",
+    "$defs": {
+      "NoInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AlertList",
+    "$defs": {
+      "Alert": {
+        "properties": {
+          "ruleId": {
+            "type": "string"
+          },
+          "ruleName": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "hostId": {
+            "type": "string"
+          },
+          "hostName": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string",
+            "description": "The mount point of a disk alert; empty otherwise."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "firing",
+              "resolved"
+            ]
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the alert fired, or when it resolved."
+          },
+          "value": {
+            "type": "number",
+            "description": "The figure at that moment: a percent, load per logical CPU, or minutes offline."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ruleId",
+          "ruleName",
+          "metric",
+          "severity",
+          "hostId",
+          "hostName",
+          "subject",
+          "state",
+          "since",
+          "value"
+        ]
+      },
+      "AlertList": {
+        "properties": {
+          "alerts": {
+            "items": {
+              "$ref": "#/$defs/Alert"
+            },
+            "type": "array",
+            "description": "Firing alerts, then those resolved in the last 24 hours, newest first; only hosts the caller may read."
+          }
+        },
+        "type": "object",
+        "required": [
+          "alerts"
+        ]
+      }
+    }
+  }
+}

@@ -12485,6 +12485,514 @@
         ],
         "type": "object"
       },
+      "metrics.alert.create.v1.input": {
+        "$ref": "#/components/schemas/metrics.alert.create.v1.input.RuleInput"
+      },
+      "metrics.alert.create.v1.input.RuleInput": {
+        "additionalProperties": false,
+        "properties": {
+          "comparator": {
+            "description": "\u003e or \u003c; required except for offline, which ignores it.",
+            "enum": [
+              "\u003e",
+              "\u003c"
+            ],
+            "type": "string"
+          },
+          "durationMin": {
+            "description": "How many minutes the condition must hold before the rule fires.",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "metric": {
+            "description": "cpu, memory, swap and disk compare a percent (disk per mounted filesystem), load the 1-minute load per logical CPU; offline fires on a host with no live session.",
+            "enum": [
+              "cpu",
+              "memory",
+              "swap",
+              "disk",
+              "load",
+              "offline"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "The name: 1 to 64 letters, digits, spaces, dots, underscores or hyphens, starting with a letter or digit; unique without regard to case.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "warning",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "* for every host, or the id of a host group.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "threshold": {
+            "description": "0 to 100 for a percent, 0 to 1000 for load; offline ignores it.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "metric",
+          "durationMin",
+          "severity",
+          "target"
+        ],
+        "type": "object"
+      },
+      "metrics.alert.create.v1.output": {
+        "$ref": "#/components/schemas/metrics.alert.create.v1.output.Rule"
+      },
+      "metrics.alert.create.v1.output.Rule": {
+        "properties": {
+          "comparator": {
+            "description": "\u003e or \u003c; \u003e for offline, which ignores it.",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "durationMin": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "target": {
+            "description": "* for every host, or a host group's id.",
+            "type": "string"
+          },
+          "targetName": {
+            "description": "The target group's name; empty for every host.",
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "metric",
+          "comparator",
+          "threshold",
+          "durationMin",
+          "severity",
+          "target",
+          "targetName",
+          "enabled",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "metrics.alert.delete.v1.input": {
+        "$ref": "#/components/schemas/metrics.alert.delete.v1.input.RuleIDInput"
+      },
+      "metrics.alert.delete.v1.input.RuleIDInput": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "metrics.alert.delete.v1.output": {
+        "$ref": "#/components/schemas/metrics.alert.delete.v1.output.Rule"
+      },
+      "metrics.alert.delete.v1.output.Rule": {
+        "properties": {
+          "comparator": {
+            "description": "\u003e or \u003c; \u003e for offline, which ignores it.",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "durationMin": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "target": {
+            "description": "* for every host, or a host group's id.",
+            "type": "string"
+          },
+          "targetName": {
+            "description": "The target group's name; empty for every host.",
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "metric",
+          "comparator",
+          "threshold",
+          "durationMin",
+          "severity",
+          "target",
+          "targetName",
+          "enabled",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "metrics.alert.list-rules.v1.input": {
+        "$ref": "#/components/schemas/metrics.alert.list-rules.v1.input.NoInput"
+      },
+      "metrics.alert.list-rules.v1.input.NoInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "metrics.alert.list-rules.v1.output": {
+        "$ref": "#/components/schemas/metrics.alert.list-rules.v1.output.RuleList"
+      },
+      "metrics.alert.list-rules.v1.output.Rule": {
+        "properties": {
+          "comparator": {
+            "description": "\u003e or \u003c; \u003e for offline, which ignores it.",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "durationMin": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "target": {
+            "description": "* for every host, or a host group's id.",
+            "type": "string"
+          },
+          "targetName": {
+            "description": "The target group's name; empty for every host.",
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "metric",
+          "comparator",
+          "threshold",
+          "durationMin",
+          "severity",
+          "target",
+          "targetName",
+          "enabled",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "metrics.alert.list-rules.v1.output.RuleList": {
+        "properties": {
+          "rules": {
+            "description": "Every alert rule, sorted by name.",
+            "items": {
+              "$ref": "#/components/schemas/metrics.alert.list-rules.v1.output.Rule"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "type": "object"
+      },
+      "metrics.alert.list.v1.input": {
+        "$ref": "#/components/schemas/metrics.alert.list.v1.input.NoInput"
+      },
+      "metrics.alert.list.v1.input.NoInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "metrics.alert.list.v1.output": {
+        "$ref": "#/components/schemas/metrics.alert.list.v1.output.AlertList"
+      },
+      "metrics.alert.list.v1.output.Alert": {
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "hostName": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "ruleId": {
+            "type": "string"
+          },
+          "ruleName": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "since": {
+            "description": "When the alert fired, or when it resolved.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "firing",
+              "resolved"
+            ],
+            "type": "string"
+          },
+          "subject": {
+            "description": "The mount point of a disk alert; empty otherwise.",
+            "type": "string"
+          },
+          "value": {
+            "description": "The figure at that moment: a percent, load per logical CPU, or minutes offline.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "ruleId",
+          "ruleName",
+          "metric",
+          "severity",
+          "hostId",
+          "hostName",
+          "subject",
+          "state",
+          "since",
+          "value"
+        ],
+        "type": "object"
+      },
+      "metrics.alert.list.v1.output.AlertList": {
+        "properties": {
+          "alerts": {
+            "description": "Firing alerts, then those resolved in the last 24 hours, newest first; only hosts the caller may read.",
+            "items": {
+              "$ref": "#/components/schemas/metrics.alert.list.v1.output.Alert"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "alerts"
+        ],
+        "type": "object"
+      },
+      "metrics.alert.update.v1.input": {
+        "$ref": "#/components/schemas/metrics.alert.update.v1.input.RuleUpdateInput"
+      },
+      "metrics.alert.update.v1.input.RuleUpdateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "comparator": {
+            "description": "\u003e or \u003c; required except for offline, which ignores it.",
+            "enum": [
+              "\u003e",
+              "\u003c"
+            ],
+            "type": "string"
+          },
+          "durationMin": {
+            "description": "How many minutes the condition must hold before the rule fires.",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "enabled": {
+            "description": "Whether the rule is evaluated.",
+            "type": "boolean"
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "metric": {
+            "description": "cpu, memory, swap and disk compare a percent (disk per mounted filesystem), load the 1-minute load per logical CPU; offline fires on a host with no live session.",
+            "enum": [
+              "cpu",
+              "memory",
+              "swap",
+              "disk",
+              "load",
+              "offline"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "description": "The name: 1 to 64 letters, digits, spaces, dots, underscores or hyphens, starting with a letter or digit; unique without regard to case.",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "warning",
+              "critical"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "description": "* for every host, or the id of a host group.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "threshold": {
+            "description": "0 to 100 for a percent, 0 to 1000 for load; offline ignores it.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "metric",
+          "durationMin",
+          "severity",
+          "target",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "metrics.alert.update.v1.output": {
+        "$ref": "#/components/schemas/metrics.alert.update.v1.output.Rule"
+      },
+      "metrics.alert.update.v1.output.Rule": {
+        "properties": {
+          "comparator": {
+            "description": "\u003e or \u003c; \u003e for offline, which ignores it.",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "durationMin": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "target": {
+            "description": "* for every host, or a host group's id.",
+            "type": "string"
+          },
+          "targetName": {
+            "description": "The target group's name; empty for every host.",
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "metric",
+          "comparator",
+          "threshold",
+          "durationMin",
+          "severity",
+          "target",
+          "targetName",
+          "enabled",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "metrics.history.get.v1.input": {
         "$ref": "#/components/schemas/metrics.history.get.v1.input.HistoryInput"
       },
@@ -12832,6 +13340,10 @@
       },
       "metrics.samples.get.v1.output.SamplesOutput": {
         "properties": {
+          "cpus": {
+            "description": "The host's online logical CPUs at the last sample; 0 before the first.",
+            "type": "integer"
+          },
           "now": {
             "description": "The agent's clock.",
             "format": "date-time",
@@ -12847,7 +13359,8 @@
         },
         "required": [
           "now",
-          "samples"
+          "samples",
+          "cpus"
         ],
         "type": "object"
       },
@@ -23482,6 +23995,379 @@
           }
         ],
         "summary": "Pin tailscaled, then replace derper; between the two steps the versions differ and the region may refuse clients."
+      }
+    },
+    "/api/v1/actions/metrics.alert.create/v1/apply": {
+      "post": {
+        "operationId": "metrics.alert.create.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Add an alert rule: a metric, a threshold held for a number of minutes, a severity and the hosts it covers."
+      }
+    },
+    "/api/v1/actions/metrics.alert.create/v1/plan": {
+      "post": {
+        "operationId": "metrics.alert.create.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/metrics.alert.create.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Add an alert rule: a metric, a threshold held for a number of minutes, a severity and the hosts it covers."
+      }
+    },
+    "/api/v1/actions/metrics.alert.delete/v1/apply": {
+      "post": {
+        "operationId": "metrics.alert.delete.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete an alert rule with its alerts; the confirmation phrase is its name."
+      }
+    },
+    "/api/v1/actions/metrics.alert.delete/v1/plan": {
+      "post": {
+        "operationId": "metrics.alert.delete.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/metrics.alert.delete.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete an alert rule with its alerts; the confirmation phrase is its name."
+      }
+    },
+    "/api/v1/actions/metrics.alert.list-rules/v1/read": {
+      "post": {
+        "operationId": "metrics.alert.list-rules.v1.read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/metrics.alert.list-rules.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/metrics.alert.list-rules.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the alert rules."
+      }
+    },
+    "/api/v1/actions/metrics.alert.list/v1/read": {
+      "post": {
+        "operationId": "metrics.alert.list.v1.read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/metrics.alert.list.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/metrics.alert.list.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the firing alerts and those resolved in the last 24 hours."
+      }
+    },
+    "/api/v1/actions/metrics.alert.update/v1/apply": {
+      "post": {
+        "operationId": "metrics.alert.update.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change an alert rule; its alerts are cleared without notice and evaluated again."
+      }
+    },
+    "/api/v1/actions/metrics.alert.update/v1/plan": {
+      "post": {
+        "operationId": "metrics.alert.update.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/metrics.alert.update.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change an alert rule; its alerts are cleared without notice and evaluated again."
       }
     },
     "/api/v1/actions/metrics.history.get/v1/read": {

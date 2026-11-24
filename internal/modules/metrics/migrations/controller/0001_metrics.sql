@@ -85,5 +85,44 @@ CREATE TABLE metrics_poll_status (
     last_ok         TEXT,
     last_error_code TEXT,
     last_error_at   TEXT,
-    clock_skew_s    INTEGER
+    clock_skew_s    INTEGER,
+    cpus            INTEGER -- the agent's logical CPUs at its last answer, for load rules
 ) STRICT;
+
+-- Alert rules (spec section 5.3). threshold is a percent for cpu, memory,
+-- swap and disk, load per logical CPU for load; an offline rule stores '>'
+-- and 0 and fires on the fleet session state. target is '*' or a host
+-- group id.
+CREATE TABLE metrics_alert_rules (
+    id           TEXT PRIMARY KEY,
+    name         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    metric       TEXT NOT NULL CHECK (metric IN ('cpu', 'memory', 'swap', 'disk', 'load', 'offline')),
+    comparator   TEXT NOT NULL CHECK (comparator IN ('>', '<')),
+    threshold    REAL NOT NULL,
+    duration_min INTEGER NOT NULL CHECK (duration_min BETWEEN 1 AND 1440),
+    severity     TEXT NOT NULL CHECK (severity IN ('warning', 'critical')),
+    target       TEXT NOT NULL,
+    enabled      INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+) STRICT;
+
+-- Each alert's state: subject is the mount of a disk rule, '' otherwise;
+-- since is when it last fired or resolved; value the figure at that moment.
+CREATE TABLE metrics_alerts (
+    rule_id TEXT NOT NULL REFERENCES metrics_alert_rules (id) ON DELETE CASCADE,
+    host_id TEXT NOT NULL REFERENCES core_hosts (id) ON DELETE CASCADE,
+    subject TEXT NOT NULL,
+    state   TEXT NOT NULL CHECK (state IN ('firing', 'resolved')),
+    since   TEXT NOT NULL,
+    value   REAL NOT NULL,
+    PRIMARY KEY (rule_id, host_id, subject)
+) STRICT;
+
+CREATE INDEX metrics_alerts_since ON metrics_alerts (state, since);
+
+-- The default rules, seeded here rather than at start so a deleted one
+-- stays deleted.
+INSERT INTO metrics_alert_rules (id, name, metric, comparator, threshold, duration_min, severity, target, enabled, created_at, updated_at)
+VALUES ('host-offline', 'Host offline', 'offline', '>', 0, 5, 'critical', '*', 1, '2026-11-24T00:00:00Z', '2026-11-24T00:00:00Z'),
+       ('disk-almost-full', 'Disk almost full', 'disk', '>', 90, 10, 'warning', '*', 1, '2026-11-24T00:00:00Z', '2026-11-24T00:00:00Z');

@@ -1,0 +1,139 @@
+{
+  "name": "metrics.alert.create",
+  "version": 1,
+  "class": "compensable",
+  "side": "controller",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/RuleInput",
+    "$defs": {
+      "RuleInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$",
+            "description": "The name: 1 to 64 letters, digits, spaces, dots, underscores or hyphens, starting with a letter or digit; unique without regard to case."
+          },
+          "metric": {
+            "type": "string",
+            "enum": [
+              "cpu",
+              "memory",
+              "swap",
+              "disk",
+              "load",
+              "offline"
+            ],
+            "description": "cpu, memory, swap and disk compare a percent (disk per mounted filesystem), load the 1-minute load per logical CPU; offline fires on a host with no live session."
+          },
+          "comparator": {
+            "type": "string",
+            "enum": [
+              "\u003e",
+              "\u003c"
+            ],
+            "description": "\u003e or \u003c; required except for offline, which ignores it."
+          },
+          "threshold": {
+            "type": "number",
+            "description": "0 to 100 for a percent, 0 to 1000 for load; offline ignores it."
+          },
+          "durationMin": {
+            "type": "integer",
+            "maximum": 1440,
+            "minimum": 1,
+            "description": "How many minutes the condition must hold before the rule fires."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "warning",
+              "critical"
+            ]
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1,
+            "description": "* for every host, or the id of a host group."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "metric",
+          "durationMin",
+          "severity",
+          "target"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Rule",
+    "$defs": {
+      "Rule": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "comparator": {
+            "type": "string",
+            "description": "\u003e or \u003c; \u003e for offline, which ignores it."
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "durationMin": {
+            "type": "integer"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "description": "* for every host, or a host group's id."
+          },
+          "targetName": {
+            "type": "string",
+            "description": "The target group's name; empty for every host."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "metric",
+          "comparator",
+          "threshold",
+          "durationMin",
+          "severity",
+          "target",
+          "targetName",
+          "enabled",
+          "createdAt",
+          "updatedAt"
+        ]
+      }
+    }
+  }
+}

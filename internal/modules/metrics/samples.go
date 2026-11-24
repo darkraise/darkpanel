@@ -49,6 +49,7 @@ type SamplesInput struct {
 type SamplesOutput struct {
 	Now     time.Time `json:"now" jsonschema_description:"The agent's clock."`
 	Samples []Sample  `json:"samples" jsonschema_description:"The averages of complete minutes after since, oldest first, at most 60."`
+	CPUs    int       `json:"cpus" jsonschema_description:"The host's online logical CPUs at the last sample; 0 before the first."`
 }
 
 // samplesAction declares metrics.samples.get. It is an ordinary read, not an
@@ -75,5 +76,5 @@ func (h samplesHandler) Read(_ context.Context, env core.Env, in SamplesInput) (
 		since = t
 	}
 	now := env.Clock.Now().UTC()
-	return SamplesOutput{Now: now, Samples: minuteAverages(h.r.snapshot(), since, now)}, nil
+	return SamplesOutput{Now: now, Samples: minuteAverages(h.r.snapshot(), since, now), CPUs: h.r.cpuCount()}, nil
 }

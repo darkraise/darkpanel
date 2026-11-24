@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -77,6 +78,20 @@ func TestSampleFromFixtures(t *testing.T) {
 	if s.CPU != 25.0 {
 		t.Errorf("cpu = %v, want 25.0 (1,200 ticks, 900 idle or iowait; guest time not counted again)", s.CPU)
 	}
+	if out, err := (samplesHandler{r: m.s.ring}).Read(context.Background(), tc.Env, SamplesInput{}); err != nil || out.CPUs != 2 {
+		t.Errorf("metrics.samples.get answered cpus %d (%v), want 2 (the cpu0 and cpu1 lines)", out.CPUs, err)
+	}
+	t.Run("cpu count stops after the cpu lines", func(t *testing.T) {
+		stat := "cpu  1 0 1 8 0 0 0 0\ncpu0 1 0 1 8 0 0 0 0\ncpu1 0 0 0 0 0 0 0 0\ncpu12 0 0 0 0 0 0 0 0\n" +
+			"ctxt 1\ncpu7 0 0 0 0\nintr " + strings.Repeat("0 ", 70000) + "\n"
+		got, err := parseProcStat([]byte(stat))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.cpus != 3 || got.total != 10 || got.idle != 8 {
+			t.Errorf("parseProcStat = %+v, want 3 cpus, 10 ticks, 8 idle", got)
+		}
+	})
 	for _, c := range []struct {
 		name      string
 		got, want uint64

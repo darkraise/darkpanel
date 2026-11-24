@@ -167,5 +167,6 @@ func (s *sampler) pass(_ context.Context, tc core.TaskContext) error {
 		}
 	}
 	s.ring.add(sample)
+	s.ring.setCPUs(cpu.cpus)
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/ext"
@@ -43,18 +44,23 @@ type Side struct {
 	Services func(deps ext.Deps) []ext.Service
 }
 
-// New returns the module's controller half: metrics.history.get,
-// and the poller and rollup services.
+// New returns the module's controller half: metrics.history.get, the alert
+// rule actions and metrics.alert.list, and the poller (which evaluates the
+// rules after each pass) and rollup services. Its services also register
+// the rules' group referrer, so core.group.delete refuses a group a rule
+// targets.
 func New() Side {
 	return Side{
-		Actions: []core.ActionDef{historyAction()},
+		Actions: append([]core.ActionDef{historyAction(), alertListAction()}, ruleActions()...),
 		Services: func(deps ext.Deps) []ext.Service {
+			coreactions.RegisterGroupReferrer(moduleID+".rules", ruleReferrer)
 			if deps.DB == nil || deps.Dispatch == nil {
 				// An assembly with no controller database or dispatcher has
 				// nothing to poll into.
 				return nil
 			}
 			p := newPoller(deps.DB, deps.Dispatch, deps.Clock, deps.Log)
+			p.after = newEvaluator(deps.DB, deps.Hosts, deps.Notifier, deps.Clock, deps.Log).evaluate
 			r := newRollup(deps.DB, deps.Clock, deps.Log)
 			return []ext.Service{{Name: moduleID + ".poll", Run: p.Run}, {Name: moduleID + ".rollup", Run: r.Run}}
 		},
@@ -69,7 +75,8 @@ type poller struct {
 	dispatch ext.Dispatcher
 	clock    core.Clock
 	log      *slog.Logger
-	state    map[string]string // each host's last poll outcome: "ok" or its code
+	state    map[string]string               // each host's last poll outcome: "ok" or its code
+	after    func(ctx context.Context) error // runs after each pass: the alert evaluator
 }
 
 func newPoller(db *store.DB, d ext.Dispatcher, clock core.Clock, log *slog.Logger) *poller {
@@ -82,12 +89,17 @@ func newPoller(db *store.DB, d ext.Dispatcher, clock core.Clock, log *slog.Logge
 	return &poller{db: db, dispatch: d, clock: clock, log: log, state: map[string]string{}}
 }
 
-// Run polls every pollInterval until ctx ends. A failed pass is logged and
-// the next one starts on time.
+// Run polls every pollInterval until ctx ends, evaluating the alert rules
+// after each pass. A failed pass is logged and the next one starts on time.
 func (p *poller) Run(ctx context.Context) error {
 	for {
 		if err := p.pass(ctx); err != nil && ctx.Err() == nil {
 			p.log.Warn("metrics: poll the hosts", "error", err)
+		}
+		if p.after != nil {
+			if err := p.after(ctx); err != nil && ctx.Err() == nil {
+				p.log.Warn("metrics: evaluate the alert rules", "error", err)
+			}
 		}
 		fired := make(chan struct{})
 		t := p.clock.AfterFunc(pollInterval, func() { close(fired) })
@@ -173,7 +185,7 @@ func (p *poller) pollHost(ctx context.Context, hostID string) error {
 		if err := storeMinutes(ctx, tx, hostID, points); err != nil {
 			return err
 		}
-		return recordOK(ctx, tx, hostID, now, skew)
+		return recordOK(ctx, tx, hostID, now, skew, ans.CPUs)
 	})
 	if err != nil {
 		return err
