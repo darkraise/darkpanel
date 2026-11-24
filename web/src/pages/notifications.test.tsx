@@ -135,10 +135,10 @@ test("A38 Send test shows pending, then Delivered or Failed: <status> in the car
   expect(await within(p).findByText("Sending test…")).toBeTruthy()
   await waitFor(() => expect(release).not.toBeNull())
   release!()
-  expect(await within(p).findByText("Test: Delivered")).toBeTruthy()
+  expect(await within(p).findByText("Delivered")).toBeTruthy()
   const c = await card("team-chat")
   await user.click(within(c).getByRole("button", { name: "Send test" }))
-  expect(await within(c).findByText("Test: Failed: 503")).toBeTruthy()
+  expect(await within(c).findByText("Failed: 503")).toBeTruthy()
 })
 
 test("editing keeps stored secrets unless a new value is typed", async () => {

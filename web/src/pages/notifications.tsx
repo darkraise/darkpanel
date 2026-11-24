@@ -84,7 +84,7 @@ function ChannelCard({ channel, groups, onPick }: { channel: NotifyChannel; grou
             Send test
           </Button>
           <span role="status" className={test?.state === "done" && !test.ok ? "font-medium" : "text-muted-foreground"}>
-            {test === null ? "" : test.state === "pending" ? "Sending test…" : `Test: ${test.text}`}
+            {test === null ? "" : test.state === "pending" ? "Sending test…" : test.text}
           </span>
         </div>
       </CardContent>
