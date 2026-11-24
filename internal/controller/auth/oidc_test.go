@@ -520,3 +520,22 @@ func TestOIDCRefusalAuditsItsCause(t *testing.T) {
 		t.Errorf("audits = %v, want one refusal with cause exchange", audits)
 	}
 }
+
+func TestOIDCExpiredCodeStepIsAudited(t *testing.T) {
+	e := newOIDCEnv(t, true)
+	_, secret := e.userWithEmail("alice", "alice@example.com")
+	res, err := e.signIn(e.claims("s-1", "alice@example.com"))
+	if err != nil || res.Ticket == "" {
+		t.Fatalf("sign-in with the code step: %+v, %v", res, err)
+	}
+	before := len(e.oidcAudits())
+	e.clock.Advance(SignInTicketTTL + time.Second)
+	_, err = e.s.FinishTOTPStep(context.Background(), TOTPStepRequest{Ticket: res.Ticket, Code: code(t, secret, e.clock), Source: "192.0.2.7"})
+	if errcode.From(err).Code != errcode.InvalidCredentials {
+		t.Errorf("an expired ticket's code step answered %v, want refused", err)
+	}
+	audits := e.oidcAudits()[before:]
+	if len(audits) != 1 || audits[0]["result"] != "error" || audits[0]["step"] != "totp" || audits[0]["username"] != "alice" {
+		t.Errorf("audits after the expired code step = %v, want one refused totp step by alice", audits)
+	}
+}

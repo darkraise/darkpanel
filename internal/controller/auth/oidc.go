@@ -445,15 +445,27 @@ func (s *Service) openSession(ctx context.Context, tx *sql.Tx, u User, source, u
 // key. A ticket is used once.
 func (s *Service) FinishTOTPStep(ctx context.Context, r TOTPStepRequest) (LoginResult, error) {
 	var t signInTicket
-	if !s.openJSON(signInTicketAD, r.Ticket, &t) || !s.now().Before(t.Expires) {
+	// A ticket that does not open names no method or user, so it is not a
+	// sign-in and leaves no audit row; an orphaned or expired one does.
+	if !s.openJSON(signInTicketAD, r.Ticket, &t) {
 		return LoginResult{}, errSignInRefused()
 	}
+	step := map[string]string{"step": "totp"}
 	rec, err := loadUserBy(ctx, s.db.Read(), `id = ?`, t.UserID)
 	if err != nil {
 		if errcode.From(err).Code == errcode.NotFound {
+			if aerr := s.recordSignInWith(ctx, t.Method, "", r.Source, "", errcode.InvalidCredentials, step); aerr != nil {
+				return LoginResult{}, aerr
+			}
 			return LoginResult{}, errSignInRefused()
 		}
 		return LoginResult{}, err
+	}
+	if !s.now().Before(t.Expires) {
+		if aerr := s.recordSignInWith(ctx, t.Method, rec.Username, r.Source, rec.ID, errcode.InvalidCredentials, step); aerr != nil {
+			return LoginResult{}, aerr
+		}
+		return LoginResult{}, errSignInRefused()
 	}
 	src, trusted := limitSource(ctx, r.Source), r.Trusted && !proxied(ctx)
 	if d := s.limiter.blockedFor(rec.Username, src, trusted); d > 0 {
