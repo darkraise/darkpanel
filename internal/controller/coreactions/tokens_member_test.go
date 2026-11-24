@@ -283,3 +283,30 @@ func TestTokenActionsRefuseAMemberOutsideTheAPI(t *testing.T) {
 	_, err = e.plan(token, "core.token.revoke", TokenRevokeInput{ID: info.ID})
 	wantCode(t, err, errcode.Forbidden)
 }
+
+// TestTokenCreateApplyRechecksTheScope: an admin-scope token planned by an
+// admin who is a member by the time the plan is applied is refused when it
+// is applied, and no token is created.
+func TestTokenCreateApplyRechecksTheScope(t *testing.T) {
+	e := newTestEnv(t)
+	ctx := context.Background()
+	e.activeUser("root")
+	u, admin := e.activeUser("mia")
+	pv, err := e.plan(admin, "core.token.create", TokenCreateInput{Name: "x", Scope: core.ScopeAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.auth.SetRole(ctx, "mia", auth.RoleMember); err != nil {
+		t.Fatal(err)
+	}
+	member := core.Principal{Actor: admin.Actor, UserID: u.ID, Source: admin.Source, Access: core.Access{All: core.ScopeRead}}
+	_, err = e.apply(member, pv.PlanID, pv.Confirmation)
+	wantCode(t, err, errcode.Forbidden)
+	tokens, err := e.auth.ListTokens(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tokens) != 0 {
+		t.Errorf("mia's tokens after the refused apply: %+v; want none", tokens)
+	}
+}
