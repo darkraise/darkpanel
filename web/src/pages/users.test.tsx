@@ -59,7 +59,7 @@ test("UX-1 invite flow: the form plans core.user.invite, the link shows once, fo
   })
 
   const link = await screen.findByRole("dialog", { name: "Enrollment link for noor" })
-  expect((within(link).getByLabelText("Enrollment link") as HTMLInputElement).value).toBe(`${window.location.origin}/enroll#tok-123`)
+  expect(within(link).getByLabelText("Enrollment link").textContent).toBe(`${window.location.origin}/enroll#tok-123`)
   expect(within(link).getByRole("button", { name: "Copy" })).toBeTruthy()
   expect(within(link).getByText(/^Expires /)).toBeTruthy()
   await user.click(within(link).getByRole("button", { name: "Done" }))
@@ -124,7 +124,7 @@ test("New enrollment link renews the invite and shows the new link once", async 
   const change = await screen.findByRole("dialog", { name: "New enrollment link for noor" })
   await user.click(await within(change).findByRole("button", { name: "Apply" }))
   const link = await screen.findByRole("dialog", { name: "Enrollment link for noor" })
-  expect((within(link).getByLabelText("Enrollment link") as HTMLInputElement).value).toBe(`${window.location.origin}/enroll#tok-new`)
+  expect(within(link).getByLabelText("Enrollment link").textContent).toBe(`${window.location.origin}/enroll#tok-new`)
   expect(calls.find((c) => c.path.endsWith("renew-invite/v1/plan"))?.body).toEqual({ input: { username: "noor" } })
 })
 

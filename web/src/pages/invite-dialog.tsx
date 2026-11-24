@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
 import { Checkbox } from "darkraise-ui/components/checkbox"
-import { ClipboardControl, ClipboardInput, ClipboardLabel, ClipboardTrigger } from "darkraise-ui/components/clipboard"
+import { ClipboardTrigger } from "darkraise-ui/components/clipboard"
+import { Copy } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "darkraise-ui/components/dialog"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
@@ -79,11 +80,17 @@ export function LinkDialog({ username, invitation, onClose }: { username: string
         {invitation !== null && (
           <div className="flex flex-col gap-4">
             <SecretClipboard value={enrollLink(invitation.token)}>
-              <ClipboardLabel htmlFor="enroll-link">Enrollment link</ClipboardLabel>
-              <ClipboardControl>
-                <ClipboardInput id="enroll-link" className="font-mono" />
-                <ClipboardTrigger>Copy</ClipboardTrigger>
-              </ClipboardControl>
+              <span id="enroll-link-label" className="text-sm font-medium">
+                Enrollment link
+              </span>
+              {/* The whole link wraps, so the admin can read it before sending it. */}
+              <p id="enroll-link" aria-labelledby="enroll-link-label" className="rounded-md border border-border bg-muted p-3 font-mono text-sm break-all select-all">
+                {enrollLink(invitation.token)}
+              </p>
+              <ClipboardTrigger className="self-start">
+                <Copy aria-hidden />
+                Copy
+              </ClipboardTrigger>
             </SecretClipboard>
             <p className="text-sm text-muted-foreground">{`Expires ${formatTime(invitation.expiresAt)}`}</p>
             <DialogFooter>
