@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -70,6 +71,15 @@ func TestWhoisAnswerShapes(t *testing.T) {
 		n := w.Node
 		if n.StableID != p.ID {
 			t.Errorf("whois %s: stable id %q, status says %q", p.TailscaleIPs[0], n.StableID, p.ID)
+		}
+		if n.Name != p.DNSName {
+			t.Errorf("whois %s: name %q, status says %q", p.TailscaleIPs[0], n.Name, p.DNSName)
+		}
+		// Sign-in refuses a managed host by these addresses.
+		for _, ip := range p.TailscaleIPs {
+			if !slices.ContainsFunc(n.Addresses, func(a netip.Prefix) bool { return a.Addr() == ip }) {
+				t.Errorf("whois %s: addresses %v lack %s, which status lists", p.TailscaleIPs[0], n.Addresses, ip)
+			}
 		}
 		switch {
 		case len(n.Tags) > 0:
