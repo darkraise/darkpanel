@@ -112,12 +112,14 @@ own tokens from a signed-in session, with the `read` or `operate` scope; its
 tokens cannot create or revoke tokens.
 
 - `core.token.create`: `darkpanel token create --name <name> --scope <scope>`
-  needs `admin`. It creates a token and shows it once. Undo it with
+  needs `admin`, or a member's signed-in session. It creates a token and
+  shows it once. Undo it with
   `core.token.revoke`.
 - `core.token.list`: `darkpanel token list` needs `read`. It lists your tokens,
   newest first, revoked and expired ones included until they are purged.
-- `core.token.revoke`: `darkpanel token revoke --id <id>` needs `admin`. It
-  revokes one of your tokens, and it cannot be undone.
+- `core.token.revoke`: `darkpanel token revoke --id <id>` needs `admin`, or a
+  member's signed-in session. It revokes one of your tokens, and it cannot be
+  undone.
 
 ## Hosts
 
