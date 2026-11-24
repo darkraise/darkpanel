@@ -12,6 +12,7 @@ import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise
 import { GROUPS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups } from "@/api/client"
 import type { GrantRole, HostGroup, Invitation, Role } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
+import { FALLBACK_FOCUS } from "@/lib/return-focus"
 import { SecretClipboard } from "@/components/secret-clipboard"
 import { formatTime } from "@/lib/format"
 import { applied, enrollLink, grantsOf, invitationOf, type AccessDraft } from "@/lib/users"
@@ -163,7 +164,7 @@ export function InviteUser({ onDone }: { onDone: (username: string) => void }) {
 
   return (
     <>
-      <Button onClick={() => setPhase("form")}>Invite user</Button>
+      <Button {...{ [FALLBACK_FOCUS]: "" }} onClick={() => setPhase("form")}>Invite user</Button>
       <Dialog open={phase === "form"} onOpenChange={(next) => (next ? undefined : reset())}>
         <DialogContent>
           <DialogHeader>

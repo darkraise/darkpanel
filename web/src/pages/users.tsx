@@ -13,6 +13,7 @@ import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise
 import { Skeleton } from "darkraise-ui/components/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { GROUPS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups, listUsers } from "@/api/client"
+import { useFocusFallback } from "@/lib/return-focus"
 import type { DirectoryUser, Grant, HostGroup, Invitation, Role } from "@/api/types"
 import { ChangeDialog, type ChangeTarget } from "@/components/change-dialog"
 import { usePageTitle } from "@/lib/page-title"
@@ -204,6 +205,7 @@ export function UsersPage() {
   const users = useQuery({ queryKey: USERS_QUERY_KEY, queryFn: listUsers })
   const groups = useQuery({ queryKey: GROUPS_QUERY_KEY, queryFn: listGroups })
   const [dialogue, setDialogue] = useState<Dialogue | null>(null)
+  useFocusFallback(dialogue !== null)
   const [link, setLink] = useState<{ username: string; invitation: Invitation } | null>(null)
   const focusUser = useRef<string | null>(null)
   const [focusTick, setFocusTick] = useState(0)

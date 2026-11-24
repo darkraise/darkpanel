@@ -12,6 +12,7 @@ import { Skeleton } from "darkraise-ui/components/skeleton"
 import { GROUPS_QUERY_KEY, errorMessage, listGroups, readAction } from "@/api/client"
 import type { ChannelKind, ChannelList, ChannelTestResult, HostGroup, NotifyChannel } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
+import { FALLBACK_FOCUS, useFocusFallback } from "@/lib/return-focus"
 import { formatTime } from "@/lib/format"
 import { CHANNELS_QUERY_KEY, CHANNEL_KINDS, KIND_LABELS, lastDeliveryText, routingText } from "@/lib/notify"
 import { usePageTitle } from "@/lib/page-title"
@@ -130,6 +131,7 @@ export function NotificationsPage() {
   const channels = useQuery({ queryKey: CHANNELS_QUERY_KEY, queryFn: listChannels })
   const groups = useQuery({ queryKey: GROUPS_QUERY_KEY, queryFn: listGroups })
   const [dialogue, setDialogue] = useState<Dialogue | null>(null)
+  useFocusFallback(dialogue !== null)
   const close = () => setDialogue(null)
 
   let body
@@ -175,7 +177,7 @@ export function NotificationsPage() {
       <PageHeader
         title="Notifications"
         description="Where Darkpanel sends alerts, failed changes and failed updates."
-        actions={<Button onClick={() => setDialogue({ kind: "pick" })}>Add channel</Button>}
+        actions={<Button {...{ [FALLBACK_FOCUS]: "" }} onClick={() => setDialogue({ kind: "pick" })}>Add channel</Button>}
       />
       {body}
       {dialogue?.kind === "pick" && <KindPicker onCancel={close} onPick={(k) => setDialogue({ kind: "form", channelKind: k, channel: null })} />}

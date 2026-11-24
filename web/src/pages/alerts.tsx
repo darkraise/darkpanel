@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { errorMessage, readAction } from "@/api/client"
 import type { AlertList, AlertRule, AlertRuleList, AlertSeverity, FiredAlert } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
+import { FALLBACK_FOCUS, useFocusFallback } from "@/lib/return-focus"
 import { ALERTS_QUERY_KEY, ALERT_RULES_QUERY_KEY, SEVERITY_LABELS, alertTitle, conditionText, minutesText, targetText, valueText } from "@/lib/alerts"
 import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
@@ -237,6 +238,7 @@ export function AlertsPage() {
   const { session } = useSession()
   const admin = isAdmin(session)
   const [dialogue, setDialogue] = useState<Dialogue | null>(null)
+  useFocusFallback(dialogue !== null)
   const close = () => setDialogue(null)
   const alerts = useQuery({ queryKey: ALERTS_QUERY_KEY, queryFn: listAlerts, refetchInterval: ALERTS_REFRESH_MS })
 
@@ -245,7 +247,7 @@ export function AlertsPage() {
       <PageHeader
         title="Alerts"
         description={admin ? "Firing alerts, and the rules that raise them." : "Firing alerts on the hosts you can see."}
-        actions={admin ? <Button onClick={() => setDialogue({ kind: "form", rule: null })}>New rule</Button> : undefined}
+        actions={admin ? <Button {...{ [FALLBACK_FOCUS]: "" }} onClick={() => setDialogue({ kind: "form", rule: null })}>New rule</Button> : undefined}
       />
       <AlertsSection />
       {admin && <RulesSection onPick={setDialogue} hold={alerts.isPending} />}

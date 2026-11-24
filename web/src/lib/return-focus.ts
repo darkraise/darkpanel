@@ -19,3 +19,28 @@ export function useReturnFocus(open: boolean, fallback?: RefObject<HTMLElement |
   }, [open, fallback])
   return button
 }
+
+// FALLBACK_FOCUS marks a page's primary button. A dialog that a row menu
+// opened returns focus to that menu's button; when the change removed the
+// row, the button is gone and focus would fall to the page body.
+export const FALLBACK_FOCUS = "data-focus-fallback"
+
+// useFocusFallback moves focus to the page's FALLBACK_FOCUS button when a
+// dialog closes and leaves focus on the body.
+export function useFocusFallback(open: boolean) {
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (open) {
+      wasOpen.current = true
+      return
+    }
+    if (!wasOpen.current) return
+    wasOpen.current = false
+    const id = window.setTimeout(() => {
+      if (document.activeElement === null || document.activeElement === document.body) {
+        document.querySelector<HTMLElement>(`[${FALLBACK_FOCUS}]`)?.focus()
+      }
+    })
+    return () => window.clearTimeout(id)
+  }, [open])
+}

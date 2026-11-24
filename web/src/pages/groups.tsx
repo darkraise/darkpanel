@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { GROUPS_QUERY_KEY, HOSTS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups, listHosts } from "@/api/client"
 import type { HostGroup } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
+import { FALLBACK_FOCUS, useFocusFallback } from "@/lib/return-focus"
 import { usePageTitle } from "@/lib/page-title"
 import { STACKED_BODY, STACKED_CELL, STACKED_FRAME, STACKED_HEAD, STACKED_ROW, STACKED_TABLE } from "@/lib/table"
 import { applied } from "@/lib/users"
@@ -216,7 +217,12 @@ export function GroupsPage() {
   const groups = useQuery({ queryKey: GROUPS_QUERY_KEY, queryFn: listGroups })
   const [dialogue, setDialogue] = useState<Dialogue | null>(null)
   const close = () => setDialogue(null)
-  const create = <Button onClick={() => setDialogue({ kind: "create" })}>Create group</Button>
+  useFocusFallback(dialogue !== null)
+  const create = (
+    <Button {...{ [FALLBACK_FOCUS]: "" }} onClick={() => setDialogue({ kind: "create" })}>
+      Create group
+    </Button>
+  )
 
   let body
   if (groups.isPending) {

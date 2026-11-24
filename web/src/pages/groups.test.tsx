@@ -98,6 +98,27 @@ test("the members dialog lists 200 hosts with a search and applies core.group.se
   expect(calls.find((c) => c.path.endsWith("core.group.set-members/v1/plan"))?.body).toEqual({ input: { id: "g1", hostIds: ["h001", "h002", "h004", "h195"] } })
 })
 
+test("after a delete removes its row, focus lands on Create group, not the page body", async () => {
+  let deleted = false
+  stub(() => (deleted ? [web] : [web, db]), {
+    [route("core.group.delete", "plan")]: { body: makePlan("core.group.delete", { confirmation: null }) },
+    [route("core.group.delete", "apply")]: () => {
+      deleted = true
+      return { body: makeChange("core.group.delete", {}) }
+    },
+  })
+  renderWithProviders(<GroupsPage />)
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole("button", { name: "Actions for db" }))
+  await user.click(await screen.findByRole("menuitem", { name: "Delete" }))
+  const change = await screen.findByRole("dialog", { name: "Delete db" })
+  await user.click(await within(change).findByRole("button", { name: "Apply" }))
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Actions for db" })).toBeNull())
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  await waitFor(() => expect(document.activeElement?.textContent).toBe("Create group"))
+})
+
 test("a delete refused with group.in_use shows the names it lists", async () => {
   stub(() => [web], {
     [route("core.group.delete", "plan")]: {
