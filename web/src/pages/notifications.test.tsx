@@ -45,7 +45,7 @@ test("UI-4 each card shows its kind, name, routing summary and last result as te
   expect(within(p).getByText(/^Last delivery: Delivered /)).toBeTruthy()
   const c = await card("team-chat")
   expect(within(c).getByText("Telegram")).toBeTruthy()
-  expect(within(c).getByText("Critical, alerts, group web")).toBeTruthy()
+  expect(within(c).getByText("Critical, alerts only, group web")).toBeTruthy()
   expect(within(c).getByText("Last delivery: Failed: 403")).toBeTruthy()
   const o = await card("oncall")
   expect(within(o).getByText("Critical, all events, groups web, db")).toBeTruthy()

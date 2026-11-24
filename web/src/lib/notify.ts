@@ -17,12 +17,8 @@ export const EVENT_GROUPS: { id: string; label: string; kinds: string[] }[] = [
 const SEVERITY_TEXT: Record<Severity, string> = { info: "Info and above", warning: "Warning and above", critical: "Critical" }
 
 export function routingText(c: Pick<NotifyChannel, "minSeverity" | "kinds" | "groupIds">, groups: HostGroup[] | undefined): string {
-  const events =
-    c.kinds.length === 0
-      ? "all events"
-      : EVENT_GROUPS.filter((g) => g.kinds.some((k) => c.kinds.includes(k)))
-          .map((g) => g.label.toLowerCase())
-          .join(", ") || "chosen events"
+  const chosen = EVENT_GROUPS.filter((g) => g.kinds.some((k) => c.kinds.includes(k))).map((g) => g.label.toLowerCase())
+  const events = c.kinds.length === 0 ? "all events" : chosen.length === 0 ? "chosen events" : chosen.length === 1 ? `${chosen[0]} only` : chosen.join(", ")
   const names = c.groupIds.map((id) => groups?.find((g) => g.id === id)?.name ?? id)
   const hosts = names.length === 0 ? "all hosts" : `${names.length === 1 ? "group" : "groups"} ${names.join(", ")}`
   return `${SEVERITY_TEXT[c.minSeverity]}, ${events}, ${hosts}`
