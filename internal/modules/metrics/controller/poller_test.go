@@ -306,6 +306,11 @@ func TestPollAndBackfill(t *testing.T) {
 			now.Format(tsFormat)); n != 0 {
 			t.Errorf("%d out-of-bounds minutes were stored", n)
 		}
+		// The misaligned and the hot minute are bad figures; the future one
+		// is only not over yet.
+		if !strings.Contains(e.logs.String(), "left out\" host=h1 minutes=2") {
+			t.Errorf("no warning names the 2 bad minutes left out; logs:\n%s", e.logs.String())
+		}
 	})
 	t.Run("failures set the status and log once per change", func(t *testing.T) {
 		before := minutes(t, e.db, "h1")

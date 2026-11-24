@@ -89,14 +89,17 @@ func fitsInteger(vs ...uint64) bool {
 // minutes that ended by now (by the controller's clock) and are at most two
 // hours old, with figures in range; a filesystem or interface beyond the
 // first 16, or with a name out of bounds, is left out. Agents are not
-// trusted to keep their own bounds.
-func storable(samples []Point, now time.Time) []Point {
-	var out []Point
+// trusted to keep their own bounds. bad counts the minutes left out for a
+// misaligned time or a figure out of range, which no later poll refetches.
+func storable(samples []Point, now time.Time) (out []Point, bad int) {
 	for _, s := range samples[:min(len(samples), maxAnswerMinutes)] {
 		ts := s.TS.UTC()
-		if !ts.Equal(ts.Truncate(time.Minute)) || ts.Add(time.Minute).After(now) || ts.Before(now.Add(-2*time.Hour)) ||
-			!nonNegative(s.CPU, s.Load1, s.Load5, s.Load15) || s.CPU > 100 ||
+		if ts.Add(time.Minute).After(now) || ts.Before(now.Add(-2*time.Hour)) {
+			continue
+		}
+		if !ts.Equal(ts.Truncate(time.Minute)) || !nonNegative(s.CPU, s.Load1, s.Load5, s.Load15) || s.CPU > 100 ||
 			!fitsInteger(s.MemUsed, s.MemTotal, s.SwapUsed, s.SwapTotal) {
+			bad++
 			continue
 		}
 		p := s
@@ -113,7 +116,7 @@ func storable(samples []Point, now time.Time) []Point {
 		}
 		out = append(out, p)
 	}
-	return out
+	return out, bad
 }
 
 // storeMinutes writes points as hostID's minute rows; a minute already

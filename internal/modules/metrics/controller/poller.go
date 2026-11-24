@@ -180,7 +180,10 @@ func (p *poller) pollHost(ctx context.Context, hostID string) error {
 	if skewDur > maxSkew || skewDur < -maxSkew {
 		return p.fail(ctx, hostID, CodeClockSkew, now, &skew)
 	}
-	points := storable(ans.Samples, now)
+	points, bad := storable(ans.Samples, now)
+	if bad > 0 {
+		p.log.Warn("metrics: minutes of the host's answer were left out", "host", hostID, "minutes", bad)
+	}
 	err = p.db.Write(ctx, func(tx *sql.Tx) error {
 		if err := storeMinutes(ctx, tx, hostID, points); err != nil {
 			return err
