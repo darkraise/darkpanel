@@ -199,6 +199,8 @@ func (s *Server) handleTailscaleMatch(w http.ResponseWriter, r *http.Request) {
 
 type tailscaleStepResponse struct {
 	TOTP bool `json:"totp"`
+	// Remember reports that a right code will remember the node.
+	Remember bool `json:"remember"`
 }
 
 // handleTailscaleSignIn signs the requesting node in as its linked user. It
@@ -235,7 +237,7 @@ func (s *Server) handleTailscaleSignIn(w http.ResponseWriter, r *http.Request) {
 	}
 	if res.Ticket != "" {
 		http.SetCookie(w, flowCookie(signInStepCookie, res.Ticket, totpStepPath, auth.SignInTicketTTL, false))
-		writeJSON(w, s.log, http.StatusOK, tailscaleStepResponse{TOTP: true})
+		writeJSON(w, s.log, http.StatusOK, tailscaleStepResponse{TOTP: true, Remember: res.Remember})
 		return
 	}
 	http.SetCookie(w, sessionCookie(r, res.SessionID, 0))

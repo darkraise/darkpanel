@@ -418,8 +418,8 @@ func (h *tsHarness) codeStep(step *http.Cookie, code string) *http.Request {
 func TestTailscaleRequireTotp(t *testing.T) {
 	h := newTSHarness(t, true)
 	rec := h.do(post(tsPeer))
-	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"totp":true}` || h.sessions() != 0 {
-		t.Fatalf("POST with the code step: %d %s; want {\"totp\":true} and no session", rec.Code, rec.Body)
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"totp":true,"remember":false}` || h.sessions() != 0 {
+		t.Fatalf("POST with the code step: %d %s; want {\"totp\":true,\"remember\":false} and no session", rec.Code, rec.Body)
 	}
 	step := cookieNamed(rec, signInStepCookie)
 	if step == nil || step.Path != totpStepPath || step.SameSite != http.SameSiteStrictMode {
