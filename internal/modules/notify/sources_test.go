@@ -249,7 +249,6 @@ func TestCursorAcrossRestart(t *testing.T) {
 	changeRow(t, db, "cf", "", "files.write", core.StateFailed, "change.apply_failed", "", at)
 	changeRow(t, db, "cr", "", "files.write", core.StateReverted, "", "", at)
 	journalRow(t, db, "cr", "revert", lifecycle.ActorRevertTimer, at)
-	_ = x.cursor()
 
 	x.cursorPass(x.cursor())
 	if got, want := keys(x.events()), []string{"change.failed:cf", "change.auto_reverted:cr"}; !equal(got, want) {
