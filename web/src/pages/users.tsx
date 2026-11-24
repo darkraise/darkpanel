@@ -13,7 +13,7 @@ import { SegmentGroup, SegmentGroupIndicator, SegmentGroupItem } from "darkraise
 import { Skeleton } from "darkraise-ui/components/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { GROUPS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups, listUsers } from "@/api/client"
-import { useFocusFallback } from "@/lib/return-focus"
+import { useFocusFallback, useMenuDialogFocus } from "@/lib/return-focus"
 import type { DirectoryUser, Grant, HostGroup, Invitation, Role } from "@/api/types"
 import { ChangeDialog, type ChangeTarget } from "@/components/change-dialog"
 import { usePageTitle } from "@/lib/page-title"
@@ -38,6 +38,7 @@ type Dialogue =
   | { kind: "change"; user: DirectoryUser; title: string; target: ChangeTarget; input: Record<string, unknown>; link?: boolean }
 
 function RowMenu({ user, onPick }: { user: DirectoryUser; onPick: (d: Dialogue) => void }) {
+  const { trigger, pick, onCloseAutoFocus } = useMenuDialogFocus(onPick)
   const simple = (title: string, name: string, link = false): Dialogue => ({
     kind: "change",
     user,
@@ -49,26 +50,26 @@ function RowMenu({ user, onPick }: { user: DirectoryUser; onPick: (d: Dialogue) 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={`Actions for ${user.username}`}>
+        <Button variant="ghost" size="icon" ref={trigger} aria-label={`Actions for ${user.username}`}>
           <MoreHorizontal aria-hidden />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={() => onPick({ kind: "role", user })}>Change role</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onPick({ kind: "access", user })}>Edit access</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onPick({ kind: "identity", user })}>Edit sign-in links</DropdownMenuItem>
+      <DropdownMenuContent align="end" onCloseAutoFocus={onCloseAutoFocus}>
+        <DropdownMenuItem onSelect={() => pick({ kind: "role", user })}>Change role</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => pick({ kind: "access", user })}>Edit access</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => pick({ kind: "identity", user })}>Edit sign-in links</DropdownMenuItem>
         {user.state === "pending" && (
           <>
-            <DropdownMenuItem onSelect={() => onPick(simple(`New enrollment link for ${user.username}`, "core.user.renew-invite", true))}>
+            <DropdownMenuItem onSelect={() => pick(simple(`New enrollment link for ${user.username}`, "core.user.renew-invite", true))}>
               New enrollment link
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onPick(simple(`Cancel the invite of ${user.username}`, "core.user.cancel-invite"))}>Cancel invite</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => pick(simple(`Cancel the invite of ${user.username}`, "core.user.cancel-invite"))}>Cancel invite</DropdownMenuItem>
           </>
         )}
         {user.disabled ? (
-          <DropdownMenuItem onSelect={() => onPick(simple(`Enable ${user.username}`, "core.user.enable"))}>Enable</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => pick(simple(`Enable ${user.username}`, "core.user.enable"))}>Enable</DropdownMenuItem>
         ) : (
-          user.state !== "pending" && <DropdownMenuItem onSelect={() => onPick(simple(`Disable ${user.username}`, "core.user.disable"))}>Disable</DropdownMenuItem>
+          user.state !== "pending" && <DropdownMenuItem onSelect={() => pick(simple(`Disable ${user.username}`, "core.user.disable"))}>Disable</DropdownMenuItem>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

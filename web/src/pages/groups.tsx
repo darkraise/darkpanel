@@ -15,7 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { GROUPS_QUERY_KEY, HOSTS_QUERY_KEY, USERS_QUERY_KEY, errorMessage, listGroups, listHosts } from "@/api/client"
 import type { HostGroup } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
-import { FALLBACK_FOCUS, useFocusFallback } from "@/lib/return-focus"
+import { FALLBACK_FOCUS, useFocusFallback, useMenuDialogFocus } from "@/lib/return-focus"
 import { usePageTitle } from "@/lib/page-title"
 import { STACKED_BODY, STACKED_CELL, STACKED_FRAME, STACKED_HEAD, STACKED_ROW, STACKED_TABLE } from "@/lib/table"
 import { applied } from "@/lib/users"
@@ -173,17 +173,18 @@ function MembersForm({ group, onCancel, onPlan }: { group: HostGroup; onCancel: 
 }
 
 function RowMenu({ group, onPick }: { group: HostGroup; onPick: (d: Dialogue) => void }) {
+  const { trigger, pick, onCloseAutoFocus } = useMenuDialogFocus(onPick)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={`Actions for ${group.name}`}>
+        <Button variant="ghost" size="icon" ref={trigger} aria-label={`Actions for ${group.name}`}>
           <MoreHorizontal aria-hidden />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={() => onPick({ kind: "members", group })}>Edit members</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onPick({ kind: "rename", group })}>Rename</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onPick({ kind: "change", title: `Delete ${group.name}`, name: "core.group.delete", input: { id: group.id } })}>
+      <DropdownMenuContent align="end" onCloseAutoFocus={onCloseAutoFocus}>
+        <DropdownMenuItem onSelect={() => pick({ kind: "members", group })}>Edit members</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => pick({ kind: "rename", group })}>Rename</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => pick({ kind: "change", title: `Delete ${group.name}`, name: "core.group.delete", input: { id: group.id } })}>
           Delete
         </DropdownMenuItem>
       </DropdownMenuContent>

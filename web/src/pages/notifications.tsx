@@ -12,7 +12,7 @@ import { Skeleton } from "darkraise-ui/components/skeleton"
 import { GROUPS_QUERY_KEY, errorMessage, listGroups, readAction } from "@/api/client"
 import type { ChannelKind, ChannelList, ChannelTestResult, HostGroup, NotifyChannel } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
-import { FALLBACK_FOCUS, useFocusFallback } from "@/lib/return-focus"
+import { FALLBACK_FOCUS, useFocusFallback, useMenuDialogFocus } from "@/lib/return-focus"
 import { formatTime } from "@/lib/format"
 import { CHANNELS_QUERY_KEY, CHANNEL_KINDS, KIND_LABELS, lastDeliveryText, routingText } from "@/lib/notify"
 import { usePageTitle } from "@/lib/page-title"
@@ -33,6 +33,7 @@ function listChannels(): Promise<ChannelList> {
 }
 
 function ChannelCard({ channel, groups, onPick }: { channel: NotifyChannel; groups: HostGroup[] | undefined; onPick: (d: Dialogue) => void }) {
+  const { trigger, pick, onCloseAutoFocus } = useMenuDialogFocus(onPick)
   const client = useQueryClient()
   const [test, setTest] = useState<TestState | null>(null)
   const Icon = ICONS[channel.kind]
@@ -63,13 +64,13 @@ function ChannelCard({ channel, groups, onPick }: { channel: NotifyChannel; grou
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label={`Actions for ${channel.name}`}>
+            <Button variant="ghost" size="icon" ref={trigger} aria-label={`Actions for ${channel.name}`}>
               <MoreHorizontal aria-hidden />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => onPick({ kind: "form", channelKind: channel.kind, channel })}>Edit</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onPick({ kind: "change", title: `Delete ${channel.name}`, name: "notify.channel.delete", input: { id: channel.id } })}>
+          <DropdownMenuContent align="end" onCloseAutoFocus={onCloseAutoFocus}>
+            <DropdownMenuItem onSelect={() => pick({ kind: "form", channelKind: channel.kind, channel })}>Edit</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => pick({ kind: "change", title: `Delete ${channel.name}`, name: "notify.channel.delete", input: { id: channel.id } })}>
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>

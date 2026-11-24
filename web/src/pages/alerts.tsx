@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "d
 import { errorMessage, readAction } from "@/api/client"
 import type { AlertList, AlertRule, AlertRuleList, AlertSeverity, FiredAlert } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
-import { FALLBACK_FOCUS, useFocusFallback } from "@/lib/return-focus"
+import { FALLBACK_FOCUS, useFocusFallback, useMenuDialogFocus } from "@/lib/return-focus"
 import { ALERTS_QUERY_KEY, ALERT_RULES_QUERY_KEY, SEVERITY_LABELS, alertTitle, conditionText, minutesText, targetText, valueText } from "@/lib/alerts"
 import { formatTime } from "@/lib/format"
 import { usePageTitle } from "@/lib/page-title"
@@ -133,16 +133,17 @@ function AlertsSection() {
 }
 
 function RuleMenu({ rule, onPick }: { rule: AlertRule; onPick: (d: Dialogue) => void }) {
+  const { trigger, pick, onCloseAutoFocus } = useMenuDialogFocus(onPick)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={`Actions for ${rule.name}`}>
+        <Button variant="ghost" size="icon" ref={trigger} aria-label={`Actions for ${rule.name}`}>
           <MoreHorizontal aria-hidden />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={() => onPick({ kind: "form", rule })}>Edit</DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onPick({ kind: "change", title: `Delete ${rule.name}`, name: "metrics.alert.delete", input: { id: rule.id } })}>
+      <DropdownMenuContent align="end" onCloseAutoFocus={onCloseAutoFocus}>
+        <DropdownMenuItem onSelect={() => pick({ kind: "form", rule })}>Edit</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => pick({ kind: "change", title: `Delete ${rule.name}`, name: "metrics.alert.delete", input: { id: rule.id } })}>
           Delete
         </DropdownMenuItem>
       </DropdownMenuContent>
