@@ -13,7 +13,6 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -623,10 +622,13 @@ func TestA14_oidc_refusals_create_nothing(t *testing.T) {
 		if qaSessionCookie(o.signIn("s-original", "admin@example.com", nil)) == "" {
 			t.Fatal("the first sign-in failed")
 		}
-		sessions := qaCount(t, o.harness, `SELECT count(*) FROM core_sessions`)
+		users, sessions := qaCount(t, o.harness, `SELECT count(*) FROM core_users`), qaCount(t, o.harness, `SELECT count(*) FROM core_sessions`)
 		rec := o.signIn("s-attacker", "admin@example.com", nil)
 		if qaSessionCookie(rec) != "" || qaCount(t, o.harness, `SELECT count(*) FROM core_sessions`) != sessions {
 			t.Errorf("a different subject signed in as the pinned user")
+		}
+		if n := qaCount(t, o.harness, `SELECT count(*) FROM core_users`); n != users {
+			t.Errorf("a different subject for a pinned user: users %d -> %d", users, n)
 		}
 	})
 	t.Run("a replayed state", func(t *testing.T) {
@@ -637,11 +639,14 @@ func TestA14_oidc_refusals_create_nothing(t *testing.T) {
 		if qaSessionCookie(o.callback(f)) == "" {
 			t.Fatal("the first callback failed")
 		}
-		sessions := qaCount(t, o.harness, `SELECT count(*) FROM core_sessions`)
+		users, sessions := qaCount(t, o.harness, `SELECT count(*) FROM core_users`), qaCount(t, o.harness, `SELECT count(*) FROM core_sessions`)
 		f.code = f.code + "-again"
 		o.register(o.idp, f, o.claims(loc.Query().Get("nonce"), "s1", "admin@example.com", nil), nil)
 		if rec := o.callback(f); qaSessionCookie(rec) != "" || qaCount(t, o.harness, `SELECT count(*) FROM core_sessions`) != sessions {
 			t.Errorf("a replayed state created a second session")
+		}
+		if n := qaCount(t, o.harness, `SELECT count(*) FROM core_users`); n != users {
+			t.Errorf("a replayed state: users %d -> %d", users, n)
 		}
 	})
 	t.Run("a colliding sub after the issuer changes", func(t *testing.T) {
@@ -1089,7 +1094,6 @@ func TestA18_sign_ins_are_audited_with_method_and_source(t *testing.T) {
 	if !has(es, "enrollment", "ok") || !has(es, "enrollment", "error") {
 		t.Errorf("enrollment outcomes audited as %+v, want an ok and an error entry with method enrollment and a source", es)
 	}
-	_ = regexp.MustCompile
 }
 
 // qaBus wraps an events bus with a helper that publishes host events.

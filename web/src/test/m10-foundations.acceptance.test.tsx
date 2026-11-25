@@ -320,11 +320,8 @@ describe("A41 UX-8 member UI", () => {
     await screen.findByRole("heading", { level: 1, name: "web-1" })
     expect(screen.queryByRole("button", { name: /^(Update|Revoke|Remove|Delete|Enable|Disable|Reboot|Change)/ })).toBeNull()
   })
-  test("A41: the member's session stub holds only its host: a host outside its grants is not listed", async () => {
-    renderApp(memberSession(), "/")
-    expect((await screen.findAllByText("web-1")).length).toBeGreaterThan(0)
-    expect(screen.queryByText("db-outside")).toBeNull()
-  })
+  // "No hosts outside its grants" is the server's filtering, which the UI
+  // only renders: TestA4 (internal/controller/server) proves it.
 })
 
 describe("A42 UX-11 keyboard", () => {

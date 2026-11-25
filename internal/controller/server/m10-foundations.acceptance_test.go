@@ -707,10 +707,17 @@ func TestA59_group_delete_refused_while_named(t *testing.T) {
 	qaHost(e, "h-grp")
 	gid := e.qaGroup("Edge", "h-grp")
 	e.qaJoin("grantee", qaGrant{gid, "viewer"})
-	e.qaMust("metrics.alert.create", map[string]any{"name": "Edge CPU", "metric": "cpu", "comparator": ">", "threshold": 90,
-		"durationMin": 5, "severity": "warning", "target": gid})
-	e.qaMust("notify.channel.create", map[string]any{"kind": "webhook", "name": "Edge hook", "minSeverity": "info", "groupIds": []string{gid},
-		"webhook": map[string]any{"url": "http://127.0.0.1:9/hook"}})
+	var rule, channel struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(e.qaMust("metrics.alert.create", map[string]any{"name": "Edge CPU", "metric": "cpu", "comparator": ">", "threshold": 90,
+		"durationMin": 5, "severity": "warning", "target": gid}), &rule); err != nil || rule.ID == "" {
+		t.Fatalf("metrics.alert.create output: %v", err)
+	}
+	if err := json.Unmarshal(e.qaMust("notify.channel.create", map[string]any{"kind": "webhook", "name": "Edge hook", "minSeverity": "info", "groupIds": []string{gid},
+		"webhook": map[string]any{"url": "http://127.0.0.1:9/hook"}}), &channel); err != nil || channel.ID == "" {
+		t.Fatalf("notify.channel.create output: %v", err)
+	}
 
 	r := e.qaCall(e.admin(), "core.group.delete", map[string]any{"id": gid})
 	if r.ok() || r.code() != "group.in_use" {
@@ -724,7 +731,9 @@ func TestA59_group_delete_refused_while_named(t *testing.T) {
 	}
 	// Once nothing names it, the group goes.
 	e.qaMust("core.user.set-grants", map[string]any{"username": "grantee", "grants": []qaGrant{}})
-
+	e.qaMust("metrics.alert.delete", map[string]any{"id": rule.ID})
+	e.qaMust("notify.channel.delete", map[string]any{"id": channel.ID})
+	e.qaMust("core.group.delete", map[string]any{"id": gid})
 }
 
 // qaTimeFormat is the fixed-width time text the stores keep.
@@ -871,6 +880,11 @@ func TestA5_lists_hold_only_visible_hosts(t *testing.T) {
 	qaSeedChange(e, 2, "h-g", "firewall.defaults.set")
 	qaSeedAudit(e, 1, "h-x")
 	qaSeedAudit(e, 2, "h-g")
+	at := e.clock.Now().UTC().Format(qaTimeFormat)
+	exec(t, e.s, `INSERT INTO core_rollouts (id, version, channel, state, created_at, updated_at) VALUES ('r-both', '1.2.0', 'stable', 'succeeded', ?, ?)`, at, at)
+	exec(t, e.s, `INSERT INTO core_rollout_hosts (rollout_id, host_id, position, state) VALUES ('r-both', 'h-g', 0, 'committed'), ('r-both', 'h-x', 1, 'committed')`)
+	exec(t, e.s, `INSERT INTO metrics_alerts (rule_id, host_id, subject, state, since, value)
+		VALUES ('disk-almost-full', 'h-g', '/', 'firing', ?, 93), ('disk-almost-full', 'h-x', '/', 'firing', ?, 93)`, at, at)
 
 	ids := e.qaHostIDs(v.creds)
 	if len(ids) != 1 || ids[0] != "h-g" {
@@ -893,8 +907,13 @@ func TestA5_lists_hold_only_visible_hosts(t *testing.T) {
 			t.Errorf("%s as a viewer on G names h-x: %s", name, r.body)
 		}
 	}
-	if r := e.qaRead(v.creds, "core.audit.list", nil); !strings.Contains(string(r.body), "h-g") {
-		t.Errorf("core.audit.list as a viewer on G lacks the h-g row: %s", r.body)
+	for _, name := range []string{"core.audit.list", "core.update.rollouts", "metrics.alert.list"} {
+		if r := e.qaRead(v.creds, name, nil); !strings.Contains(string(r.body), "h-g") {
+			t.Errorf("%s as a viewer on G lacks the h-g row: %s", name, r.body)
+		}
+		if r := e.qaRead(e.admin(), name, nil); !strings.Contains(string(r.body), "h-x") {
+			t.Errorf("%s as the admin lacks the h-x row: %s", name, r.body)
+		}
 	}
 	if r := e.do("GET", "/api/v1/changes", nil, v.creds); !strings.Contains(string(r.body), "h-g") {
 		t.Errorf("GET /changes as a viewer on G lacks the h-g change: %s", r.body)
