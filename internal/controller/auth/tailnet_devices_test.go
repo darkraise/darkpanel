@@ -721,7 +721,13 @@ func TestForgetTailnetDevice(t *testing.T) {
 				e.t.Errorf("TailnetDeviceExists(mia, nE) after forgetting = %v, %v; want the row gone", ok, err)
 			}
 		}},
-		{name: "a missing stable id", stableID: "nZ", wantErr: errcode.NotFound},
+		{name: "a missing stable id", stableID: "nZ", wantErr: errcode.NotFound, check: func(e *tsEnv, _ TailnetDevice) {
+			for _, id := range []string{"nE", "nL"} {
+				if ok, err := e.s.TailnetDeviceExists(ctx, "mia", id); err != nil || !ok {
+					e.t.Errorf("TailnetDeviceExists(mia, %s) = %v, %v; want mia's row kept", id, ok, err)
+				}
+			}
+		}},
 		{name: "another user's device", stableID: "nB", wantErr: errcode.NotFound, check: func(e *tsEnv, _ TailnetDevice) {
 			if ok, err := e.s.TailnetDeviceExists(ctx, "ben", "nB"); err != nil || !ok {
 				e.t.Errorf("TailnetDeviceExists(ben, nB) = %v, %v; want ben's row kept", ok, err)
