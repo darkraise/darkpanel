@@ -110,6 +110,7 @@ var ownTokenActions = map[core.ActionRef]bool{
 // ownReadActions read only the calling user's own resources, so any
 // principal of a user may run them, even a member without a grant.
 var ownReadActions = map[core.ActionRef]bool{
+	{Name: "core.token.list", Version: 1}:         true,
 	{Name: "core.tailnetdevice.list", Version: 1}: true,
 }
 

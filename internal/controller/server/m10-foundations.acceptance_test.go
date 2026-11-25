@@ -616,6 +616,17 @@ func TestA47_member_owns_tokens(t *testing.T) {
 	if r := e.qaCall(m.creds, "core.group.create", map[string]any{"name": "x"}); r.plan.status != 403 {
 		t.Errorf("a member planning core.group.create: %d, want 403", r.plan.status)
 	}
+	// A member without a grant manages its own tokens too, listing included.
+	bare := e.qaJoin("tokbare")
+	bareTok, r := e.qaToken(bare.creds, "read")
+	if !r.ok() {
+		t.Fatalf("a member without grants creating its own token: plan %d %s, apply %d %s", r.plan.status, r.plan.body, r.apply.status, r.apply.body)
+	}
+	list.Output.Tokens = nil
+	e.want(e.qaRead(bare.creds, "core.token.list", nil), 200, &list)
+	if len(list.Output.Tokens) != 1 || list.Output.Tokens[0].ID != bareTok.ID {
+		t.Errorf("the token list of a member without grants %+v, want only its own token %s", list.Output.Tokens, bareTok.ID)
+	}
 }
 
 func TestA63_member_token_limits(t *testing.T) {
