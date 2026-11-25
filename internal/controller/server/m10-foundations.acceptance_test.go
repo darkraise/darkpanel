@@ -831,6 +831,7 @@ func TestA4_hosts_outside_grants_are_not_found(t *testing.T) {
 			{"POST", "/api/v1/changes/" + hidden + "/confirm"},
 			{"POST", "/api/v1/changes/" + hidden + "/revert"},
 			{"POST", "/api/v1/changes/" + hidden + "/undo"},
+			{"POST", "/api/v1/changes/" + hidden + "/repair"},
 		} {
 			var body any
 			if tc.method == "POST" {
