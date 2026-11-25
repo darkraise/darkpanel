@@ -349,6 +349,27 @@ func TestRecordTailnetKeepsOnlyTheLatestAddress(t *testing.T) {
 	}
 }
 
+// TestRecordTailnetSkipsAReplacedSession: a session's recording can run
+// after a newer session of the same host recorded its address; the late
+// write must not replace the current address with the old one.
+func TestRecordTailnetSkipsAReplacedSession(t *testing.T) {
+	e := newTailnetEnv(t)
+	e.answer(`{"backendState":"Running","self":{"id":"nH1"}}`, nil)
+	old := e.connect(t, "100.64.0.7:41000")
+	e.waitRows(t, map[string]string{"100.64.0.7": " " + formatTime(e.env.clock.Now())})
+	e.env.clock.Advance(time.Minute)
+	now := formatTime(e.env.clock.Now())
+	cur := e.connect(t, "100.64.0.8:41000")
+	e.waitRows(t, map[string]string{"100.64.0.8": " " + now})
+	e.r.wg.Add(1)
+	e.r.recordTailnet("H1", old)
+	if got, want := e.rows(t), map[string]string{"100.64.0.8": " " + now}; !maps.Equal(got, want) {
+		t.Errorf("rows after the replaced session's late write = %v, want %v", got, want)
+	}
+	_ = cur.Close()
+	e.r.Close()
+}
+
 // TestRecordTailnetWriteFailureClosesTheSession: a session whose address
 // cannot be recorded is closed, so the agent's reconnect records it.
 func TestRecordTailnetWriteFailureClosesTheSession(t *testing.T) {

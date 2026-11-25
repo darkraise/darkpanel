@@ -53,6 +53,13 @@ func (r *Registry) recordTailnet(hostID string, s *transport.Session) {
 	defer cancel()
 	now := formatTime(r.cfg.Clock.Now())
 	err := r.cfg.DB.Write(ctx, func(tx *sql.Tx) error {
+		// A replaced session's recording can run after the newer session's;
+		// it must not put the old address back. Writes are serial, and a new
+		// session is live before its own recording starts, so checking here
+		// orders the two.
+		if !r.isLive(hostID, s) {
+			return nil
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM core_host_tailnet WHERE host_id = ? AND addr <> ?`, hostID, a.String()); err != nil {
 			return err
 		}
@@ -64,4 +71,12 @@ func (r *Registry) recordTailnet(hostID string, s *transport.Session) {
 		r.cfg.Log.Error("fleet: cannot record the host's tailnet address; its session is closed so the agent reconnects", "host", hostID, "err", err)
 		_ = s.Close()
 	}
+}
+
+// isLive reports whether s is hostID's current session.
+func (r *Registry) isLive(hostID string, s *transport.Session) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	l := r.live[hostID]
+	return l != nil && l.session == s
 }
