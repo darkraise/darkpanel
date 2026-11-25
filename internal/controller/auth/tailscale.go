@@ -269,9 +269,11 @@ func (s *Service) SignInTailscale(ctx context.Context, r TailscaleRequest) (Sign
 				return fmt.Errorf("auth: use the remembered device: %w", err)
 			}
 			if n == 1 {
+				if res.LoginResult, err = s.openSession(ctx, tx, rec.User, r.Source, r.UserAgent); err != nil {
+					return err
+				}
 				extra["device"] = "remembered"
-				res.LoginResult, err = s.openSession(ctx, tx, rec.User, r.Source, r.UserAgent)
-				return err
+				return nil
 			}
 		}
 		if !codeReady {
