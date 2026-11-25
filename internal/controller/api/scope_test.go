@@ -7,8 +7,12 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/install"
+	"github.com/darkraise/darkpanel/internal/modules"
+	"github.com/darkraise/darkpanel/internal/registry"
 )
 
 func TestDefaultScope(t *testing.T) {
@@ -270,6 +274,30 @@ func TestOwnTokenActions(t *testing.T) {
 		}
 		if !c.ok && errcode.From(err).Code != errcode.Forbidden {
 			t.Errorf("%s: %v; want auth.forbidden", c.name, err)
+		}
+	}
+}
+
+// TestOwnReadActionsDeclareNoMinScope: authorizeController returns for an
+// own read before its MinScope guard, so an own read that raised its scope
+// would be served to any user's read token.
+func TestOwnReadActionsDeclareNoMinScope(t *testing.T) {
+	reg, err := registry.BuildWith(coreactions.Module(coreactions.Deps{
+		Modules: modules.All(), Extra: registry.CoreActions(nil, ""), OwnedPaths: install.CoreOwnedPaths()}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ref := range ownReadActions {
+		def, ok := reg.Action(ref)
+		if !ok {
+			t.Errorf("%s v%d: not registered", ref.Name, ref.Version)
+			continue
+		}
+		if def.Spec.Class != core.ClassRead {
+			t.Errorf("%s v%d: class %s; an own read must be a read", ref.Name, ref.Version, def.Spec.Class)
+		}
+		if def.Spec.MinScope != "" {
+			t.Errorf("%s v%d: MinScope %s; an own read must declare none", ref.Name, ref.Version, def.Spec.MinScope)
 		}
 	}
 }
