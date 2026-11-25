@@ -36,8 +36,9 @@ describe("module registry", () => {
         ))}
       </Suspense>,
     )
-    await waitFor(() => expect(screen.queryByText("Loading the components")).toBeNull())
-  })
+    // Every module chunk loads lazily, which takes seconds on a slow CI runner.
+    await waitFor(() => expect(screen.queryByText("Loading the components")).toBeNull(), { timeout: 10_000 })
+  }, 15_000)
 
   test("registers the extension points the modules' pages need", () => {
     const globals = moduleRegistry.flatMap((e) => (e.global === undefined ? [] : [e.global.path]))
