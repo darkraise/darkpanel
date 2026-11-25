@@ -277,6 +277,37 @@ test("A21 forgetting the only device keeps the devices dialog open and focuses i
   expect(calls.find((c) => c.path.endsWith("forget-tailnet-device/v1/plan"))?.body).toEqual({ input: { username: "mia", stableId: "nL" } })
 })
 
+test("A21 a Forget started in the devices dialog while focus is still being placed keeps focus in its change dialog", async () => {
+  let devices: TailnetDevice[] = [{ ...laptop, stableId: "n1", nodeName: "alpha.ts.net" }, laptop, { ...laptop, stableId: "n3", nodeName: "gamma.ts.net" }]
+  let planned = ""
+  stub(() => [admin, mia], {
+    [DEVICES]: () => ({ body: { output: { devices } } }),
+    [FORGET_PLAN]: (call) => {
+      planned = (call.body as { input: { stableId: string } }).input.stableId
+      return { body: makePlan("core.user.forget-tailnet-device", { planId: "p7", confirmation: planned }) }
+    },
+    [FORGET_APPLY]: () => {
+      devices = devices.filter((d) => d.stableId !== planned)
+      return { body: makeChange("core.user.forget-tailnet-device", laptop) }
+    },
+  })
+  renderWithProviders(<UsersPage />)
+  const { user, dialog } = await openDevices("mia")
+  await user.click(await within(dialog).findByRole("button", { name: "Forget device laptop" }))
+  const first = await screen.findByRole("dialog", { name: "Forget device laptop of mia" })
+  await user.type(await within(first).findByLabelText("Type nL to confirm"), "nL")
+  await user.click(within(first).getByRole("button", { name: "Apply" }))
+  const next = await within(dialog).findByRole("button", { name: "Forget device gamma" })
+  await waitFor(() => expect(document.activeElement).toBe(next))
+
+  await user.click(next)
+  const second = await screen.findByRole("dialog", { name: "Forget device gamma of mia" })
+  const field = await within(second).findByLabelText("Type n3 to confirm")
+  await user.click(field)
+  await new Promise((resolve) => window.setTimeout(resolve, 300))
+  expect(document.activeElement).toBe(field)
+})
+
 test.each(["light", "dark"] as const)("A23 the open devices dialog has no axe violations in %s", async (theme) => {
   document.documentElement.classList.toggle("dark", theme === "dark")
   stub(() => [admin, mia], { [DEVICES]: { body: { output: { devices: [laptop, { ...laptop, stableId: "nE", nodeName: "" }] } } } })
