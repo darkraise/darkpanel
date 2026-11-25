@@ -883,6 +883,10 @@ func TestA5_lists_hold_only_visible_hosts(t *testing.T) {
 	at := e.clock.Now().UTC().Format(qaTimeFormat)
 	exec(t, e.s, `INSERT INTO core_rollouts (id, version, channel, state, created_at, updated_at) VALUES ('r-both', '1.2.0', 'stable', 'succeeded', ?, ?)`, at, at)
 	exec(t, e.s, `INSERT INTO core_rollout_hosts (rollout_id, host_id, position, state) VALUES ('r-both', 'h-g', 0, 'committed'), ('r-both', 'h-x', 1, 'committed')`)
+	// The alert evaluator deletes alerts on hosts no rule covers, and rules
+	// cover only enrolled hosts; the poller's first pass can run after this
+	// seeding.
+	exec(t, e.s, `UPDATE core_hosts SET state = 'enrolled' WHERE id IN ('h-g', 'h-x')`)
 	exec(t, e.s, `INSERT INTO metrics_alerts (rule_id, host_id, subject, state, since, value)
 		VALUES ('disk-almost-full', 'h-g', '/', 'firing', ?, 93), ('disk-almost-full', 'h-x', '/', 'firing', ?, 93)`, at, at)
 
