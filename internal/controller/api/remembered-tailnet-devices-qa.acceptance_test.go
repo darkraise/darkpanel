@@ -527,13 +527,12 @@ func TestQA_A3_PendingUserIsRefusedAndStaysPending(t *testing.T) {
 func TestQA_A26_CodeReadyFollowsTheTypedCode(t *testing.T) {
 	e := qaaNewEnv(t)
 	ctx := context.Background()
-	// An OIDC-activated invitee whose password an admin then reset has typed no code.
+	// An OIDC-activated invitee has typed no code; a password reset of it is
+	// refused, since it never saw its secret.
 	bob := e.oidcInvitee("bob")
-	e.mustAct(e.socket, func(r *http.Request) *http.Request { return r }, "core.user.reset-password",
-		map[string]any{"username": "bob", "password": "a brand new password"})
 	e.asNode(bob.login, 77, "bob-pc", "nBob", qaaNodeB)
 	if m := qaFields(t, "match", e.get(qaaNodeB)); m["codeReady"] != false {
-		t.Errorf("match of the OIDC-activated user whose password was reset = %v, want codeReady false", m)
+		t.Errorf("match of the OIDC-activated user = %v, want codeReady false", m)
 	}
 	e.wantRefused("Continue as of that user", e.post(qaaNodeB))
 

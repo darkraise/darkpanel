@@ -247,6 +247,74 @@ func TestResetPassword(t *testing.T) {
 	wantCode(t, err, errcode.NotFound)
 }
 
+// TestResetPasswordOfANeverEnrolledUser: a user whose TOTP secret never gave
+// an accepted code still needs its enrollment link to see one, so a password
+// reset that removed the link would leave a password login that cannot pass
+// the code step. A secret the admin saw and a code confirmed lets it through.
+func TestResetPasswordOfANeverEnrolledUser(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name    string
+		setup   func(s *Service, clock *coretest.FakeClock, u User)
+		refused bool
+	}{
+		{"a pending invite", func(*Service, *coretest.FakeClock, User) {}, true},
+		{"an invite an OIDC sign-in activated", func(s *Service, _ *coretest.FakeClock, u User) {
+			exec(t, s, `UPDATE core_users SET state = 'active' WHERE id = ?`, u.ID)
+		}, true},
+		{"an invite whose link a role change ended", func(s *Service, _ *coretest.FakeClock, _ User) {
+			if _, err := s.SetRole(ctx, "mia", RoleAdmin); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"an invite recovered with reset-totp and activate", func(s *Service, clock *coretest.FakeClock, _ User) {
+			_, secret, err := s.ResetTOTP(ctx, "mia")
+			if err != nil {
+				t.Fatal(err)
+			}
+			code, err := TOTPCode(secret, clock.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.ActivateUser(ctx, "mia", code); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, clock, _ := newTestService(t)
+			inv, err := s.Invite(ctx, InviteRequest{Username: "mia", Role: RoleMember, TailnetLogin: "mia@github"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.setup(s, clock, inv.User)
+			links := count(t, s, "core_user_enrollments", "user_id = ?", inv.User.ID)
+			hash := func() string {
+				var h string
+				if err := s.db.Read().QueryRow(`SELECT password_hash FROM core_users WHERE id = ?`, inv.User.ID).Scan(&h); err != nil {
+					t.Fatal(err)
+				}
+				return h
+			}
+			before := hash()
+			_, err = s.ResetPassword(ctx, "mia", "a different long password")
+			if !tc.refused {
+				if err != nil {
+					t.Fatalf("ResetPassword = %v, want it applied", err)
+				}
+				return
+			}
+			wantField(t, err, "/username")
+			if got := count(t, s, "core_user_enrollments", "user_id = ?", inv.User.ID); got != links {
+				t.Errorf("enrollment rows after the refusal = %d, want %d kept", got, links)
+			}
+			if hash() != before {
+				t.Error("the refused reset changed the password")
+			}
+		})
+	}
+}
+
 func TestResetPasswordRevokesTokens(t *testing.T) {
 	s, clock, _ := newTestService(t)
 	ctx := context.Background()

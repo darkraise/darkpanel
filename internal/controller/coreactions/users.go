@@ -166,8 +166,11 @@ func wantUserState(ctx context.Context, m module, username, state string) error 
 type userResetPassword struct{ m module }
 
 func (h userResetPassword) Plan(ctx context.Context, _ core.Env, in UserPasswordInput) (core.PlanOutcome, error) {
-	_, u, _, err := h.m.userState(ctx, in.Username)
+	svc, u, _, err := h.m.userState(ctx, in.Username)
 	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	if err := svc.CheckResetPassword(ctx, in.Username); err != nil {
 		return core.PlanOutcome{}, err
 	}
 	return core.PlanOutcome{

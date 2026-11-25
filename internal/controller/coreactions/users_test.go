@@ -171,6 +171,14 @@ func TestUserPasswordRefusalsKeepThePasswordSecret(t *testing.T) {
 	_, err := e.plan(root, "core.user.reset-password", UserPasswordInput{Username: "nobody", Password: newPassword})
 	wantCode(t, err, errcode.NotFound)
 	noSecret(t, []string{newPassword}, err)
+	// The plan refuses an invite that never enrolled, so the dialog shows the
+	// refusal before the typed confirmation.
+	if _, err := e.auth.Invite(context.Background(), auth.InviteRequest{Username: "mia", Role: auth.RoleMember}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = e.plan(root, "core.user.reset-password", UserPasswordInput{Username: "mia", Password: newPassword})
+	wantField(t, err, "/username")
+	noSecret(t, []string{newPassword}, err)
 }
 
 func TestUserDelete(t *testing.T) {

@@ -28,6 +28,9 @@ Then choose the command that matches your problem:
 - A lost password: `sudo darkpanel user reset-password --username <name>` asks
   for a new password of 12 to 128 characters and sets it. It ends the user's
   sessions and revokes the user's API tokens, so create new tokens afterwards.
+  It refuses a user that never enrolled, since that user has never seen its
+  code secret: give it a new enrollment link instead, or run `reset-totp`
+  first.
 - A lost authenticator: `sudo darkpanel user reset-totp --username <name>`
   prints a new TOTP secret as a QR code, asks for a code from it and activates
   the user again. It ends the user's sessions. Until you finish, the user

@@ -245,12 +245,9 @@ func TestContinueAsNotCodeReadyRefused(t *testing.T) {
 		ticket bool
 	}{
 		{"an active user who never typed a code", func(e *tsEnv) { e.active("mia", "mia@github", 0) }, false},
-		{"an invite OIDC activated, then a password reset", func(e *tsEnv) {
+		{"an invite OIDC activated", func(e *tsEnv) {
 			u := e.pending("mia", "mia@github")
 			exec(e.t, e.s, `UPDATE core_users SET state = 'active' WHERE id = ?`, u.ID)
-			if _, err := e.s.ResetPassword(ctx, "mia", "another horse battery"); err != nil {
-				e.t.Fatal(err)
-			}
 		}, false},
 		{"a TOTP reset, then a right code", func(e *tsEnv) {
 			e.active("mia", "mia@github", 7)

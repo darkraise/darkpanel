@@ -151,6 +151,19 @@ func TestDirectoryIsFleetOnly(t *testing.T) {
 		t.Errorf("directory %s; want empty grants and sign-in lists as []", raw)
 	}
 
+	// The lockout recovery: a password reset of an invite that never enrolled
+	// is refused until a code from a new secret is accepted.
+	_, secret, err := e.auth.ResetTOTP(ctx, "mia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := auth.TOTPCode(secret, e.clock.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.auth.ActivateUser(ctx, "mia", code); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := e.auth.ResetPassword(ctx, "mia", testPassword); err != nil {
 		t.Fatal(err)
 	}

@@ -346,6 +346,9 @@ func (s *Service) ResetPassword(ctx context.Context, username, password string) 
 		if err != nil {
 			return err
 		}
+		if err := refuseNeverEnrolled(ctx, tx, r); err != nil {
+			return err
+		}
 		now := formatTime(s.now())
 		if _, err := tx.ExecContext(ctx, `UPDATE core_users SET password_hash = ?, updated_at = ? WHERE id = ?`,
 			hash, now, r.ID); err != nil {
@@ -363,6 +366,36 @@ func (s *Service) ResetPassword(ctx context.Context, username, password string) 
 		return endSessions(ctx, tx, r.ID)
 	})
 	return u, err
+}
+
+// CheckResetPassword refuses a password reset of username when the user
+// never enrolled, as ResetPassword does; the reset's plan calls it.
+func (s *Service) CheckResetPassword(ctx context.Context, username string) error {
+	r, err := loadUser(ctx, s.db.Read(), username)
+	if err != nil {
+		return err
+	}
+	return refuseNeverEnrolled(ctx, s.db.Read(), r)
+}
+
+// refuseNeverEnrolled refuses r when it has an unused enrollment link and no
+// code from its TOTP secret was ever accepted: nobody saw that secret, so
+// removing the link would leave a password login that cannot pass the code
+// step. A reset-totp the admin followed with activate accepted a code, so the
+// lockout recovery's reset-password goes through.
+func refuseNeverEnrolled(ctx context.Context, q querier, r userRecord) error {
+	if r.lastStep != 0 {
+		return nil
+	}
+	var n int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM core_user_enrollments WHERE user_id = ? AND used_at IS NULL`,
+		r.ID).Scan(&n); err != nil {
+		return fmt.Errorf("auth: load enrollment: %w", err)
+	}
+	if n != 0 {
+		return invalidField("/username", "the user never enrolled; give it a new enrollment link (core.user.renew-invite) instead")
+	}
+	return nil
 }
 
 // DeleteUser deletes username with its sessions and tokens. Deleting the last
