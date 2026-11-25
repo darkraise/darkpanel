@@ -147,3 +147,6 @@ If you roll back to an older version and run it for a while, a code reset or a
 tailnet-login change made meanwhile does not forget that user's devices. After
 upgrading again, forget the devices of every user changed that way.
 
+A sign-in under way while the controller upgrades, at the identity provider
+or at its code step, fails when it comes back to Darkpanel. Start it again.
+
