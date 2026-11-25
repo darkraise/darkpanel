@@ -44,8 +44,9 @@ async function rfaPlanned() {
   return { user, dialog }
 }
 
-// The axe scan and 40 Tab presses take about 2 s locally but reach the 5 s
-// default on GitHub runners, where the test timed out in several CI runs.
+// The axe scan and 40 Tab presses take about 2 s locally, 8 s on a GitHub
+// runner and over 15 s on a slow one (CI run 45588245221, where the whole
+// web suite ran 27% slower).
 test("the rule form has no violations and keeps Tab inside it", async () => {
   rfaRender()
   const user = userEvent.setup()
@@ -56,7 +57,7 @@ test("the rule form has no violations and keeps Tab inside it", async () => {
     await tabSequence(user, 1)
     expect(dialog.contains(document.activeElement)).toBe(true)
   }
-}, 15_000)
+}, 30_000)
 
 test("Escape in the rule form returns focus to Add rule", async () => {
   rfaRender()
