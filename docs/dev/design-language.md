@@ -71,7 +71,7 @@ monospace face, so columns of numbers line up.
 
 ### The darkpanel preset
 
-`darkpanel` is the kit's Glass "Mica Desk" preset (darkraise-ui 7.2.2), defined
+`darkpanel` is the kit's Glass "Mica Desk" preset (darkraise-ui 7.2.3), defined
 in `web/src/theme.config.ts`, with four changes:
 
 | Setting | Mica Desk | darkpanel | Why |

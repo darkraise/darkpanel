@@ -107,6 +107,6 @@ test("A1: no 7.0 removed key or token remains", () => {
   const hits = files.flatMap((f) => removed.filter((r) => r.test(readFileSync(f, "utf8"))).map((r) => `${f}: ${r}`))
   expect(hits).toEqual([])
   const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { dependencies: Record<string, string> }
-  expect(pkg.dependencies["darkraise-ui"]).toBe("7.2.2")
+  expect(pkg.dependencies["darkraise-ui"]).toBe("7.2.3")
   expect(pkg.dependencies["recharts"]).toMatch(/^3\./)
 })

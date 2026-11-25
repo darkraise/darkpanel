@@ -22,14 +22,14 @@ import { expectNoAxeViolations } from "@/test/a11y"
 
 // A1 ---------------------------------------------------------------------
 
-describe("A1: darkraise-ui 7.2.2", () => {
-  test("A1: the lockfile resolves darkraise-ui to 7.2.2 and nothing else", () => {
+describe("A1: darkraise-ui 7.2.3", () => {
+  test("A1: the lockfile resolves darkraise-ui to 7.2.3 and nothing else", () => {
     const lock = readFileSync("pnpm-lock.yaml", "utf8")
     const versions = [...lock.matchAll(/^\s+darkraise-ui@(\d+\.\d+\.\d+)[:(]/gm)].map((m) => m[1])
     expect(versions.length).toBeGreaterThan(0)
-    expect(new Set(versions)).toEqual(new Set(["7.2.2"]))
-    expect(lock).toMatch(/darkraise-ui:\s*\n\s+specifier: 7\.2\.2\s*\n\s+version: 7\.2\.2/)
-    expect(JSON.parse(readFileSync("node_modules/darkraise-ui/package.json", "utf8")).version).toBe("7.2.2")
+    expect(new Set(versions)).toEqual(new Set(["7.2.3"]))
+    expect(lock).toMatch(/darkraise-ui:\s*\n\s+specifier: 7\.2\.3\s*\n\s+version: 7\.2\.3/)
+    expect(JSON.parse(readFileSync("node_modules/darkraise-ui/package.json", "utf8")).version).toBe("7.2.3")
   })
 
   test("A1: no 7.0 removed key or token remains in web/src or web/public", () => {

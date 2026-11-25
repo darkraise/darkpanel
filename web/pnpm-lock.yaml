@@ -12,8 +12,8 @@ importers:
         specifier: 5.104.3
         version: 5.104.3(react@19.3.1)
       darkraise-ui:
-        specifier: 7.2.2
-        version: 7.2.2(@tailwindcss/vite@4.3.3(vite@8.3.4(@types/node@26.6.5)(jiti@2.7.0)))(@types/react@19.3.0)(immer@11.2.10)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(recharts@3.11.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react-is@17.0.2)(react@19.3.1)(redux@5.0.1))(tailwindcss@4.3.3)(use-sync-external-store@1.7.0(react@19.3.1))(vite@8.3.4(@types/node@26.6.5)(jiti@2.7.0))
+        specifier: 7.2.3
+        version: 7.2.3(@tailwindcss/vite@4.3.3(vite@8.3.4(@types/node@26.6.5)(jiti@2.7.0)))(@types/react@19.3.0)(immer@11.2.10)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(recharts@3.11.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react-is@17.0.2)(react@19.3.1)(redux@5.0.1))(tailwindcss@4.3.3)(use-sync-external-store@1.7.0(react@19.3.1))(vite@8.3.4(@types/node@26.6.5)(jiti@2.7.0))
       lucide-react:
         specifier: 1.58.0
         version: 1.58.0(@types/react@19.3.0)(react@19.3.1)
@@ -972,8 +972,8 @@ packages:
     resolution: {integrity: sha512-1Il1aliroVSErrv5aulRBxAY+7+DnaoLIWGd1C6SsBTWDeobWiP/V69vwb8vT6abR1kKwaNe1196pmaQ1fK90A==}
     engines: {node: '>=12'}
 
-  darkraise-ui@7.2.2:
-    resolution: {integrity: sha512-tDiSsUAREQRNpXtYlXKKiLpfO9hjrw1k/jjI6HpZeJfTCbbZvka2igsqwTDpLM5uG0YEDnUNmrSQ2jMo0kY5Iw==}
+  darkraise-ui@7.2.3:
+    resolution: {integrity: sha512-WXqKuSskNj9gzcNTiWYOpPrl0DIjNvXBSTk4YRSLvKvaiqBwuzVvjH4vPePotA2e6Gf+TYLUHMVaL1tSPoUHlA==}
     peerDependencies:
       '@tailwindcss/vite': ^4.0.0
       i18next: ^26.4.2
@@ -2668,7 +2668,7 @@ snapshots:
 
   d3-timer@3.0.2: {}
 
-  darkraise-ui@7.2.2(@tailwindcss/vite@4.3.3(vite@8.3.4(@types/node@26.6.5)(jiti@2.7.0)))(@types/react@19.3.0)(immer@11.2.10)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(recharts@3.11.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react-is@17.0.2)(react@19.3.1)(redux@5.0.1))(tailwindcss@4.3.3)(use-sync-external-store@1.7.0(react@19.3.1))(vite@8.3.4(@types/node@26.6.5)(jiti@2.7.0)):
+  darkraise-ui@7.2.3(@tailwindcss/vite@4.3.3(vite@8.3.4(@types/node@26.6.5)(jiti@2.7.0)))(@types/react@19.3.0)(immer@11.2.10)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(recharts@3.11.0(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react-is@17.0.2)(react@19.3.1)(redux@5.0.1))(tailwindcss@4.3.3)(use-sync-external-store@1.7.0(react@19.3.1))(vite@8.3.4(@types/node@26.6.5)(jiti@2.7.0)):
     dependencies:
       '@floating-ui/react': 0.27.20(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@tanstack/react-table': 8.21.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1)

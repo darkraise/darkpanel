@@ -2,3 +2,4 @@ allowBuilds:
   '@swc/core': false
 minimumReleaseAgeExclude:
   - eslint@10.13.0
+  - darkraise-ui@7.2.3

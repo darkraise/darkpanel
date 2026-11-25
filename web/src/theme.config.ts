@@ -27,7 +27,7 @@ const switcherAxes = {
   sidebarSelection: false,
 } satisfies Record<AxisKey, boolean>
 
-// darkpanel is the kit's Glass "Mica Desk" preset (7.2.2) with four changes:
+// darkpanel is the kit's Glass "Mica Desk" preset (7.2.3) with four changes:
 // a violet signal colour, so marks that must not read as the blue accent are
 // not mistaken for the info status; the kit's Hanken Grotesk body face in place
 // of Inter; compact density; and boxed fields, because Mica Desk's underline
