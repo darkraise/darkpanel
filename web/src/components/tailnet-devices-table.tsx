@@ -15,6 +15,9 @@ export interface TailnetDevicesTableProps {
   isLoading: boolean
   error: unknown
   onForget: (device: TailnetDevice) => void
+  // forgotten is the stable id of the device whose forget the user applied;
+  // focus moves only then, never after a cancelled one.
+  forgotten: string | null
   emptyText: string
   // focusFallback takes focus when a forget leaves the list empty.
   focusFallback: RefObject<HTMLElement | null>
@@ -27,7 +30,7 @@ const FOCUS_TICK_MS = 50
 const FOCUS_TRIES = 100
 const FOCUS_STEADY = 3
 
-export function TailnetDevicesTable({ devices, isLoading, error, onForget, emptyText, focusFallback }: TailnetDevicesTableProps) {
+export function TailnetDevicesTable({ devices, isLoading, error, onForget, forgotten, emptyText, focusFallback }: TailnetDevicesTableProps) {
   const pending = useRef<{ stableId: string; index: number } | null>(null)
   const buttons = useRef(new Map<string, HTMLButtonElement>())
   // A new forget must stop an earlier one still placing focus, or that one
@@ -40,7 +43,7 @@ export function TailnetDevicesTable({ devices, isLoading, error, onForget, empty
 
   useEffect(() => {
     const p = pending.current
-    if (p === null || devices === undefined || devices.some((d) => d.stableId === p.stableId)) return
+    if (p === null || p.stableId !== forgotten || devices === undefined || devices.some((d) => d.stableId === p.stableId)) return
     pending.current = null
     const target = () => {
       const next = devices[Math.min(p.index, devices.length - 1)]
@@ -63,7 +66,7 @@ export function TailnetDevicesTable({ devices, isLoading, error, onForget, empty
     }, FOCUS_TICK_MS)
     placing.current = id
     return stopPlacing
-  }, [devices, focusFallback])
+  }, [devices, forgotten, focusFallback])
 
   if (isLoading) return <Spinner aria-label="Loading the devices" />
   if (error !== null && error !== undefined) {

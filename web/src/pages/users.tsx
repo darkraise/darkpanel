@@ -95,6 +95,7 @@ function DevicesDialog({ user, onClose }: { user: DirectoryUser; onClose: () => 
     queryFn: () => readAction<{ devices: TailnetDevice[] }>("core.user.list-tailnet-devices", 1, { username: user.username }),
   })
   const [forgetting, setForgetting] = useState<TailnetDevice | null>(null)
+  const [forgotten, setForgotten] = useState<string | null>(null)
   const title = useRef<HTMLHeadingElement>(null)
   return (
     <>
@@ -107,7 +108,11 @@ function DevicesDialog({ user, onClose }: { user: DirectoryUser; onClose: () => 
             devices={list.data?.devices}
             isLoading={list.isPending}
             error={list.error}
-            onForget={setForgetting}
+            onForget={(d) => {
+              setForgotten(null)
+              setForgetting(d)
+            }}
+            forgotten={forgotten}
             emptyText={`${user.username} has no remembered devices.`}
             focusFallback={title}
           />
@@ -122,6 +127,7 @@ function DevicesDialog({ user, onClose }: { user: DirectoryUser; onClose: () => 
           input={{ username: user.username, stableId: forgetting.stableId }}
           onApplied={(change) => {
             if (!applied(change)) return
+            setForgotten(forgetting.stableId)
             void client.invalidateQueries({ queryKey: key })
             setForgetting(null)
           }}

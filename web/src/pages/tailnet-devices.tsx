@@ -13,6 +13,7 @@ export function TailnetDevicesPage() {
   const client = useQueryClient()
   const list = useQuery({ queryKey: TAILNET_DEVICES_QUERY_KEY, queryFn: listTailnetDevices })
   const [forgetting, setForgetting] = useState<TailnetDevice | null>(null)
+  const [forgotten, setForgotten] = useState<string | null>(null)
   const header = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLElement | null>(null)
 
@@ -33,7 +34,11 @@ export function TailnetDevicesPage() {
         devices={list.data?.devices}
         isLoading={list.isPending}
         error={list.error}
-        onForget={setForgetting}
+        onForget={(d) => {
+          setForgotten(null)
+          setForgetting(d)
+        }}
+        forgotten={forgotten}
         emptyText="A device is remembered when you continue as yourself from it with your code."
         focusFallback={heading}
       />
@@ -46,6 +51,7 @@ export function TailnetDevicesPage() {
           input={{ stableId: forgetting.stableId }}
           onApplied={(change) => {
             if (!applied(change)) return
+            setForgotten(forgetting.stableId)
             void client.invalidateQueries({ queryKey: TAILNET_DEVICES_QUERY_KEY })
             setForgetting(null)
           }}

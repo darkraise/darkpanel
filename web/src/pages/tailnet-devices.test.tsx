@@ -184,6 +184,39 @@ describe("UX-4 forget moves focus", () => {
     }
   })
 
+  test("A21 a cancelled Forget moves no focus when a refresh later drops that device", async () => {
+    let current = three
+    stubFetch({
+      [LIST]: () => listed(current),
+      [PLAN]: { body: makePlan("core.tailnetdevice.forget", { planId: "p9", confirmation: "nL" }) },
+    })
+    let refresh = () => undefined as unknown
+    function Refresher() {
+      const client = useQueryClient()
+      refresh = () => client.invalidateQueries({ queryKey: TAILNET_DEVICES_QUERY_KEY })
+      return null
+    }
+    renderWithProviders(
+      <>
+        <TailnetDevicesPage />
+        <Refresher />
+      </>,
+    )
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: "Forget device laptop" }))
+    const dialog = await screen.findByRole("dialog", { name: "Forget device laptop" })
+    await within(dialog).findByLabelText("Type nL to confirm")
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    const alpha = screen.getByRole("button", { name: "Forget device alpha" })
+    alpha.focus()
+    current = current.filter((d) => d.stableId !== "nL")
+    await refresh()
+    await waitFor(() => expect(screen.queryByText("nL")).toBeNull())
+    await new Promise((resolve) => window.setTimeout(resolve, 300))
+    expect(document.activeElement).toBe(alpha)
+  })
+
   test("A21 a Forget started while focus is still being placed keeps focus in its dialog", async () => {
     let current = three
     let planned = ""
