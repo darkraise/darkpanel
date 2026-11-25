@@ -40,8 +40,9 @@ list, which needs `read`.
 - `core.user.reset-password`: `sudo darkpanel user reset-password --username <name>`
   sets a new password, ends the user's sessions and revokes its API tokens. It
   cannot be undone. It refuses a user that never enrolled, which has never
-  seen its code secret: give it a new link with `core.user.renew-invite`, or
-  reset its code with `core.user.reset-totp` first.
+  seen its code secret: an admin gives it a new link over the API with
+  `core.user.renew-invite` (below), or you reset its code with
+  `core.user.reset-totp` first.
 - `core.user.reset-totp`: `sudo darkpanel user reset-totp --username <name>`
   gives the user a new TOTP secret and returns it to pending, which ends its
   sessions. It cannot be undone.
