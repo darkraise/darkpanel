@@ -24,12 +24,14 @@ var (
 // Only such addresses are recorded: sign-in sees no other.
 func isTailnet(a netip.Addr) bool { return tailnetV4.Contains(a) || tailnetV6.Contains(a) }
 
-// recordTailnet upserts the address hostID's session came from in
-// core_host_tailnet when it is a tailnet address. Only an address the
-// controller observed is recorded: what a host reports about itself would let
-// one host make any tailnet node count as managed (spec section 1). Rows are
-// never removed here: an offline host, or one that connects over the LAN,
-// leaves them, so sign-in keeps refusing every address a host has held.
+// recordTailnet records the address hostID's session came from in
+// core_host_tailnet when it is a tailnet address, replacing the host's other
+// addresses: a node the tailnet later gives an old one to is not the host's.
+// Sign-in checks every address of the requesting node, so the host's one
+// current address is enough. Only an address the controller observed is
+// recorded: what a host reports about itself would let one host make any
+// tailnet node count as managed (spec section 1). An offline host, or one
+// that connects over the LAN, keeps its rows.
 //
 // A failed write closes the session: an unrecorded host's node would pass
 // the sign-in host check, so the agent reconnects and the write runs again.
@@ -51,6 +53,9 @@ func (r *Registry) recordTailnet(hostID string, s *transport.Session) {
 	defer cancel()
 	now := formatTime(r.cfg.Clock.Now())
 	err := r.cfg.DB.Write(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM core_host_tailnet WHERE host_id = ? AND addr <> ?`, hostID, a.String()); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES (?, ?, '', ?)
 			ON CONFLICT (host_id, addr) DO UPDATE SET seen_at = excluded.seen_at`, hostID, a.String(), now)
 		return err

@@ -186,26 +186,26 @@ func TestAddressesPersistAtConnect(t *testing.T) {
 	s = e.connect(t, "192.168.1.10:41000")
 
 	// The status read would fail: the session's tailnet address is recorded
-	// all the same, and every earlier row stays.
+	// all the same, and replaces the host's earlier one.
 	e.env.clock.Advance(time.Minute)
 	t2 := formatTime(e.env.clock.Now())
 	e.answer("", errcode.New(errcode.ModuleUnavailable, "module tailscale is disabled on host H1"))
 	_ = s.Close()
 	s = e.connect(t, "100.127.255.254:41000")
-	want["100.127.255.254"] = " " + t2
+	want = map[string]string{"100.127.255.254": " " + t2}
 	e.waitRows(t, want)
 
-	// A known address seen again gets the new time; an IPv6 tailnet session
-	// address is recorded.
+	// An address seen before is recorded again with the new time; an IPv6
+	// tailnet session address is recorded.
 	e.env.clock.Advance(time.Minute)
 	t3 := formatTime(e.env.clock.Now())
 	_ = s.Close()
 	s = e.connect(t, "100.64.0.7:41000")
-	want["100.64.0.7"] = " " + t3
+	want = map[string]string{"100.64.0.7": " " + t3}
 	e.waitRows(t, want)
 	_ = s.Close()
 	s = e.connect(t, "[fd7a:115c:a1e0::99]:41000")
-	want["fd7a:115c:a1e0::99"] = " " + t3
+	want = map[string]string{"fd7a:115c:a1e0::99": " " + t3}
 	e.waitRows(t, want)
 
 	// Outside 100.64.0.0/10 and fd7a:115c:a1e0::/48 no session address is
@@ -216,7 +216,7 @@ func TestAddressesPersistAtConnect(t *testing.T) {
 		s = e.connect(t, remote)
 		_ = s.Close()
 		s = e.connect(t, "100.64.0.7:41000")
-		want["100.64.0.7"] = " " + formatTime(e.env.clock.Now())
+		want = map[string]string{"100.64.0.7": " " + formatTime(e.env.clock.Now())}
 		e.waitRows(t, want)
 	}
 
@@ -239,8 +239,9 @@ func TestAddressesPersistAtConnect(t *testing.T) {
 		want  bool
 	}{
 		{"a self-reported IPv6 address", []netip.Addr{a("100.99.0.1"), a("fd7a:115c:a1e0::7")}, false},
-		{"a recorded session address", []netip.Addr{a("100.99.0.1"), a("fd7a:115c:a1e0::99")}, true},
-		{"a recorded session address, mapped", []netip.Addr{a("::ffff:100.127.255.254")}, true},
+		{"a recorded session address", []netip.Addr{a("100.99.0.1"), a("100.64.0.7")}, true},
+		{"a recorded session address, mapped", []netip.Addr{a("::ffff:100.64.0.7")}, true},
+		{"an address the host held before", []netip.Addr{a("100.127.255.254"), a("fd7a:115c:a1e0::99")}, false},
 		{"a self-reported address", []netip.Addr{a("100.64.0.8")}, false},
 		{"the controller's own address", []netip.Addr{a("100.64.0.1")}, true},
 		{"an unknown node", []netip.Addr{a("100.99.0.1")}, false},
@@ -308,6 +309,43 @@ func TestRecordTailnetFromSessionOnly(t *testing.T) {
 				t.Errorf("logs %q, want one Info line %s with host=H1 addr=%s", out, notRecordedMsg, tc.logged)
 			}
 		})
+	}
+}
+
+// TestRecordTailnetKeepsOnlyTheLatestAddress: a host's tailnet connect
+// replaces the addresses it held before, so an address the tailnet later
+// gives to a user's node is no longer refused as a host's. A LAN connect
+// records nothing and removes nothing, and another host's rows stay.
+func TestRecordTailnetKeepsOnlyTheLatestAddress(t *testing.T) {
+	ctx := context.Background()
+	e := newTailnetEnv(t)
+	e.answer(`{"backendState":"Running","self":{"id":"nH1"}}`, nil)
+	addHost(t, e.env.db, "H2", core.HostEnrolled)
+	if err := e.env.db.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('H2', '100.64.0.50', '', ?)`,
+			formatTime(e.env.clock.Now()))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t0 := formatTime(e.env.clock.Now())
+	s := e.connect(t, "100.64.0.7:41000")
+	e.waitRows(t, map[string]string{"100.64.0.7": " " + t0})
+	_ = s.Close()
+	e.env.clock.Advance(time.Minute)
+	t1 := formatTime(e.env.clock.Now())
+	s = e.connect(t, "100.64.0.8:41000")
+	e.waitRows(t, map[string]string{"100.64.0.8": " " + t1})
+	_ = s.Close()
+	s = e.connect(t, "192.168.1.20:41000")
+	_ = s.Close()
+	e.r.Close()
+	if got, want := e.rows(t), map[string]string{"100.64.0.8": " " + t1}; !maps.Equal(got, want) {
+		t.Errorf("H1 rows after a LAN connect = %v, want %v", got, want)
+	}
+	var n int
+	if err := e.env.db.Read().QueryRow(`SELECT count(*) FROM core_host_tailnet WHERE host_id = 'H2' AND addr = '100.64.0.50'`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("H2's row = %d, %v; want it kept", n, err)
 	}
 }
 
