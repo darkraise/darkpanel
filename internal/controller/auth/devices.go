@@ -21,9 +21,9 @@ type TailnetDevice struct {
 
 const deviceColumns = `stable_id, node_name, remembered_at, last_used_at`
 
-type scanner interface{ Scan(dest ...any) error }
+type deviceScanner interface{ Scan(dest ...any) error }
 
-func scanDevice(sc scanner) (TailnetDevice, error) {
+func scanDevice(sc deviceScanner) (TailnetDevice, error) {
 	var d TailnetDevice
 	var remembered, used string
 	if err := sc.Scan(&d.StableID, &d.NodeName, &remembered, &used); err != nil {
