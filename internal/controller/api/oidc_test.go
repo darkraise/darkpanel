@@ -133,10 +133,12 @@ func wantPage(t *testing.T, rec *httptest.ResponseRecorder, outcome string) {
 func TestCallbackCookiesAndPage(t *testing.T) {
 	h := newOIDCHarness(t, false)
 	start, callback := h.signIn("PANEL.example:443", "s-1", "Admin@Example.com")
+	// The __Host- prefix and path / keep a sibling host under the same
+	// parent domain from planting a cookie of the same name.
 	state := cookieNamed(start, oidcStateCookie)
-	if state.SameSite != http.SameSiteLaxMode || !state.HttpOnly || !state.Secure || state.Path != oidcCallbackPath ||
-		state.MaxAge != int(auth.OIDCStateTTL/time.Second) {
-		t.Errorf("state cookie %+v; want Lax, HttpOnly, Secure, the callback path and ten minutes", state)
+	if state == nil || state.Name != "__Host-darkpanel_oidc_state" || state.SameSite != http.SameSiteLaxMode || !state.HttpOnly ||
+		!state.Secure || state.Path != "/" || state.Domain != "" || state.MaxAge != int(auth.OIDCStateTTL/time.Second) {
+		t.Errorf("state cookie %+v; want __Host-, Lax, HttpOnly, Secure, path / and ten minutes", state)
 	}
 	loc, _ := url.Parse(start.Header().Get("Location"))
 	if got := loc.Query().Get("redirect_uri"); got != testOIDCBase+oidcCallbackPath {
@@ -150,7 +152,7 @@ func TestCallbackCookiesAndPage(t *testing.T) {
 	if session == nil || session.Value == "" || session.SameSite != http.SameSiteStrictMode {
 		t.Fatalf("callback session cookie %+v; want a Strict session", session)
 	}
-	if cleared := cookieNamed(callback, oidcStateCookie); cleared == nil || cleared.MaxAge >= 0 || cleared.Path != oidcCallbackPath {
+	if cleared := cookieNamed(callback, oidcStateCookie); cleared == nil || cleared.MaxAge >= 0 || cleared.Path != "/" {
 		t.Errorf("state cookie after the callback %+v; want it cleared", cleared)
 	}
 	rec := h.serve(withSecureSession(request(http.MethodGet, "https://panel.example/api/v1/auth/session", ""), session.Value))
@@ -263,9 +265,9 @@ func TestOIDCRequireTotp(t *testing.T) {
 		t.Fatal("a session exists before the code")
 	}
 	step := cookieNamed(callback, signInStepCookie)
-	if step == nil || step.Path != totpStepPath || step.MaxAge != int(auth.SignInTicketTTL/time.Second) || !step.HttpOnly ||
-		!step.Secure || step.SameSite != http.SameSiteStrictMode {
-		t.Fatalf("code step cookie %+v; want five minutes on the code route, HttpOnly, Secure, Strict", step)
+	if step == nil || step.Name != "__Host-darkpanel_signin_step" || step.Path != "/" || step.Domain != "" ||
+		step.MaxAge != int(auth.SignInTicketTTL/time.Second) || !step.HttpOnly || !step.Secure || step.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("code step cookie %+v; want __Host-, path /, five minutes, HttpOnly, Secure, Strict", step)
 	}
 	post := func(c *http.Cookie, code string) *httptest.ResponseRecorder {
 		r := request(http.MethodPost, testOIDCBase+totpStepPath, `{"code":"`+code+`"}`)

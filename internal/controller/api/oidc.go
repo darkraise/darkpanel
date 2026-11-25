@@ -20,8 +20,8 @@ const (
 	totpStepPath     = "/api/v1/auth/totp"
 	methodsPath      = "/api/v1/auth/methods"
 
-	oidcStateCookie  = "darkpanel_oidc_state"
-	signInStepCookie = "darkpanel_signin_step"
+	oidcStateCookie  = "__Host-darkpanel_oidc_state"
+	signInStepCookie = "__Host-darkpanel_signin_step"
 )
 
 // Outcomes of the callback page's navigation, /?signin=<outcome> (C8).
@@ -83,10 +83,12 @@ func (s *Server) handleMethods(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.log, http.StatusOK, out)
 }
 
-// flowCookie is a short-lived cookie of the sign-in flow, scoped to path.
-// The state cookie is Lax, since the provider's redirect back is a
-// cross-site navigation; the code step's cookie is Strict.
-func flowCookie(name, value, path string, ttl time.Duration, lax bool) *http.Cookie {
+// flowCookie is a short-lived cookie of the sign-in flow. Its __Host- name
+// needs Secure, path / and no Domain, and keeps a sibling host under the same
+// parent domain (another <tailnet>.ts.net node) from planting one that the
+// browser would send instead. The state cookie is Lax, since the provider's
+// redirect back is a cross-site navigation; the code step's cookie is Strict.
+func flowCookie(name, value string, ttl time.Duration, lax bool) *http.Cookie {
 	maxAge := int(ttl / time.Second)
 	if value == "" {
 		maxAge = -1
@@ -95,7 +97,7 @@ func flowCookie(name, value, path string, ttl time.Duration, lax bool) *http.Coo
 	if lax {
 		site = http.SameSiteLaxMode
 	}
-	return &http.Cookie{Name: name, Value: value, Path: path, MaxAge: maxAge, Secure: true, HttpOnly: true, SameSite: site} //nolint:gosec // G124: Secure and HttpOnly are set; SameSite is Lax or Strict
+	return &http.Cookie{Name: name, Value: value, Path: "/", MaxAge: maxAge, Secure: true, HttpOnly: true, SameSite: site} //nolint:gosec // G124: Secure and HttpOnly are set; SameSite is Lax or Strict
 }
 
 // handleOIDCStart sends the browser to the provider with a new state
@@ -106,7 +108,7 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		writeSignInPage(w, s, err)
 		return
 	}
-	http.SetCookie(w, flowCookie(oidcStateCookie, start.Cookie, oidcCallbackPath, auth.OIDCStateTTL, true))
+	http.SetCookie(w, flowCookie(oidcStateCookie, start.Cookie, auth.OIDCStateTTL, true))
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	http.Redirect(w, r, start.URL, http.StatusFound)
@@ -120,7 +122,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(oidcStateCookie); err == nil {
 		state = c.Value
 	}
-	http.SetCookie(w, flowCookie(oidcStateCookie, "", oidcCallbackPath, 0, true))
+	http.SetCookie(w, flowCookie(oidcStateCookie, "", 0, true))
 	q := r.URL.Query()
 	res, err := s.cfg.Auth.FinishOIDC(r.Context(), auth.OIDCCallback{Cookie: state, State: q.Get("state"), Code: q.Get("code"),
 		Source: clientAddr(r), UserAgent: r.UserAgent(), Trusted: s.TrustedListener(r)})
@@ -129,7 +131,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Ticket != "" {
-		http.SetCookie(w, flowCookie(signInStepCookie, res.Ticket, totpStepPath, auth.SignInTicketTTL, false))
+		http.SetCookie(w, flowCookie(signInStepCookie, res.Ticket, auth.SignInTicketTTL, false))
 		writeOutcomePage(w, http.StatusOK, outcomeTOTP)
 		return
 	}
@@ -161,7 +163,7 @@ func (s *Server) handleTOTPStep(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, s.log, err)
 		return
 	}
-	http.SetCookie(w, flowCookie(signInStepCookie, "", totpStepPath, 0, false))
+	http.SetCookie(w, flowCookie(signInStepCookie, "", 0, false))
 	http.SetCookie(w, sessionCookie(r, res.SessionID, 0))
 	writeJSON(w, s.log, http.StatusOK, sessionResponse{User: &sessionUser{User: res.User, AllHosts: res.Access.Everywhere()},
 		CSRFToken: &res.CSRFToken, ExpiresAt: &res.ExpiresAt})

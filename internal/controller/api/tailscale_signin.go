@@ -236,7 +236,7 @@ func (s *Server) handleTailscaleSignIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Ticket != "" {
-		http.SetCookie(w, flowCookie(signInStepCookie, res.Ticket, totpStepPath, auth.SignInTicketTTL, false))
+		http.SetCookie(w, flowCookie(signInStepCookie, res.Ticket, auth.SignInTicketTTL, false))
 		writeJSON(w, s.log, http.StatusOK, tailscaleStepResponse{TOTP: true, Remember: res.Remember})
 		return
 	}

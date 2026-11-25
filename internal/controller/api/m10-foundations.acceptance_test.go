@@ -465,12 +465,12 @@ func (o *qaOIDC) begin() qaFlow {
 	}
 	f := qaFlow{start: start, state: loc.Query().Get("state")}
 	for _, c := range start.Result().Cookies() {
-		if c.Path == auth.OIDCCallbackPath {
+		if c.Name == oidcStateCookie {
 			f.stateCookie = c.Name + "=" + c.Value
 		}
 	}
 	if f.stateCookie == "" || f.state == "" {
-		o.t.Fatalf("start gave no state or no cookie scoped to the callback: %v", start.Header())
+		o.t.Fatalf("start gave no state or no state cookie: %v", start.Header())
 	}
 	o.n++
 	f.code = fmt.Sprintf("qa-code-%d", o.n)
@@ -687,7 +687,7 @@ func TestA15_oidc_require_totp_asks_for_the_code_first(t *testing.T) {
 	}
 	var step *http.Cookie
 	for _, c := range rec.Result().Cookies() {
-		if c.Value != "" && c.Name != SessionCookieSecure && c.Path == "/api/v1/auth/totp" {
+		if c.Value != "" && c.Name == signInStepCookie {
 			step = c
 		}
 	}
@@ -739,7 +739,7 @@ func TestA11_A66_first_oidc_sign_in_activates_an_invite(t *testing.T) {
 	}
 	var step bool
 	for _, c := range rec.Result().Cookies() {
-		if c.Path == "/api/v1/auth/totp" && c.Value != "" {
+		if c.Name == signInStepCookie && c.Value != "" {
 			step = true
 		}
 	}

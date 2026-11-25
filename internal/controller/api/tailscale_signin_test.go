@@ -422,7 +422,7 @@ func TestTailscaleRequireTotp(t *testing.T) {
 		t.Fatalf("POST with the code step: %d %s; want {\"totp\":true,\"remember\":false} and no session", rec.Code, rec.Body)
 	}
 	step := cookieNamed(rec, signInStepCookie)
-	if step == nil || step.Path != totpStepPath || step.SameSite != http.SameSiteStrictMode {
+	if step == nil || step.Name != "__Host-darkpanel_signin_step" || step.Path != "/" || step.SameSite != http.SameSiteStrictMode {
 		t.Fatalf("code step cookie %+v", step)
 	}
 	if h.tailnetUserID(h.user.ID) != "" {
