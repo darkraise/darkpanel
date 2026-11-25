@@ -132,7 +132,7 @@ func (h tokenCreate) Plan(ctx context.Context, env core.Env, in TokenCreateInput
 	diff := []core.DiffLine{
 		{Op: "+", Text: fmt.Sprintf("token %q with scope %s for user %s, expiring in %d days", in.Name, in.Scope, owner.Username, days)},
 	}
-	if owner.Role == auth.RoleMember {
+	if !env.Principal.HostAccess().Admin {
 		diff = append(diff, core.DiffLine{Op: " ", Text: fmt.Sprintf("it can do no more than %s's grants allow", owner.Username)})
 	}
 	return core.PlanOutcome{

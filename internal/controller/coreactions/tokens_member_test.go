@@ -284,6 +284,29 @@ func TestTokenActionsRefuseAMemberOutsideTheAPI(t *testing.T) {
 	wantCode(t, err, errcode.Forbidden)
 }
 
+// TestTokenCreateDiffNamesTheCapByAccess: the grants-cap line follows the
+// caller's access, as authorization does, not the owner's stored role.
+func TestTokenCreateDiffNamesTheCapByAccess(t *testing.T) {
+	e := newTestEnv(t)
+	u, _ := e.activeUser("root")
+	capped := core.Principal{Actor: "user:" + u.ID, UserID: u.ID, Source: "127.0.0.1", Access: core.Access{All: core.ScopeOperate}}
+	pv, err := e.plan(capped, "core.token.create", TokenCreateInput{Name: "x", Scope: core.ScopeOperate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := diffText(pv.Diff); !strings.Contains(d, "it can do no more than root's grants allow") {
+		t.Errorf("create diff of a caller without admin access %q; want the grants cap named", d)
+	}
+	admin := core.Principal{Actor: "user:" + u.ID, UserID: u.ID, Source: "127.0.0.1", Scope: core.ScopeAdmin}
+	pv, err = e.plan(admin, "core.token.create", TokenCreateInput{Name: "y", Scope: core.ScopeOperate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := diffText(pv.Diff); strings.Contains(d, "grants allow") {
+		t.Errorf("create diff of an admin %q; want no grants cap", d)
+	}
+}
+
 // TestTokenCreateApplyRechecksTheScope: an admin-scope token planned by an
 // admin who is a member by the time the plan is applied is refused when it
 // is applied, and no token is created.
