@@ -1131,8 +1131,6 @@ func TestQA_A30_CodeStepIsBoundToTheTicketsNode(t *testing.T) {
 
 func TestQA_A29_ForgetRacingARememberedSignIn(t *testing.T) {
 	e := qaaNewEnv(t)
-	admin := qaaUser{name: "admin", login: "alice@example.com", secret: e.secret}
-	_ = admin
 	for i := 0; i < 20; i++ {
 		e.clock.Advance(time.Minute + time.Second)
 		qaExec(t, e.harness, `DELETE FROM core_user_tailnet_devices`)

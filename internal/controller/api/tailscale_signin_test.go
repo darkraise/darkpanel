@@ -278,18 +278,18 @@ func TestTailscaleRefusals(t *testing.T) {
 		}, post(tsPeer), 401, "auth.invalid_credentials", 1},
 		{"an answer that does not decode", func(h *tsHarness) { h.answer(tsPeer, "not json") }, post(tsPeer), 401, "auth.invalid_credentials", 1},
 		{"a whois error", func(h *tsHarness) { h.answer(tsPeer, errors.New("tailscaled is down")) }, post(tsPeer), 401, "auth.invalid_credentials", 1},
-		{"the request address is an offline host's", func(h *tsHarness) { h.managed(tsPeer, "nOther") }, post(tsPeer), 401,
+		{"the request address is an offline host's", func(h *tsHarness) { h.managed(tsPeer) }, post(tsPeer), 401,
 			"auth.invalid_credentials", 1},
 		{"the request address is an online host's", func(h *tsHarness) {
-			h.managed(tsPeer, "nOther")
+			h.managed(tsPeer)
 			h.exec(`UPDATE core_hosts SET last_seen_at = ? WHERE id = 'H9'`, h.clock.Now().UTC().Format(time.RFC3339Nano))
 		}, post(tsPeer), 401, "auth.invalid_credentials", 1},
 		{"the request address is a host's with tailscale disabled", func(h *tsHarness) {
-			h.managed(tsPeer, "nOther")
+			h.managed(tsPeer)
 			h.exec(`INSERT INTO core_module_state (host_id, module_id, enabled, available, reason, checked_at)
 				VALUES ('H9', 'tailscale', 0, 0, 'disabled', '2026-11-24T00:00:00Z')`)
 		}, post(tsPeer), 401, "auth.invalid_credentials", 1},
-		{"another node address is a host's", func(h *tsHarness) { h.managed("fd7a:115c:a1e0::5", "nOther") }, post(tsPeer), 401,
+		{"another node address is a host's", func(h *tsHarness) { h.managed("fd7a:115c:a1e0::5") }, post(tsPeer), 401,
 			"auth.invalid_credentials", 1},
 		{"the controller's own address", func(h *tsHarness) {
 			if err := listen.SaveTailscaleAddrs(context.Background(), h.db, []netip.Addr{netip.MustParseAddr(tsPeer)}); err != nil {
@@ -329,11 +329,11 @@ func TestTailscaleRefusals(t *testing.T) {
 	}
 }
 
-// managed records addr and stableID as a Darkpanel host's tailnet node.
-func (h *tsHarness) managed(addr, stableID string) {
+// managed records addr as a Darkpanel host's tailnet address.
+func (h *tsHarness) managed(addr string) {
 	h.t.Helper()
 	h.exec(`INSERT INTO core_hosts (id, name, created_at, state) VALUES ('H9', 'host-H9', '2026-10-19T00:00:00.000000000Z', ?)`, core.HostEnrolled)
-	h.exec(`INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('H9', ?, ?, '2026-11-24T00:00:00Z')`, addr, stableID)
+	h.exec(`INSERT INTO core_host_tailnet (host_id, addr, stable_id, seen_at) VALUES ('H9', ?, '', '2026-11-24T00:00:00Z')`, addr)
 }
 
 func TestWhoisThrottle(t *testing.T) {
