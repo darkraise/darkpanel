@@ -14,6 +14,7 @@ const FLOWS = [
   "Container actions",
   "Expose a container",
   "Settings, alerts and metrics",
+  "Host administration",
 ]
 
 const CRITERIA: Record<string, string> = {

@@ -3,6 +3,7 @@ import { Outlet } from "react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Bell, BellRing, Boxes, History, KeyRound, Laptop, LogIn, RefreshCw, Server, Users } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
+import { Toaster } from "darkraise-ui/components/sonner"
 import { SidebarLayout, type NavGroup, type NavItem } from "darkraise-ui/layout"
 import { HOSTS_QUERY_KEY, errorMessage, getListenerState, listHosts } from "@/api/client"
 import { connectEvents } from "@/api/events"
@@ -132,6 +133,7 @@ export function Shell() {
         </>
       )}
       <Outlet />
+      <Toaster />
     </SidebarLayout>
   )
 }

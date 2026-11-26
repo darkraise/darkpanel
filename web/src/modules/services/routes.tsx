@@ -1,11 +1,14 @@
+import { Route, Routes } from "react-router"
 import { EmptyState } from "darkraise-ui/components/empty-state"
+import type { ModuleRouteProps } from "@/modules/types"
+import { ServicesPage } from "./services-page"
 
-// The Services pages under /hosts/:hostId/services/, a placeholder until they are built.
-export default function ServicesRoutes() {
+// The services module's pages under /hosts/:hostId/services/.
+export default function ServicesRoutes({ hostId }: ModuleRouteProps) {
   return (
-    <>
-      <h2 className="sr-only">Services</h2>
-      <EmptyState title="Services" description="This page is not built yet." />
-    </>
+    <Routes>
+      <Route index element={<ServicesPage hostId={hostId} />} />
+      <Route path="*" element={<EmptyState title="Page not found" description="The services module has no page at this address." />} />
+    </Routes>
   )
 }

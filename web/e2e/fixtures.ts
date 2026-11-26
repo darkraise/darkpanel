@@ -868,6 +868,21 @@ function applies(name: string, changes: Map<string, Change>, input: Record<strin
   return { json: applied }
 }
 
+const M11_CHANGE_ID = "01JE000000000000000000C011"
+
+// m11Plans plans the M11 unit operations: a protected unit asks its name.
+function m11Plans(name: string, input: Record<string, unknown>): Reply | null {
+  if (!name.startsWith("services.unit.")) return null
+  const unit = typeof input.unit === "string" ? input.unit : ""
+  const confirmation = m11.protectedUnits.includes(unit) ? unit : null
+  return { json: plan({ action: name, diff: [{ op: "+", text: `${unit}: ${name.slice("services.unit.".length)}` }], confirmation }) }
+}
+
+function m11Applies(name: string): Change | null {
+  if (!name.startsWith("services.unit.")) return null
+  return change({ id: M11_CHANGE_ID, action: name, class: "compensable", state: "completed" })
+}
+
 // Fixtures is what a test reads back from mockApi.
 export interface Fixtures {
   // The "<method> <path>" of every API request no handler answered; a test
@@ -964,10 +979,17 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
       case "plan": {
         const input = bodyOf(route).input ?? {}
         planned.set(name, input)
+        const m11Plan = m11Plans(name, input)
+        if (m11Plan !== null) return m11Plan
         return systemPlan(name, input, hostNamed(fleet, HOST_ID), sys, worstCase) ?? plans(name, input, fleet)
       }
       default: {
         const input = planned.get(name) ?? {}
+        const m11Change = m11Applies(name)
+        if (m11Change !== null) {
+          changes.set(m11Change.id, m11Change)
+          return { json: m11Change }
+        }
         const system = systemApply(name, input, sys, steps)
         if (system !== null) {
           changes.set(system.id, system)
