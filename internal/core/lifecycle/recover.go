@@ -1,12 +1,16 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -517,12 +521,198 @@ func (e *Engine) Purge(ctx context.Context) error {
 			formatTime(now.Add(-PrivateOutputTTL))); err != nil {
 			return err
 		}
+		if err := e.eraseExpired(ctx, tx, now); err != nil {
+			return err
+		}
 		return purgeEffectSecrets(ctx, tx)
 	})
 	if err != nil {
 		return fmt.Errorf("lifecycle: purge plans: %w", err)
 	}
 	return nil
+}
+
+// eraseExpired reseals, without its secret:"erase" fields, the input of
+// every expired plan whose change has not ended and that no mechanism
+// holds. A change that ended already lost its whole sealed input; a held
+// change (an apply, a task, an undo, a repair) may still read the fields.
+func (e *Engine) eraseExpired(ctx context.Context, tx *sql.Tx, now time.Time) error {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT p.id, p.action, p.version, p.input_ct FROM core_plans p JOIN core_changes c ON c.plan_id = p.id
+		 WHERE p.expires_at <= ? AND p.input_ct IS NOT NULL AND c.recovery_owner = ''`, formatTime(now))
+	if err != nil {
+		return err
+	}
+	type sealedPlan struct {
+		id  string
+		ref core.ActionRef
+		ct  []byte
+	}
+	var plans []sealedPlan
+	for rows.Next() {
+		var p sealedPlan
+		if err := rows.Scan(&p.id, &p.ref.Name, &p.ref.Version, &p.ct); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		plans = append(plans, p)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, p := range plans {
+		def, ok := e.cfg.Registry.Action(p.ref)
+		if !ok || !hasEraseField(def.InputType, map[reflect.Type]bool{}) {
+			continue
+		}
+		// A plan whose input cannot be read is left for its change's own
+		// end; it must not stop the purge of every other plan.
+		input, err := e.cfg.Base.Sealer.Open(planInputAD(p.id), p.ct)
+		if err != nil {
+			e.cfg.Base.Log.Error("lifecycle: open an expired plan's input to erase it", "plan", p.id, "error", err)
+			continue
+		}
+		kept, changed, err := eraseFields(def.InputType, input)
+		if err != nil {
+			e.cfg.Base.Log.Error("lifecycle: erase an expired plan's input", "plan", p.id, "error", err)
+			continue
+		}
+		if !changed {
+			continue
+		}
+		sealed, err := e.cfg.Base.Sealer.Seal(planInputAD(p.id), kept)
+		if err != nil {
+			return fmt.Errorf("lifecycle: seal the input of plan %s: %w", p.id, err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE core_plans SET input_ct = ? WHERE id = ?", sealed, p.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// hasEraseField reports whether t, or a type it contains, has a field
+// tagged secret:"erase".
+func hasEraseField(t reflect.Type, seen map[reflect.Type]bool) bool {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array || t.Kind() == reflect.Map {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || seen[t] {
+		return false
+	}
+	seen[t] = true
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if f.Tag.Get("secret") == core.SecretTagErase || hasEraseField(f.Type, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+// eraseFields removes every secret:"erase" field of t from raw, a JSON
+// value of t, and reports whether it removed any.
+func eraseFields(t reflect.Type, raw json.RawMessage) (json.RawMessage, bool, error) {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return raw, false, nil
+	}
+	switch t.Kind() {
+	case reflect.Slice, reflect.Array:
+		var items []json.RawMessage
+		if err := json.Unmarshal(raw, &items); err != nil {
+			return nil, false, err
+		}
+		changed := false
+		for i, it := range items {
+			v, c, err := eraseFields(t.Elem(), it)
+			if err != nil {
+				return nil, false, err
+			}
+			items[i], changed = v, changed || c
+		}
+		if !changed {
+			return raw, false, nil
+		}
+		out, err := json.Marshal(items)
+		return out, true, err
+	case reflect.Map:
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return nil, false, err
+		}
+		changed := false
+		for k, v := range m {
+			nv, c, err := eraseFields(t.Elem(), v)
+			if err != nil {
+				return nil, false, err
+			}
+			m[k], changed = nv, changed || c
+		}
+		if !changed {
+			return raw, false, nil
+		}
+		out, err := json.Marshal(m)
+		return out, true, err
+	case reflect.Struct:
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return nil, false, err
+		}
+		changed, err := eraseStruct(t, m)
+		if err != nil || !changed {
+			return raw, false, err
+		}
+		out, err := json.Marshal(m)
+		return out, true, err
+	}
+	return raw, false, nil
+}
+
+// eraseStruct removes t's erase fields from m, the members of one JSON
+// object; an embedded struct without a JSON name shares the object.
+func eraseStruct(t reflect.Type, m map[string]json.RawMessage) (bool, error) {
+	changed := false
+	for i := range t.NumField() {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" || (!f.IsExported() && !f.Anonymous) {
+			continue
+		}
+		ft := f.Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		if f.Anonymous && name == "" && ft.Kind() == reflect.Struct {
+			c, err := eraseStruct(ft, m)
+			if err != nil {
+				return false, err
+			}
+			changed = changed || c
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		v, ok := m[name]
+		if !ok {
+			continue
+		}
+		if f.Tag.Get("secret") == core.SecretTagErase {
+			delete(m, name)
+			changed = true
+			continue
+		}
+		nv, c, err := eraseFields(f.Type, v)
+		if err != nil {
+			return false, err
+		}
+		m[name], changed = nv, changed || c
+	}
+	return changed, nil
 }
 
 // purgeEffectSecrets clears the sealed secret of every made effect whose

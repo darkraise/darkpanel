@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -833,5 +834,40 @@ func TestRegistryBackgroundTasks(t *testing.T) {
 				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+type regEraseIn struct {
+	Password string `json:"password" secret:"erase"`
+}
+
+type regNestedEraseIn struct {
+	Users []struct {
+		Login *regEraseIn `json:"login"`
+	} `json:"users"`
+}
+
+func TestCompositeRefusesSecret(t *testing.T) {
+	composite := func(def ActionDef) []Module {
+		return []Module{testModule{ID: "demo", Version: 1, Actions: []ActionDef{def}}}
+	}
+	spec := ActionSpec{Name: "demo.stack.deploy", Version: 1, Unwind: UnwindReverse}
+	for name, mods := range map[string][]Module{
+		`secret:"true"`:         composite(DefineComposite[regSecretIn, echoOut](spec, regComposer[regSecretIn]{})),
+		`nested secret:"true"`:  composite(DefineComposite[regNestedSecretIn, echoOut](spec, regComposer[regNestedSecretIn]{})),
+		`secret:"erase"`:        composite(DefineComposite[regEraseIn, echoOut](spec, regComposer[regEraseIn]{})),
+		`nested secret:"erase"`: composite(DefineComposite[regNestedEraseIn, echoOut](spec, regComposer[regNestedEraseIn]{})),
+	} {
+		if _, err := NewRegistry(mods...); err == nil || !strings.Contains(err.Error(), "input has no secret field") {
+			t.Errorf("a composite with a %s input: %v, want refused", name, err)
+		}
+	}
+	for tag, want := range map[reflect.StructTag]bool{
+		`secret:"true"`: true, `secret:"erase"`: true, `secret:"false"`: false, `secret:""`: false, `json:"x"`: false,
+		`secret:"Erase"`: false,
+	} {
+		if got := IsSecretTag(tag); got != want {
+			t.Errorf("IsSecretTag(%s) = %v, want %v", tag, got, want)
+		}
 	}
 }

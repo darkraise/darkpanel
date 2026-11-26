@@ -13,10 +13,12 @@ import (
 	"strings"
 
 	"github.com/invopop/jsonschema"
+
+	"github.com/darkraise/darkpanel/internal/core"
 )
 
 // secretKeyword marks a property whose value is a secret (shared contracts:
-// the secret:"true" struct tag).
+// the secret:"true" and secret:"erase" struct tags).
 const secretKeyword = "x-secret"
 
 // The formats of the netip types. Their JSON form is the string their
@@ -133,7 +135,7 @@ func markFields(t reflect.Type, s *jsonschema.Schema, defs jsonschema.Definition
 		if !ok {
 			continue
 		}
-		if f.Tag.Get("secret") == "true" {
+		if core.IsSecretTag(f.Tag) {
 			if p.Extras == nil {
 				p.Extras = map[string]any{}
 			}

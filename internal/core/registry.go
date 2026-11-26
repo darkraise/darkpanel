@@ -424,8 +424,23 @@ func (r *Registry) checkRepairedBy(a ActionDef) []error {
 	return errs
 }
 
+// The values of the secret struct tag. Both mark a secret field: its
+// schema is writeOnly with x-secret, and redaction replaces it. An erase
+// field's sealed bytes also leave the plan row once its plan has expired,
+// even while the change has not ended, instead of only when it ends.
+const (
+	SecretTagTrue  = "true"
+	SecretTagErase = "erase"
+)
+
+// IsSecretTag reports whether tag marks a secret field.
+func IsSecretTag(tag reflect.StructTag) bool {
+	v := tag.Get("secret")
+	return v == SecretTagTrue || v == SecretTagErase
+}
+
 // hasSecretField reports whether t, or a type it contains, has a field
-// tagged secret:"true".
+// tagged secret:"true" or secret:"erase".
 func hasSecretField(t reflect.Type, seen map[reflect.Type]bool) bool {
 	if seen[t] {
 		return false
@@ -437,7 +452,7 @@ func hasSecretField(t reflect.Type, seen map[reflect.Type]bool) bool {
 	case reflect.Struct:
 		for i := range t.NumField() {
 			f := t.Field(i)
-			if f.Tag.Get("secret") == "true" || hasSecretField(f.Type, seen) {
+			if IsSecretTag(f.Tag) || hasSecretField(f.Type, seen) {
 				return true
 			}
 		}

@@ -1243,7 +1243,7 @@ func compositeSecretIn(t reflect.Type, seen map[reflect.Type]bool) bool {
 	seen[t] = true
 	for i := range t.NumField() {
 		f := t.Field(i)
-		if f.Tag.Get("secret") == "true" || compositeSecretIn(f.Type, seen) {
+		if core.IsSecretTag(f.Tag) || compositeSecretIn(f.Type, seen) {
 			return true
 		}
 	}
