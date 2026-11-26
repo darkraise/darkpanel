@@ -148,6 +148,11 @@ export function StatusSummary({ status }: { status: FirewallStatus }) {
             .map((key) => (
               <Chip key={key} label={key} value={l.sysctl[key] ?? ""} mono />
             ))}
+          {(status.neighbours ?? []).map((n) => (
+            <p key={n.kind} className="w-full text-sm text-muted-foreground">
+              {`${n.kind}: ${n.banned} banned ${n.banned === 1 ? "address" : "addresses"}`}
+            </p>
+          ))}
         </CardContent>
       </Card>
     </div>

@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { describe, expect, test } from "vitest"
 import { axe } from "vitest-axe"
 import { renderWithProviders, stubFetch } from "@/test/utils"
 import { fwStatus } from "./fixtures"
@@ -23,6 +23,22 @@ test("shows the configured and the loaded state side by side", () => {
   loaded.getByLabelText("net/ipv4/ip_forward: 0")
   loaded.getByLabelText("net/ipv4/conf/all/rp_filter: 2")
   expect(screen.getByText("Active").textContent).toBe("Active")
+})
+
+describe("fail2ban neighbour", () => {
+  test("a fail2ban neighbour shows its banned addresses in the loaded state", () => {
+    renderWithProviders(<StatusSummary status={fwStatus({ neighbours: [{ kind: "fail2ban", banned: 3 }] })} />)
+    const loaded = within(screen.getByRole("region", { name: "Loaded state" }))
+    expect(loaded.getByText("fail2ban: 3 banned addresses")).toBeTruthy()
+  })
+
+  test("one ban reads in the singular and no neighbour shows no line", () => {
+    const { unmount } = renderWithProviders(<StatusSummary status={fwStatus({ neighbours: [{ kind: "fail2ban", banned: 1 }] })} />)
+    expect(screen.getByText("fail2ban: 1 banned address")).toBeTruthy()
+    unmount()
+    renderWithProviders(<StatusSummary status={fwStatus()} />)
+    expect(screen.queryByText(/^fail2ban:/)).toBeNull()
+  })
 })
 
 test("an inactive firewall says so", () => {

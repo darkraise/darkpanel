@@ -686,21 +686,28 @@ interface Applied {
   accounts: m11.M11Account[]
   keys: Map<string, typeof m11.keysDeploy.keys>
   elevated: boolean
+  // The "<jail> <address>" bans fail2ban.ban.remove lifted.
+  unbanned: Set<string>
 }
 
-// m11Host gives web-1 the six M11 modules, console and jobs off as they ship.
-function m11Host(h: Host): Host {
+// M11 is how mockApi gives web-1 the M11 modules: not at all, or with the
+// caller's scope on the host.
+type M11 = false | "admin" | "operate"
+
+// m11Host gives web-1 the six M11 modules, console and jobs off as they ship,
+// and the caller scope on it.
+function m11Host(h: Host, scope: "admin" | "operate"): Host {
   if (h.id !== HOST_ID) return h
   const added = ["services", "users", "fail2ban", "console", "jobs", "tuning"].map((id) => moduleState(id, { enabled: id !== "console" && id !== "jobs" }))
-  return { ...h, modules: [...h.modules, ...added] }
+  return { ...h, scope, modules: [...h.modules, ...added] }
 }
 
-const READS: Record<string, (worstCase: boolean, applied: Applied, sys: SystemContext, withM11: boolean) => unknown> = {
+const READS: Record<string, (worstCase: boolean, applied: Applied, sys: SystemContext, withM11: M11) => unknown> = {
   "core.host.list": (worstCase, applied, sys, withM11) => ({
     hosts: (worstCase ? worstHosts : hosts)
       .filter((h) => !applied.deleted.has(h.id))
       .map((h) => systemHost(applied.revoked.has(h.id) ? { ...h, state: "revoked" } : h, sys))
-      .map((h) => (withM11 ? m11Host(h) : h)),
+      .map((h) => (withM11 === false ? h : m11Host(h, withM11))),
   }),
   // The M11 reads; worstCase answers each list's worst case.
   "services.unit.list": (worstCase) => ({ units: worstCase ? m11.unitsWorst : m11.unitsDefault }),
@@ -708,7 +715,7 @@ const READS: Record<string, (worstCase: boolean, applied: Applied, sys: SystemCo
   "users.user.list": (worstCase, applied) => ({ accounts: [...(worstCase ? m11.accountsWorst : m11.accountsDefault), ...applied.accounts] }),
   "users.sshd.get": () => m11.sshdState,
   "fail2ban.status.get": () => m11.fail2banInstalled,
-  "fail2ban.ban.list": (worstCase) => ({ bans: worstCase ? m11.bansWorst : m11.bansDefault }),
+  "fail2ban.ban.list": (worstCase, applied) => ({ bans: (worstCase ? m11.bansWorst : m11.bansDefault).filter((b) => !applied.unbanned.has(`${b.jail} ${b.address}`)) }),
   "jobs.job.list": (worstCase) => (worstCase ? m11.jobsWorst : m11.jobsDefault),
   "jobs.schedule.check": () => m11.scheduleNext,
   "tuning.swap.get": () => m11.swapDefault,
@@ -889,6 +896,10 @@ function keyOf(line: string): (typeof m11.keysDeploy.keys)[number] {
 // its name, a step-up action outside the window is refused.
 function m11Plans(name: string, input: Record<string, unknown>, applied: Applied): Reply | null {
   if (M11_STEP_UP.has(name) && !applied.elevated) return problem(403, "auth.step_up_required", "enter an authenticator code to continue")
+  if (name.startsWith("fail2ban.")) {
+    const what = typeof input.address === "string" ? input.address : "fail2ban"
+    return { json: plan({ action: name, diff: [{ op: "~", text: `${what}: ${name.slice("fail2ban.".length)}` }] }) }
+  }
   if (name.startsWith("users.")) {
     const who = typeof input.name === "string" ? input.name : ""
     return { json: plan({ action: name, diff: [{ op: "+", text: `${who}: ${name.slice("users.".length)}` }], confirmation: name === "users.user.delete" ? who : null }) }
@@ -906,7 +917,8 @@ function m11Applies(name: string, input: Record<string, unknown>, applied: Appli
     applied.accounts.push({ name: input.name, uid, home: `/home/${input.name}`, shell: "/bin/bash", groups: [input.name], sudo: input.sudo === true, locked: false, passwordSet: typeof input.password === "string", keys: keys.length })
     applied.keys.set(input.name, keys)
   }
-  if (name.startsWith("users.")) return change({ id: M11_CHANGE_ID, action: name, class: "compensable", state: "completed" })
+  if (name === "fail2ban.ban.remove") applied.unbanned.add(`${String(input.jail)} ${String(input.address)}`)
+  if (name.startsWith("users.") || name.startsWith("fail2ban.")) return change({ id: M11_CHANGE_ID, action: name, class: "compensable", state: "completed" })
   if (!name.startsWith("services.unit.")) return null
   return change({ id: M11_CHANGE_ID, action: name, class: "compensable", state: "completed" })
 }
@@ -926,13 +938,14 @@ export interface Fixtures {
 // on the System pages 400 upgradable and 3000 installed packages with
 // 70-character names. systemState picks a named System or Docker install
 // state (SYSTEM_STATES) for web-1. m11 gives web-1 the six M11 modules, console
-// and jobs off, whose reads answer from src/modules/m11-fixtures.ts; the
+// and jobs off, whose reads answer from src/modules/m11-fixtures.ts, and the
+// caller admin on it ("operate" makes the caller an operator there); the
 // step-up endpoint accepts the code 123456.
-export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean; systemState?: SystemState; m11?: boolean }): Promise<Fixtures> {
+export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean; systemState?: SystemState; m11?: boolean | "operate" }): Promise<Fixtures> {
   const fixtures: Fixtures = { unhandled: [] }
   const changes = new Map<string, Change>()
   const planned = new Map<string, Record<string, unknown>>()
-  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false }
+  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false, unbanned: new Set() }
   const worstCase = opts.worstCase ?? false
   const sys = systemContext(opts.systemState, worstCase)
   const steps = new Map<string, Step[]>()
@@ -942,7 +955,7 @@ export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?:
       const request = route.request()
       const method = request.method()
       const path = new URL(request.url()).pathname
-      const reply = answer(method, path, route, opts.signedIn, { changes, planned, applied, worstCase, sys, steps, m11: opts.m11 ?? false })
+      const reply = answer(method, path, route, opts.signedIn, { changes, planned, applied, worstCase, sys, steps, m11: opts.m11 === true ? "admin" : (opts.m11 ?? false) })
       if (reply === "hang") return
       if (reply === null) {
         fixtures.unhandled.push(`${method} ${path}`)
@@ -972,13 +985,15 @@ interface MockState {
   worstCase: boolean
   sys: SystemContext
   steps: Map<string, Step[]>
-  m11: boolean
+  m11: M11
 }
 
 function answer(method: string, path: string, route: Route, signedIn: boolean, state: MockState): Reply | "hang" | null {
   const { changes, planned, applied, worstCase, sys, steps } = state
   if (path === "/api/v1/auth/session") {
-    return signedIn ? { json: session } : problem(401, "auth.required", "Sign in to continue.")
+    // An operator on web-1 is a member whose access to other hosts the host list gives.
+    const who = state.m11 === "operate" ? { ...session, user: { ...session.user, role: "member" as const, allHosts: "" as const } } : session
+    return signedIn ? { json: who } : problem(401, "auth.required", "Sign in to continue.")
   }
   if (path === "/api/v1/auth/login") return problem(401, "auth.invalid", "Login failed.")
   if (path === "/api/v1/auth/logout") return { status: 204 }

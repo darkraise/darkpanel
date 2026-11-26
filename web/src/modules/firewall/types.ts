@@ -81,6 +81,12 @@ export interface FirewallStatus {
   configured: FirewallConfigured
   loaded: FirewallLoaded
   rules: Rule[]
+  neighbours?: FirewallNeighbour[] // other tools whose rules share the kernel's tables, such as fail2ban
+}
+
+export interface FirewallNeighbour {
+  kind: string
+  banned: number
 }
 
 // One row of the firewall.snapshots resource (spec 2.5).
