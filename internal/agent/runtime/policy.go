@@ -205,6 +205,9 @@ func (r *Runtime) ReloadPolicy(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 		r.callHook(ctx, m.ID, enabled)
+		if p.Denied(m.ID) {
+			r.CloseModuleChannels(m.ID)
+		}
 		if err := r.syncTasks(ctx, m.ID); err != nil {
 			errs = append(errs, err)
 		}

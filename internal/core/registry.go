@@ -43,6 +43,7 @@ type Registry struct {
 	actions   map[ActionRef]ActionDef
 	resources map[string]ResourceDef
 	streams   map[string]ModuleStream // by "<module>.<name>"
+	channels  map[string]ChannelDef   // by "<module>.<name>"
 	names     map[string]bool         // action names, any version
 	hooks     map[string]EnablementHook
 }
@@ -60,6 +61,7 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 		actions:   map[ActionRef]ActionDef{},
 		resources: map[string]ResourceDef{},
 		streams:   map[string]ModuleStream{},
+		channels:  map[string]ChannelDef{},
 		names:     map[string]bool{},
 		hooks:     map[string]EnablementHook{},
 	}
@@ -118,6 +120,9 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 		if st, ok := mod.(Streamer); ok {
 			errs = append(errs, r.addStreams(m.ID, st.Streams())...)
 		}
+		if ch, ok := mod.(Channeler); ok {
+			errs = append(errs, r.addChannels(m.ID, ch.Channels())...)
+		}
 		if bg, ok := mod.(Background); ok {
 			tasks := bg.BackgroundTasks()
 			errs = append(errs, checkBackgroundTasks(m.ID, tasks)...)
@@ -160,6 +165,24 @@ func (r *Registry) addStreams(module string, defs []StreamDef) []error {
 			errs = append(errs, fmt.Errorf("stream %s registered twice", key))
 		default:
 			r.streams[key] = ModuleStream{Module: module, Def: d}
+		}
+	}
+	return errs
+}
+
+func (r *Registry) addChannels(module string, defs []ChannelDef) []error {
+	var errs []error
+	for _, d := range defs {
+		key := module + "." + d.Name
+		switch {
+		case !streamNamePattern.MatchString(d.Name):
+			errs = append(errs, fmt.Errorf("module %s: channel %q must match %s", module, d.Name, streamNamePattern))
+		case d.Open == nil || d.ParamsType == nil:
+			errs = append(errs, fmt.Errorf("channel %s needs Open and ParamsType", key))
+		case r.channels[key].Open != nil:
+			errs = append(errs, fmt.Errorf("channel %s registered twice", key))
+		default:
+			r.channels[key] = d
 		}
 	}
 	return errs
@@ -804,6 +827,12 @@ func (r *Registry) Resources() []ResourceDef {
 func (r *Registry) Stream(module, name string) (StreamDef, bool) {
 	st, ok := r.streams[module+"."+name]
 	return st.Def, ok
+}
+
+// Channel returns one channel of module.
+func (r *Registry) Channel(module, name string) (ChannelDef, bool) {
+	d, ok := r.channels[module+"."+name]
+	return d, ok
 }
 
 // Streams returns every stream, sorted by module and then name.

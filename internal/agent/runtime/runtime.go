@@ -113,7 +113,8 @@ type Runtime struct {
 
 	bg *background // the modules' background tasks, from the end of Open
 
-	streams streamSet // the running module streams; Close ends them
+	streams  streamSet  // the running module streams; Close ends them
+	channels channelSet // the open module channels; Close ends them
 
 	// enableMu orders flag changes and policy reloads, so the last one's
 	// hook call matches the stored flag and the policy in force.
@@ -188,12 +189,15 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 
 // Close stops the background tasks, waiting for each Run and Watch to return,
 // ends every open module stream, waiting until each stream's Run returned,
+// closes every open channel with reason "agent restarted", waiting until
+// each channel's Open returned,
 // stops the purge loop, waiting for a running purge, and closes the engine,
 // which waits for a running timer revert. The caller closes the database
 // afterwards.
 func (r *Runtime) Close() {
 	r.stopBackground()
 	r.streams.close()
+	r.channels.closeAll(CloseAgentRestarted)
 	r.loopMu.Lock()
 	r.closed = true
 	if r.timer != nil {

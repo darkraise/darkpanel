@@ -20,8 +20,8 @@ const MetaModuleEnabledPrefix = "module_enabled."
 var _ core.AgentEnablement = (*Runtime)(nil)
 
 // SetModuleEnabled stores moduleID's enabled flag as the controller pushed
-// it, calls the module's EnablementHook, then starts or stops the module's
-// background tasks; when it stops them it returns once their Run and Watch
+// it, calls the module's EnablementHook, closes the module's channels when
+// it is now off, then starts or stops the module's background tasks; when it stops them it returns once their Run and Watch
 // returned. A module the registry lacks is not_found. A module the policy
 // file denies keeps the stored flag for when the policy allows it, but runs
 // as disabled, and enabling it is refused with module.unavailable.
@@ -44,6 +44,9 @@ func (r *Runtime) SetModuleEnabled(ctx context.Context, moduleID string, enabled
 		return fmt.Errorf("runtime: store the enabled flag of %s: %w", moduleID, err)
 	}
 	r.callHook(ctx, moduleID, enabled)
+	if !enabled || r.Policy().Denied(moduleID) {
+		r.CloseModuleChannels(moduleID)
+	}
 	if err := r.syncTasks(ctx, moduleID); err != nil {
 		return err
 	}

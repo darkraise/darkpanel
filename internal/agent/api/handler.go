@@ -4,6 +4,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -14,10 +15,13 @@ import (
 	"log/slog"
 	"maps"
 	"mime"
+	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/agent/wire"
 	"github.com/darkraise/darkpanel/internal/core"
@@ -57,6 +61,7 @@ const (
 	opReveal       = "reveal"
 	opStreams      = "streams"
 	opStream       = "stream"
+	opChannel      = "channel"
 )
 
 // ControllerHello is the controller's half of a hello, sent in the headers
@@ -140,6 +145,7 @@ func (h *handler) routes(controller bool) *http.ServeMux {
 		mux.HandleFunc("POST "+prefix+"reveal/{name}/{version}", h.handleReveal)
 		mux.HandleFunc("GET "+prefix+"streams", h.handleStreams)
 		mux.HandleFunc("GET "+prefix+"streams/{module}/{name}", h.handleStream)
+		mux.HandleFunc("GET "+prefix+"channels/{module}/{name}", h.handleChannel)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.writeProblem(w, errcode.New(errcode.NotFound, fmt.Sprintf("no agent API route %s %s", r.Method, r.URL.Path)))
@@ -151,6 +157,14 @@ func (h *handler) routes(controller bool) *http.ServeMux {
 // its request for as long as the module stream runs.
 func OpensStream(r *http.Request) bool {
 	rest, ok := strings.CutPrefix(r.URL.Path, prefix+"streams/")
+	module, name, two := strings.Cut(rest, "/")
+	return ok && r.Method == http.MethodGet && two && module != "" && name != "" && !strings.Contains(name, "/")
+}
+
+// OpensChannel reports whether r is GET channels/{module}/{name}, which
+// becomes a channel that lasts as long as the module's handler runs.
+func OpensChannel(r *http.Request) bool {
+	rest, ok := strings.CutPrefix(r.URL.Path, prefix+"channels/")
 	module, name, two := strings.Cut(rest, "/")
 	return ok && r.Method == http.MethodGet && two && module != "" && name != "" && !strings.Contains(name, "/")
 }
@@ -909,4 +923,106 @@ func (h *handler) writeRaw(w http.ResponseWriter, out json.RawMessage) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(out) //nolint:gosec // G705: checked JSON sent as application/json, never rendered as HTML
+}
+
+// ChannelOpener serves module channels; the agent runtime implements it.
+type ChannelOpener interface {
+	OpenChannel(ctx context.Context, p core.Principal, module, name string, params url.Values, rw io.ReadWriteCloser) error
+}
+
+// handleChannel upgrades GET channels/{module}/{name} to a channel: the
+// request carries Upgrade: darkpanel-channel/1, and once the runtime has
+// checked the channel the answer is 101 and the connection carries frames.
+// A refusal before that is an ordinary problem answer.
+func (h *handler) handleChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		h.writeProblem(w, errcode.New(errcode.MethodNotAllowed, "a module channel opens with GET"))
+		return
+	}
+	if !headerHas(r.Header, "Connection", "upgrade") || !headerHas(r.Header, "Upgrade", wire.ChannelUpgrade) {
+		h.writeProblem(w, errcode.New(errcode.InvalidInput, "a module channel needs Connection: Upgrade and Upgrade: "+wire.ChannelUpgrade))
+		return
+	}
+	opener, ok := h.cfg.Agent.(ChannelOpener)
+	if !ok {
+		h.writeProblem(w, errcode.New(errcode.NotFound, "this agent serves no channels"))
+		return
+	}
+	module, name := r.PathValue("module"), r.PathValue("name")
+	p, err := h.actor(r, opChannel, module+"."+name)
+	up := &upgradeConn{w: w}
+	if err == nil {
+		err = opener.OpenChannel(r.Context(), p, module, name, r.URL.Query(), up)
+	}
+	switch {
+	case err != nil && !up.accepted:
+		h.writeProblem(w, err)
+	case err != nil:
+		h.cfg.Log.Warn("api: channel", "channel", module+"."+name, "error", err)
+	}
+}
+
+// headerHas reports whether one of the comma-separated tokens of header key
+// is want, ignoring case.
+func headerHas(h http.Header, key, want string) bool {
+	for _, v := range h.Values(key) {
+		for _, tok := range strings.Split(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(tok), want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// upgradeConn is the connection of a channel request: Accept hijacks it and
+// answers 101, and from then on it reads and writes the raw connection.
+type upgradeConn struct {
+	w        http.ResponseWriter
+	conn     net.Conn
+	br       *bufio.Reader
+	accepted bool
+}
+
+var errNotAccepted = errors.New("api: the channel was not accepted")
+
+func (u *upgradeConn) Accept() error {
+	conn, brw, err := http.NewResponseController(u.w).Hijack()
+	if err != nil {
+		return err
+	}
+	u.conn, u.br, u.accepted = conn, brw.Reader, true
+	// The server's deadlines belong to the request, not the channel.
+	_ = conn.SetDeadline(time.Time{})
+	_, err = io.WriteString(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: "+wire.ChannelUpgrade+"\r\n\r\n")
+	return err
+}
+
+func (u *upgradeConn) Read(p []byte) (int, error) {
+	if !u.accepted {
+		return 0, errNotAccepted
+	}
+	return u.br.Read(p)
+}
+
+func (u *upgradeConn) Write(p []byte) (int, error) {
+	if !u.accepted {
+		return 0, errNotAccepted
+	}
+	return u.conn.Write(p)
+}
+
+func (u *upgradeConn) Close() error {
+	if !u.accepted {
+		return nil
+	}
+	return u.conn.Close()
+}
+
+func (u *upgradeConn) SetWriteDeadline(t time.Time) error {
+	if !u.accepted {
+		return errNotAccepted
+	}
+	return u.conn.SetWriteDeadline(t)
 }

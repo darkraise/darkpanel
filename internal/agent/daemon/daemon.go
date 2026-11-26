@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -317,13 +319,14 @@ func (d *daemon) session(ctx context.Context, c *Credentials, b *transport.Backo
 }
 
 // guard holds mu for reading around each request, so the runtime is never
-// replaced under one. A module stream may run for hours, so a stream
-// request holds mu only until its answer starts: by then the runtime has
-// opened the stream, and a replacement's Runtime.Close ends it.
+// replaced under one. A module stream or channel may run for hours, so its
+// request holds mu only until its answer starts, or a channel's connection
+// is hijacked for its 101: by then the runtime has opened it, and a
+// replacement's Runtime.Close ends it.
 func (d *daemon) guard(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		d.mu.RLock()
-		if !api.OpensStream(r) {
+		if !api.OpensStream(r) && !api.OpensChannel(r) {
 			defer d.mu.RUnlock()
 			h.ServeHTTP(w, r)
 			return
@@ -349,6 +352,13 @@ func (u *unlockOnAnswer) WriteHeader(code int) {
 func (u *unlockOnAnswer) Write(b []byte) (int, error) {
 	u.unlock()
 	return u.ResponseWriter.Write(b)
+}
+
+// Hijack unlocks and hands over the connection, as a channel's upgrade
+// does.
+func (u *unlockOnAnswer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	u.unlock()
+	return http.NewResponseController(u.ResponseWriter).Hijack()
 }
 
 // Unwrap lets http.ResponseController flush the stream through it.

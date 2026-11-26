@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -14,6 +15,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	agentruntime "github.com/darkraise/darkpanel/internal/agent/runtime"
 	"github.com/darkraise/darkpanel/internal/agent/wire"
@@ -516,3 +519,119 @@ func (c *Client) wirePrincipal(p core.Principal) wire.Principal {
 	}
 	return wire.FromPrincipalOn(p, c.cfg.HostID)
 }
+
+// OpenChannel opens module's channel name with params as p, on a connection
+// of DialStream, and returns it once the agent answered 101. The stream
+// carries frames (wire.WriteFrame, wire.ReadFrame) and lasts until either
+// side closes it. Its reads hand over whole frames only: a frame the codec
+// refuses sends the agent a close frame with reason "bad frame", closes the
+// connection and fails the read with wire.ErrFrame. A refusal is the
+// agent's error.
+func (c *Client) OpenChannel(ctx context.Context, p core.Principal, module, name string, params url.Values) (io.ReadWriteCloser, error) {
+	path := "channels/" + url.PathEscape(module) + "/" + url.PathEscape(name)
+	what := http.MethodGet + " " + path
+	u := "http://agent" + prefix + path
+	if len(params) > 0 {
+		u += "?" + params.Encode()
+	}
+	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("api: %s: %w", what, err)
+	}
+	b, err := json.Marshal(c.wirePrincipal(p))
+	if err != nil {
+		return nil, fmt.Errorf("api: %s: encode the principal: %w", what, err)
+	}
+	hr.Header.Set(wire.HeaderPrincipal, string(b))
+	hr.Header.Set("Connection", "Upgrade")
+	hr.Header.Set("Upgrade", wire.ChannelUpgrade)
+	dial := c.cfg.DialStream
+	if dial == nil {
+		dial = c.cfg.Dial
+	}
+	conn, err := dial(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("api: %s: %w", what, err)
+	}
+	// The handshake ends with ctx; the channel itself is ended by Close.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	br := bufio.NewReader(conn)
+	var resp *http.Response
+	if err = hr.Write(conn); err == nil {
+		resp, err = http.ReadResponse(br, hr)
+	}
+	if !stop() {
+		_ = conn.Close()
+		return nil, fmt.Errorf("api: %s: %w", what, ctx.Err())
+	}
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("api: %s: %w", what, err)
+	}
+	if resp.StatusCode == http.StatusSwitchingProtocols && headerHas(resp.Header, "Upgrade", wire.ChannelUpgrade) {
+		return &clientChannel{conn: conn, br: br}, nil
+	}
+	defer func() { _ = conn.Close() }()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, wire.MaxBody))
+	if err != nil {
+		return nil, fmt.Errorf("api: %s: read the answer: %w", what, err)
+	}
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		return nil, fmt.Errorf("api: %s: the agent switched to %q, not %s", what, resp.Header.Get("Upgrade"), wire.ChannelUpgrade)
+	}
+	return nil, answerError(what, resp, data)
+}
+
+// clientChannel is the controller's end of a channel.
+type clientChannel struct {
+	conn net.Conn
+	br   *bufio.Reader
+
+	rmu     sync.Mutex
+	pending []byte // the rest of the frame being read
+	err     error  // the read error that ended the channel
+
+	wmu sync.Mutex
+}
+
+func (c *clientChannel) Read(p []byte) (int, error) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	if len(c.pending) == 0 {
+		if c.err != nil {
+			return 0, c.err
+		}
+		t, payload, err := wire.ReadFrame(c.br)
+		if err != nil {
+			if errors.Is(err, wire.ErrFrame) {
+				c.closeBadFrame()
+			}
+			c.err = err
+			return 0, err
+		}
+		var buf bytes.Buffer
+		_ = wire.WriteFrame(&buf, t, payload) // ReadFrame accepted it, so it encodes
+		c.pending = buf.Bytes()
+	}
+	n := copy(p, c.pending)
+	c.pending = c.pending[n:]
+	return n, nil
+}
+
+// closeBadFrame tells the agent why, waiting at most a second for a peer
+// that stopped reading, and closes the connection.
+func (c *clientChannel) closeBadFrame() {
+	_ = c.conn.SetWriteDeadline(time.Now().Add(time.Second))
+	c.wmu.Lock()
+	_ = wire.WriteFrame(c.conn, wire.FrameClose, []byte(`{"reason":"bad frame"}`))
+	c.wmu.Unlock()
+	_ = c.conn.Close()
+}
+
+func (c *clientChannel) Write(p []byte) (int, error) {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	return c.conn.Write(p)
+}
+
+func (c *clientChannel) Close() error { return c.conn.Close() }
