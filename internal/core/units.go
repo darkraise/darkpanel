@@ -61,6 +61,34 @@ type UnitStatus struct {
 	UnitState
 }
 
+// TimerReader is implemented by a unit client that reads timers and the
+// last runs of services; a module's scoped client allows it to a module
+// that declares a unit set, for every timer and the services of its sets.
+type TimerReader interface {
+	// Timers returns every loaded timer unit.
+	Timers(ctx context.Context) ([]TimerInfo, error)
+	// LastRun reads the last run of a service unit.
+	LastRun(ctx context.Context, unit string) (ServiceRun, error)
+}
+
+// TimerInfo is one timer systemd has loaded. Next and Last are zero when the
+// timer has no next elapse or never elapsed.
+type TimerInfo struct {
+	Name, Unit   string // the timer and the unit it starts
+	ActiveState  string
+	FragmentPath string // the file systemd loaded the timer from
+	Next, Last   time.Time
+}
+
+// ServiceRun is the last run of a service: Started is zero when it never
+// ran; Result is systemd's ("success", "exit-code", "timeout", ...).
+type ServiceRun struct {
+	ActiveState string
+	Started     time.Time
+	Result      string
+	ExitStatus  int32
+}
+
 // UnitReloader is implemented by a unit client that may ask a unit to
 // reload its configuration (systemctl reload); a module's scoped client
 // allows it on the external units that declare UnitOpReload.

@@ -1,0 +1,44 @@
+{
+  "name": "jobs.job.enable",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SlugInput",
+    "$defs": {
+      "SlugInput": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "description": "The job's name."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "slug"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Changed",
+    "$defs": {
+      "Changed": {
+        "properties": {
+          "slug": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug"
+        ]
+      }
+    }
+  }
+}

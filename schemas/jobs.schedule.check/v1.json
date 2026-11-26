@@ -1,0 +1,48 @@
+{
+  "name": "jobs.schedule.check",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ScheduleInput",
+    "$defs": {
+      "ScheduleInput": {
+        "properties": {
+          "schedule": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "description": "A systemd calendar expression."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schedule"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ScheduleCheck",
+    "$defs": {
+      "ScheduleCheck": {
+        "properties": {
+          "next": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "next"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+# Written by Darkpanel; change the job in Darkpanel.
+[Unit]
+Description=Darkpanel job backup: Nightly 100%% backup
+
+[Service]
+Type=oneshot
+User=alice
+TimeoutStartSec=3600
+ExecStart=/bin/sh /var/lib/darkpanel/jobs/backup.sh

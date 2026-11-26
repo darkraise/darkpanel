@@ -164,6 +164,7 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 		eng.Close()
 		return nil, fmt.Errorf("runtime: %w", err)
 	}
+	r.callHooks(ctx)
 	r.startBackground(ctx)
 	r.timer = cfg.Clock.AfterFunc(PurgeInterval, r.purge)
 	return r, nil

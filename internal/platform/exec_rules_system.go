@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // DpkgQueryFormat is the fixed dpkg-query format of the system module: one
@@ -176,7 +177,31 @@ func systemRules() []ExecRule {
 		{Path: MkswapPath, Match: exactly(SwapFileArgs())},
 		{Path: SwaponPath, Match: exactly(SwapFileArgs())},
 		{Path: SwapoffPath, Match: exactly(SwapFileArgs())},
+		{Path: SystemdAnalyzePath, Match: execMatchCalendar},
 	}
+}
+
+// SystemdAnalyzePath checks a job's schedule.
+const SystemdAnalyzePath = "/usr/bin/systemd-analyze"
+
+// maxCalendarLen bounds a calendar expression.
+const maxCalendarLen = 256
+
+// CalendarArgs asks systemd-analyze for the next three elapses of the
+// calendar expression expr.
+func CalendarArgs(expr string) []string { return []string{"calendar", "--iterations=3", "--", expr} }
+
+// execMatchCalendar allows CalendarArgs of one non-empty expression of at
+// most 256 bytes without a control character.
+func execMatchCalendar(args []string) error {
+	if len(args) != 4 || args[0] != "calendar" || args[1] != "--iterations=3" || args[2] != "--" {
+		return errExecVector
+	}
+	expr := args[3]
+	if expr == "" || len(expr) > maxCalendarLen || strings.ContainsFunc(expr, unicode.IsControl) {
+		return errExecVector
+	}
+	return nil
 }
 
 // execMatchSystemAptRun allows the mutating runs of the offered verbs and a

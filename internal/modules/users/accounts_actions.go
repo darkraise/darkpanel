@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"slices"
 	"strings"
 	"unicode"
@@ -420,7 +421,55 @@ func (h deleteHandler) Plan(ctx context.Context, env core.Env, in DeleteInput) (
 	} else {
 		diff = append(diff, core.DiffLine{Op: " ", Text: "Keep " + e.home})
 	}
+	jobs, err := h.m.jobsRunningAs(ctx, env, in.Name)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	for _, slug := range jobs {
+		diff = append(diff, core.DiffLine{Op: " ", Text: "Job " + slug + " runs as " + in.Name + " and fails once the account is gone"})
+	}
 	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{guard}, StateHash: e.digest(fmt.Sprint(in.RemoveHome)), Confirmation: in.Name}, nil
+}
+
+// jobServices are the services of the jobs module's unit set (M11 spec
+// section 6), whose User= line names the account a job runs as.
+const (
+	jobsModule  = "jobs"
+	jobServices = "/etc/systemd/system/darkpanel-job-*.service"
+)
+
+// jobsRunningAs are the jobs whose service the ownership store records as
+// the jobs module's and that run as name, sorted.
+func (m module) jobsRunningAs(ctx context.Context, env core.Env, name string) ([]string, error) {
+	paths, err := m.d.glob(jobServices)
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(paths)
+	var out []string
+	for _, p := range paths {
+		ours, err := env.Files.Owns(ctx, jobsModule, p)
+		if err != nil {
+			return nil, err
+		}
+		if !ours {
+			continue
+		}
+		data, err := m.d.readFile(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("users: read %s: %w", p, err)
+		}
+		for line := range strings.Lines(string(data)) {
+			if strings.TrimSpace(line) == "User="+name {
+				out = append(out, strings.TrimSuffix(strings.TrimPrefix(filepath.Base(p), "darkpanel-job-"), ".service"))
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 // userdelInUse is userdel's exit status for an account with a running

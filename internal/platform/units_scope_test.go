@@ -546,3 +546,40 @@ func fileExists(t *testing.T, path string) bool {
 	}
 	return err == nil
 }
+
+// timerUnits is scpUnits with canned timers and last runs.
+type timerUnits struct{ scpUnits }
+
+func (u *timerUnits) Timers(context.Context) ([]core.TimerInfo, error) {
+	u.record("Timers")
+	return []core.TimerInfo{{Name: "apt-daily.timer"}}, nil
+}
+
+func (u *timerUnits) LastRun(_ context.Context, unit string) (core.ServiceRun, error) {
+	u.record("LastRun", unit)
+	return core.ServiceRun{Result: "success"}, nil
+}
+
+// TestScopeTimers lets a module with a unit set read every timer and the
+// last runs of its own services, and nothing else.
+func TestScopeTimers(t *testing.T) {
+	ctx := context.Background()
+	fake := &timerUnits{}
+	jobs := ScopeUnits(fake, usJobs("/etc/systemd/system", "/var/lib/darkpanel/jobs")).(core.TimerReader)
+	if got, err := jobs.Timers(ctx); err != nil || len(got) != 1 {
+		t.Errorf("Timers: %v, %v", got, err)
+	}
+	if run, err := jobs.LastRun(ctx, "darkpanel-job-backup.service"); err != nil || run.Result != "success" {
+		t.Errorf("LastRun of a job: %+v, %v", run, err)
+	}
+	if _, err := jobs.LastRun(ctx, "ssh.service"); err == nil || err.Error() != "platform: module jobs may not LastRun unit ssh.service" {
+		t.Errorf("LastRun of ssh.service: %v", err)
+	}
+	derp := ScopeUnits(fake, scpDerp(true)).(core.TimerReader)
+	if _, err := derp.Timers(ctx); err == nil {
+		t.Error("a module without a unit set listed timers")
+	}
+	if got := fake.recorded(); !slices.Equal(got, []string{"Timers", "LastRun darkpanel-job-backup.service"}) {
+		t.Errorf("calls %q", got)
+	}
+}

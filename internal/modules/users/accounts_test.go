@@ -97,7 +97,8 @@ type rig struct {
 	keys    map[string]string // authorized_keys per user
 	homeErr map[string]error  // a HomeFiles refusal per user
 	clock   *coretest.FakeClock
-	sshd    string // the ActiveState of ssh.service
+	sshd    string          // the ActiveState of ssh.service
+	owns    map[string]bool // "<module> <path>" the ownership store records
 }
 
 func newRig(t *testing.T) *rig {
@@ -227,6 +228,10 @@ func (u units) ReloadUnit(_ context.Context, unit string) error {
 type files struct {
 	core.FileWriter
 	r *rig
+}
+
+func (f files) Owns(_ context.Context, module, path string) (bool, error) {
+	return f.r.owns[module+" "+path], nil
 }
 
 func (f files) WriteManaged(_ context.Context, module, dir, name string, data []byte, mode fs.FileMode, uid, gid int) error {
@@ -750,6 +755,28 @@ func TestStepUpActions(t *testing.T) {
 	}
 	if _, err := core.NewRegistry(r.module()); err != nil {
 		t.Errorf("registry: %v", err)
+	}
+}
+
+// TestDeleteWarnsJobs warns, in the plan of deleting an account, of every
+// Darkpanel job that runs as it; a job unit Darkpanel did not write is not
+// one.
+func TestDeleteWarnsJobs(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t)
+	const backup, other, foreign = "/etc/systemd/system/darkpanel-job-backup.service",
+		"/etc/systemd/system/darkpanel-job-report.service", "/etc/systemd/system/darkpanel-job-planted.service"
+	r.files[backup] = "[Service]\nType=oneshot\nUser=alice\nExecStart=/bin/sh /var/lib/darkpanel/jobs/backup.sh\n"
+	r.files[other] = "[Service]\nUser=bob\n"
+	r.files[foreign] = "[Service]\nUser=alice\n"
+	r.owns = map[string]bool{"jobs " + backup: true, "jobs " + other: true}
+	plan, err := deleteHandler{m: r.module()}.Plan(ctx, r.env(adminP), DeleteInput{Name: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"- Delete the account alice", "  Keep /home/alice", "  Job backup runs as alice and fails once the account is gone"}
+	if got := diffText(plan.Diff); !slices.Equal(got, want) {
+		t.Errorf("diff %q, want %q", got, want)
 	}
 }
 

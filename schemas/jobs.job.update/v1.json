@@ -1,0 +1,85 @@
+{
+  "name": "jobs.job.update",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/JobInput",
+    "$defs": {
+      "JobInput": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "description": "The job's name: lower case letters, digits and hyphens."
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "A one-line description."
+          },
+          "schedule": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "description": "A systemd calendar expression, such as daily or *-*-* 03:00:00."
+          },
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "description": "The account the job runs as: root or a login user."
+          },
+          "command": {
+            "type": "string",
+            "maxLength": 16384,
+            "minLength": 1,
+            "description": "The shell commands the job runs, at most 16 KiB."
+          },
+          "timeoutSeconds": {
+            "type": "integer",
+            "maximum": 86400,
+            "minimum": 60,
+            "description": "How long a run may take, 1 minute to 24 hours; 1 hour when omitted."
+          },
+          "catchUp": {
+            "type": "boolean",
+            "description": "Run once at boot when a scheduled run was missed."
+          },
+          "randomDelaySeconds": {
+            "type": "integer",
+            "maximum": 3600,
+            "minimum": 0,
+            "description": "Delay each run by up to this many seconds, at most 1 hour."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "slug",
+          "schedule",
+          "user",
+          "command"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Changed",
+    "$defs": {
+      "Changed": {
+        "properties": {
+          "slug": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug"
+        ]
+      }
+    }
+  }
+}

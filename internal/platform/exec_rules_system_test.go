@@ -323,3 +323,23 @@ func TestSwapoffRefusal(t *testing.T) {
 		t.Errorf("768 MiB and a byte used with 1024 MiB available: %q", got)
 	}
 }
+
+// TestCalendarRule allows systemd-analyze calendar of one expression and
+// nothing else of systemd-analyze.
+func TestCalendarRule(t *testing.T) {
+	r := NewRunner(ProductionRules())
+	for _, v := range [][]string{CalendarArgs("*-*-* 03:00:00"), CalendarArgs("daily"), CalendarArgs("Mon..Fri 08:00 Europe/Berlin")} {
+		if _, err := r.match(SystemdAnalyzePath, v); err != nil {
+			t.Errorf("%v refused: %v", v, err)
+		}
+	}
+	for _, v := range [][]string{
+		CalendarArgs(""), CalendarArgs(strings.Repeat("x", 257)), {"calendar", "daily"}, {"calendar", "--iterations=3", "daily"},
+		{"calendar", "--iterations=1000", "--", "daily"}, {"security"}, {"verify", "/etc/systemd/system/x.service"},
+		{"calendar", "--iterations=3", "--", "daily", "weekly"},
+	} {
+		if _, err := r.match(SystemdAnalyzePath, v); err == nil {
+			t.Errorf("%v allowed", v)
+		}
+	}
+}

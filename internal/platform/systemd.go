@@ -24,6 +24,7 @@ const (
 	unitInterface    = "org.freedesktop.systemd1.Unit"
 	serviceInterface = "org.freedesktop.systemd1.Service"
 	jobInterface     = "org.freedesktop.systemd1.Job"
+	timerInterface   = "org.freedesktop.systemd1.Timer"
 	unknownObject    = "org.freedesktop.DBus.Error.UnknownObject"
 )
 
@@ -402,6 +403,83 @@ var typeInterfaces = map[string]string{
 	"socket":  "org.freedesktop.systemd1.Socket",
 	"mount":   "org.freedesktop.systemd1.Mount",
 	"swap":    "org.freedesktop.systemd1.Swap",
+}
+
+var _ core.TimerReader = (*DBusSystemd)(nil)
+
+// usecTime is a systemd timestamp in microseconds since 1970, zero for none.
+func usecTime(usec uint64) time.Time {
+	if usec == 0 || usec == ^uint64(0) {
+		return time.Time{}
+	}
+	return time.UnixMicro(int64(usec)).UTC() //nolint:gosec // G115: microseconds since 1970 fit in int64
+}
+
+// Timers returns every loaded timer with the unit it starts, its next
+// elapse on the realtime clock and its last trigger.
+func (s *DBusSystemd) Timers(ctx context.Context) ([]core.TimerInfo, error) {
+	const what = "list timers"
+	body, err := s.manager(ctx, what, "ListUnitsByPatterns", []string{}, []string{"*.timer"})
+	if err != nil {
+		return nil, err
+	}
+	var units []listedUnit
+	if err := dbus.Store(body, &units); err != nil {
+		return nil, fmt.Errorf("platform: %s: %w", what, err)
+	}
+	out := make([]core.TimerInfo, 0, len(units))
+	for _, u := range units {
+		tp, err := s.allProperties(ctx, u.Path, timerInterface)
+		if err != nil {
+			return nil, fmt.Errorf("platform: %s: %s: %w", what, u.Name, err)
+		}
+		info := core.TimerInfo{Name: u.Name, ActiveState: u.ActiveState}
+		var next, last uint64
+		for name, dst := range map[string]any{"Unit": &info.Unit, "NextElapseUSecRealtime": &next, "LastTriggerUSec": &last} {
+			if err := storeProperty(tp, name, dst); err != nil {
+				return nil, fmt.Errorf("platform: %s: %s: read %s: %w", what, u.Name, name, err)
+			}
+		}
+		if err := s.property(ctx, u.Path, unitInterface, "FragmentPath", &info.FragmentPath); err != nil {
+			return nil, fmt.Errorf("platform: %s: %s: read FragmentPath: %w", what, u.Name, err)
+		}
+		info.Next, info.Last = usecTime(next), usecTime(last)
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// LastRun loads the service unit and reads its last run: when its main
+// process started, systemd's result and the exit status.
+func (s *DBusSystemd) LastRun(ctx context.Context, unit string) (core.ServiceRun, error) {
+	what := "read the last run of " + unit
+	if !strings.HasSuffix(unit, ".service") {
+		return core.ServiceRun{}, fmt.Errorf("platform: %s: not a service", what)
+	}
+	body, err := s.manager(ctx, what, "LoadUnit", unit)
+	if err != nil {
+		return core.ServiceRun{}, err
+	}
+	var path dbus.ObjectPath
+	if err := dbus.Store(body, &path); err != nil {
+		return core.ServiceRun{}, fmt.Errorf("platform: %s: %w", what, err)
+	}
+	var run core.ServiceRun
+	if err := s.property(ctx, path, unitInterface, "ActiveState", &run.ActiveState); err != nil {
+		return core.ServiceRun{}, fmt.Errorf("platform: %s: %w", what, err)
+	}
+	props, err := s.allProperties(ctx, path, serviceInterface)
+	if err != nil {
+		return core.ServiceRun{}, fmt.Errorf("platform: %s: %w", what, err)
+	}
+	var started uint64
+	for name, dst := range map[string]any{"Result": &run.Result, "ExecMainStatus": &run.ExitStatus, "ExecMainStartTimestamp": &started} {
+		if err := storeProperty(props, name, dst); err != nil {
+			return core.ServiceRun{}, fmt.Errorf("platform: %s: read %s: %w", what, name, err)
+		}
+	}
+	run.Started = usecTime(started)
+	return run, nil
 }
 
 // maxUnitFileText is the most of a unit file Inspect returns.

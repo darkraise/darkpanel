@@ -1,0 +1,163 @@
+{
+  "name": "jobs.job.list",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ListInput",
+    "$defs": {
+      "ListInput": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/JobList",
+    "$defs": {
+      "CronEntry": {
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "schedule",
+          "user"
+        ]
+      },
+      "Job": {
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "type": "integer"
+          },
+          "catchUp": {
+            "type": "boolean"
+          },
+          "randomDelaySeconds": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "nextRun": {
+            "type": "string"
+          },
+          "lastStart": {
+            "type": "string"
+          },
+          "lastResult": {
+            "type": "string"
+          },
+          "exitStatus": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "schedule",
+          "user",
+          "timeoutSeconds",
+          "catchUp",
+          "randomDelaySeconds",
+          "enabled",
+          "running"
+        ]
+      },
+      "JobList": {
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/$defs/Job"
+            },
+            "type": "array"
+          },
+          "timers": {
+            "items": {
+              "$ref": "#/$defs/OtherTimer"
+            },
+            "type": "array"
+          },
+          "cron": {
+            "items": {
+              "$ref": "#/$defs/CronEntry"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "jobs",
+          "timers",
+          "cron"
+        ]
+      },
+      "OtherTimer": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "nextRun": {
+            "type": "string"
+          },
+          "lastRun": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "unit",
+          "source"
+        ]
+      }
+    }
+  }
+}

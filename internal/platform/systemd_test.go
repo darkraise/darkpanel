@@ -607,3 +607,47 @@ func TestUnitListAll(t *testing.T) {
 		t.Errorf("signature %q, want asas", got)
 	}
 }
+
+// TestSystemdTimers reads each timer's unit, next elapse, last trigger and
+// file, and a service's last run; systemd's zero and maximum stamps are none.
+func TestSystemdTimers(t *testing.T) {
+	timerPath := dbus.ObjectPath("/org/freedesktop/systemd1/unit/apt_2ddaily_2etimer")
+	svcPath := dbus.ObjectPath("/org/freedesktop/systemd1/unit/darkpanel_2djob_2da_2eservice")
+	next, started := time.Date(2026, 11, 27, 6, 0, 0, 0, time.UTC), time.Date(2026, 11, 26, 3, 0, 4, 0, time.UTC)
+	bus := &fakeBus{reply: func(c busCall) ([]any, error) {
+		switch {
+		case c.method == "org.freedesktop.systemd1.Manager.ListUnitsByPatterns" && slices.Equal(c.args[1].([]string), []string{"*.timer"}):
+			return []any{[][]any{{"apt-daily.timer", "Daily apt", "loaded", "active", "waiting", "", timerPath, uint32(0), "", dbus.ObjectPath("/")}}}, nil
+		case c.method == "org.freedesktop.DBus.Properties.GetAll" && c.path == timerPath && c.args[0] == timerInterface:
+			return []any{map[string]dbus.Variant{"Unit": dbus.MakeVariant("apt-daily.service"),
+				"NextElapseUSecRealtime": dbus.MakeVariant(uint64(next.UnixMicro())), "LastTriggerUSec": dbus.MakeVariant(uint64(0))}}, nil
+		case c.method == "org.freedesktop.DBus.Properties.Get" && c.path == timerPath && c.args[1] == "FragmentPath":
+			return []any{dbus.MakeVariant("/usr/lib/systemd/system/apt-daily.timer")}, nil
+		case c.method == "org.freedesktop.systemd1.Manager.LoadUnit" && c.args[0] == "darkpanel-job-a.service":
+			return []any{svcPath}, nil
+		case c.method == "org.freedesktop.DBus.Properties.Get" && c.path == svcPath && c.args[1] == "ActiveState":
+			return []any{dbus.MakeVariant("inactive")}, nil
+		case c.method == "org.freedesktop.DBus.Properties.GetAll" && c.path == svcPath && c.args[0] == serviceInterface:
+			return []any{map[string]dbus.Variant{"Result": dbus.MakeVariant("exit-code"), "ExecMainStatus": dbus.MakeVariant(int32(2)),
+				"ExecMainStartTimestamp": dbus.MakeVariant(uint64(started.UnixMicro()))}}, nil
+		}
+		return nil, fmt.Errorf("unexpected %s %v on %s", c.method, c.args, c.path)
+	}}
+	s := newSystemd(bus)
+	got, err := s.Timers(context.Background())
+	want := []core.TimerInfo{{Name: "apt-daily.timer", Unit: "apt-daily.service", ActiveState: "active",
+		FragmentPath: "/usr/lib/systemd/system/apt-daily.timer", Next: next}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Timers = %+v, %v; want %+v", got, err, want)
+	}
+	run, err := s.LastRun(context.Background(), "darkpanel-job-a.service")
+	if want := (core.ServiceRun{ActiveState: "inactive", Started: started, Result: "exit-code", ExitStatus: 2}); err != nil || run != want {
+		t.Errorf("LastRun = %+v, %v; want %+v", run, err, want)
+	}
+	if _, err := s.LastRun(context.Background(), "apt-daily.timer"); err == nil {
+		t.Error("LastRun of a timer succeeded")
+	}
+	if !usecTime(^uint64(0)).IsZero() || !usecTime(0).IsZero() {
+		t.Error("systemd's none stamps are not zero times")
+	}
+}

@@ -44,6 +44,7 @@ type Registry struct {
 	resources map[string]ResourceDef
 	streams   map[string]ModuleStream // by "<module>.<name>"
 	names     map[string]bool         // action names, any version
+	hooks     map[string]EnablementHook
 }
 
 // ModuleStream is one stream and the module that serves it.
@@ -60,6 +61,7 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 		resources: map[string]ResourceDef{},
 		streams:   map[string]ModuleStream{},
 		names:     map[string]bool{},
+		hooks:     map[string]EnablementHook{},
 	}
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
@@ -76,6 +78,9 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 			fail("module id %q registered twice", m.ID)
 		}
 		ids[m.ID] = true
+		if h, ok := mod.(EnablementHook); ok {
+			r.hooks[m.ID] = h
+		}
 		if m.Version < 1 {
 			fail("module %s: version %d, want at least 1", m.ID, m.Version)
 		}
@@ -818,6 +823,13 @@ func (r *Registry) Streams() []ModuleStream {
 
 // Modules returns the manifests in registration order.
 func (r *Registry) Modules() []Manifest { return slices.Clone(r.modules) }
+
+// EnablementHook returns the hook of module id, when its module value
+// implements EnablementHook.
+func (r *Registry) EnablementHook(id string) (EnablementHook, bool) {
+	h, ok := r.hooks[id]
+	return h, ok
+}
 
 // Module returns one module's manifest.
 func (r *Registry) Module(id string) (Manifest, bool) {

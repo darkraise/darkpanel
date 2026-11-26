@@ -13275,6 +13275,459 @@
         ],
         "type": "object"
       },
+      "jobs.job.create.v1.input": {
+        "$ref": "#/components/schemas/jobs.job.create.v1.input.JobInput"
+      },
+      "jobs.job.create.v1.input.JobInput": {
+        "additionalProperties": false,
+        "properties": {
+          "catchUp": {
+            "description": "Run once at boot when a scheduled run was missed.",
+            "type": "boolean"
+          },
+          "command": {
+            "description": "The shell commands the job runs, at most 16 KiB.",
+            "maxLength": 16384,
+            "minLength": 1,
+            "type": "string"
+          },
+          "description": {
+            "description": "A one-line description.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "randomDelaySeconds": {
+            "description": "Delay each run by up to this many seconds, at most 1 hour.",
+            "maximum": 3600,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schedule": {
+            "description": "A systemd calendar expression, such as daily or *-*-* 03:00:00.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "slug": {
+            "description": "The job's name: lower case letters, digits and hyphens.",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "How long a run may take, 1 minute to 24 hours; 1 hour when omitted.",
+            "maximum": 86400,
+            "minimum": 60,
+            "type": "integer"
+          },
+          "user": {
+            "description": "The account the job runs as: root or a login user.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "schedule",
+          "user",
+          "command"
+        ],
+        "type": "object"
+      },
+      "jobs.job.create.v1.output": {
+        "$ref": "#/components/schemas/jobs.job.create.v1.output.Changed"
+      },
+      "jobs.job.create.v1.output.Changed": {
+        "properties": {
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "jobs.job.delete.v1.input": {
+        "$ref": "#/components/schemas/jobs.job.delete.v1.input.SlugInput"
+      },
+      "jobs.job.delete.v1.input.SlugInput": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "description": "The job's name.",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "jobs.job.delete.v1.output": {
+        "$ref": "#/components/schemas/jobs.job.delete.v1.output.Changed"
+      },
+      "jobs.job.delete.v1.output.Changed": {
+        "properties": {
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "jobs.job.disable.v1.input": {
+        "$ref": "#/components/schemas/jobs.job.disable.v1.input.SlugInput"
+      },
+      "jobs.job.disable.v1.input.SlugInput": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "description": "The job's name.",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "jobs.job.disable.v1.output": {
+        "$ref": "#/components/schemas/jobs.job.disable.v1.output.Changed"
+      },
+      "jobs.job.disable.v1.output.Changed": {
+        "properties": {
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "jobs.job.enable.v1.input": {
+        "$ref": "#/components/schemas/jobs.job.enable.v1.input.SlugInput"
+      },
+      "jobs.job.enable.v1.input.SlugInput": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "description": "The job's name.",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "jobs.job.enable.v1.output": {
+        "$ref": "#/components/schemas/jobs.job.enable.v1.output.Changed"
+      },
+      "jobs.job.enable.v1.output.Changed": {
+        "properties": {
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "jobs.job.list.v1.input": {
+        "$ref": "#/components/schemas/jobs.job.list.v1.input.ListInput"
+      },
+      "jobs.job.list.v1.input.ListInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "jobs.job.list.v1.output": {
+        "$ref": "#/components/schemas/jobs.job.list.v1.output.JobList"
+      },
+      "jobs.job.list.v1.output.CronEntry": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "schedule",
+          "user"
+        ],
+        "type": "object"
+      },
+      "jobs.job.list.v1.output.Job": {
+        "properties": {
+          "catchUp": {
+            "type": "boolean"
+          },
+          "command": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "exitStatus": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastResult": {
+            "type": "string"
+          },
+          "lastStart": {
+            "type": "string"
+          },
+          "nextRun": {
+            "type": "string"
+          },
+          "randomDelaySeconds": {
+            "type": "integer"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "type": "integer"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "schedule",
+          "user",
+          "timeoutSeconds",
+          "catchUp",
+          "randomDelaySeconds",
+          "enabled",
+          "running"
+        ],
+        "type": "object"
+      },
+      "jobs.job.list.v1.output.JobList": {
+        "properties": {
+          "cron": {
+            "items": {
+              "$ref": "#/components/schemas/jobs.job.list.v1.output.CronEntry"
+            },
+            "type": "array"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/jobs.job.list.v1.output.Job"
+            },
+            "type": "array"
+          },
+          "timers": {
+            "items": {
+              "$ref": "#/components/schemas/jobs.job.list.v1.output.OtherTimer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs",
+          "timers",
+          "cron"
+        ],
+        "type": "object"
+      },
+      "jobs.job.list.v1.output.OtherTimer": {
+        "properties": {
+          "lastRun": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nextRun": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "unit",
+          "source"
+        ],
+        "type": "object"
+      },
+      "jobs.job.run.v1.input": {
+        "$ref": "#/components/schemas/jobs.job.run.v1.input.SlugInput"
+      },
+      "jobs.job.run.v1.input.SlugInput": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "description": "The job's name.",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "jobs.job.run.v1.output": {
+        "$ref": "#/components/schemas/jobs.job.run.v1.output.Changed"
+      },
+      "jobs.job.run.v1.output.Changed": {
+        "properties": {
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "jobs.job.update.v1.input": {
+        "$ref": "#/components/schemas/jobs.job.update.v1.input.JobInput"
+      },
+      "jobs.job.update.v1.input.JobInput": {
+        "additionalProperties": false,
+        "properties": {
+          "catchUp": {
+            "description": "Run once at boot when a scheduled run was missed.",
+            "type": "boolean"
+          },
+          "command": {
+            "description": "The shell commands the job runs, at most 16 KiB.",
+            "maxLength": 16384,
+            "minLength": 1,
+            "type": "string"
+          },
+          "description": {
+            "description": "A one-line description.",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "randomDelaySeconds": {
+            "description": "Delay each run by up to this many seconds, at most 1 hour.",
+            "maximum": 3600,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "schedule": {
+            "description": "A systemd calendar expression, such as daily or *-*-* 03:00:00.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "slug": {
+            "description": "The job's name: lower case letters, digits and hyphens.",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "type": "string"
+          },
+          "timeoutSeconds": {
+            "description": "How long a run may take, 1 minute to 24 hours; 1 hour when omitted.",
+            "maximum": 86400,
+            "minimum": 60,
+            "type": "integer"
+          },
+          "user": {
+            "description": "The account the job runs as: root or a login user.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "schedule",
+          "user",
+          "command"
+        ],
+        "type": "object"
+      },
+      "jobs.job.update.v1.output": {
+        "$ref": "#/components/schemas/jobs.job.update.v1.output.Changed"
+      },
+      "jobs.job.update.v1.output.Changed": {
+        "properties": {
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "type": "object"
+      },
+      "jobs.schedule.check.v1.input": {
+        "$ref": "#/components/schemas/jobs.schedule.check.v1.input.ScheduleInput"
+      },
+      "jobs.schedule.check.v1.input.ScheduleInput": {
+        "additionalProperties": false,
+        "properties": {
+          "schedule": {
+            "description": "A systemd calendar expression.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "schedule"
+        ],
+        "type": "object"
+      },
+      "jobs.schedule.check.v1.output": {
+        "$ref": "#/components/schemas/jobs.schedule.check.v1.output.ScheduleCheck"
+      },
+      "jobs.schedule.check.v1.output.ScheduleCheck": {
+        "properties": {
+          "next": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "next"
+        ],
+        "type": "object"
+      },
       "metrics.alert.create.v1.input": {
         "$ref": "#/components/schemas/metrics.alert.create.v1.input.RuleInput"
       },
@@ -37196,6 +37649,780 @@
           }
         ],
         "summary": "Repair the firewall: bring UFW's loaded state to its target."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.create/v1/apply": {
+      "post": {
+        "operationId": "jobs.job.create.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a job: a script, a service that runs it and a timer that starts it."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.create/v1/plan": {
+      "post": {
+        "operationId": "jobs.job.create.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/jobs.job.create.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a job: a script, a service that runs it and a timer that starts it."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.delete/v1/apply": {
+      "post": {
+        "operationId": "jobs.job.delete.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a job: stop its timer and remove its files."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.delete/v1/plan": {
+      "post": {
+        "operationId": "jobs.job.delete.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/jobs.job.delete.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete a job: stop its timer and remove its files."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.disable/v1/apply": {
+      "post": {
+        "operationId": "jobs.job.disable.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Stop a job's timer and keep it off at boot."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.disable/v1/plan": {
+      "post": {
+        "operationId": "jobs.job.disable.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/jobs.job.disable.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Stop a job's timer and keep it off at boot."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.enable/v1/apply": {
+      "post": {
+        "operationId": "jobs.job.enable.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Start a job's timer and start it at boot."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.enable/v1/plan": {
+      "post": {
+        "operationId": "jobs.job.enable.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/jobs.job.enable.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Start a job's timer and start it at boot."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.list/v1/read": {
+      "post": {
+        "operationId": "jobs.job.list.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/jobs.job.list.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/jobs.job.list.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List Darkpanel jobs, the host's other timers and its cron entries."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.run/v1/apply": {
+      "post": {
+        "operationId": "jobs.job.run.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Run a job now."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.run/v1/plan": {
+      "post": {
+        "operationId": "jobs.job.run.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/jobs.job.run.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Run a job now."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.update/v1/apply": {
+      "post": {
+        "operationId": "jobs.job.update.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a job's schedule, user, command or limits."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.job.update/v1/plan": {
+      "post": {
+        "operationId": "jobs.job.update.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/jobs.job.update.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change a job's schedule, user, command or limits."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/jobs.schedule.check/v1/read": {
+      "post": {
+        "operationId": "jobs.schedule.check.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/jobs.schedule.check.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/jobs.schedule.check.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Check a calendar expression and show its next three runs."
       }
     },
     "/api/v1/hosts/{host}/actions/metrics.samples.get/v1/read": {

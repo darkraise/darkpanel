@@ -772,6 +772,14 @@ type DirMaker interface {
 	MakeDir(ctx context.Context, module, dir string) error
 }
 
+// EnablementHook is implemented by a module value that reacts to its
+// enabled flag on the agent: the runtime calls it after storing a new flag,
+// and once at start with the stored one. An error is logged; the flag
+// stands.
+type EnablementHook interface {
+	OnEnabled(ctx context.Context, env Env, enabled bool) error
+}
+
 // UnitSetWriter writes the files of a module's unit sets and of its dir
 // declarations with a Pattern, recording each file in the ownership store
 // as it is written and forgetting it as it is removed. The agent's

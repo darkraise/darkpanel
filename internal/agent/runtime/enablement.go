@@ -8,6 +8,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 )
 
 // MetaModuleEnabledPrefix starts the core_meta key of a module's enabled flag
@@ -19,9 +20,9 @@ const MetaModuleEnabledPrefix = "module_enabled."
 var _ core.AgentEnablement = (*Runtime)(nil)
 
 // SetModuleEnabled stores moduleID's enabled flag as the controller pushed
-// it, then starts or stops the module's background tasks; when it stops them
-// it returns once their Run and Watch returned. A module the registry lacks
-// is not_found.
+// it, calls the module's EnablementHook, then starts or stops the module's
+// background tasks; when it stops them it returns once their Run and Watch
+// returned. A module the registry lacks is not_found.
 func (r *Runtime) SetModuleEnabled(ctx context.Context, moduleID string, enabled bool) error {
 	if _, ok := r.cfg.Registry.Module(moduleID); !ok {
 		return errcode.New(errcode.NotFound, fmt.Sprintf("no module %s", moduleID))
@@ -38,7 +39,40 @@ func (r *Runtime) SetModuleEnabled(ctx context.Context, moduleID string, enabled
 	if err != nil {
 		return fmt.Errorf("runtime: store the enabled flag of %s: %w", moduleID, err)
 	}
+	r.callHook(ctx, moduleID, enabled)
 	return r.syncTasks(ctx, moduleID)
+}
+
+// callHook calls moduleID's EnablementHook, when it has one, with enabled.
+// The flag is stored already, so a failing or panicking hook is logged and
+// the flag stands.
+func (r *Runtime) callHook(ctx context.Context, moduleID string, enabled bool) {
+	h, ok := r.cfg.Registry.EnablementHook(moduleID)
+	if !ok {
+		return
+	}
+	err := lifecycle.Protect(r.cfg.Log, moduleID, "enablement hook", func() error {
+		return h.OnEnabled(ctx, r.moduleEnv(moduleID), enabled)
+	})
+	if err != nil {
+		r.cfg.Log.Warn("runtime: enablement hook", "module", moduleID, "enabled", enabled, "error", err)
+	}
+}
+
+// callHooks calls every EnablementHook once with its module's stored flag,
+// as the agent starts.
+func (r *Runtime) callHooks(ctx context.Context) {
+	for _, m := range r.modules() {
+		if _, ok := r.cfg.Registry.EnablementHook(m.ID); !ok {
+			continue
+		}
+		enabled, err := r.moduleEnabled(ctx, m.ID)
+		if err != nil {
+			r.cfg.Log.Warn("runtime: enablement hook", "module", m.ID, "error", err)
+			continue
+		}
+		r.callHook(ctx, m.ID, enabled)
+	}
 }
 
 // moduleEnabled reads moduleID's enabled flag; without one the module's

@@ -188,6 +188,33 @@ func (s *scopedUnits) State(ctx context.Context, unit string) (core.UnitState, e
 	return s.u.State(ctx, unit)
 }
 
+var _ core.TimerReader = (*scopedUnits)(nil)
+
+// Timers lists every timer, read-only, for a module with a unit set: its
+// jobs list shows the host's other timers.
+func (s *scopedUnits) Timers(ctx context.Context) ([]core.TimerInfo, error) {
+	tr, ok := s.u.(core.TimerReader)
+	switch {
+	case len(s.sets) == 0:
+		return nil, fmt.Errorf("platform: module %s may not list timers: it declares no unit set", s.module)
+	case !ok:
+		return nil, fmt.Errorf("platform: the unit client of module %s cannot list timers", s.module)
+	}
+	return tr.Timers(ctx)
+}
+
+// LastRun reads the last run of a service of one of the module's sets.
+func (s *scopedUnits) LastRun(ctx context.Context, unit string) (core.ServiceRun, error) {
+	if !s.inSet("", unit) {
+		return core.ServiceRun{}, s.refuse("LastRun", unit)
+	}
+	tr, ok := s.u.(core.TimerReader)
+	if !ok {
+		return core.ServiceRun{}, fmt.Errorf("platform: the unit client of module %s cannot read last runs", s.module)
+	}
+	return tr.LastRun(ctx, unit)
+}
+
 func (s *scopedUnits) List(_ context.Context, pattern string) ([]core.UnitStatus, error) {
 	return nil, s.refuse("List", pattern)
 }

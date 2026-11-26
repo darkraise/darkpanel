@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -86,5 +87,50 @@ func TestSetModuleEnabledUnknown(t *testing.T) {
 	_ = wantCode(t, f.rt.SetModuleEnabled(context.Background(), "nope", true), errcode.NotFound)
 	if n := f.count("SELECT count(*) FROM core_meta WHERE key LIKE ?", MetaModuleEnabledPrefix+"%"); n != 0 {
 		t.Errorf("%d enabled flags stored, want none", n)
+	}
+}
+
+// hookModule records each OnEnabled call and fails each one with fail.
+type hookModule struct {
+	calls *[]bool
+	fail  error
+}
+
+func (m hookModule) Manifest() core.Manifest {
+	return core.Manifest{ID: "hooked", Version: 1}
+}
+
+func (m hookModule) OnEnabled(_ context.Context, env core.Env, enabled bool) error {
+	if env.DB == nil {
+		return errors.New("no DB in the hook's env")
+	}
+	*m.calls = append(*m.calls, enabled)
+	return m.fail
+}
+
+// TestEnablementHook calls a module's hook once at start with the stored
+// flag and after every flag change; a failing hook leaves the flag stored.
+func TestEnablementHook(t *testing.T) {
+	ctx := context.Background()
+	var calls []bool
+	f := newFixtureWith(t, hookModule{calls: &calls, fail: errors.New("refused")})
+	if want := []bool{false}; !slices.Equal(calls, want) {
+		t.Fatalf("calls at start %v, want %v (the module's DefaultEnabled)", calls, want)
+	}
+	for _, enabled := range []bool{false, true} {
+		if err := f.rt.SetModuleEnabled(ctx, "hooked", enabled); err != nil {
+			t.Fatalf("SetModuleEnabled(%t) with a failing hook: %v", enabled, err)
+		}
+	}
+	if want := []bool{false, false, true}; !slices.Equal(calls, want) {
+		t.Errorf("calls %v, want %v", calls, want)
+	}
+	if v, ok := f.enMeta("hooked"); !ok || v != "1" {
+		t.Errorf("module_enabled.hooked = %q (present %t) after a failing hook, want 1", v, ok)
+	}
+	calls = nil
+	f.restart()
+	if want := []bool{true}; !slices.Equal(calls, want) {
+		t.Errorf("calls at a restart %v, want %v (the stored flag)", calls, want)
 	}
 }
