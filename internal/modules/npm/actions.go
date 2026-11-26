@@ -10,7 +10,7 @@ func (n nm) actions() []core.ActionDef {
 	return []core.ActionDef{
 		n.instanceDeploy(), n.instanceStatus(), n.instanceConfirmPublic(), n.instanceRemove(), n.instanceUpgrade(),
 		n.networkAttach(), n.networkDetach(), n.instanceReconcile(),
-		n.proxyhostAdd(), n.proxyhostUpdate(), n.proxyhostRemove(), n.proxyhostList(),
+		n.proxyhostAdd(), n.proxyhostUpdate(), n.proxyhostWebsockets(), n.proxyhostRemove(), n.proxyhostList(),
 		n.accesslistAdd(), n.accesslistRemove(), n.accesslistList(),
 		n.certificateRequest(), n.certificateRemove(), n.certificateList(),
 		n.adminRevealPassword(),

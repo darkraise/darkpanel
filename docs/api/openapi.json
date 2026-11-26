@@ -17654,6 +17654,86 @@
         ],
         "type": "object"
       },
+      "npm.proxyhost.websockets.v1.input": {
+        "$ref": "#/components/schemas/npm.proxyhost.websockets.v1.input.ProxyHostWebsocketsInput"
+      },
+      "npm.proxyhost.websockets.v1.input.ProxyHostWebsocketsInput": {
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "websockets": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "domain",
+          "websockets"
+        ],
+        "type": "object"
+      },
+      "npm.proxyhost.websockets.v1.output": {
+        "$ref": "#/components/schemas/npm.proxyhost.websockets.v1.output.ProxyHostView"
+      },
+      "npm.proxyhost.websockets.v1.output.ProxyHostView": {
+        "properties": {
+          "accessListId": {
+            "type": "integer"
+          },
+          "certificateId": {
+            "type": "integer"
+          },
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "forwardHost": {
+            "type": "string"
+          },
+          "forwardPort": {
+            "type": "integer"
+          },
+          "forwardScheme": {
+            "type": "string"
+          },
+          "hsts": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "reserved": {
+            "type": "string"
+          },
+          "sslForced": {
+            "type": "boolean"
+          },
+          "unclaimed": {
+            "type": "boolean"
+          },
+          "websockets": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "domains",
+          "forwardScheme",
+          "forwardHost",
+          "forwardPort",
+          "certificateId",
+          "accessListId",
+          "sslForced",
+          "hsts",
+          "websockets",
+          "reserved",
+          "unclaimed"
+        ],
+        "type": "object"
+      },
       "panel.exposure.add.v1.input": {
         "$ref": "#/components/schemas/panel.exposure.add.v1.input.ExposeInput"
       },
@@ -40321,6 +40401,113 @@
           }
         ],
         "summary": "Change the settings of a proxy host."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/npm.proxyhost.websockets/v1/apply": {
+      "post": {
+        "operationId": "npm.proxyhost.websockets.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn WebSocket upgrades on or off for a proxy host."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/npm.proxyhost.websockets/v1/plan": {
+      "post": {
+        "operationId": "npm.proxyhost.websockets.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/npm.proxyhost.websockets.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn WebSocket upgrades on or off for a proxy host."
       }
     },
     "/api/v1/hosts/{host}/actions/panel.network.create/v1/apply": {

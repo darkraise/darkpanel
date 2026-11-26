@@ -249,6 +249,7 @@ func TestV1r10InverseNeverRestoresFromTheDocument(t *testing.T) {
 		def  func(nm) core.ActionDef
 	}{
 		{"update", core.EffectModify, func(n nm) core.ActionDef { return n.proxyhostUpdate() }},
+		{"websockets", core.EffectModify, func(n nm) core.ActionDef { return n.proxyhostWebsockets() }},
 		{"remove", core.EffectDelete, func(n nm) core.ActionDef { return n.proxyhostRemove() }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

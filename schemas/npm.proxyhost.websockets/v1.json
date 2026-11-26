@@ -1,0 +1,93 @@
+{
+  "name": "npm.proxyhost.websockets",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ProxyHostWebsocketsInput",
+    "$defs": {
+      "ProxyHostWebsocketsInput": {
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "websockets": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "domain",
+          "websockets"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ProxyHostView",
+    "$defs": {
+      "ProxyHostView": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "forwardScheme": {
+            "type": "string"
+          },
+          "forwardHost": {
+            "type": "string"
+          },
+          "forwardPort": {
+            "type": "integer"
+          },
+          "certificateId": {
+            "type": "integer"
+          },
+          "accessListId": {
+            "type": "integer"
+          },
+          "sslForced": {
+            "type": "boolean"
+          },
+          "hsts": {
+            "type": "boolean"
+          },
+          "websockets": {
+            "type": "boolean"
+          },
+          "reserved": {
+            "type": "string"
+          },
+          "unclaimed": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "domains",
+          "forwardScheme",
+          "forwardHost",
+          "forwardPort",
+          "certificateId",
+          "accessListId",
+          "sslForced",
+          "hsts",
+          "websockets",
+          "reserved",
+          "unclaimed"
+        ]
+      }
+    }
+  }
+}

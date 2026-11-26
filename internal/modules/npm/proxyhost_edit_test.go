@@ -193,18 +193,20 @@ func TestPuDeclarations(t *testing.T) {
 		def       core.ActionDef
 		name      string
 		converges bool
+		scope     core.Scope
 		in        reflect.Type
 	}{
-		{n.proxyhostUpdate(), "npm.proxyhost.update", false, reflect.TypeFor[ProxyHostUpdateInput]()},
-		{n.proxyhostRemove(), "npm.proxyhost.remove", true, reflect.TypeFor[ProxyHostRemoveInput]()},
+		{n.proxyhostUpdate(), "npm.proxyhost.update", false, "", reflect.TypeFor[ProxyHostUpdateInput]()},
+		{n.proxyhostWebsockets(), "npm.proxyhost.websockets", true, core.ScopeAdmin, reflect.TypeFor[ProxyHostWebsocketsInput]()},
+		{n.proxyhostRemove(), "npm.proxyhost.remove", true, "", reflect.TypeFor[ProxyHostRemoveInput]()},
 	}
 	for _, tc := range tests {
 		s, hd := tc.def.Spec, tc.def.Handler
 		if s.Name != tc.name || s.Version != 1 || s.Class != core.ClassCompensable || s.Side != core.SideAgent ||
 			!slices.Equal(s.LockKeys, []string{"npm"}) || s.Converges != tc.converges || s.LongRunning || s.Task || s.Internal ||
-			s.Reveal || s.MinScope != "" || s.Available != nil || len(s.Guards) != 0 || s.CompensatedBy != "" || s.ForwardOnly ||
+			s.Reveal || s.MinScope != tc.scope || s.Available != nil || len(s.Guards) != 0 || s.CompensatedBy != "" || s.ForwardOnly ||
 			s.ApplyTimeout != 0 || s.Summary == "" {
-			t.Errorf("%s: spec %+v, want a compensable agent action locking npm with the default timeout (converges %v)", tc.name, s, tc.converges)
+			t.Errorf("%s: spec %+v, want a compensable agent action locking npm with the default timeout (converges %v, scope %q)", tc.name, s, tc.converges, tc.scope)
 		}
 		if tc.def.InputType != tc.in || tc.def.OutputType != reflect.TypeFor[ProxyHostView]() {
 			t.Errorf("%s: input %v and output %v", tc.name, tc.def.InputType, tc.def.OutputType)

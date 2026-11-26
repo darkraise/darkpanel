@@ -129,6 +129,7 @@ it with `darkpanel change repair <id>`, which repeats the steps.
 | `npm.instance.reconcile` | `darkpanel npm instance reconcile` | Takes Nginx Proxy Manager off every network where it holds an address a proxy host forwards to, then reloads nginx. | Nothing. It cannot be undone; it needs the `admin` scope. |
 | `npm.proxyhost.add` | `darkpanel npm proxyhost add` | Adds a proxy host. | Nothing. Undo deletes it. |
 | `npm.proxyhost.update` | `darkpanel npm proxyhost update` | Changes the settings of a proxy host. | Nothing. Undo with `change undo`. |
+| `npm.proxyhost.websockets` | `darkpanel npm proxyhost websockets` | Turns WebSocket upgrades on or off for a proxy host and keeps its other settings. | Nothing. Undo with `change undo`; it needs the `admin` scope. |
 | `npm.proxyhost.remove` | `darkpanel npm proxyhost remove` | Deletes a proxy host. | Nothing. Undo with `change undo`. |
 | `npm.proxyhost.list` | `darkpanel npm proxyhost list` | Lists the proxy hosts of Nginx Proxy Manager. | Nothing; it only reads. |
 | `npm.accesslist.add` | `darkpanel npm accesslist add` | Creates an IP access list in Nginx Proxy Manager. | Nothing. Undo with `change undo`. |

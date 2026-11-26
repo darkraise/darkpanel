@@ -841,3 +841,42 @@ Returned in the `output` field of the change that apply returns.
 | `sslForced` | boolean | yes |  |
 | `unclaimed` | boolean | yes |  |
 | `websockets` | boolean | yes |  |
+
+## npm.proxyhost.websockets v1
+
+Turn WebSocket upgrades on or off for a proxy host.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/npm.proxyhost.websockets/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/npm.proxyhost.websockets/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `domain` | string | yes |  |
+| `websockets` | boolean | yes |  |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `accessListId` | integer | yes |  |
+| `certificateId` | integer | yes |  |
+| `domains` | array of string | yes |  |
+| `forwardHost` | string | yes |  |
+| `forwardPort` | integer | yes |  |
+| `forwardScheme` | string | yes |  |
+| `hsts` | boolean | yes |  |
+| `id` | integer | yes |  |
+| `reserved` | string | yes |  |
+| `sslForced` | boolean | yes |  |
+| `unclaimed` | boolean | yes |  |
+| `websockets` | boolean | yes |  |
