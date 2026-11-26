@@ -53,13 +53,15 @@ type ticket struct {
 }
 
 // longLived is the registry of the controller's long-lived requests (spec
-// 1.2): the open event streams and terminals per principal, and the
-// terminal tickets. CloseStreams ends every one of them.
+// 1.2): the open event streams and terminals per principal, the file
+// transfers per host, and the terminal tickets. CloseStreams ends every one
+// of them.
 type longLived struct {
 	mu        sync.Mutex
 	tickets   map[string]ticket
 	events    map[string]int // GET /api/v1/events streams by Principal.Actor
 	terminals map[string]int // terminals by Principal.Actor
+	transfers map[string]int // file uploads and downloads by host
 }
 
 // take counts one more request of actor in *counts unless it holds limit;
@@ -462,13 +464,19 @@ func (b *bridge) pumpBrowser(ctx context.Context) {
 
 // touch counts a data frame as session activity at most once a minute.
 func (b *bridge) touch(ctx context.Context) {
-	now := b.s.clock().Now()
-	if !b.touched.IsZero() && now.Sub(b.touched) < sessionTouchEvery {
+	b.s.touchSession(ctx, b.r, b.session, &b.touched)
+}
+
+// touchSession counts a long-lived request's traffic as activity of
+// session at most once a minute, *last being when it last did.
+func (s *Server) touchSession(ctx context.Context, r *http.Request, session string, last *time.Time) {
+	now := s.clock().Now()
+	if session == "" || (!last.IsZero() && now.Sub(*last) < sessionTouchEvery) {
 		return
 	}
-	b.touched = now
-	_, err := b.s.cfg.Auth.Authenticate(ctx, auth.Credentials{Session: b.session, Source: clientAddr(b.r)})
+	*last = now
+	_, err := s.cfg.Auth.Authenticate(ctx, auth.Credentials{Session: session, Source: clientAddr(r)})
 	if err != nil && errcode.From(err).Code != errcode.AuthRequired {
-		b.s.log.Warn("api: touch a terminal's session", "err", err)
+		s.log.Warn("api: touch a long-lived request's session", "err", err)
 	}
 }

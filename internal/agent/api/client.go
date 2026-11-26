@@ -512,6 +512,69 @@ func (c *Client) OpenStream(ctx context.Context, p core.Principal, module, name 
 	return nil, answerError(what, resp, data)
 }
 
+var _ core.AgentFiles = (*Client)(nil)
+
+// File sends one file request as p on a connection of DialStream, so a
+// transfer never takes an action's slot. Its body and answer are streamed:
+// neither is limited to wire.MaxBody, and the answer's body is the
+// caller's to close, which ends the request on the agent. A refusal is the
+// agent's error.
+func (c *Client) File(ctx context.Context, p core.Principal, req core.FileRequest) (core.FileAnswer, error) {
+	method := http.MethodPost
+	switch req.Op {
+	case FileList, FileStat, FileRead, FileDownload:
+		method = http.MethodGet
+	}
+	path := "files/" + url.PathEscape(req.Op)
+	what := method + " " + path
+	u := "http://agent" + prefix + path
+	if len(req.Query) > 0 {
+		u += "?" + req.Query.Encode()
+	}
+	var body io.Reader
+	if req.Body != nil {
+		// Only the body's own Read is passed on: a bare io.Reader keeps the
+		// transport from treating a known type specially.
+		body = struct{ io.Reader }{req.Body}
+	}
+	hr, err := http.NewRequestWithContext(ctx, method, u, body) //nolint:gosec // G704: the host is the constant "agent"; DialStream chooses the connection
+	if err != nil {
+		return core.FileAnswer{}, fmt.Errorf("api: %s: %w", what, err)
+	}
+	if req.Body != nil {
+		hr.ContentLength = req.Size
+		if req.JSON {
+			hr.Header.Set("Content-Type", "application/json")
+		} else {
+			hr.Header.Set("Content-Type", "application/octet-stream")
+		}
+	}
+	b, err := json.Marshal(c.wirePrincipal(p))
+	if err != nil {
+		return core.FileAnswer{}, fmt.Errorf("api: %s: encode the principal: %w", what, err)
+	}
+	hr.Header.Set(wire.HeaderPrincipal, string(b))
+	resp, err := c.stream.Do(hr) //nolint:gosec // G704: as above, the request can only reach the agent DialStream connects to
+	if err != nil {
+		return core.FileAnswer{}, fmt.Errorf("api: %s: %w", what, err)
+	}
+	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+		ans := core.FileAnswer{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"),
+			Size: resp.ContentLength, SHA256: resp.Header.Get(wire.HeaderSHA256), Body: resp.Body}
+		if resp.StatusCode == http.StatusNoContent {
+			_ = resp.Body.Close()
+			ans.Body = nil
+		}
+		return ans, nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, wire.MaxBody))
+	if err != nil {
+		return core.FileAnswer{}, fmt.Errorf("api: %s: read the answer: %w", what, err)
+	}
+	return core.FileAnswer{}, answerError(what, resp, data)
+}
+
 // wirePrincipal is p as the principal header carries it.
 func (c *Client) wirePrincipal(p core.Principal) wire.Principal {
 	if c.cfg.HostID == "" {

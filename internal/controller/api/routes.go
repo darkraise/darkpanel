@@ -87,6 +87,10 @@ func (s *Server) networkRoutes() []route {
 			handler: s.handleTerminalTicket},
 		{method: http.MethodGet, path: "/api/v1/hosts/{host}/channels/{module}/{name}",
 			summary: "Open a module channel of a host, the console terminal, as a WebSocket with a ticket", handler: s.handleChannel},
+		{method: http.MethodGet, path: "/api/v1/hosts/{host}/files/{op}",
+			summary: "Read the console's files on a host: list, stat, read (text) or download", handler: s.handleFile},
+		{method: http.MethodPost, path: "/api/v1/hosts/{host}/files/{op}",
+			summary: "Change the console's files on a host: write, upload, mkdir, rename, delete, chmod or chown", handler: s.handleFile},
 	}
 }
 

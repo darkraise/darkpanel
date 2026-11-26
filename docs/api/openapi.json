@@ -45596,6 +45596,82 @@
         "summary": "Open a module channel of a host, the console terminal, as a WebSocket with a ticket"
       }
     },
+    "/api/v1/hosts/{host}/files/{op}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "op",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read the console's files on a host: list, stat, read (text) or download"
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "op",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Change the console's files on a host: write, upload, mkdir, rename, delete, chmod or chown"
+      }
+    },
     "/api/v1/hosts/{host}/modules/{module}/availability": {
       "get": {
         "parameters": [

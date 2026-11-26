@@ -1418,3 +1418,40 @@ type DispatcherChannels interface {
 	// else the module.unavailable error an action would get.
 	ModuleUsable(ctx context.Context, hostID, module string) error
 }
+
+// FileRequest is one request of the console's file endpoints (M11 spec
+// section 5): Op is the endpoint (list, stat, read, download, write,
+// upload, mkdir, rename, delete, chmod, chown) and Query its path, cursor
+// and sha256. Body, when set, holds exactly Size bytes: the raw bytes of a
+// write or an upload, or the JSON of a metadata operation when JSON is set.
+type FileRequest struct {
+	Op    string
+	Query url.Values
+	Body  io.Reader
+	Size  int64
+	JSON  bool
+}
+
+// FileAnswer is an agent's successful answer to a FileRequest. Body is nil
+// for 204 and is the caller's to close otherwise; it is not limited to the
+// agent API's body cap.
+type FileAnswer struct {
+	Status      int
+	ContentType string
+	Size        int64  // the answer's Content-Length, -1 when unknown
+	SHA256      string // a read's content hash header
+	Body        io.ReadCloser
+}
+
+// AgentFiles sends file requests to an agent on module-stream connections.
+type AgentFiles interface {
+	File(ctx context.Context, p Principal, req FileRequest) (FileAnswer, error)
+}
+
+// DispatcherFiles proxies the console's file endpoints to a host's agent
+// for the controller's file routes (M11 spec section 5).
+type DispatcherFiles interface {
+	File(ctx context.Context, p Principal, hostID string, req FileRequest) (FileAnswer, error)
+	// ModuleUsable is as DispatcherChannels has it: a transfer rechecks it.
+	ModuleUsable(ctx context.Context, hostID, module string) error
+}

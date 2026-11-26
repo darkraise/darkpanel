@@ -31,6 +31,7 @@ type FakeDispatcher struct {
 	RevealFunc       func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
 	OpenStreamFunc   func(ctx context.Context, p core.Principal, hostID, module, name string, params url.Values) (io.ReadCloser, error)
 	OpenChannelFunc  func(ctx context.Context, p core.Principal, hostID, module, name string, params url.Values) (io.ReadWriteCloser, error)
+	FileFunc         func(ctx context.Context, p core.Principal, hostID string, req core.FileRequest) (core.FileAnswer, error)
 	// ModuleUsableFunc answers ModuleUsable; nil reports every module usable.
 	ModuleUsableFunc func(ctx context.Context, hostID, module string) error
 }
@@ -38,6 +39,7 @@ type FakeDispatcher struct {
 var (
 	_ core.Dispatcher         = (*FakeDispatcher)(nil)
 	_ core.DispatcherChannels = (*FakeDispatcher)(nil)
+	_ core.DispatcherFiles    = (*FakeDispatcher)(nil)
 )
 
 // Read calls ReadFunc.
@@ -192,6 +194,14 @@ func (f *FakeDispatcher) OpenChannel(ctx context.Context, p core.Principal, host
 		return nil, notConfigured("FakeDispatcher", "OpenChannel")
 	}
 	return f.OpenChannelFunc(ctx, p, hostID, module, name, params)
+}
+
+// File calls FileFunc.
+func (f *FakeDispatcher) File(ctx context.Context, p core.Principal, hostID string, req core.FileRequest) (core.FileAnswer, error) {
+	if f.FileFunc == nil {
+		return core.FileAnswer{}, notConfigured("FakeDispatcher", "File")
+	}
+	return f.FileFunc(ctx, p, hostID, req)
 }
 
 // ModuleUsable calls ModuleUsableFunc.

@@ -115,8 +115,9 @@ type Server struct {
 
 	streamsDone  chan struct{} // closed by CloseStreams
 	closeStreams sync.Once
-	// longLived counts the long-lived requests (event streams, terminals)
-	// and holds the terminal tickets; CloseStreams ends them all.
+	// longLived counts the long-lived requests (event streams, terminals,
+	// file transfers) and holds the terminal tickets; CloseStreams ends them
+	// all.
 	longLived longLived
 }
 
@@ -341,7 +342,7 @@ func safeMethod(method string) bool {
 // identify authenticates r. When an Authorization header is present only
 // its bearer token counts and the cookie is never read (spec section 9). A
 // stream request is authenticated passively (streamRoute, and the
-// contributed stream routes).
+// contributed stream routes), and so is a file transfer (transferRoute).
 func (s *Server) identify(r *http.Request) (caller, error) {
 	var session string
 	if ck, err := r.Cookie(sessionCookieName(r)); err == nil {
@@ -351,7 +352,7 @@ func (s *Server) identify(r *http.Request) (caller, error) {
 		Authorization: r.Header.Values("Authorization"),
 		Session:       session,
 		Source:        clientAddr(r),
-		Passive:       streamRoute(r) || s.extensionStreamRoute(r),
+		Passive:       streamRoute(r) || transferRoute(r) || s.extensionStreamRoute(r),
 	})
 	if err != nil {
 		return caller{}, err
