@@ -410,3 +410,23 @@ func TestW12cDeployPublicCommandIsV2(t *testing.T) {
 		}
 	}
 }
+
+// TestRegistry shows that the registry holds the six M11 host-administration
+// modules, with console and jobs off until an admin turns them on.
+func TestRegistry(t *testing.T) {
+	enabled := map[string]bool{}
+	for _, m := range built(t).Modules() {
+		enabled[m.ID] = m.DefaultEnabled
+	}
+	for id, want := range map[string]bool{
+		"services": true, "users": true, "fail2ban": true, "tuning": true, "console": false, "jobs": false,
+	} {
+		got, ok := enabled[id]
+		switch {
+		case !ok:
+			t.Errorf("the registry has no module %s", id)
+		case got != want:
+			t.Errorf("module %s: DefaultEnabled = %v, want %v", id, got, want)
+		}
+	}
+}

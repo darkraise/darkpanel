@@ -5,17 +5,23 @@ package modules
 import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/cloudflare"
+	"github.com/darkraise/darkpanel/internal/modules/console"
 	"github.com/darkraise/darkpanel/internal/modules/derp"
 	"github.com/darkraise/darkpanel/internal/modules/docker"
+	"github.com/darkraise/darkpanel/internal/modules/fail2ban"
 	"github.com/darkraise/darkpanel/internal/modules/firewall"
 	"github.com/darkraise/darkpanel/internal/modules/hostinfo"
+	"github.com/darkraise/darkpanel/internal/modules/jobs"
 	"github.com/darkraise/darkpanel/internal/modules/metrics"
 	"github.com/darkraise/darkpanel/internal/modules/notify"
 	"github.com/darkraise/darkpanel/internal/modules/npm"
 	"github.com/darkraise/darkpanel/internal/modules/panel"
+	"github.com/darkraise/darkpanel/internal/modules/services"
 	"github.com/darkraise/darkpanel/internal/modules/system"
 	"github.com/darkraise/darkpanel/internal/modules/tailnet"
 	"github.com/darkraise/darkpanel/internal/modules/tailscale"
+	"github.com/darkraise/darkpanel/internal/modules/tuning"
+	"github.com/darkraise/darkpanel/internal/modules/users"
 )
 
 // All returns every compiled-in module in registration order.
@@ -33,5 +39,11 @@ func All() []core.Module {
 		system.Module(),
 		notify.Module(),
 		metrics.Module(),
+		services.Module(),
+		users.Module(),
+		fail2ban.Module(),
+		console.Module(),
+		jobs.Module(),
+		tuning.Module(),
 	}
 }

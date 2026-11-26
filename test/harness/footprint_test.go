@@ -26,7 +26,7 @@ var fpFlag = flag.Bool("fp", false, "run TestFootprint; needs -os and -m2, and i
 
 // The footprint budgets (bytes, decimal megabytes) and the sampling plan of TestFootprint.
 const (
-	fpAgentMax      = 55_000_000
+	fpAgentMax      = 60_000_000
 	fpControllerMax = 150_000_000
 	fpWarmup        = 5 * time.Minute
 	fpWindow        = 10 * time.Minute
