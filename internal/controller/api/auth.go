@@ -83,6 +83,24 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleStepUp elevates the caller's session with a fresh TOTP code. A token
+// caller is refused auth.step_up_unavailable.
+func (s *Server) handleStepUp(w http.ResponseWriter, r *http.Request) {
+	c, _ := callerFrom(r.Context())
+	var in struct {
+		Code string `json:"code"`
+	}
+	if err := decodeBody(w, r, &in); err != nil {
+		writeProblem(w, s.log, err)
+		return
+	}
+	if err := s.cfg.Auth.StepUp(r.Context(), c.principal, c.session, in.Code); err != nil {
+		writeProblem(w, s.log, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	c, _ := callerFrom(r.Context())
 	id := c.identity

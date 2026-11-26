@@ -141,6 +141,7 @@ func TestRoutes(t *testing.T) {
 		{Method: "POST", Path: "/api/v1/auth/totp", Public: true},
 		{Method: "POST", Path: "/api/v1/auth/logout"},
 		{Method: "GET", Path: "/api/v1/auth/session"},
+		{Method: "POST", Path: "/api/v1/auth/step-up"},
 		{Method: "GET", Path: "/api/v1/hosts/{host}/modules/{module}/availability"},
 		{Method: "GET", Path: "/api/v1/changes"},
 		{Method: "GET", Path: "/api/v1/changes/{id}"},

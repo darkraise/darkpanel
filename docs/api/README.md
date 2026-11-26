@@ -87,6 +87,7 @@ This reference is generated from the action schemas. `openapi.json` is the OpenA
 | GET | `/api/v1/auth/oidc/callback` | none | Finish an OIDC sign-in: a page that navigates to /?signin=\<outcome\> |
 | GET | `/api/v1/auth/oidc/start` | none | Start an OIDC sign-in: redirect to the provider with a state cookie |
 | GET | `/api/v1/auth/session` | session or token | Describe the calling session or token |
+| POST | `/api/v1/auth/step-up` | session or token | Enter a fresh authenticator code to elevate the session for 15 minutes |
 | GET | `/api/v1/auth/tailscale` | none | Which user this Tailscale node may continue as, whether the node is remembered and the user code-ready |
 | POST | `/api/v1/auth/tailscale` | none | Continue as the whois match: a remembered node signs in, any other asks the code that remembers it |
 | POST | `/api/v1/auth/totp` | none | Enter the authenticator code a sign-in method asks for and sign in; a Tailscale code must come from its node |

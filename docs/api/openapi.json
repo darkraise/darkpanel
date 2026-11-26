@@ -27534,6 +27534,27 @@
         "summary": "Describe the calling session or token"
       }
     },
+    "/api/v1/auth/step-up": {
+      "post": {
+        "responses": {
+          "2XX": {
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Enter a fresh authenticator code to elevate the session for 15 minutes"
+      }
+    },
     "/api/v1/auth/tailscale": {
       "get": {
         "responses": {

@@ -242,6 +242,9 @@ type ActionSpec struct {
 	Side          Side
 	BreakGlass    bool
 	LockKeys      []string
+	// StepUp makes the controller refuse the action to a session that has not
+	// given a fresh TOTP code in the last 15 minutes, and to every API token.
+	StepUp        bool
 	CompensatedBy string // compensable only, an action name
 	ForwardOnly   bool   // compensable: never reversed; requires Converges
 	// TypedConfirmation makes a compensable action's apply repeat the phrase

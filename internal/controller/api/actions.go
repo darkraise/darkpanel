@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
@@ -209,12 +211,32 @@ func (s *Server) actionHandler(side core.Side, op string) http.HandlerFunc {
 		if err == nil {
 			err = authorizeAction(c.principal, def, r.PathValue("host"))
 		}
+		if err == nil && def.Spec.StepUp {
+			err = s.requireElevated(r.Context(), c)
+		}
 		if err != nil {
 			writeProblem(w, s.log, err)
 			return
 		}
 		s.runAction(w, r, c.principal, r.PathValue("host"), def, op)
 	}
+}
+
+// requireElevated refuses a caller that has no step-up window: a session
+// outside it gets auth.step_up_required, which the web client answers with
+// the code dialog; any other caller, an API token, can never step up.
+func (s *Server) requireElevated(ctx context.Context, c caller) error {
+	if !c.identity.FromSession {
+		return auth.ErrStepUpUnavailable()
+	}
+	ok, err := s.cfg.Auth.Elevated(ctx, c.session)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return auth.ErrStepUpRequired()
+	}
+	return nil
 }
 
 // runAction decodes op's body and dispatches it. Apply answers the change

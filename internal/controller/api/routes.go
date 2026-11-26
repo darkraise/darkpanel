@@ -42,6 +42,8 @@ func (s *Server) networkRoutes() []route {
 			public: true, handler: s.handleTOTPStep},
 		{method: http.MethodPost, path: "/api/v1/auth/logout", summary: "Log out and clear the session cookie", handler: s.handleLogout},
 		{method: http.MethodGet, path: "/api/v1/auth/session", summary: "Describe the calling session or token", handler: s.handleSession},
+		{method: http.MethodPost, path: "/api/v1/auth/step-up", summary: "Enter a fresh authenticator code to elevate the session for 15 minutes",
+			handler: s.handleStepUp},
 		{method: http.MethodGet, path: "/api/v1/hosts/{host}/resources/{module}/{resource}", perAction: true, handler: s.handleResource},
 		{method: http.MethodGet, path: "/api/v1/hosts/{host}/modules/{module}/availability",
 			summary: "Which actions of a module are available on a host", handler: s.handleAvailability},

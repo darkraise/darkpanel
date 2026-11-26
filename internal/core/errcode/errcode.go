@@ -48,6 +48,11 @@ const (
 	ChangeBusy   Code = "core.change_busy"
 	Uninstalling Code = "core.uninstalling"
 	StreamLimit  Code = "core.stream_limit"
+	// Step-up (M11 spec section 1.1): an action or endpoint that needs a fresh
+	// TOTP code, a caller that cannot give one, and a code of a step already used.
+	StepUpRequired    Code = "auth.step_up_required"
+	StepUpUnavailable Code = "auth.step_up_unavailable"
+	StepUpWait        Code = "auth.step_up_wait"
 )
 
 // Action-level codes: they appear in a change's error or in the audit log,
@@ -209,6 +214,9 @@ var registry = map[Code]info{
 	ChangeBusy:             {http.StatusConflict, "Change busy"},
 	Uninstalling:           {http.StatusConflict, "Host is being uninstalled"},
 	StreamLimit:            {http.StatusTooManyRequests, "Too many streams"},
+	StepUpRequired:         {http.StatusForbidden, "Authenticator code required"},
+	StepUpUnavailable:      {http.StatusForbidden, "Step-up unavailable"},
+	StepUpWait:             {http.StatusConflict, "Wait for the next code"},
 	ChildFailed:            {http.StatusInternalServerError, "A composite step failed"},
 	DeadlineExceeded:       {http.StatusGatewayTimeout, "Action deadline exceeded"},
 

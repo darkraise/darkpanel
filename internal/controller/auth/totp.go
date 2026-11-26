@@ -76,3 +76,16 @@ func matchTOTP(key []byte, code string, now time.Time, lastStep int64) (int64, b
 	}
 	return 0, false
 }
+
+// totpReplayed reports whether code is the code of a step around now that is
+// at or before lastStep: a code already accepted, which step-up answers with
+// "wait for the next code" rather than as a wrong code.
+func totpReplayed(key []byte, code string, now time.Time, lastStep int64) bool {
+	cur := totpStep(now)
+	for s := cur - 1; s <= cur+1 && s <= lastStep; s++ {
+		if subtle.ConstantTimeCompare([]byte(totpCode(key, s)), []byte(code)) == 1 {
+			return true
+		}
+	}
+	return false
+}
