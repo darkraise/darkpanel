@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Alert, AlertDescription } from "darkraise-ui/components/alert"
+import { Alert, AlertDescription, AlertTitle } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
 import { Input } from "darkraise-ui/components/input"
 import { Label } from "darkraise-ui/components/label"
@@ -37,7 +37,7 @@ function listenPort(typed: string): number | null {
   return port >= PORT_MIN && port <= PORT_MAX ? port : null
 }
 
-function Exposure({ exposure, onRemove }: { exposure: ExposureView; onRemove: () => void }) {
+function Exposure({ exposure, onRemove, onRepair }: { exposure: ExposureView; onRemove: () => void; onRepair: () => void }) {
   const icon = exposure.via === "tunnel" ? Cloud : Globe
   return (
     <div role="group" aria-label="Panel exposure" className="flex flex-col gap-4">
@@ -52,6 +52,17 @@ function Exposure({ exposure, onRemove }: { exposure: ExposureView; onRemove: ()
           </Button>
         }
       />
+      {exposure.websockets === false && (
+        <Alert variant="warning" role="status">
+          <AlertTitle as="h3">Terminal needs WebSocket passthrough</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-2">
+            <span>Opened before Darkpanel passed WebSockets, so the console terminal cannot connect.</span>
+            <Button size="sm" variant="outline" onClick={onRepair}>
+              Repair
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatTile icon={icon} figure={routeShort(exposure.via)} caption="Route" />
         <StatTile icon={Plug} figure={String(exposure.port)} caption="Port" />
@@ -176,6 +187,7 @@ export function PanelPage({ hostId }: { hostId: string }) {
         <Exposure
           exposure={exposure}
           onRemove={() => plan({ action: "panel.exposure.remove", title: `Remove the panel exposure at ${exposure.hostname}`, input: {} })}
+          onRepair={() => plan({ action: "panel.websockets.repair", title: `Pass WebSockets at ${exposure.hostname}`, input: {} })}
         />
       )
     }

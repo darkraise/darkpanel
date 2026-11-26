@@ -1,11 +1,14 @@
+import { Route, Routes } from "react-router"
 import { EmptyState } from "darkraise-ui/components/empty-state"
+import type { ModuleRouteProps } from "@/modules/types"
+import { ConsolePage } from "./console-page"
 
-// The Console pages under /hosts/:hostId/console/, a placeholder until they are built.
-export default function ConsoleRoutes() {
+// The console module's pages under /hosts/:hostId/console/.
+export default function ConsoleRoutes({ hostId }: ModuleRouteProps) {
   return (
-    <>
-      <h2 className="sr-only">Console</h2>
-      <EmptyState title="Console" description="This page is not built yet." />
-    </>
+    <Routes>
+      <Route index element={<ConsolePage hostId={hostId} />} />
+      <Route path="*" element={<EmptyState title="Page not found" description="The console module has no page at this address." />} />
+    </Routes>
   )
 }

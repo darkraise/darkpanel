@@ -24,6 +24,9 @@ export interface ExposureView {
   state: ExposureState
   listenerId: string
   createdAt: string
+  // The proxy passes WebSocket upgrades, which the console terminal needs;
+  // false on an NPM exposure opened before they were passed.
+  websockets?: boolean
 }
 
 export interface StatusOutput {

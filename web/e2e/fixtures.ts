@@ -688,6 +688,8 @@ interface Applied {
   elevated: boolean
   // The "<jail> <address>" bans fail2ban.ban.remove lifted.
   unbanned: Set<string>
+  // The M11 modules turned on that ship off (console, jobs).
+  enabled: Set<string>
 }
 
 // M11 is how mockApi gives web-1 the M11 modules: not at all, or with the
@@ -696,9 +698,9 @@ type M11 = false | "admin" | "operate"
 
 // m11Host gives web-1 the six M11 modules, console and jobs off as they ship,
 // and the caller scope on it.
-function m11Host(h: Host, scope: "admin" | "operate"): Host {
+function m11Host(h: Host, scope: "admin" | "operate", enabled: Set<string>): Host {
   if (h.id !== HOST_ID) return h
-  const added = ["services", "users", "fail2ban", "console", "jobs", "tuning"].map((id) => moduleState(id, { enabled: id !== "console" && id !== "jobs" }))
+  const added = ["services", "users", "fail2ban", "console", "jobs", "tuning"].map((id) => moduleState(id, { enabled: (id !== "console" && id !== "jobs") || enabled.has(id) }))
   return { ...h, scope, modules: [...h.modules, ...added] }
 }
 
@@ -707,7 +709,7 @@ const READS: Record<string, (worstCase: boolean, applied: Applied, sys: SystemCo
     hosts: (worstCase ? worstHosts : hosts)
       .filter((h) => !applied.deleted.has(h.id))
       .map((h) => systemHost(applied.revoked.has(h.id) ? { ...h, state: "revoked" } : h, sys))
-      .map((h) => (withM11 === false ? h : m11Host(h, withM11))),
+      .map((h) => (withM11 === false ? h : m11Host(h, withM11, applied.enabled))),
   }),
   // The M11 reads; worstCase answers each list's worst case.
   "services.unit.list": (worstCase) => ({ units: worstCase ? m11.unitsWorst : m11.unitsDefault }),
@@ -941,11 +943,11 @@ export interface Fixtures {
 // and jobs off, whose reads answer from src/modules/m11-fixtures.ts, and the
 // caller admin on it ("operate" makes the caller an operator there); the
 // step-up endpoint accepts the code 123456.
-export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean; systemState?: SystemState; m11?: boolean | "operate" }): Promise<Fixtures> {
+export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean; systemState?: SystemState; m11?: boolean | "operate"; console?: boolean }): Promise<Fixtures> {
   const fixtures: Fixtures = { unhandled: [] }
   const changes = new Map<string, Change>()
   const planned = new Map<string, Record<string, unknown>>()
-  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false, unbanned: new Set() }
+  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false, unbanned: new Set(), enabled: new Set(opts.console === true ? ["console"] : []) }
   const worstCase = opts.worstCase ?? false
   const sys = systemContext(opts.systemState, worstCase)
   const steps = new Map<string, Step[]>()
@@ -1001,6 +1003,10 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
     if (bodyOf(route).code !== "123456") return problem(401, "auth.invalid_credentials", "wrong authenticator code")
     applied.elevated = true
     return { status: 204 }
+  }
+  // A terminal ticket for a fresh code; mockTerminal answers the socket it opens.
+  if (/^\/api\/v1\/hosts\/[^/]+\/channels\/console\/terminal\/ticket$/.test(path) && method === "POST") {
+    return bodyOf(route).code === "123456" ? { json: { ticket: "ticket-fixture" } } : problem(401, "auth.invalid_credentials", "wrong authenticator code")
   }
   // No OIDC provider and no Tailscale listener: the login page offers only the form.
   if (path === "/api/v1/auth/methods") return { json: { oidc: null, tailscale: false } }
@@ -1107,4 +1113,40 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
     return { json: found }
   }
   return null
+}
+
+// TerminalMock is what mockTerminal saw: each socket's address and each
+// resize message.
+export interface TerminalMock {
+  urls: string[]
+  resizes: { cols: number; rows: number }[]
+}
+
+// mockTerminal answers the console terminal's WebSocket with a tiny shell:
+// it echoes what is typed, and on Enter answers "echo <text>" with <text>
+// and a new prompt.
+export async function mockTerminal(page: Page): Promise<TerminalMock> {
+  const mock: TerminalMock = { urls: [], resizes: [] }
+  await page.routeWebSocket(/\/api\/v1\/hosts\/[^/]+\/channels\/console\/terminal\?/, (ws) => {
+    mock.urls.push(ws.url())
+    let line = ""
+    ws.send(Buffer.from("$ "))
+    ws.onMessage((message) => {
+      if (typeof message === "string") {
+        const m = JSON.parse(message) as { type?: string; cols?: number; rows?: number }
+        if (m.type === "resize") mock.resizes.push({ cols: m.cols ?? 0, rows: m.rows ?? 0 })
+        return
+      }
+      for (const ch of message.toString("utf8")) {
+        if (ch === "\r") {
+          ws.send(Buffer.from(`\r\n${line.startsWith("echo ") ? `${line.slice(5)}\r\n` : ""}$ `))
+          line = ""
+        } else {
+          line += ch
+          ws.send(Buffer.from(ch))
+        }
+      }
+    })
+  })
+  return mock
 }

@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { describe, expect, test } from "vitest"
 import { axe } from "vitest-axe"
 import type { Host } from "@/api/types"
 import { renderWithProviders, stubFetch, type FetchCall, type StubHandler } from "@/test/utils"
@@ -172,6 +172,26 @@ test("an exposure is removed from any host's page, planning panel.exposure.remov
   await user.click(apply)
   await waitFor(() => expect(calls.some((c) => c.path === "/api/v1/actions/panel.exposure.remove/v1/apply")).toBe(true))
   expect(calls.find((c) => c.path === "/api/v1/actions/panel.exposure.remove/v1/apply")?.body).toEqual({ planId: "p1" })
+})
+
+describe("websocket passthrough notice", () => {
+  test("an exposure with websockets false shows the notice, and Repair plans panel.websockets.repair with {}", async () => {
+    const user = userEvent.setup()
+    const { calls } = ppRender("h2", paStatus(paExposure({ websockets: false })), { "POST /api/v1/actions/panel.websockets.repair/v1/plan": ppPlan })
+    expect(await screen.findByText("Terminal needs WebSocket passthrough")).toBeTruthy()
+    await user.click(screen.getByRole("button", { name: "Repair" }))
+    const dialog = await screen.findByRole("dialog", { name: "Pass WebSockets at panel.example.org" })
+    expect(within(dialog).getByText("panel.websockets.repair/v1 on the controller")).toBeTruthy()
+    await within(dialog).findByLabelText("Planned changes")
+    expect(ppPlanBodies(calls, "/panel.websockets.repair/v1/plan")).toEqual([{ input: {} }])
+  })
+
+  test.each([true, undefined])("an exposure with websockets %s shows neither the notice nor Repair", async (websockets) => {
+    ppRender("h2", paStatus(paExposure({ websockets })))
+    await screen.findByRole("button", { name: "Remove exposure" })
+    expect(screen.queryByText("Terminal needs WebSocket passthrough")).toBeNull()
+    expect(screen.queryByRole("button", { name: "Repair" })).toBeNull()
+  })
 })
 
 test("closing the removal dialog reads the exposure again", async () => {

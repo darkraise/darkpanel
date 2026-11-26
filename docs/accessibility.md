@@ -18,7 +18,7 @@ Set `E2E_CHROMIUM` to the path of a Chromium executable when the build that Play
 - Container actions: the Docker containers table, its change dialogs and the container page with the firewall allow and deny forms.
 - Expose a container: the expose form of the container page and its change dialog.
 - Settings, alerts and metrics: the Users, Host groups, Sign-in and Notifications settings pages, the Alerts page and the host overview's Metrics section, with their dialogs.
-- Host administration: the Services tab with its row menus and change dialogs, and the journal panel; the Users and SSH tab with its add user and password dialogs, user sheet and SSH hardening form; the Intrusion prevention tab with its bans, settings and unban dialog.
+- Host administration: the Services tab with its row menus and change dialogs, and the journal panel; the Users and SSH tab with its add user and password dialogs, user sheet and SSH hardening form; the Intrusion prevention tab with its bans, settings and unban dialog; the Console terminal in its connecting, connected and closed states, with its key bar below 768 px.
 
 The confirm and revert states covered are those of a revertible change. A composite change that waits for confirmation, such as a public deploy of Nginx Proxy Manager with the firewall integration on, shows the same countdown with Confirm and Revert in the change dialog, counted to the deadline of its last step. The Vitest tests of the change dialog (`web/src/components/change-dialog.test.tsx` and `web/src/components/change-dialog.a11y.test.tsx`) check that state; the browser pass does not render it.
 
@@ -162,6 +162,9 @@ Both pages were read on 2026-11-05 for heading order and for link text that name
 | 1.3.1 Info and relationships | A | automated | `web/src/modules/fail2ban/fail2ban-page.a11y.test.tsx` |
 | 3.3.1 Error identification | A | automated | `web/src/modules/fail2ban/fail2ban-page.a11y.test.tsx` (the ignore entry's error is tied to its field) |
 | 4.1.2 Name, role, value | A | automated | `web/src/modules/fail2ban/fail2ban-page.a11y.test.tsx` |
+| 2.1.2 No keyboard trap | A | automated | `web/src/modules/console/terminal-view.test.tsx` (Ctrl+Shift+L moves focus from the terminal to its toolbar) |
+| 4.1.2 Name, role, value | A | automated | `web/src/modules/console/console-page.a11y.test.tsx` |
+| 4.1.3 Status messages | AA | automated | `web/src/modules/console/console-page.a11y.test.tsx` (the terminal state is a status message) |
 
 ## Known issues
 
