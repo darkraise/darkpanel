@@ -100,29 +100,28 @@ func (m module) candidates(ctx context.Context, env core.Env, v sshView) ([]cand
 	return out, nil
 }
 
-// wildmatch matches s against an sshd pattern of * and ?.
+// wildmatch matches s against an sshd pattern of * and ?. It retries only
+// from the last *, so its time is linear in len(pattern)*len(s): patterns
+// come from the input and from files under /etc/ssh.
 func wildmatch(pattern, s string) bool {
-	for len(pattern) > 0 {
-		switch pattern[0] {
-		case '*':
-			for i := len(s); i >= 0; i-- {
-				if wildmatch(pattern[1:], s[i:]) {
-					return true
-				}
-			}
-			return false
-		case '?':
-			if s == "" {
-				return false
-			}
+	p, i, star, mark := 0, 0, -1, 0
+	for i < len(s) {
+		switch {
+		case p < len(pattern) && (pattern[p] == '?' || pattern[p] == s[i]):
+			p, i = p+1, i+1
+		case p < len(pattern) && pattern[p] == '*':
+			star, mark, p = p, i, p+1
+		case star >= 0:
+			mark++
+			p, i = star+1, mark
 		default:
-			if s == "" || s[0] != pattern[0] {
-				return false
-			}
+			return false
 		}
-		pattern, s = pattern[1:], s[1:]
 	}
-	return s == ""
+	for p < len(pattern) && pattern[p] == '*' {
+		p++
+	}
+	return p == len(pattern)
 }
 
 // userMatches reports whether a user pattern matches name. A pattern with

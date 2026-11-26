@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/platform"
@@ -151,5 +152,34 @@ func TestNoWayIn(t *testing.T) {
 				t.Errorf("overridden guard %+v", g)
 			}
 		})
+	}
+}
+
+func TestWildmatch(t *testing.T) {
+	for _, c := range []struct {
+		pattern, s string
+		want       bool
+	}{
+		{"alice", "alice", true}, {"al*", "alice", true}, {"a?ice", "alice", true}, {"*", "", true}, {"*", "alice", true},
+		{"?", "", false}, {"a*b*c", "axxbyyc", true}, {"a*b", "ab", true}, {"a*b", "a", false}, {"*x", "abc", false},
+		{"*ice", "alice", true}, {"al*e", "alicee", true}, {"alice", "alic", false}, {"alic", "alice", false}, {"**a", "a", true},
+	} {
+		if got := wildmatch(c.pattern, c.s); got != c.want {
+			t.Errorf("wildmatch(%q, %q) = %v, want %v", c.pattern, c.s, got, c.want)
+		}
+	}
+	// Patterns that make a backtracking matcher take exponential time.
+	done := make(chan bool)
+	go func() {
+		done <- wildmatch(strings.Repeat("*a", 16)+"b", strings.Repeat("a", 32)) ||
+			wildmatch(strings.Repeat("*", 31)+"x", strings.Repeat("a", 32))
+	}()
+	select {
+	case got := <-done:
+		if got {
+			t.Error("a pattern that cannot match matched")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("wildmatch took over 2 s on a 32-character name")
 	}
 }
