@@ -17,6 +17,7 @@ import (
 
 	"github.com/darkraise/darkpanel/internal/controller/coreactions"
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules"
 	"github.com/darkraise/darkpanel/internal/paths"
 	"github.com/darkraise/darkpanel/internal/update"
 	"github.com/darkraise/darkpanel/test/harness/vm"
@@ -92,9 +93,16 @@ func TestFootprint(t *testing.T) {
 // --state-dir, run as a systemd-run unit. A host's modules but hostinfo are disabled before its agent first
 // connects, so no background task of the firewall module starts beside the real agent's. The step checks that
 // this held: every extra host lists only hostinfo enabled, its unit is active and its journal shows no reconcile
-// pass; and that the real agent's host lists every module enabled.
+// pass; and that the real agent's host lists every module enabled, once the modules that default to off are
+// enabled on it.
 func (r *fpRun) extraAgents(t *testing.T) {
 	v := r.f.agent
+	for _, id := range fpDefaultOff() {
+		in := coreactions.ModuleInput{HostID: r.f.agentID, ModuleID: id}
+		if _, err := r.f.api.Apply(r.ctx, "", "core.module.enable/v1", in, nil); err != nil {
+			t.Fatalf("enable %s on the agent: %v", id, err)
+		}
+	}
 	for _, cmd := range fpPrepareCmds() {
 		m3Run(r.ctx, t, v, cmd)
 	}
@@ -430,6 +438,19 @@ func fpDisableTargets(h core.Host) []string {
 	for _, m := range h.Modules {
 		if m.ID != fpHostinfo {
 			ids = append(ids, m.ID)
+		}
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+// fpDefaultOff lists the modules whose manifest leaves them disabled on a new host. Only these are enabled on the
+// real agent, so a module that something else disabled still fails fpAllEnabled.
+func fpDefaultOff() []string {
+	var ids []string
+	for _, m := range modules.All() {
+		if mf := m.Manifest(); !mf.DefaultEnabled {
+			ids = append(ids, mf.ID)
 		}
 	}
 	slices.Sort(ids)

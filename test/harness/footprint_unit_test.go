@@ -361,3 +361,11 @@ func TestAgentBudget(t *testing.T) {
 		t.Errorf("fpAgentMax = %d, want 60000000 bytes", int64(fpAgentMax))
 	}
 }
+
+// TestFpUnitDefaultOff shows which modules TestFootprint enables on the real agent: console and jobs, which start
+// disabled on a new host.
+func TestFpUnitDefaultOff(t *testing.T) {
+	if got, want := fpDefaultOff(), []string{"console", "jobs"}; !slices.Equal(got, want) {
+		t.Errorf("fpDefaultOff() = %v, want %v", got, want)
+	}
+}
