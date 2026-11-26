@@ -106,6 +106,8 @@ This reference is generated from the action schemas. `openapi.json` is the OpenA
 | POST | `/api/v1/enroll/begin` | none | Start an enrollment link's use: a new TOTP secret and its otpauth URI |
 | POST | `/api/v1/enroll/finish` | none | Finish an enrollment link: set the password, confirm a code and sign in |
 | GET | `/api/v1/events` | session or token | Stream the controller's change, step, host and module events (server-sent events) |
+| POST | `/api/v1/hosts/{host}/channels/console/terminal/ticket` | session or token | Trade a fresh authenticator code for a ticket that opens one terminal on the host within 30 s |
+| GET | `/api/v1/hosts/{host}/channels/{module}/{name}` | session or token | Open a module channel of a host, the console terminal, as a WebSocket with a ticket |
 | GET | `/api/v1/hosts/{host}/modules/{module}/availability` | session or token | Which actions of a module are available on a host |
 | GET | `/api/v1/hosts/{host}/streams/{module}/{name}` | session or token | Follow a module stream of a host as server-sent events |
 | GET | `/api/v1/openapi.json` | session or token | This OpenAPI document |

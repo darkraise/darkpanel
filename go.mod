@@ -6,6 +6,7 @@ toolchain go1.27.4
 
 require (
 	aead.dev/minisign v0.3.0
+	github.com/coder/websocket v1.8.15
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/godbus/dbus/v5 v5.2.4
 	github.com/hashicorp/yamux v0.1.2

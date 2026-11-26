@@ -30,9 +30,15 @@ type FakeDispatcher struct {
 	StepsFunc        func(ctx context.Context, p core.Principal, changeID string) ([]core.StepView, error)
 	RevealFunc       func(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error)
 	OpenStreamFunc   func(ctx context.Context, p core.Principal, hostID, module, name string, params url.Values) (io.ReadCloser, error)
+	OpenChannelFunc  func(ctx context.Context, p core.Principal, hostID, module, name string, params url.Values) (io.ReadWriteCloser, error)
+	// ModuleUsableFunc answers ModuleUsable; nil reports every module usable.
+	ModuleUsableFunc func(ctx context.Context, hostID, module string) error
 }
 
-var _ core.Dispatcher = (*FakeDispatcher)(nil)
+var (
+	_ core.Dispatcher         = (*FakeDispatcher)(nil)
+	_ core.DispatcherChannels = (*FakeDispatcher)(nil)
+)
 
 // Read calls ReadFunc.
 func (f *FakeDispatcher) Read(ctx context.Context, p core.Principal, hostID string, a core.ActionRef, input json.RawMessage) (json.RawMessage, error) {
@@ -178,4 +184,20 @@ func (f *FakeDispatcher) OpenStream(ctx context.Context, p core.Principal, hostI
 		return nil, notConfigured("FakeDispatcher", "OpenStream")
 	}
 	return f.OpenStreamFunc(ctx, p, hostID, module, name, params)
+}
+
+// OpenChannel calls OpenChannelFunc.
+func (f *FakeDispatcher) OpenChannel(ctx context.Context, p core.Principal, hostID, module, name string, params url.Values) (io.ReadWriteCloser, error) {
+	if f.OpenChannelFunc == nil {
+		return nil, notConfigured("FakeDispatcher", "OpenChannel")
+	}
+	return f.OpenChannelFunc(ctx, p, hostID, module, name, params)
+}
+
+// ModuleUsable calls ModuleUsableFunc.
+func (f *FakeDispatcher) ModuleUsable(ctx context.Context, hostID, module string) error {
+	if f.ModuleUsableFunc == nil {
+		return nil
+	}
+	return f.ModuleUsableFunc(ctx, hostID, module)
 }

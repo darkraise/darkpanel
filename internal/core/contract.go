@@ -1316,3 +1316,12 @@ type DispatcherReveal interface {
 type DispatcherStreams interface {
 	OpenStream(ctx context.Context, p Principal, hostID, module, name string, params url.Values) (io.ReadCloser, error)
 }
+
+// DispatcherChannels opens a module channel on a host's agent for the
+// controller's channel bridge (M11 spec 1.2).
+type DispatcherChannels interface {
+	OpenChannel(ctx context.Context, p Principal, hostID, module, name string, params url.Values) (io.ReadWriteCloser, error)
+	// ModuleUsable is nil while module is enabled and available on hostID,
+	// else the module.unavailable error an action would get.
+	ModuleUsable(ctx context.Context, hostID, module string) error
+}

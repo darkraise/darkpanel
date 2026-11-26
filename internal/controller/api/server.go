@@ -117,6 +117,7 @@ type Server struct {
 	eventStreams map[string]int // open GET /api/v1/events streams per Principal.Actor
 	streamsDone  chan struct{}  // closed by CloseStreams
 	closeStreams sync.Once
+	long         longLived // terminal tickets and open terminals
 }
 
 // ListenerState is the listener state the UI footer shows (spec section 13):
@@ -317,7 +318,8 @@ func routeAccess(method, path string) access {
 }
 
 // streamRoute reports whether r asks for a stream: GET or HEAD of
-// /api/v1/events or of a relay, /api/v1/hosts/{host}/streams/{module}/{name}.
+// /api/v1/events, of a relay, /api/v1/hosts/{host}/streams/{module}/{name},
+// or of a channel, /api/v1/hosts/{host}/channels/{module}/{name}.
 // Its credentials are checked passively, so a stream never extends its
 // session's idle limit.
 func streamRoute(r *http.Request) bool {
@@ -329,7 +331,7 @@ func streamRoute(r *http.Request) bool {
 	}
 	seg := strings.Split(r.URL.Path, "/")
 	return len(seg) == 8 && seg[0] == "" && seg[1] == "api" && seg[2] == "v1" && seg[3] == "hosts" && seg[4] != "" &&
-		seg[5] == "streams" && seg[6] != "" && seg[7] != ""
+		(seg[5] == "streams" || seg[5] == "channels") && seg[6] != "" && seg[7] != ""
 }
 
 func safeMethod(method string) bool {

@@ -82,6 +82,11 @@ func (s *Server) networkRoutes() []route {
 			handler: s.handleEvents},
 		{method: http.MethodGet, path: "/api/v1/hosts/{host}/streams/{module}/{name}",
 			summary: "Follow a module stream of a host as server-sent events", handler: s.handleStream},
+		{method: http.MethodPost, path: "/api/v1/hosts/{host}/channels/console/terminal/ticket",
+			summary: "Trade a fresh authenticator code for a ticket that opens one terminal on the host within 30 s",
+			handler: s.handleTerminalTicket},
+		{method: http.MethodGet, path: "/api/v1/hosts/{host}/channels/{module}/{name}",
+			summary: "Open a module channel of a host, the console terminal, as a WebSocket with a ticket", handler: s.handleChannel},
 	}
 }
 
