@@ -21419,6 +21419,355 @@
           "health"
         ],
         "type": "object"
+      },
+      "users.password.remove.v1.input": {
+        "$ref": "#/components/schemas/users.password.remove.v1.input.NameInput"
+      },
+      "users.password.remove.v1.input.NameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.password.remove.v1.output": {
+        "$ref": "#/components/schemas/users.password.remove.v1.output.Changed"
+      },
+      "users.password.remove.v1.output.Changed": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.password.set.v1.input": {
+        "$ref": "#/components/schemas/users.password.set.v1.input.PasswordInput"
+      },
+      "users.password.set.v1.input.PasswordInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "password": {
+            "description": "8-256 characters with no control character.",
+            "maxLength": 256,
+            "minLength": 8,
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "required": [
+          "name",
+          "password"
+        ],
+        "type": "object"
+      },
+      "users.password.set.v1.output": {
+        "$ref": "#/components/schemas/users.password.set.v1.output.Changed"
+      },
+      "users.password.set.v1.output.Changed": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.sudo.add.v1.input": {
+        "$ref": "#/components/schemas/users.sudo.add.v1.input.NameInput"
+      },
+      "users.sudo.add.v1.input.NameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.sudo.add.v1.output": {
+        "$ref": "#/components/schemas/users.sudo.add.v1.output.Changed"
+      },
+      "users.sudo.add.v1.output.Changed": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.sudo.remove.v1.input": {
+        "$ref": "#/components/schemas/users.sudo.remove.v1.input.NameInput"
+      },
+      "users.sudo.remove.v1.input.NameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.sudo.remove.v1.output": {
+        "$ref": "#/components/schemas/users.sudo.remove.v1.output.Changed"
+      },
+      "users.sudo.remove.v1.output.Changed": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.user.create.v1.input": {
+        "$ref": "#/components/schemas/users.user.create.v1.input.CreateInput"
+      },
+      "users.user.create.v1.input.CreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "A new account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "password": {
+            "description": "An optional password, 8-256 characters with no control character.",
+            "maxLength": 256,
+            "minLength": 8,
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
+          },
+          "shell": {
+            "description": "A shell listed in /etc/shells; /bin/bash when omitted.",
+            "type": "string"
+          },
+          "sudo": {
+            "description": "Add the account to the sudo group.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.user.create.v1.output": {
+        "$ref": "#/components/schemas/users.user.create.v1.output.Changed"
+      },
+      "users.user.create.v1.output.Changed": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.user.delete.v1.input": {
+        "$ref": "#/components/schemas/users.user.delete.v1.input.DeleteInput"
+      },
+      "users.user.delete.v1.input.DeleteInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "removeHome": {
+            "description": "Delete the home directory and mail spool too.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.user.delete.v1.output": {
+        "$ref": "#/components/schemas/users.user.delete.v1.output.Changed"
+      },
+      "users.user.delete.v1.output.Changed": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.user.list.v1.input": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "users.user.list.v1.output": {
+        "$ref": "#/components/schemas/users.user.list.v1.output.AccountList"
+      },
+      "users.user.list.v1.output.Account": {
+        "properties": {
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "home": {
+            "type": "string"
+          },
+          "keys": {
+            "description": "The number of authorized keys.",
+            "type": "integer"
+          },
+          "locked": {
+            "description": "The account expired today or earlier, as users.user.lock leaves it; a ! password alone is a key-only account and not locked.",
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "passwordSet": {
+            "description": "passwd -S reports a usable password (status P).",
+            "type": "boolean"
+          },
+          "shell": {
+            "type": "string"
+          },
+          "sudo": {
+            "description": "A member of the sudo group.",
+            "type": "boolean"
+          },
+          "uid": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "uid",
+          "home",
+          "shell",
+          "groups",
+          "sudo",
+          "locked",
+          "passwordSet",
+          "keys"
+        ],
+        "type": "object"
+      },
+      "users.user.list.v1.output.AccountList": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/users.user.list.v1.output.Account"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "accounts"
+        ],
+        "type": "object"
+      },
+      "users.user.lock.v1.input": {
+        "$ref": "#/components/schemas/users.user.lock.v1.input.NameInput"
+      },
+      "users.user.lock.v1.input.NameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.user.lock.v1.output": {
+        "$ref": "#/components/schemas/users.user.lock.v1.output.Changed"
+      },
+      "users.user.lock.v1.output.Changed": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.user.unlock.v1.input": {
+        "$ref": "#/components/schemas/users.user.unlock.v1.input.NameInput"
+      },
+      "users.user.unlock.v1.input.NameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.user.unlock.v1.output": {
+        "$ref": "#/components/schemas/users.user.unlock.v1.output.Changed"
+      },
+      "users.user.unlock.v1.output.Changed": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -40405,6 +40754,928 @@
           }
         ],
         "summary": "Set the node's Tailscale preferences."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.password.remove/v1/apply": {
+      "post": {
+        "operationId": "users.password.remove.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove an account's password: its hash becomes *."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.password.remove/v1/plan": {
+      "post": {
+        "operationId": "users.password.remove.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.password.remove.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove an account's password: its hash becomes *."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.password.set/v1/apply": {
+      "post": {
+        "operationId": "users.password.set.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Set an account's password; it is never logged or returned."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.password.set/v1/plan": {
+      "post": {
+        "operationId": "users.password.set.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.password.set.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Set an account's password; it is never logged or returned."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.sudo.add/v1/apply": {
+      "post": {
+        "operationId": "users.sudo.add.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Add an account to the sudo group."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.sudo.add/v1/plan": {
+      "post": {
+        "operationId": "users.sudo.add.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.sudo.add.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Add an account to the sudo group."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.sudo.remove/v1/apply": {
+      "post": {
+        "operationId": "users.sudo.remove.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove an account from the sudo group."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.sudo.remove/v1/plan": {
+      "post": {
+        "operationId": "users.sudo.remove.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.sudo.remove.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove an account from the sudo group."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.user.create/v1/apply": {
+      "post": {
+        "operationId": "users.user.create.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a login account with its home and group, optionally in sudo and with a password."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.user.create/v1/plan": {
+      "post": {
+        "operationId": "users.user.create.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.user.create.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create a login account with its home and group, optionally in sudo and with a password."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.user.delete/v1/apply": {
+      "post": {
+        "operationId": "users.user.delete.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete an account, optionally with its home."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.user.delete/v1/plan": {
+      "post": {
+        "operationId": "users.user.delete.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.user.delete.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Delete an account, optionally with its home."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.user.list/v1/read": {
+      "post": {
+        "operationId": "users.user.list.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.user.list.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/users.user.list.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List root and the login accounts with UIDs 1000-59999."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.user.lock/v1/apply": {
+      "post": {
+        "operationId": "users.user.lock.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Lock an account: its expiry ends key and password sign-in."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.user.lock/v1/plan": {
+      "post": {
+        "operationId": "users.user.lock.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.user.lock.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Lock an account: its expiry ends key and password sign-in."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.user.unlock/v1/apply": {
+      "post": {
+        "operationId": "users.user.unlock.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Unlock an account, restoring the expiry it had."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.user.unlock/v1/plan": {
+      "post": {
+        "operationId": "users.user.unlock.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.user.unlock.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Unlock an account, restoring the expiry it had."
       }
     },
     "/api/v1/hosts/{host}/modules/{module}/availability": {

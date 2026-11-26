@@ -1,0 +1,83 @@
+{
+  "name": "users.user.list",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {},
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/AccountList",
+    "$defs": {
+      "Account": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "uid": {
+            "type": "integer"
+          },
+          "home": {
+            "type": "string"
+          },
+          "shell": {
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sudo": {
+            "type": "boolean",
+            "description": "A member of the sudo group."
+          },
+          "locked": {
+            "type": "boolean",
+            "description": "The account expired today or earlier, as users.user.lock leaves it; a ! password alone is a key-only account and not locked."
+          },
+          "passwordSet": {
+            "type": "boolean",
+            "description": "passwd -S reports a usable password (status P)."
+          },
+          "keys": {
+            "type": "integer",
+            "description": "The number of authorized keys."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "uid",
+          "home",
+          "shell",
+          "groups",
+          "sudo",
+          "locked",
+          "passwordSet",
+          "keys"
+        ]
+      },
+      "AccountList": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/$defs/Account"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accounts"
+        ]
+      }
+    }
+  }
+}

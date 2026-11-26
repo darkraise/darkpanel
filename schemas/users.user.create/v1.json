@@ -1,0 +1,60 @@
+{
+  "name": "users.user.create",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/CreateInput",
+    "$defs": {
+      "CreateInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "description": "A new account name."
+          },
+          "shell": {
+            "type": "string",
+            "description": "A shell listed in /etc/shells; /bin/bash when omitted."
+          },
+          "sudo": {
+            "type": "boolean",
+            "description": "Add the account to the sudo group."
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 8,
+            "description": "An optional password, 8-256 characters with no control character.",
+            "writeOnly": true,
+            "x-secret": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Changed",
+    "$defs": {
+      "Changed": {
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ]
+      }
+    }
+  }
+}

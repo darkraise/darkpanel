@@ -84,6 +84,12 @@ func ProductionRules() []ExecRule {
 	rules := []ExecRule{
 		{Path: "/usr/sbin/useradd", Match: execMatchUseradd},
 		{Path: "/usr/sbin/userdel", Match: execMatchUserdel},
+		{Path: UseraddPath, Match: execMatchLoginUseradd},
+		{Path: UserdelPath, Match: execMatchLoginUserdel},
+		{Path: UsermodPath, Match: execMatchUsermod},
+		{Path: ChpasswdPath, Match: exactly(Chpasswd())},
+		{Path: GpasswdPath, Match: execMatchGpasswd},
+		{Path: PasswdPath, Match: exactly(PasswdStatusAll())},
 		{Path: "/usr/sbin/ufw", Match: execMatchUfw},
 		{Path: "/usr/sbin/iptables", Match: exactly([]string{"--version"})},
 		{Path: "/usr/sbin/ip6tables", Match: exactly([]string{"--version"})},
@@ -208,6 +214,119 @@ func execMatchDocker(args []string) error {
 	}
 	return execOneOf(rest, []string{"up", "-d", "--no-build"}, []string{"down"}, []string{"pull"}, []string{"restart"},
 		[]string{"config", "--format", "json"})
+}
+
+// The programs of the users module's login accounts (M11 spec section 3).
+//
+//nolint:gosec // G101: program paths, not credentials
+const (
+	UseraddPath  = "/usr/sbin/useradd"
+	UserdelPath  = "/usr/sbin/userdel"
+	UsermodPath  = "/usr/sbin/usermod"
+	ChpasswdPath = "/usr/sbin/chpasswd"
+	GpasswdPath  = "/usr/bin/gpasswd"
+	PasswdPath   = "/usr/bin/passwd"
+)
+
+// SudoGroup is the one group the users module adds accounts to or removes
+// them from.
+const SudoGroup = "sudo"
+
+var (
+	loginNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+	loginShellPath   = regexp.MustCompile(`^/[A-Za-z0-9_.+/-]{1,255}$`)
+	expiryDate       = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
+)
+
+// LoginName reports whether name is a login name the users module may manage:
+// the M11 name pattern, and not one of Darkpanel's own system users.
+func LoginName(name string) bool {
+	return loginNamePattern.MatchString(name) && !SystemUser(name)
+}
+
+// SystemUser reports whether name is one of Darkpanel's own system users.
+func SystemUser(name string) bool { return slices.Contains(execSystemUsers, name) }
+
+// LoginUseradd creates a login account with its home and its own group.
+func LoginUseradd(name, shell string) []string {
+	return []string{"--create-home", "--user-group", "--shell", shell, "--", name}
+}
+
+// LoginUserdel deletes a login account, with its home when removeHome.
+func LoginUserdel(name string, removeHome bool) []string {
+	if removeHome {
+		return []string{"--remove", "--", name}
+	}
+	return []string{"--", name}
+}
+
+// UsermodExpiry sets an account's expiry: "1" locks it, "" clears it, and
+// a YYYY-MM-DD date restores one.
+func UsermodExpiry(name, expiry string) []string {
+	return []string{"--expiredate", expiry, "--", name}
+}
+
+// UsermodNoPassword sets an account's password hash to "*".
+func UsermodNoPassword(name string) []string { return []string{"--password", "*", "--", name} }
+
+// Chpasswd reads one "name:password" line from stdin and hashes the password
+// with the host's configured method.
+func Chpasswd() []string { return []string{} }
+
+// GpasswdSudo adds name to the sudo group, or removes it.
+func GpasswdSudo(name string, add bool) []string {
+	if add {
+		return []string{"--add", name, SudoGroup}
+	}
+	return []string{"--delete", name, SudoGroup}
+}
+
+// PasswdStatusAll prints every account's password status.
+func PasswdStatusAll() []string { return []string{"-S", "-a"} }
+
+// execMatchLoginUseradd allows LoginUseradd with a login name and an
+// absolute shell path.
+func execMatchLoginUseradd(args []string) error {
+	if len(args) != 6 || !LoginName(args[5]) || args[5] == "root" ||
+		!loginShellPath.MatchString(args[3]) || !execCleanAbs(args[3]) {
+		return errExecVector
+	}
+	return execOneOf(args, LoginUseradd(args[5], args[3]))
+}
+
+// execMatchLoginUserdel allows LoginUserdel of any login account but root.
+func execMatchLoginUserdel(args []string) error {
+	if len(args) == 0 || !LoginName(args[len(args)-1]) || args[len(args)-1] == "root" {
+		return errExecVector
+	}
+	name := args[len(args)-1]
+	return execOneOf(args, LoginUserdel(name, false), LoginUserdel(name, true))
+}
+
+// execMatchUsermod allows UsermodExpiry (never locking root) and
+// UsermodNoPassword of a login account.
+func execMatchUsermod(args []string) error {
+	if len(args) != 4 || !LoginName(args[3]) {
+		return errExecVector
+	}
+	name := args[3]
+	switch exp := args[1]; {
+	case args[0] == "--password":
+		return execOneOf(args, UsermodNoPassword(name))
+	case exp == "1" && name == "root":
+		return errExecVector
+	case exp == "1" || exp == "" || expiryDate.MatchString(exp):
+		return execOneOf(args, UsermodExpiry(name, exp))
+	}
+	return errExecVector
+}
+
+// execMatchGpasswd allows GpasswdSudo of a login account.
+func execMatchGpasswd(args []string) error {
+	if len(args) != 3 || !LoginName(args[1]) {
+		return errExecVector
+	}
+	return execOneOf(args, GpasswdSudo(args[1], true), GpasswdSudo(args[1], false))
 }
 
 func execCleanAbs(p string) bool { return filepath.IsAbs(p) && filepath.Clean(p) == p }

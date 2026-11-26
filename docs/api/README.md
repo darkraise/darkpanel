@@ -128,4 +128,5 @@ This reference is generated from the action schemas. `openapi.json` is the OpenA
 - [notify](notify.md)
 - [metrics](metrics.md)
 - [services](services.md)
+- [users](users.md)
 - [fail2ban](fail2ban.md)
