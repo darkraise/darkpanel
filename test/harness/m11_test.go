@@ -55,10 +55,6 @@ const (
 	m11JobOut       = "/var/tmp/m11-job.out"
 	m11JobExit      = 3
 	m11SwapFile     = "/darkpanel.swap"
-	// m11Samples RSS samples are taken one second apart once the agent has
-	// been idle for m11Settle.
-	m11Samples = 60
-	m11Settle  = time.Minute
 )
 
 // m11Modules are the modules M11 adds; the footprint is measured with all
@@ -156,8 +152,21 @@ func (r *m11Run) requireUser(t *testing.T) {
 // the OS ships it: the module refuses it as protected.
 func (r *m11Run) services(t *testing.T) {
 	f := r.f
+	// Some cloud images ship no cron; it is installed for the step.
+	err := eventually(r.ctx, 3*time.Minute, func(ctx context.Context) error {
+		out, err := f.agent.Run(ctx, "dpkg -s cron >/dev/null 2>&1 || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q cron")
+		if err != nil {
+			return fmt.Errorf("%w\n%s", err, out)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("install cron: %v", err)
+	}
 	if st := r.state(t, f.agent, "systemctl is-active cron.service"); st != "active" {
-		t.Fatalf("cron.service is %q before the step, want active", st)
+		if _, err := f.api.Apply(r.ctx, f.agentID, "services.unit.start/v1", m11svc.UnitInput{Unit: "cron.service"}, nil); err != nil {
+			t.Fatalf("cron.service is %q; services.unit.start: %v", st, err)
+		}
 	}
 	since := vmNow(r.ctx, t, f.agent) * 1_000_000
 	fctx, cancel := context.WithTimeout(r.ctx, 3*time.Minute)
@@ -201,7 +210,7 @@ func (r *m11Run) services(t *testing.T) {
 		t.Logf("%s is not shipped on %s", storagetm, f.os.ID)
 		return
 	}
-	_, err := m4Plan(r.ctx, f.api, f.agentID, "services.unit.start", m11svc.UnitInput{Unit: storagetm})
+	_, err = m4Plan(r.ctx, f.api, f.agentID, "services.unit.start", m11svc.UnitInput{Unit: storagetm})
 	if err := m11xRefused(err, string(errcode.ServicesProtected)); err != nil {
 		t.Errorf("start of %s: %v", storagetm, err)
 	}
@@ -716,27 +725,27 @@ func (r *m11Run) consoleRestart(t *testing.T) {
 // creates the swap file, which is on again after a reboot, and removes it.
 func (r *m11Run) tuning(t *testing.T) {
 	f := r.f
-	before := r.state(t, f.agent, "sysctl -n vm.swappiness")
+	before := r.state(t, f.agent, "cat /proc/sys/vm/swappiness")
 	want := "33"
 	if before == want {
 		want = "34"
 	}
 	ch, err := f.api.m3Apply(r.ctx, f.agentID, "tuning.sysctl.apply", tuning.SysctlInput{Values: map[string]string{"vm.swappiness": want}}, 300)
 	m3RequirePending(t, ch, err)
-	if got := r.state(t, f.agent, "sysctl -n vm.swappiness"); got != want {
+	if got := r.state(t, f.agent, "cat /proc/sys/vm/swappiness"); got != want {
 		t.Errorf("vm.swappiness is %q after tuning.sysctl.apply, want %s", got, want)
 	}
 	if _, err := f.api.m3Revert(r.ctx, ch.ID); err != nil {
 		t.Fatal(err)
 	}
 	m3WaitChange(r.ctx, t, f.api, ch.ID, core.StateReverted, 2*time.Minute)
-	if got := r.state(t, f.agent, "sysctl -n vm.swappiness"); got != before {
+	if got := r.state(t, f.agent, "cat /proc/sys/vm/swappiness"); got != before {
 		t.Errorf("vm.swappiness is %q after the revert, want %s", got, before)
 	}
 
 	swapOn := func(t *testing.T) bool {
 		t.Helper()
-		return strings.Contains(r.state(t, f.agent, "swapon --show=NAME --noheadings"), m11SwapFile)
+		return strings.Contains(r.state(t, f.agent, "cat /proc/swaps"), m11SwapFile)
 	}
 	if _, err := f.api.Apply(r.ctx, f.agentID, "tuning.swap.create/v1", tuning.SwapSizeInput{SizeMiB: 256}, nil); err != nil {
 		t.Fatal(err)
@@ -763,7 +772,8 @@ func (r *m11Run) tuning(t *testing.T) {
 }
 
 // footprint samples the agent's resident memory with every M11 module
-// enabled and idle: the largest sample is at most fpAgentMax.
+// enabled and idle, on TestFootprint's plan: every fpSampleEvery for
+// fpWindow after fpWarmup. The largest sample is at most fpAgentMax.
 func (r *m11Run) footprint(t *testing.T) {
 	f := r.f
 	hosts, err := f.api.Hosts(r.ctx)
@@ -782,22 +792,29 @@ func (r *m11Run) footprint(t *testing.T) {
 	select {
 	case <-r.ctx.Done():
 		t.Fatal(r.ctx.Err())
-	case <-time.After(m11Settle):
+	case <-time.After(fpWarmup):
 	}
 	pid, err := fpMainPID(r.ctx, f.agent, update.AgentUnit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	samples := make([]int64, 0, m11Samples)
-	for range m11Samples {
+	want := fpSampleCount(fpWindow, fpSampleEvery)
+	samples := make([]int64, 0, want)
+	tick := time.NewTicker(fpSampleEvery)
+	defer tick.Stop()
+	for range want {
 		rss, err := fpRSS(r.ctx, f.agent, pid)
 		if err != nil {
 			t.Fatal(err)
 		}
 		samples = append(samples, rss)
-		time.Sleep(time.Second)
+		select {
+		case <-r.ctx.Done():
+			t.Fatal(r.ctx.Err())
+		case <-tick.C:
+		}
 	}
-	if err := fpCheckBudget("agent", samples, fpAgentMax, m11Samples); err != nil {
+	if err := fpCheckBudget("agent", samples, fpAgentMax, want); err != nil {
 		t.Error(err)
 	}
 	t.Logf("agent RSS: %d samples, largest %d bytes", len(samples), slices.Max(samples))

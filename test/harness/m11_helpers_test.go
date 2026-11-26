@@ -219,8 +219,8 @@ func (tm *m11Term) read(ctx context.Context) {
 	}
 }
 
-// expect types line and waits until the output after it matches want, and
-// returns the match.
+// expect types line and waits until the plain output after it matches want,
+// and returns the match.
 func (tm *m11Term) expect(ctx context.Context, line string, want *regexp.Regexp) ([]string, error) {
 	tm.mu.Lock()
 	mark := len(tm.out)
@@ -236,7 +236,7 @@ func (tm *m11Term) expect(ctx context.Context, line string, want *regexp.Regexp)
 		tm.mu.Lock()
 		out, closed := string(tm.out[mark:]), tm.err
 		tm.mu.Unlock()
-		if m := want.FindStringSubmatch(out); m != nil {
+		if m := want.FindStringSubmatch(m11Plain(out)); m != nil {
 			return m, nil
 		}
 		if closed != nil {
@@ -279,8 +279,19 @@ func m11Tail(out string) string {
 	return out[max(0, len(out)-400):]
 }
 
-// m11EchoLine matches the output line of echo m11, not the echoed command.
-var m11EchoLine = regexp.MustCompile(`(?m)^m11\r?$`)
+// m11EchoLine matches the plain output line of echo m11, not the echoed
+// command.
+var m11EchoLine = regexp.MustCompile(`(?m)^m11$`)
+
+// m11Escape matches terminal escape sequences: OSC (titles, systemd's
+// context markers), CSI (bracketed paste, colours) and two-byte ones.
+var m11Escape = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)|\x1b\\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\\\-_]")
+
+// m11Plain is terminal output without escape sequences and carriage
+// returns, so lines read as printed.
+func m11Plain(out string) string {
+	return strings.ReplaceAll(m11Escape.ReplaceAllString(out, ""), "\r", "")
+}
 
 // m11NewKey returns a new ed25519 signer and its authorized_keys line.
 func m11NewKey(comment string) (ssh.Signer, string, error) {
