@@ -13289,7 +13289,9 @@
             "description": "The shell commands the job runs, at most 16 KiB.",
             "maxLength": 16384,
             "minLength": 1,
-            "type": "string"
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
           },
           "description": {
             "description": "A one-line description.",
@@ -13635,7 +13637,9 @@
             "description": "The shell commands the job runs, at most 16 KiB.",
             "maxLength": 16384,
             "minLength": 1,
-            "type": "string"
+            "type": "string",
+            "writeOnly": true,
+            "x-secret": true
           },
           "description": {
             "description": "A one-line description.",

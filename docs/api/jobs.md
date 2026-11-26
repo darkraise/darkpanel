@@ -20,7 +20,7 @@ Sent in the `input` field of the request body.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `catchUp` | boolean | no | Run once at boot when a scheduled run was missed. |
-| `command` | string | yes | The shell commands the job runs, at most 16 KiB. |
+| `command` | string | yes | The shell commands the job runs, at most 16 KiB. Secret. |
 | `description` | string | no | A one-line description. |
 | `randomDelaySeconds` | integer | no | Delay each run by up to this many seconds, at most 1 hour. |
 | `schedule` | string | yes | A systemd calendar expression, such as daily or *-*-* 03:00:00. |
@@ -211,7 +211,7 @@ Sent in the `input` field of the request body.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `catchUp` | boolean | no | Run once at boot when a scheduled run was missed. |
-| `command` | string | yes | The shell commands the job runs, at most 16 KiB. |
+| `command` | string | yes | The shell commands the job runs, at most 16 KiB. Secret. |
 | `description` | string | no | A one-line description. |
 | `randomDelaySeconds` | integer | no | Delay each run by up to this many seconds, at most 1 hour. |
 | `schedule` | string | yes | A systemd calendar expression, such as daily or *-*-* 03:00:00. |

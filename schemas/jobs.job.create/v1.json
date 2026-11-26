@@ -35,7 +35,9 @@
             "type": "string",
             "maxLength": 16384,
             "minLength": 1,
-            "description": "The shell commands the job runs, at most 16 KiB."
+            "description": "The shell commands the job runs, at most 16 KiB.",
+            "writeOnly": true,
+            "x-secret": true
           },
           "timeoutSeconds": {
             "type": "integer",

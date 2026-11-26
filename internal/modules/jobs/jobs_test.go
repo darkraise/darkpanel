@@ -133,6 +133,7 @@ type rig struct {
 	gid      int               // alice's primary group
 	db       *store.DB
 	engine   *lifecycle.Engine
+	journal  *coretest.MemJournal
 	writer   *platform.Files
 	ownStore *platform.Ownership
 }
@@ -177,12 +178,13 @@ func newRig(t *testing.T) *rig {
 		}},
 		Ownership: r.ownStore, Clock: coretest.NewFakeClock(time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)), TestMode: true,
 	})
+	r.journal = &coretest.MemJournal{}
 	reg, err := core.NewRegistry(r.m)
 	if err != nil {
 		t.Fatal(err)
 	}
 	eng, err := lifecycle.New(lifecycle.Config{
-		Side: core.SideAgent, Registry: reg, Validator: schema.NewValidator(), Journal: &coretest.MemJournal{}, Redact: schema.Redact,
+		Side: core.SideAgent, Registry: reg, Validator: schema.NewValidator(), Journal: r.journal, Redact: schema.Redact,
 		Base: r.env(adminP), ModuleUnits: func(string) core.Units { return r.units },
 	})
 	if err != nil {
@@ -319,6 +321,13 @@ func TestCreateUnits(t *testing.T) {
 	}
 	if err := r.planErr("jobs.job.create", backupInput); !isInvalid(err) {
 		t.Errorf("creating backup twice: %v", err)
+	}
+	// The journal, which the controller's audit log copies for read-scope
+	// principals too, never holds the command text (spec section 0).
+	for _, e := range r.journal.Entries() {
+		if strings.Contains(string(e.Input), "tar czf") {
+			t.Errorf("journal entry %s %s holds the command: %s", e.Action, e.Phase, e.Input)
+		}
 	}
 	planted := r.path("units", "darkpanel-job-planted.service")
 	if err := os.WriteFile(planted, []byte("[Service]\nUser=root\n"), 0o600); err != nil {

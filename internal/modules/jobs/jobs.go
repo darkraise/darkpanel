@@ -93,7 +93,7 @@ type JobInput struct {
 	Description        string `json:"description,omitempty" jsonschema:"maxLength=200" jsonschema_description:"A one-line description."`
 	Schedule           string `json:"schedule" jsonschema:"minLength=1,maxLength=256" jsonschema_description:"A systemd calendar expression, such as daily or *-*-* 03:00:00."`
 	User               string `json:"user" jsonschema:"pattern=^[a-z_][a-z0-9_-]{0\\,31}$" jsonschema_description:"The account the job runs as: root or a login user."`
-	Command            string `json:"command" jsonschema:"minLength=1,maxLength=16384" jsonschema_description:"The shell commands the job runs, at most 16 KiB."`
+	Command            string `json:"command" secret:"true" jsonschema:"minLength=1,maxLength=16384" jsonschema_description:"The shell commands the job runs, at most 16 KiB."`
 	TimeoutSeconds     int    `json:"timeoutSeconds,omitempty" jsonschema:"minimum=60,maximum=86400" jsonschema_description:"How long a run may take, 1 minute to 24 hours; 1 hour when omitted."`
 	CatchUp            bool   `json:"catchUp,omitempty" jsonschema_description:"Run once at boot when a scheduled run was missed."`
 	RandomDelaySeconds int    `json:"randomDelaySeconds,omitempty" jsonschema:"minimum=0,maximum=3600" jsonschema_description:"Delay each run by up to this many seconds, at most 1 hour."`
