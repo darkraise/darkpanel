@@ -21420,6 +21420,169 @@
         ],
         "type": "object"
       },
+      "tuning.swap.create.v1.input": {
+        "$ref": "#/components/schemas/tuning.swap.create.v1.input.SwapSizeInput"
+      },
+      "tuning.swap.create.v1.input.SwapSizeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "sizeMiB": {
+            "description": "The size of /darkpanel.swap in MiB, at most the free space on / less 1 GiB.",
+            "maximum": 65536,
+            "minimum": 256,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sizeMiB"
+        ],
+        "type": "object"
+      },
+      "tuning.swap.create.v1.output": {
+        "$ref": "#/components/schemas/tuning.swap.create.v1.output.SwapChanged"
+      },
+      "tuning.swap.create.v1.output.SwapChanged": {
+        "properties": {
+          "sizeMiB": {
+            "description": "The size of /darkpanel.swap afterwards in MiB; 0 when it is removed.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sizeMiB"
+        ],
+        "type": "object"
+      },
+      "tuning.swap.get.v1.input": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "tuning.swap.get.v1.output": {
+        "$ref": "#/components/schemas/tuning.swap.get.v1.output.SwapState"
+      },
+      "tuning.swap.get.v1.output.SwapEntry": {
+        "properties": {
+          "darkpanel": {
+            "description": "Darkpanel created it; other swap is read-only.",
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "description": "Bytes.",
+            "type": "integer"
+          },
+          "type": {
+            "description": "file or partition.",
+            "type": "string"
+          },
+          "used": {
+            "description": "Bytes.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "path",
+          "type",
+          "size",
+          "used",
+          "darkpanel"
+        ],
+        "type": "object"
+      },
+      "tuning.swap.get.v1.output.SwapState": {
+        "properties": {
+          "filesystem": {
+            "description": "The root filesystem's type.",
+            "type": "string"
+          },
+          "free": {
+            "description": "Bytes free on the root filesystem.",
+            "type": "integer"
+          },
+          "memoryAvailable": {
+            "description": "Bytes.",
+            "type": "integer"
+          },
+          "memoryTotal": {
+            "description": "Bytes.",
+            "type": "integer"
+          },
+          "swaps": {
+            "items": {
+              "$ref": "#/components/schemas/tuning.swap.get.v1.output.SwapEntry"
+            },
+            "type": "array"
+          },
+          "unavailable": {
+            "description": "Why Darkpanel cannot manage a swap file on this host.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "swaps",
+          "memoryTotal",
+          "memoryAvailable",
+          "filesystem",
+          "free"
+        ],
+        "type": "object"
+      },
+      "tuning.swap.remove.v1.input": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "tuning.swap.remove.v1.output": {
+        "$ref": "#/components/schemas/tuning.swap.remove.v1.output.SwapChanged"
+      },
+      "tuning.swap.remove.v1.output.SwapChanged": {
+        "properties": {
+          "sizeMiB": {
+            "description": "The size of /darkpanel.swap afterwards in MiB; 0 when it is removed.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sizeMiB"
+        ],
+        "type": "object"
+      },
+      "tuning.swap.resize.v1.input": {
+        "$ref": "#/components/schemas/tuning.swap.resize.v1.input.SwapSizeInput"
+      },
+      "tuning.swap.resize.v1.input.SwapSizeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "sizeMiB": {
+            "description": "The size of /darkpanel.swap in MiB, at most the free space on / less 1 GiB.",
+            "maximum": 65536,
+            "minimum": 256,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sizeMiB"
+        ],
+        "type": "object"
+      },
+      "tuning.swap.resize.v1.output": {
+        "$ref": "#/components/schemas/tuning.swap.resize.v1.output.SwapChanged"
+      },
+      "tuning.swap.resize.v1.output.SwapChanged": {
+        "properties": {
+          "sizeMiB": {
+            "description": "The size of /darkpanel.swap afterwards in MiB; 0 when it is removed.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sizeMiB"
+        ],
+        "type": "object"
+      },
       "tuning.sysctl.apply.v1.input": {
         "$ref": "#/components/schemas/tuning.sysctl.apply.v1.input.SysctlInput"
       },
@@ -41973,6 +42136,393 @@
           }
         ],
         "summary": "Set the node's Tailscale preferences."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/tuning.swap.create/v1/apply": {
+      "post": {
+        "operationId": "tuning.swap.create.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create /darkpanel.swap, turn it on, and add it to /etc/fstab."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/tuning.swap.create/v1/plan": {
+      "post": {
+        "operationId": "tuning.swap.create.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/tuning.swap.create.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Create /darkpanel.swap, turn it on, and add it to /etc/fstab."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/tuning.swap.get/v1/read": {
+      "post": {
+        "operationId": "tuning.swap.get.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/tuning.swap.get.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/tuning.swap.get.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List swap areas and memory, and whether Darkpanel can make a swap file here."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/tuning.swap.remove/v1/apply": {
+      "post": {
+        "operationId": "tuning.swap.remove.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn /darkpanel.swap off, remove it from /etc/fstab, and delete it."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/tuning.swap.remove/v1/plan": {
+      "post": {
+        "operationId": "tuning.swap.remove.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/tuning.swap.remove.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn /darkpanel.swap off, remove it from /etc/fstab, and delete it."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/tuning.swap.resize/v1/apply": {
+      "post": {
+        "operationId": "tuning.swap.resize.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn /darkpanel.swap off, rewrite it at a new size, and turn it on."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/tuning.swap.resize/v1/plan": {
+      "post": {
+        "operationId": "tuning.swap.resize.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/tuning.swap.resize.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn /darkpanel.swap off, rewrite it at a new size, and turn it on."
       }
     },
     "/api/v1/hosts/{host}/actions/tuning.sysctl.apply/v1/apply": {

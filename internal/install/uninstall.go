@@ -63,6 +63,10 @@ type UninstallConfig struct {
 	// means 1 s and StopTimeout.
 	PollInterval time.Duration
 	StopTimeout  time.Duration
+	// SwapFile is the tuning module's swap file; "" means platform.SwapFile.
+	SwapFile string
+	// ReadProc reads /proc/swaps and /proc/meminfo; nil means os.ReadFile.
+	ReadProc func(name string) ([]byte, error)
 }
 
 func (c UninstallConfig) check() error {
@@ -117,6 +121,12 @@ func PlanUninstall(ctx context.Context, cfg UninstallConfig) (*Uninstall, error)
 	}
 	if cfg.StopTimeout == 0 {
 		cfg.StopTimeout = StopTimeout
+	}
+	if cfg.SwapFile == "" {
+		cfg.SwapFile = platform.SwapFile
+	}
+	if cfg.ReadProc == nil {
+		cfg.ReadProc = os.ReadFile
 	}
 	options, lines, err := moduleOptions(cfg.Modules, cfg.ModuleOptions)
 	if err != nil {
@@ -267,6 +277,12 @@ func (u *Uninstall) plan() []uninstallStep {
 	if u.cfg.StopTasks {
 		barrier = "refuse new changes (the uninstall barrier), then stop every active " + taskUnits + " unit"
 	}
+	filesPlan := describe(slices.Concat(files, managed, serviceDirs, dirs))
+	for _, e := range hostEffects {
+		if slices.ContainsFunc(files, func(f core.OwnedEntry) bool { return f.Module == e.module && f.Path == e.path }) {
+			filesPlan = append(filesPlan, "then "+e.effect)
+		}
+	}
 	steps := []uninstallStep{
 		{name: "barrier", plan: []string{barrier}, run: u.setBarrier},
 		{name: "services", plan: servicePlan,
@@ -291,15 +307,23 @@ func (u *Uninstall) plan() []uninstallStep {
 		{name: "agent lock", plan: []string{"make sure no agent runs (" + filepath.Join(l.Paths.AgentDir, AgentLockName) + ")"},
 			run: u.takeAgentLock},
 		{name: "modules", plan: append([]string{"run each module's uninstall step"}, u.optionLines...), run: u.runModules},
+	}
+	if u.hasSwap() {
+		steps = append(steps, uninstallStep{name: "swap", plan: []string{
+			"turn off the swap file " + u.cfg.SwapFile + " (swapoff) before it and its /etc/fstab line go; before any step, " +
+				"refuse while its swapped memory exceeds available memory less 256 MiB",
+		}, run: u.swapOff})
+	}
+	steps = append(steps, []uninstallStep{
 		{name: "marked blocks", plan: describe(blocks), run: func(ctx context.Context) (string, error) { return u.removeBlocks(ctx, blocks) }},
-		{name: "files", plan: describe(slices.Concat(files, managed, serviceDirs, dirs)),
+		{name: "files", plan: filesPlan,
 			run: func(ctx context.Context) (string, error) {
 				return u.removeFiles(ctx, files, managed, serviceDirs, dirs)
 			}},
 		{name: "units", plan: describe(append(slices.Clone(units), unitDirs...)),
 			run: func(ctx context.Context) (string, error) { return u.removeUnits(ctx, units, unitDirs) }},
 		{name: "binary", plan: []string{"remove " + l.Paths.BinaryDir + " and " + l.Paths.BinaryLink}, run: u.removeBinary},
-	}
+	}...)
 	if u.cfg.KeepData {
 		steps = append(steps, uninstallStep{name: "data",
 			plan: []string{"keep " + l.DataDir + ", " + l.ConfigDir + " and every user", "clear the uninstall barrier, so a later install accepts changes"},
@@ -335,6 +359,13 @@ func (u *Uninstall) Describe(w io.Writer) {
 // plan.
 func (u *Uninstall) Run(ctx context.Context, w io.Writer) error {
 	defer func() { _ = u.Close() }()
+	if u.hasSwap() {
+		if _, refusal, err := u.swapState(); err != nil {
+			return fmt.Errorf("uninstall: %w", err)
+		} else if refusal != "" {
+			return fmt.Errorf("uninstall: nothing was changed: %s", refusal)
+		}
+	}
 	for i, s := range u.steps {
 		line, err := s.run(ctx)
 		if err != nil {
@@ -579,6 +610,68 @@ func (u *Uninstall) runModules(ctx context.Context) (string, error) {
 		return "no module has an uninstall step", nil
 	}
 	return "ran the uninstall steps of " + strings.Join(ran, ", "), nil
+}
+
+// hostEffects are what removing a module's file does to the host beyond
+// the file (M11 spec section 7).
+var hostEffects = []struct{ module, path, effect string }{
+	{"users", "/etc/ssh/sshd_config.d/00-darkpanel.conf", "sshd falls back to its other files and defaults (often password login on)"},
+	{"fail2ban", "/etc/fail2ban/jail.d/zz-darkpanel.local", "fail2ban falls back to its package defaults"},
+	{"tuning", "/etc/sysctl.d/99-zz-darkpanel.conf", "kernel parameters fall back to their boot values at the next boot"},
+}
+
+// hasSwap reports whether the manifest records the tuning module's swap
+// file.
+func (u *Uninstall) hasSwap() bool {
+	return slices.ContainsFunc(u.entries, func(e core.OwnedEntry) bool {
+		return e.Module == "tuning" && e.Kind == core.OwnedFile && e.Path == u.cfg.SwapFile
+	})
+}
+
+// swapState reports whether the swap file is on and, if so, why turning it
+// off is refused ("" when it is not): the guard tuning.swap.remove uses.
+func (u *Uninstall) swapState() (bool, string, error) {
+	data, err := u.cfg.ReadProc("/proc/swaps")
+	if err != nil {
+		return false, "", fmt.Errorf("read /proc/swaps: %w", err)
+	}
+	areas, err := platform.ParseSwaps(data)
+	if err != nil {
+		return false, "", err
+	}
+	i := slices.IndexFunc(areas, func(a platform.SwapArea) bool { return a.Path == u.cfg.SwapFile })
+	if i < 0 {
+		return false, "", nil
+	}
+	if data, err = u.cfg.ReadProc("/proc/meminfo"); err != nil {
+		return false, "", fmt.Errorf("read /proc/meminfo: %w", err)
+	}
+	mem, err := platform.ParseMeminfo(data)
+	if err != nil {
+		return false, "", err
+	}
+	return true, platform.SwapoffRefusal(areas[i].Used, mem), nil
+}
+
+// swapOff turns the swap file off, checking the memory guard again.
+func (u *Uninstall) swapOff(ctx context.Context) (string, error) {
+	on, refusal, err := u.swapState()
+	switch {
+	case err != nil:
+		return "", err
+	case !on:
+		return u.cfg.SwapFile + " is off", nil
+	case refusal != "":
+		return "", errors.New(refusal)
+	}
+	res, err := u.cfg.Exec.Run(ctx, core.Cmd{Path: platform.SwapoffPath, Args: []string{u.cfg.SwapFile}})
+	if err != nil {
+		return "", fmt.Errorf("swapoff %s: %w", u.cfg.SwapFile, err)
+	}
+	if res.ExitCode != 0 {
+		return "", fmt.Errorf("swapoff %s exited %d: %s", u.cfg.SwapFile, res.ExitCode, strings.TrimSpace(string(res.Stderr)))
+	}
+	return "turned off " + u.cfg.SwapFile, nil
 }
 
 func (u *Uninstall) removeBlocks(ctx context.Context, blocks []core.OwnedEntry) (string, error) {

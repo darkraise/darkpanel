@@ -279,3 +279,47 @@ func TestFail2banRule(t *testing.T) {
 		}
 	}
 }
+
+func TestSwapRules(t *testing.T) {
+	r := NewRunner(ProductionRules())
+	allowed := map[string][][]string{
+		FallocatePath: {Fallocate(SwapMinSize), Fallocate(SwapMaxSize), Fallocate(1024 * MiB)},
+		MkswapPath:    {SwapFileArgs()},
+		SwaponPath:    {SwapFileArgs()},
+		SwapoffPath:   {SwapFileArgs()},
+	}
+	for path, vectors := range allowed {
+		for _, v := range vectors {
+			if _, err := r.match(path, v); err != nil {
+				t.Errorf("%s %v refused: %v", path, v, err)
+			}
+		}
+	}
+	refused := map[string][][]string{
+		FallocatePath: {
+			Fallocate(SwapMinSize - MiB), Fallocate(SwapMaxSize + MiB), Fallocate(SwapMinSize + 1),
+			{"-l", "0268435456", SwapFile}, {"-l", "+268435456", SwapFile}, {"-l", "268435456", "/etc/passwd"},
+			{"-l", "268435456", SwapFile, "-x"}, {"-o", "0", "-l", "268435456", SwapFile},
+		},
+		MkswapPath:  {{"/dev/sda1"}, {"-f", SwapFile}},
+		SwaponPath:  {{"-a"}, {"/dev/sda2"}},
+		SwapoffPath: {{"-a"}, {SwapFile, "/dev/sda2"}},
+	}
+	for path, vectors := range refused {
+		for _, v := range vectors {
+			if _, err := r.match(path, v); err == nil {
+				t.Errorf("%s %v allowed", path, v)
+			}
+		}
+	}
+}
+
+func TestSwapoffRefusal(t *testing.T) {
+	mem := Memory{Total: 4 << 30, Available: 1 << 30}
+	if got := SwapoffRefusal(768*MiB, mem); got != "" {
+		t.Errorf("768 MiB used with 1024 MiB available: %q", got)
+	}
+	if got := SwapoffRefusal(768*MiB+1, mem); !strings.Contains(got, "more than the 1024 MiB available less 256 MiB") {
+		t.Errorf("768 MiB and a byte used with 1024 MiB available: %q", got)
+	}
+}

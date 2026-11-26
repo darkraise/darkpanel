@@ -2,6 +2,119 @@
 
 Back to the [API reference](README.md).
 
+## tuning.swap.create v1
+
+Create /darkpanel.swap, turn it on, and add it to /etc/fstab.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/tuning.swap.create/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/tuning.swap.create/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `sizeMiB` | integer | yes | The size of /darkpanel.swap in MiB, at most the free space on / less 1 GiB. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `sizeMiB` | integer | yes | The size of /darkpanel.swap afterwards in MiB; 0 when it is removed. |
+
+## tuning.swap.get v1
+
+List swap areas and memory, and whether Darkpanel can make a swap file here.
+
+| Operation | Request |
+|---|---|
+| read | `POST /api/v1/hosts/{host}/actions/tuning.swap.get/v1/read` |
+
+Minimum scope: `read`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `filesystem` | string | yes | The root filesystem's type. |
+| `free` | integer | yes | Bytes free on the root filesystem. |
+| `memoryAvailable` | integer | yes | Bytes. |
+| `memoryTotal` | integer | yes | Bytes. |
+| `swaps` | array of object | yes |  |
+| `swaps[].darkpanel` | boolean | yes | Darkpanel created it; other swap is read-only. |
+| `swaps[].path` | string | yes |  |
+| `swaps[].size` | integer | yes | Bytes. |
+| `swaps[].type` | string | yes | file or partition. |
+| `swaps[].used` | integer | yes | Bytes. |
+| `unavailable` | string | no | Why Darkpanel cannot manage a swap file on this host. |
+
+## tuning.swap.remove v1
+
+Turn /darkpanel.swap off, remove it from /etc/fstab, and delete it.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/tuning.swap.remove/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/tuning.swap.remove/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `sizeMiB` | integer | yes | The size of /darkpanel.swap afterwards in MiB; 0 when it is removed. |
+
+## tuning.swap.resize v1
+
+Turn /darkpanel.swap off, rewrite it at a new size, and turn it on.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/tuning.swap.resize/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/tuning.swap.resize/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `sizeMiB` | integer | yes | The size of /darkpanel.swap in MiB, at most the free space on / less 1 GiB. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `sizeMiB` | integer | yes | The size of /darkpanel.swap afterwards in MiB; 0 when it is removed. |
+
 ## tuning.sysctl.apply v1
 
 Set kernel parameters now and in 99-zz-darkpanel.conf; unconfirmed, the change reverts.

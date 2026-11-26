@@ -1,0 +1,88 @@
+{
+  "name": "tuning.swap.get",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {},
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SwapState",
+    "$defs": {
+      "SwapEntry": {
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "file or partition."
+          },
+          "size": {
+            "type": "integer",
+            "description": "Bytes."
+          },
+          "used": {
+            "type": "integer",
+            "description": "Bytes."
+          },
+          "darkpanel": {
+            "type": "boolean",
+            "description": "Darkpanel created it; other swap is read-only."
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "type",
+          "size",
+          "used",
+          "darkpanel"
+        ]
+      },
+      "SwapState": {
+        "properties": {
+          "swaps": {
+            "items": {
+              "$ref": "#/$defs/SwapEntry"
+            },
+            "type": "array"
+          },
+          "memoryTotal": {
+            "type": "integer",
+            "description": "Bytes."
+          },
+          "memoryAvailable": {
+            "type": "integer",
+            "description": "Bytes."
+          },
+          "filesystem": {
+            "type": "string",
+            "description": "The root filesystem's type."
+          },
+          "free": {
+            "type": "integer",
+            "description": "Bytes free on the root filesystem."
+          },
+          "unavailable": {
+            "type": "string",
+            "description": "Why Darkpanel cannot manage a swap file on this host."
+          }
+        },
+        "type": "object",
+        "required": [
+          "swaps",
+          "memoryTotal",
+          "memoryAvailable",
+          "filesystem",
+          "free"
+        ]
+      }
+    }
+  }
+}

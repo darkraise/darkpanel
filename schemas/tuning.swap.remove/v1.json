@@ -1,0 +1,31 @@
+{
+  "name": "tuning.swap.remove",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {},
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SwapChanged",
+    "$defs": {
+      "SwapChanged": {
+        "properties": {
+          "sizeMiB": {
+            "type": "integer",
+            "description": "The size of /darkpanel.swap afterwards in MiB; 0 when it is removed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "sizeMiB"
+        ]
+      }
+    }
+  }
+}

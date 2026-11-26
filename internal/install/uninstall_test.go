@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -775,5 +776,158 @@ func TestUninstallStopsAtAFailingUserdel(t *testing.T) {
 	}
 	if !exists(t, h.layout.ConfigDir) || !exists(t, h.layout.Paths.AgentKey) {
 		t.Error("the data step removed the configuration directory or the agent key after a failed userdel")
+	}
+}
+
+// swapModule stands for the tuning module: a swap file and its fstab
+// block under the test host's root.
+type swapModule struct{ swap, fstab string }
+
+func (m swapModule) Manifest() core.Manifest {
+	return core.Manifest{ID: "tuning", Version: 1, OwnedPaths: []core.OwnedPath{
+		{Path: m.swap, Kind: core.OwnedFile},
+		{Path: m.fstab, Kind: core.OwnedBlock, BlockIDs: []string{"swap"}},
+	}}
+}
+
+// TestUninstallSwapoff is M11 spec section 7's uninstall: the swap file is
+// turned off before it and its fstab line go, the memory guard refuses
+// before any step, and the plan names what removing the wave's files does
+// to the host.
+func TestUninstallSwapoff(t *testing.T) {
+	ctx := context.Background()
+	const swapsHeader = "Filename\tType\tSize\tUsed\tPriority\n"
+	for name, c := range map[string]struct {
+		used      int64 // KiB swapped out; -1: the swap file is off
+		available int64 // KiB
+		refused   bool
+		shrinks   bool // available memory falls to 512 MiB after the first read
+	}{
+		"on, with room":           {used: 500 << 10, available: 1 << 20},
+		"off":                     {used: -1, available: 1 << 20},
+		"more used than the room": {used: 900 << 10, available: 1 << 20, refused: true},
+		"memory runs short later": {used: 500 << 10, available: 1 << 20, shrinks: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, m := installHost(t, RoleController)
+			sm := swapModule{swap: filepath.Join(h.layout.ConfigDir, "..", "darkpanel.swap"), fstab: filepath.Join(h.layout.ConfigDir, "..", "fstab")}
+			sm.swap, sm.fstab = filepath.Clean(sm.swap), filepath.Clean(sm.fstab)
+			if err := os.WriteFile(sm.fstab, []byte("UUID=1 / ext4 defaults 0 1\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			db, err := store.Open(ctx, h.layout.Paths.AgentDB())
+			if err != nil {
+				t.Fatal(err)
+			}
+			files := platform.NewFiles(platform.FilesConfig{
+				Owned: platform.OwnedPaths([]core.Manifest{sm.Manifest()}), Ownership: platform.NewOwnership(db), Clock: h.clock, TestMode: true,
+			})
+			if err := files.WriteFile(ctx, "tuning", sm.swap, []byte{}, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := files.ReplaceBlock(ctx, "tuning", sm.fstab, "swap", []byte(sm.swap+" none swap sw 0 0\n")); err != nil {
+				t.Fatal(err)
+			}
+			_ = db.Close()
+			swaps := swapsHeader
+			if c.used >= 0 {
+				swaps += fmt.Sprintf("%s file 1048572 %d -2\n", sm.swap, c.used)
+			}
+			cfg := h.uninstallConfig(m, false)
+			cfg.Modules = append(cfg.Modules, sm)
+			cfg.SwapFile = sm.swap
+			cfg.ReadProc = func(name string) ([]byte, error) {
+				switch name {
+				case "/proc/swaps":
+					return []byte(swaps), nil
+				case "/proc/meminfo":
+					available := c.available
+					if c.shrinks {
+						c.available = 512 << 10
+					}
+					return fmt.Appendf(nil, "MemTotal: 4194304 kB\nMemAvailable: %d kB\n", available), nil
+				}
+				return nil, fmt.Errorf("read %s", name)
+			}
+			swapoff := platform.SwapoffPath + " " + sm.swap
+			h.runner.onRun = func(cmd string) {
+				if cmd == swapoff && (!exists(t, sm.swap) || !strings.Contains(string(readBytes(t, sm.fstab)), sm.swap)) {
+					t.Error("swapoff ran after the swap file or its fstab line was removed")
+				}
+			}
+
+			out, err := runUninstall(t, cfg)
+			ran := slices.Contains(h.runner.commands(), swapoff)
+			if c.shrinks {
+				if err == nil || !strings.Contains(err.Error(), "uninstall: swap: ") || ran || !exists(t, sm.swap) {
+					t.Errorf("Run with memory short at the swap step: %v, swapoff %v\n%s", err, ran, out)
+				}
+				return
+			}
+			if c.refused {
+				if err == nil || !strings.Contains(err.Error(), "holds 900 MiB of swapped memory, more than the 1024 MiB available less 256 MiB") {
+					t.Fatalf("Run: %v, want the memory guard's refusal\n%s", err, out)
+				}
+				if ran || out != "" || len(h.systemd.calls) != 0 || !exists(t, sm.swap) {
+					t.Errorf("a refused uninstall did something: swapoff %v, output %q, systemd %v", ran, out, h.systemd.calls)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Run: %v\n%s", err, out)
+			}
+			if ran != (c.used >= 0) {
+				t.Errorf("swapoff ran %v with the swap file on %v", ran, c.used >= 0)
+			}
+			if exists(t, sm.swap) || strings.Contains(string(readBytes(t, sm.fstab)), sm.swap) {
+				t.Error("the swap file or its fstab line is still there")
+			}
+		})
+	}
+
+	// The plan names what removing the wave's files does to the host, and
+	// only when those files are there.
+	h, m := installHost(t, RoleController)
+	u, err := PlanUninstall(ctx, h.uninstallConfig(m, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bare bytes.Buffer
+	u.Describe(&bare)
+	_ = u.Close()
+	if strings.Contains(bare.String(), "falls back") || strings.Contains(bare.String(), "fall back") {
+		t.Errorf("a plan without the wave's files names their effects:\n%s", bare.String())
+	}
+	db, err := store.Open(ctx, h.layout.Paths.AgentDB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := platform.NewOwnership(db)
+	for module, path := range map[string]string{
+		"users": "/etc/ssh/sshd_config.d/00-darkpanel.conf", "fail2ban": "/etc/fail2ban/jail.d/zz-darkpanel.local",
+		"tuning": "/etc/sysctl.d/99-zz-darkpanel.conf",
+	} {
+		if err := own.Record(ctx, core.OwnedEntry{Path: path, Module: module, Kind: core.OwnedFile, CreatedAt: installTime}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = db.Close()
+	if u, err = PlanUninstall(ctx, h.uninstallConfig(m, false)); err != nil {
+		t.Fatal(err)
+	}
+	var plan bytes.Buffer
+	u.Describe(&plan)
+	_ = u.Close()
+	for _, line := range []string{
+		"then sshd falls back to its other files and defaults (often password login on)",
+		"then fail2ban falls back to its package defaults",
+		"then kernel parameters fall back to their boot values at the next boot",
+	} {
+		if !strings.Contains(plan.String(), line) {
+			t.Errorf("the plan does not say %q:\n%s", line, plan.String())
+		}
+	}
+	if strings.Contains(plan.String(), "swapoff") {
+		t.Errorf("the plan turns off swap Darkpanel did not make:\n%s", plan.String())
 	}
 }

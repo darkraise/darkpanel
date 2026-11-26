@@ -172,6 +172,10 @@ func systemRules() []ExecRule {
 		{Path: Fail2banClientPath, Match: execMatchFail2ban},
 		{Path: SshdPath, Match: exactly(SshdEffective())},
 		{Path: SshdPath, Match: exactly(SshdTest())},
+		{Path: FallocatePath, Match: execMatchFallocate},
+		{Path: MkswapPath, Match: exactly(SwapFileArgs())},
+		{Path: SwaponPath, Match: exactly(SwapFileArgs())},
+		{Path: SwapoffPath, Match: exactly(SwapFileArgs())},
 	}
 }
 

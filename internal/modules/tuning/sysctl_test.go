@@ -24,6 +24,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/modules/firewall"
+	"github.com/darkraise/darkpanel/internal/platform"
 )
 
 var adminP = core.Principal{Actor: "user:admin", UserID: "admin", Scope: core.ScopeAdmin, Source: "192.0.2.1"}
@@ -46,11 +47,14 @@ type rig struct {
 	refuse map[string]bool   // keys the kernel refuses a write to
 	clamp  map[string]int    // keys the kernel caps at a limit, setting the limit for a value above it
 	others []core.Module
+	swap   swapRig
 }
 
 func newRig(t *testing.T) *rig {
 	r := &rig{t: t, files: map[string]string{availableCongestion: "reno cubic\n"}, live: map[string]string{},
-		refuse: map[string]bool{}, clamp: map[string]int{}, others: []core.Module{firewall.Module()}}
+		refuse: map[string]bool{}, clamp: map[string]int{}, others: []core.Module{firewall.Module()},
+		swap: swapRig{rootFS: "ext4", free: 20 << 30, available: 4 << 30, owned: map[string]bool{}}}
+	r.files[fstab] = fstabBase
 	for k, v := range kernelDefaults {
 		r.live[k] = v
 	}
@@ -61,6 +65,9 @@ func (r *rig) module() module {
 	return module{
 		d: deps{
 			readFile: func(name string) ([]byte, error) {
+				if b, ok := r.proc(name); ok {
+					return []byte(b), nil
+				}
 				b, ok := r.files[name]
 				if !ok {
 					return nil, fs.ErrNotExist
@@ -79,13 +86,25 @@ func (r *rig) module() module {
 				slices.Sort(out)
 				return out, nil
 			},
+			fileSize: func(name string) (int64, error) {
+				if name != platform.SwapFile || !r.swap.exists {
+					return 0, fs.ErrNotExist
+				}
+				return r.swap.size, nil
+			},
+			freeSpace: func(path string) (int64, error) {
+				if path != "/" {
+					return 0, fmt.Errorf("free space of %s", path)
+				}
+				return r.swap.free, nil
+			},
 		},
 		owners: func() []ownedKey { return declaredKeys(r.others) },
 	}
 }
 
 func (r *rig) env() core.Env {
-	return core.Env{HostID: "h1", Principal: adminP, Files: files{r: r}, Log: slog.New(slog.DiscardHandler)}
+	return core.Env{HostID: "h1", Principal: adminP, Files: files{r: r}, Exec: runner{r}, Log: slog.New(slog.DiscardHandler)}
 }
 
 // files is the rig's FileWriter: the module's file and the sysctl keys it
@@ -139,6 +158,11 @@ func (f files) WriteSysctl(_ context.Context, module, key, value string) error {
 }
 
 func (f files) WriteFile(_ context.Context, module, name string, data []byte, mode fs.FileMode) error {
+	if module == ID && name == platform.SwapFile && mode == 0o600 && len(data) == 0 {
+		f.r.events = append(f.r.events, "write "+name+" 0600")
+		f.r.swap.exists, f.r.swap.size, f.r.swap.owned[name] = true, 0, true
+		return nil
+	}
 	if module != ID || name != sysctlFile || mode != 0o644 {
 		return fmt.Errorf("write %s %s %v: not the module's file", module, name, mode)
 	}
@@ -148,6 +172,11 @@ func (f files) WriteFile(_ context.Context, module, name string, data []byte, mo
 }
 
 func (f files) Remove(_ context.Context, module, name string) error {
+	if module == ID && name == platform.SwapFile {
+		f.r.events = append(f.r.events, "remove "+name)
+		f.r.swap.exists = false
+		return nil
+	}
 	if module != ID || name != sysctlFile {
 		return fmt.Errorf("remove %s %s: not the module's file", module, name)
 	}
@@ -185,7 +214,7 @@ func engine(t *testing.T, r *rig) *lifecycle.Engine {
 	}
 	eng, err := lifecycle.New(lifecycle.Config{
 		Side: core.SideAgent, Registry: reg, Validator: schema.NewValidator(), Journal: &coretest.MemJournal{}, Redact: schema.Redact,
-		Base: core.Env{HostID: "h1", DB: db, Files: files{r: r}, Sealer: coretest.Sealer{},
+		Base: core.Env{HostID: "h1", DB: db, Files: files{r: r}, Exec: runner{r}, Sealer: coretest.Sealer{},
 			Clock: coretest.NewFakeClock(time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)), Log: slog.New(slog.DiscardHandler)},
 	})
 	if err != nil {
@@ -585,7 +614,7 @@ func TestRepair(t *testing.T) {
 	for _, op := range r.module().Manifest().OwnedPaths {
 		owned = append(owned, op.Kind+" "+op.Path)
 	}
-	if !slices.Contains(owned, "file "+sysctlFile) || !slices.Contains(owned, "sysctl vm/swappiness") || len(owned) != len(curated)+1 {
+	if !slices.Contains(owned, "file "+sysctlFile) || !slices.Contains(owned, "sysctl vm/swappiness") || len(owned) != len(curated)+3 {
 		t.Errorf("owned paths %q", owned)
 	}
 }

@@ -178,12 +178,17 @@ type fakeRunner struct {
 	users *fakeUsers
 	cmds  []string
 	exit  int
+	onRun func(cmd string) // called with each command before it is recorded
 }
 
 func (r *fakeRunner) Run(_ context.Context, cmd core.Cmd) (core.CmdResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.cmds = append(r.cmds, strings.Join(append([]string{cmd.Path}, cmd.Args...), " "))
+	line := strings.Join(append([]string{cmd.Path}, cmd.Args...), " ")
+	if r.onRun != nil {
+		r.onRun(line)
+	}
+	r.cmds = append(r.cmds, line)
 	if r.exit != 0 {
 		return core.CmdResult{ExitCode: r.exit, Stderr: []byte("refused\n")}, nil
 	}

@@ -1,0 +1,46 @@
+{
+  "name": "tuning.swap.resize",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SwapSizeInput",
+    "$defs": {
+      "SwapSizeInput": {
+        "properties": {
+          "sizeMiB": {
+            "type": "integer",
+            "maximum": 65536,
+            "minimum": 256,
+            "description": "The size of /darkpanel.swap in MiB, at most the free space on / less 1 GiB."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sizeMiB"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SwapChanged",
+    "$defs": {
+      "SwapChanged": {
+        "properties": {
+          "sizeMiB": {
+            "type": "integer",
+            "description": "The size of /darkpanel.swap afterwards in MiB; 0 when it is removed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "sizeMiB"
+        ]
+      }
+    }
+  }
+}
