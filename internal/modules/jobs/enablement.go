@@ -13,9 +13,10 @@ var _ core.EnablementHook = module{}
 // OnEnabled keeps every Darkpanel job from running while the module is off
 // (M11 spec section 6): off stops each running job timer and remembers it in
 // jobs_paused; on starts exactly the remembered timers again. The runtime
-// calls it on each flag change and at agent start, so an agent that starts
-// with the module off stops the timers a reboot started. The timers stay
-// enabled, so the jobs keep their own enabled state.
+// calls it on each flag change and at agent start. Off also disables each
+// stopped timer, so a reboot does not start it, a catch-up run included,
+// before the agent's start call; on enables it again, so each job keeps its
+// own enabled state.
 func (m module) OnEnabled(ctx context.Context, env core.Env, enabled bool) error {
 	slugs, err := m.slugs(ctx, env)
 	if err != nil {
@@ -40,6 +41,9 @@ func (m module) OnEnabled(ctx context.Context, env core.Env, enabled bool) error
 				return fmt.Errorf("jobs: remember %s: %w", timer, err)
 			}
 			if err := env.Units.Stop(ctx, timer); err != nil {
+				return err
+			}
+			if err := env.Units.Disable(ctx, timer); err != nil {
 				return err
 			}
 		}
@@ -68,6 +72,9 @@ func (m module) OnEnabled(ctx context.Context, env core.Env, enabled bool) error
 			exists = exists || timerName(slug) == timer
 		}
 		if exists {
+			if err := env.Units.Enable(ctx, timer); err != nil {
+				return err
+			}
 			if err := env.Units.Start(ctx, timer); err != nil {
 				return err
 			}
