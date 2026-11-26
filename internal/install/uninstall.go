@@ -187,15 +187,20 @@ func (u *Uninstall) load(ctx context.Context) error {
 	return nil
 }
 
-// owned is every module's declaration plus every file, block, unit file and
-// service directory of the manifest, so an entry whose module no longer
-// declares it is still removed.
-func (u *Uninstall) owned() map[string][]core.OwnedPath {
+// declared is every module's declaration, by module id.
+func (u *Uninstall) declared() map[string][]core.OwnedPath {
 	var mans []core.Manifest
 	for _, m := range u.cfg.Modules {
 		mans = append(mans, m.Manifest())
 	}
-	owned := platform.OwnedPaths(mans)
+	return platform.OwnedPaths(mans)
+}
+
+// owned is every module's declaration plus every file, block, unit file and
+// service directory of the manifest, so an entry whose module no longer
+// declares it is still removed.
+func (u *Uninstall) owned() map[string][]core.OwnedPath {
+	owned := u.declared()
 	for _, e := range u.entries {
 		ops := owned[e.Module]
 		i := slices.IndexFunc(ops, func(op core.OwnedPath) bool { return op.Path == e.Path && op.Kind == e.Kind })
@@ -261,14 +266,23 @@ func (u *Uninstall) plan() []uninstallStep {
 	})
 	managed := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedManagedDir && !u.kept(e) })
 	serviceDirs := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedServiceDir && !u.kept(e) })
-	units := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit })
-	modUnits := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit && !isCore(e) })
+	declared := u.declared()
+	inSet := func(e core.OwnedEntry) bool {
+		return e.Kind == core.OwnedUnit && !isCore(e) && platform.InUnitSet(declared[e.Module], e.Path)
+	}
+	units := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit && !inSet(e) })
+	modUnits := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUnit && !isCore(e) && !inSet(e) })
 	unitDirs := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedDir && within(e.Path, l.UnitDir) })
 	users := u.selectEntries(func(e core.OwnedEntry) bool { return e.Kind == core.OwnedUser })
+	// Timers first, so no job starts while its service is being stopped.
+	unitSets := u.selectEntries(inSet)
+	slices.SortStableFunc(unitSets, func(a, b core.OwnedEntry) int {
+		return cmpBool(!strings.HasSuffix(a.Path, ".timer"), !strings.HasSuffix(b.Path, ".timer"))
+	})
 	services := []string{update.ControllerUnit, update.AgentUnit, update.RollbackUnit, RecoverUnit}
 
 	servicePlan := []string{"stop and disable " + strings.Join(services, ", ")}
-	for _, line := range describe(modUnits) {
+	for _, line := range describe(slices.Concat(modUnits, unitSets)) {
 		servicePlan = append(servicePlan, "stop and disable "+line)
 	}
 
@@ -292,7 +306,7 @@ func (u *Uninstall) plan() []uninstallStep {
 					return "", err
 				}
 				var names []string
-				for _, e := range modUnits {
+				for _, e := range slices.Concat(modUnits, unitSets) {
 					unit := filepath.Base(e.Path)
 					if err := u.stopUnit(ctx, unit); err != nil {
 						return "", err
@@ -313,6 +327,10 @@ func (u *Uninstall) plan() []uninstallStep {
 			"turn off the swap file " + u.cfg.SwapFile + " (swapoff) before it and its /etc/fstab line go; before any step, " +
 				"refuse while its swapped memory exceeds available memory less 256 MiB",
 		}, run: u.swapOff})
+	}
+	if len(unitSets) > 0 {
+		steps = append(steps, uninstallStep{name: "unit sets", plan: describe(unitSets),
+			run: func(ctx context.Context) (string, error) { return u.removeUnitSets(ctx, unitSets) }})
 	}
 	steps = append(steps, []uninstallStep{
 		{name: "marked blocks", plan: describe(blocks), run: func(ctx context.Context) (string, error) { return u.removeBlocks(ctx, blocks) }},
@@ -672,6 +690,30 @@ func (u *Uninstall) swapOff(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("swapoff %s exited %d: %s", u.cfg.SwapFile, res.ExitCode, strings.TrimSpace(string(res.Stderr)))
 	}
 	return "turned off " + u.cfg.SwapFile, nil
+}
+
+// removeUnitSets removes the units of the unit sets before the files go,
+// so no unit is left naming a removed script; the units step reloads
+// systemd.
+func (u *Uninstall) removeUnitSets(ctx context.Context, units []core.OwnedEntry) (string, error) {
+	for _, e := range units {
+		// Unit-set entries come from agent.db, so u.files exists.
+		if err := u.files.Remove(ctx, e.Module, e.Path); err != nil {
+			return "", err
+		}
+	}
+	return fmt.Sprintf("removed %d unit files", len(units)), nil
+}
+
+// cmpBool orders false before true.
+func cmpBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
 }
 
 func (u *Uninstall) removeBlocks(ctx context.Context, blocks []core.OwnedEntry) (string, error) {

@@ -931,3 +931,141 @@ func TestUninstallSwapoff(t *testing.T) {
 		t.Errorf("the plan turns off swap Darkpanel did not make:\n%s", plan.String())
 	}
 }
+
+// unitSetModule is module jobs: a unit set in the unit directory and a
+// scripts directory in the data directory.
+type unitSetModule struct{ l Layout }
+
+func (m unitSetModule) scripts() string { return filepath.Join(m.l.DataDir, "jobs") }
+
+func (m unitSetModule) Manifest() core.Manifest {
+	return core.Manifest{ID: "jobs", Version: 1, OwnedPaths: []core.OwnedPath{
+		{Path: m.l.UnitDir, Kind: core.OwnedUnitSet, Pattern: `^darkpanel-job-[a-z0-9][a-z0-9-]{0,39}\.(service|timer)$`},
+		{Path: m.scripts(), Kind: core.OwnedDir, Pattern: `^[a-z0-9][a-z0-9-]{0,39}\.sh$`},
+	}}
+}
+
+// TestUninstallUnitSet is M11 spec section 6's uninstall: every recorded
+// job timer is stopped and disabled first, then the units, the scripts and
+// the jobs directory go, in that order.
+func TestUninstallUnitSet(t *testing.T) {
+	ctx := context.Background()
+	setup := func(t *testing.T) (*testHost, *demoModule, unitSetModule, UninstallConfig) {
+		h, m := installHost(t, RoleController)
+		jm := unitSetModule{l: h.layout}
+		db, err := store.Open(ctx, h.layout.Paths.AgentDB())
+		if err != nil {
+			t.Fatal(err)
+		}
+		files := platform.NewFiles(platform.FilesConfig{
+			Owned: platform.OwnedPaths([]core.Manifest{jm.Manifest()}), Ownership: platform.NewOwnership(db), Clock: h.clock, TestMode: true,
+		})
+		for _, slug := range []string{"a", "b"} {
+			for _, suffix := range []string{".service", ".timer"} {
+				if err := files.WriteUnitInSet(ctx, "jobs", "darkpanel-job-"+slug+suffix, []byte("[Unit]\n")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := files.WriteDirFile(ctx, "jobs", jm.scripts(), slug+".sh", []byte("true\n"), 0o750, os.Getegid()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_ = db.Close()
+		cfg := h.uninstallConfig(m, false)
+		cfg.Modules = append(cfg.Modules, jm)
+		return h, m, jm, cfg
+	}
+	unitFiles := func(h *testHost) []string {
+		var out []string
+		for _, slug := range []string{"a", "b"} {
+			out = append(out, h.layout.UnitPath("darkpanel-job-"+slug+".service"), h.layout.UnitPath("darkpanel-job-"+slug+".timer"))
+		}
+		return out
+	}
+
+	h, _, jm, cfg := setup(t)
+	u, err := PlanUninstall(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan bytes.Buffer
+	u.Describe(&plan)
+	_ = u.Close()
+	for _, line := range []string{
+		"stop and disable unit " + h.layout.UnitPath("darkpanel-job-a.timer") + ", of module jobs",
+		"unit " + h.layout.UnitPath("darkpanel-job-b.service") + ", of module jobs",
+		"file " + filepath.Join(jm.scripts(), "a.sh") + ", of module jobs",
+		"dir " + jm.scripts() + ", of module jobs",
+	} {
+		if !strings.Contains(plan.String(), line) {
+			t.Errorf("plan lacks %q:\n%s", line, plan.String())
+		}
+	}
+
+	// A timer that cannot be disabled stops the run before any file goes.
+	h.systemd.failOn("Disable darkpanel-job-b.timer", errors.New("refused"))
+	if _, err := runUninstall(t, cfg); err == nil || !strings.Contains(err.Error(), "services: refused") {
+		t.Fatalf("Run = %v, want the services step to fail at Disable", err)
+	}
+	for _, path := range append(unitFiles(h), filepath.Join(jm.scripts(), "a.sh")) {
+		if !exists(t, path) {
+			t.Errorf("%s was removed before every timer was disabled", path)
+		}
+	}
+	h.systemd.failOn("Disable darkpanel-job-b.timer", nil)
+	h.systemd.calls = nil
+	out, err := runUninstall(t, cfg)
+	if err != nil {
+		t.Fatalf("second Run: %v\n%s", err, out)
+	}
+	got := h.systemd.recorded()
+	jobCalls := slices.DeleteFunc(slices.Clone(got), func(c string) bool { return !strings.Contains(c, "darkpanel-job-") })
+	want := []string{
+		"Stop darkpanel-job-a.timer", "Disable darkpanel-job-a.timer", "Stop darkpanel-job-b.timer", "Disable darkpanel-job-b.timer",
+		"Stop darkpanel-job-a.service", "Disable darkpanel-job-a.service", "Stop darkpanel-job-b.service", "Disable darkpanel-job-b.service",
+	}
+	if !reflect.DeepEqual(jobCalls, want) {
+		t.Errorf("job unit calls\n got %v\nwant %v", jobCalls, want)
+	}
+	if i := slices.Index(got, "Stop darkpanel-job-a.timer"); i < 0 || slices.Index(got, "Stop darkpanel-agent.service") > i {
+		t.Errorf("systemd calls %v: want the job timers stopped after the Darkpanel services", got)
+	}
+	steps := []string{}
+	for line := range strings.Lines(out) {
+		steps = append(steps, strings.SplitN(line, ":", 2)[0])
+	}
+	if a, b := slices.Index(steps, "unit sets"), slices.Index(steps, "files"); a < 0 || b < a {
+		t.Errorf("steps %v: want the unit sets removed before the files", steps)
+	}
+	for _, path := range append(unitFiles(h), filepath.Join(jm.scripts(), "a.sh"), jm.scripts()) {
+		if exists(t, path) {
+			t.Errorf("%s is left", path)
+		}
+	}
+
+	// A script that cannot be removed stops the files step after the units
+	// went and before the directory goes.
+	h, _, jm, cfg = setup(t)
+	script := filepath.Join(jm.scripts(), "b.sh")
+	if err := os.Remove(script); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(script, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runUninstall(t, cfg); err == nil || !strings.Contains(err.Error(), "files: ") {
+		t.Fatalf("Run = %v, want the files step to fail at %s", err, script)
+	}
+	for _, path := range unitFiles(h) {
+		if exists(t, path) {
+			t.Errorf("%s is left after the unit sets step", path)
+		}
+	}
+	if !exists(t, jm.scripts()) {
+		t.Error("the jobs directory went before its scripts")
+	}
+	if man := manifest(t, h.layout); slices.Contains(man, "unit "+h.layout.UnitPath("darkpanel-job-a.timer")+" (module jobs)") ||
+		!slices.Contains(man, "dir "+jm.scripts()+" (module jobs)") {
+		t.Errorf("manifest %v: want the units forgotten and the directory still recorded", man)
+	}
+}

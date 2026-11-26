@@ -525,7 +525,7 @@ func TestRegistryOwnedPathKinds(t *testing.T) {
 		{"pattern that does not compile", ownModule("own", OwnedPath{Path: tokens.Path, Kind: OwnedManagedDir, Pattern: "("}),
 			"module own: owned path /var/lib/darkpanel/agent/own-tokens: Pattern does not compile"},
 		{"pattern on a file", ownModule("own", OwnedPath{Path: "/etc/own.conf", Kind: OwnedFile, Pattern: "^x$"}),
-			"module own: owned path /etc/own.conf: Pattern is for kinds sysctl, managed-dir and service-dir only"},
+			"module own: owned path /etc/own.conf: Pattern is for kinds sysctl, managed-dir, service-dir, dir and unit-set only"},
 		{"service-dir user not declared", ownModule("own", user, serviceDir("nobody")),
 			`module own: service-dir /var/lib/own: User "nobody" is not an owned user of the module`},
 		{"service-dir without a user", ownModule("own", user, serviceDir("")), `service-dir /var/lib/own: User "" is not an owned user`},
@@ -548,6 +548,61 @@ func TestRegistryOwnedPathKinds(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := NewRegistry(tt.mod)
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestRegistryUnitSet holds a unit set to /etc/systemd/system and to names
+// under a darkpanel-<segment>- prefix of its own, which no other module's unit
+// and no unit the core starts shares, and a dir Pattern to an anchored one.
+func TestRegistryUnitSet(t *testing.T) {
+	const jobs = `^darkpanel-job-[a-z0-9][a-z0-9-]{0,39}\.(service|timer)$`
+	set := func(pattern string) OwnedPath {
+		return OwnedPath{Path: "/etc/systemd/system", Kind: OwnedUnitSet, Pattern: pattern}
+	}
+	unit := func(name string) OwnedPath { return OwnedPath{Path: "/etc/systemd/system/" + name, Kind: OwnedUnit} }
+	tests := []struct {
+		name string
+		mods []Module
+		want string // "" when the registry is valid
+	}{
+		{"the job set", []Module{ownModule("jobs", set(jobs))}, ""},
+		{"a set and a unit of its own", []Module{ownModule("jobs", set(jobs), unit("darkpanel-job-x.service"))}, ""},
+		{"sets of two modules", []Module{ownModule("jobs", set(jobs)), ownModule("own", set(`^darkpanel-own-[a-z]+\.timer$`))}, ""},
+		{"a dir with a pattern", []Module{ownModule("jobs", OwnedPath{Path: "/var/lib/darkpanel/jobs", Kind: OwnedDir,
+			Pattern: `^[a-z0-9][a-z0-9-]{0,39}\.sh$`})}, ""},
+
+		{"another directory", []Module{ownModule("jobs", OwnedPath{Path: "/run/systemd/system", Kind: OwnedUnitSet, Pattern: jobs})},
+			"module jobs: unit-set path /run/systemd/system must be /etc/systemd/system"},
+		{"no pattern", []Module{ownModule("jobs", set(""))}, "module jobs: unit-set /etc/systemd/system has no Pattern"},
+		{"unanchored", []Module{ownModule("jobs", set(`darkpanel-job-[a-z]+\.service`))},
+			"module jobs: unit-set pattern `darkpanel-job-[a-z]+\\.service` must start with ^ and end with $"},
+		{"no darkpanel prefix", []Module{ownModule("jobs", set(`^nginx-[a-z]+\.service$`))},
+			"module jobs: unit-set pattern `^nginx-[a-z]+\\.service$` must name only units that start darkpanel-<segment>-"},
+		{"no segment", []Module{ownModule("jobs", set(`^darkpanel-[a-z]+\.service$`))}, "must name only units that start darkpanel-<segment>-"},
+		{"an alternation", []Module{ownModule("jobs", set(`^darkpanel-job-x\.service$|^sshd\.service$`))},
+			"must name only units that start darkpanel-<segment>-"},
+		{"the task units", []Module{ownModule("jobs", set(`^darkpanel-task-.*$`))},
+			"module jobs: unit-set pattern `^darkpanel-task-.*$`: units darkpanel-task-* are the core's"},
+		{"the update runners", []Module{ownModule("jobs", set(`^darkpanel-update-.*$`))}, "units darkpanel-update-* are the core's"},
+		{"the same segment", []Module{ownModule("jobs", set(jobs)), ownModule("own", set(`^darkpanel-job-own\.timer$`))},
+			"unit sets darkpanel-job-* are declared by modules jobs and own"},
+		{"another module's unit", []Module{ownModule("jobs", set(jobs)), ownModule("own", unit("darkpanel-job-own.service"))},
+			"unit /etc/systemd/system/darkpanel-job-own.service of module own is in the unit set darkpanel-job-* of module jobs"},
+		{"an unanchored dir pattern", []Module{ownModule("jobs", OwnedPath{Path: "/var/lib/darkpanel/jobs", Kind: OwnedDir, Pattern: `[a-z]+\.sh`})},
+			"module jobs: dir /var/lib/darkpanel/jobs: Pattern `[a-z]+\\.sh` must start with ^ and end with $"},
+		{"a relative dir with a pattern", []Module{ownModule("jobs", OwnedPath{Path: "jobs", Kind: OwnedDir, Pattern: `^[a-z]+\.sh$`})},
+			`module jobs: dir path "jobs" is not absolute and clean`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(tt.mods...)
 			switch {
 			case tt.want == "" && err != nil:
 				t.Fatalf("NewRegistry: %v", err)

@@ -2,7 +2,11 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -272,4 +276,273 @@ func TestModuleUnits(t *testing.T) {
 	if got := ModuleUnits(nil, reg)(core.ModuleIDCore); got != nil {
 		t.Errorf("without a client the core module got %T, want nil", got)
 	}
+}
+
+// jobUnitPattern is the jobs module's unit set (M11 spec section 6).
+const jobUnitPattern = `^darkpanel-job-[a-z0-9][a-z0-9-]{0,39}\.(service|timer)$`
+
+// usJobs is module jobs, whose unit set lives in unitDir and whose scripts
+// directory is scripts.
+func usJobs(unitDir, scripts string) core.Manifest {
+	return core.Manifest{ID: "jobs", Version: 1, OwnedPaths: []core.OwnedPath{
+		{Path: unitDir, Kind: core.OwnedUnitSet, Pattern: jobUnitPattern},
+		{Path: scripts, Kind: core.OwnedDir, Pattern: `^[a-z0-9][a-z0-9-]{0,39}\.sh$`},
+	}}
+}
+
+// usFiles returns a writer for usJobs with its unit set and scripts
+// directory in a new temporary directory, and that directory.
+func usFiles(t *testing.T) (*Files, *fakeOwnership, string) {
+	t.Helper()
+	root := t.TempDir()
+	m := usJobs(filepath.Join(root, "units"), filepath.Join(root, "jobs"))
+	if err := os.Mkdir(filepath.Join(root, "units"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	f, own := fpFiles(t, FilesConfig{Owned: OwnedPaths([]core.Manifest{m})})
+	return f, own, root
+}
+
+// TestUnitSetAdmits is the unit-set kind of M11 spec section 6: a module
+// writes, starts and stops the units its pattern names, and nothing else.
+func TestUnitSetAdmits(t *testing.T) {
+	ctx := context.Background()
+	f, _, root := usFiles(t)
+	units := filepath.Join(root, "units")
+	for _, name := range []string{"darkpanel-job-backup.service", "darkpanel-job-backup.timer"} {
+		if err := f.WriteUnitInSet(ctx, "jobs", name, []byte("[Unit]\n")); err != nil {
+			t.Errorf("WriteUnitInSet %s: %v", name, err)
+		}
+		if got := readFile(t, filepath.Join(units, name)); got != "[Unit]\n" {
+			t.Errorf("%s holds %q", name, got)
+		}
+	}
+	for _, name := range []string{"darkpanel-job-Backup.service", "darkpanel-job-x.socket", "darkpanel-agent.service",
+		"../darkpanel-job-backup.service", "sub/darkpanel-job-backup.service", "darkpanel-job-backup.service.d"} {
+		if err := f.WriteUnitInSet(ctx, "jobs", name, []byte("[Unit]\n")); err == nil {
+			t.Errorf("WriteUnitInSet %s succeeded", name)
+		}
+		if err := f.RemoveUnitInSet(ctx, "jobs", name); err == nil {
+			t.Errorf("RemoveUnitInSet %s succeeded", name)
+		}
+	}
+	if err := f.WriteUnitInSet(ctx, "other", "darkpanel-job-backup.service", []byte("[Unit]\n")); err == nil {
+		t.Error("a module without the unit set wrote into it")
+	}
+	if names := dirNames(t, units); !slices.Equal(names, []string{"darkpanel-job-backup.service", "darkpanel-job-backup.timer"}) {
+		t.Errorf("the unit directory holds %v", names)
+	}
+
+	const svc, timer = "darkpanel-job-backup.service", "darkpanel-job-backup.timer"
+	m := usJobs("/etc/systemd/system", "/var/lib/darkpanel/jobs")
+	scpRun(t, m, []scpCall{
+		{"start the service", func(ctx context.Context, u core.Units) error { return u.Start(ctx, svc) }, "Start " + svc},
+		{"stop the service", func(ctx context.Context, u core.Units) error { return u.Stop(ctx, svc) }, "Stop " + svc},
+		{"start the timer", func(ctx context.Context, u core.Units) error { return u.Start(ctx, timer) }, "Start " + timer},
+		{"stop the timer", func(ctx context.Context, u core.Units) error { return u.Stop(ctx, timer) }, "Stop " + timer},
+		{"state", scpState(timer), "State " + timer},
+		{"enable by path", func(ctx context.Context, u core.Units) error {
+			return u.Enable(ctx, "/etc/systemd/system/"+timer)
+		}, "Enable /etc/systemd/system/" + timer},
+		{"disable by name", func(ctx context.Context, u core.Units) error { return u.Disable(ctx, timer) }, "Disable " + timer},
+		{"reload", func(ctx context.Context, u core.Units) error { return u.Reload(ctx) }, "Reload"},
+		{"upper case", func(ctx context.Context, u core.Units) error { return u.Start(ctx, "darkpanel-job-Backup.service") }, ""},
+		{"a socket", func(ctx context.Context, u core.Units) error { return u.Start(ctx, "darkpanel-job-x.socket") }, ""},
+		{"the agent", func(ctx context.Context, u core.Units) error { return u.Stop(ctx, "darkpanel-agent.service") }, ""},
+		{"another directory", func(ctx context.Context, u core.Units) error {
+			return u.Enable(ctx, "/run/systemd/system/"+timer)
+		}, ""},
+		{"a longer name", func(ctx context.Context, u core.Units) error { return u.Stop(ctx, "x-"+svc) }, ""},
+	}, func(c scpCall) string {
+		return map[string]string{
+			"upper case":        "platform: module jobs may not Start unit darkpanel-job-Backup.service",
+			"a socket":          "platform: module jobs may not Start unit darkpanel-job-x.socket",
+			"the agent":         "platform: module jobs may not Stop unit darkpanel-agent.service",
+			"another directory": "platform: module jobs may not Enable unit /run/systemd/system/" + timer,
+			"a longer name":     "platform: module jobs may not Stop unit x-" + svc,
+		}[c.name]
+	})
+}
+
+// TestUnitSetOwnership records each unit of a set as it is written and
+// forgets it as it is removed, and never takes over or removes a unit file
+// Darkpanel did not write.
+func TestUnitSetOwnership(t *testing.T) {
+	ctx := context.Background()
+	f, own, root := usFiles(t)
+	const name = "darkpanel-job-backup.timer"
+	path := filepath.Join(root, "units", name)
+	own.onRecord = func(e core.OwnedEntry) {
+		if _, err := os.Lstat(e.Path); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s exists when it is recorded (%v); it must be recorded first", e.Path, err)
+		}
+	}
+	if err := f.WriteUnitInSet(ctx, "jobs", name, []byte("[Timer]\n")); err != nil {
+		t.Fatal(err)
+	}
+	own.onRecord = nil
+	want := []core.OwnedEntry{{Path: path, Module: "jobs", Kind: core.OwnedUnit, CreatedAt: filesNow}}
+	if got, _ := own.List(ctx); !reflect.DeepEqual(got, want) {
+		t.Errorf("ownership = %+v, want %+v", got, want)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o644 {
+		t.Errorf("unit file %v, %v; want mode 0644", info, err)
+	}
+	if err := f.WriteUnitInSet(ctx, "jobs", name, []byte("[Timer]\nOnCalendar=daily\n")); err != nil {
+		t.Errorf("rewriting a recorded unit: %v", err)
+	}
+	if err := f.RemoveUnitInSet(ctx, "jobs", name); err != nil {
+		t.Fatal(err)
+	}
+	if exists := fileExists(t, path); exists {
+		t.Error("the removed unit file is still there")
+	}
+	if got, _ := own.List(ctx); len(got) != 0 {
+		t.Errorf("ownership = %+v after the removal, want nothing", got)
+	}
+	if err := f.RemoveUnitInSet(ctx, "jobs", name); err != nil {
+		t.Errorf("removing a missing unit: %v", err)
+	}
+
+	foreign := filepath.Join(root, "units", "darkpanel-job-theirs.service")
+	if err := os.WriteFile(foreign, []byte("[Service]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.WriteUnitInSet(ctx, "jobs", "darkpanel-job-theirs.service", []byte("x")); err == nil ||
+		!strings.Contains(err.Error(), "exists and is not Darkpanel's") {
+		t.Errorf("writing over a unit Darkpanel did not write: %v", err)
+	}
+	if err := f.RemoveUnitInSet(ctx, "jobs", "darkpanel-job-theirs.service"); err == nil ||
+		!strings.Contains(err.Error(), "is not Darkpanel's") {
+		t.Errorf("removing a unit Darkpanel did not write: %v", err)
+	}
+	if got := readFile(t, foreign); got != "[Service]\n" {
+		t.Errorf("the foreign unit holds %q", got)
+	}
+	if got, _ := own.List(ctx); len(got) != 0 {
+		t.Errorf("ownership = %+v, want the foreign unit unrecorded", got)
+	}
+}
+
+// TestDirPattern is a dir declaration with a file-name Pattern: its files
+// are written root-owned in a 0755 directory and recorded one by one.
+func TestDirPattern(t *testing.T) {
+	ctx := context.Background()
+	f, own, root := usFiles(t)
+	dir := filepath.Join(root, "jobs")
+	gid := os.Getegid()
+	if os.Geteuid() == 0 {
+		gid = 4242 // a group other than the agent's, which only root may give
+	}
+	if err := f.WriteDirFile(ctx, "jobs", dir, "backup.sh", []byte("tar c /srv\n"), 0o750, gid); err != nil {
+		t.Fatalf("WriteDirFile: %v", err)
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o755 || int(info.Sys().(*syscall.Stat_t).Uid) != os.Geteuid() {
+		t.Errorf("directory %v, want a 0755 directory owned by %d", info.Mode(), os.Geteuid())
+	}
+	script := filepath.Join(dir, "backup.sh")
+	sinfo, err := os.Lstat(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := sinfo.Sys().(*syscall.Stat_t); sinfo.Mode().Perm() != 0o750 || int(st.Gid) != gid || int(st.Uid) != os.Geteuid() {
+		t.Errorf("script mode %o owner %d:%d, want 750 and %d:%d", sinfo.Mode().Perm(), st.Uid, st.Gid, os.Geteuid(), gid)
+	}
+	if got := readFile(t, script); got != "tar c /srv\n" {
+		t.Errorf("script holds %q", got)
+	}
+	want := []core.OwnedEntry{
+		{Path: dir, Module: "jobs", Kind: core.OwnedDir, CreatedAt: filesNow},
+		{Path: script, Module: "jobs", Kind: core.OwnedFile, CreatedAt: filesNow},
+	}
+	if got, _ := own.List(ctx); !reflect.DeepEqual(got, want) {
+		t.Errorf("ownership = %+v, want %+v", got, want)
+	}
+
+	other := filepath.Join(root, "elsewhere")
+	for _, c := range []struct{ dir, name string }{{dir, "../x.sh"}, {dir, "x.txt"}, {dir, "sub/x.sh"}, {dir, "X.sh"}, {other, "x.sh"}} {
+		if err := f.WriteDirFile(ctx, "jobs", c.dir, c.name, []byte("x"), 0o750, gid); err == nil {
+			t.Errorf("WriteDirFile %s %s succeeded", c.dir, c.name)
+		}
+		if err := f.RemoveDirFile(ctx, "jobs", c.dir, c.name); err == nil {
+			t.Errorf("RemoveDirFile %s %s succeeded", c.dir, c.name)
+		}
+	}
+	if fileExists(t, filepath.Join(root, "x.sh")) || fileExists(t, other) {
+		t.Error("a refused write left a file")
+	}
+
+	if err := f.RemoveDirFile(ctx, "jobs", dir, "backup.sh"); err != nil {
+		t.Fatalf("RemoveDirFile: %v", err)
+	}
+	if fileExists(t, script) {
+		t.Error("the removed script is still there")
+	}
+	if got, _ := own.List(ctx); !reflect.DeepEqual(got, want[:1]) {
+		t.Errorf("ownership = %+v after the removal, want only the directory", got)
+	}
+	if err := f.RemoveDirFile(ctx, "jobs", dir, "backup.sh"); err != nil {
+		t.Errorf("removing a missing script: %v", err)
+	}
+
+	// A directory that exists but is not recorded is not Darkpanel's.
+	f2, _, root2 := usFiles(t)
+	if err := os.Mkdir(filepath.Join(root2, "jobs"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := f2.WriteDirFile(ctx, "jobs", filepath.Join(root2, "jobs"), "backup.sh", []byte("x"), 0o750, gid); err == nil ||
+		!strings.Contains(err.Error(), "is not Darkpanel's") {
+		t.Errorf("writing into an unrecorded directory: %v", err)
+	}
+	// A directory others may write is refused.
+	if err := os.Chmod(dir, 0o775); err != nil { //nolint:gosec // G302: group-writable on purpose, to be refused
+		t.Fatal(err)
+	}
+	if err := f.WriteDirFile(ctx, "jobs", dir, "backup.sh", []byte("x"), 0o750, gid); err == nil ||
+		!strings.Contains(err.Error(), "has mode 775") {
+		t.Errorf("writing into a group-writable directory: %v", err)
+	}
+	// Whatever the Pattern admits, a name is one entry of the directory, and
+	// a Pattern matches the whole name even when it is not anchored.
+	anyDir := filepath.Join(root, "any")
+	f4, _ := fpFiles(t, FilesConfig{Owned: map[string][]core.OwnedPath{"jobs": {
+		{Path: anyDir, Kind: core.OwnedDir, Pattern: `^.*$`},
+		{Path: filepath.Join(root, "loose"), Kind: core.OwnedDir, Pattern: `[a-z]+\.sh`},
+	}}})
+	if err := f4.WriteDirFile(ctx, "jobs", anyDir, "ok.sh", []byte("x"), 0o750, gid); err != nil {
+		t.Fatal(err)
+	}
+	// A directory named ... would hold the temporary file of ../x.sh.
+	if err := os.Mkdir(filepath.Join(anyDir, "..."), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"../x.sh", "sub/x.sh", ".", "..", ""} {
+		if err := f4.WriteDirFile(ctx, "jobs", anyDir, name, []byte("x"), 0o750, gid); err == nil {
+			t.Errorf("WriteDirFile %q under a pattern that admits it succeeded", name)
+		}
+	}
+	if fileExists(t, filepath.Join(root, "x.sh")) {
+		t.Error("a name with .. wrote outside the directory")
+	}
+	if err := f4.WriteDirFile(ctx, "jobs", filepath.Join(root, "loose"), "x.sh.txt", []byte("x"), 0o750, gid); err == nil {
+		t.Error("an unanchored Pattern admitted a name it matches only part of")
+	}
+	// A dir without a Pattern names no files.
+	f3, _ := fpFiles(t, FilesConfig{Owned: map[string][]core.OwnedPath{"jobs": {{Path: dir, Kind: core.OwnedDir}}}})
+	if err := f3.WriteDirFile(ctx, "jobs", dir, "backup.sh", []byte("x"), 0o750, gid); err == nil {
+		t.Error("WriteDirFile into a dir without a Pattern succeeded")
+	}
+}
+
+func fileExists(t *testing.T, path string) bool {
+	t.Helper()
+	_, err := os.Lstat(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	return err == nil
 }

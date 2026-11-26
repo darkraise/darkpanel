@@ -21,24 +21,28 @@ type scopedUnits struct {
 	module   string
 	owned    map[string]bool     // the unit names of the module's unit owned paths
 	paths    map[string]bool     // those paths, which Enable and Disable also take
+	sets     []core.OwnedPath    // the module's unit sets
 	external map[string][]string // ExternalUnits: name → ops
 }
 
 // ScopeUnits returns u limited to module m (1.8): every method on the units
-// m declares as owned paths of kind unit, State on task units, the declared
-// ops on m's external units (ReloadUnit for UnitOpReload), and Reload when
-// m declares a unit. Everything else fails with an error naming the module,
-// the method and the unit. The services module gets adminUnits instead (ADR
-// 0020).
+// m declares as owned paths of kind unit or whose names its unit sets match,
+// State on task units, the declared ops on m's external units (ReloadUnit for
+// UnitOpReload), and Reload when m declares a unit or a unit set. Everything
+// else fails with an error naming the module, the method and the unit. The
+// services module gets adminUnits instead (ADR 0020).
 func ScopeUnits(u core.Units, m core.Manifest) core.Units {
 	if m.ID == ServicesModule {
 		return adminUnits{u: u}
 	}
 	s := &scopedUnits{u: u, module: m.ID, owned: map[string]bool{}, paths: map[string]bool{}, external: map[string][]string{}}
 	for _, p := range m.OwnedPaths {
-		if p.Kind == core.OwnedUnit {
+		switch p.Kind {
+		case core.OwnedUnit:
 			s.owned[filepath.Base(p.Path)] = true
 			s.paths[p.Path] = true
+		case core.OwnedUnitSet:
+			s.sets = append(s.sets, p)
 		}
 	}
 	for _, e := range m.ExternalUnits {
@@ -65,20 +69,31 @@ func (s *scopedUnits) refuse(method, unit string) error {
 	return fmt.Errorf("platform: module %s may not %s unit %s", s.module, method, unit)
 }
 
-// allow refuses method on unit unless the module owns unit or declares it
-// external with op; op "" admits owned units only.
+// inSet reports whether one of the module's unit sets holds the unit name,
+// or, when dir is not "", holds it in dir.
+func (s *scopedUnits) inSet(dir, name string) bool {
+	return slices.ContainsFunc(s.sets, func(p core.OwnedPath) bool {
+		return (dir == "" || dir == p.Path) && fullMatch(p.Pattern, name)
+	})
+}
+
+// allow refuses method on unit unless the module owns unit, one of its unit
+// sets holds it, or it declares unit external with op; op "" admits owned
+// units and units of the sets only.
 func (s *scopedUnits) allow(method, op, unit string) error {
-	if s.owned[unit] || (op != "" && slices.Contains(s.external[unit], op)) {
+	if s.owned[unit] || s.inSet("", unit) || (op != "" && slices.Contains(s.external[unit], op)) {
 		return nil
 	}
 	return s.refuse(method, unit)
 }
 
 // allowFiles refuses method unless every unit file is an owned unit, by
-// name or by its declared path.
+// name or by its declared path, or a unit of one of the module's sets, by
+// name or by its path in the set's directory.
 func (s *scopedUnits) allowFiles(method string, unitFiles []string) error {
 	for _, f := range unitFiles {
-		if !s.owned[f] && !s.paths[f] {
+		inSet := s.inSet("", f) || (filepath.IsAbs(f) && s.inSet(filepath.Dir(f), filepath.Base(f)))
+		if !s.owned[f] && !s.paths[f] && !inSet {
 			return s.refuse(method, f)
 		}
 	}
@@ -158,7 +173,7 @@ func (s *scopedUnits) ReloadUnit(ctx context.Context, unit string) error {
 // Reload reloads every unit file, so only a module with unit files of its
 // own needs it.
 func (s *scopedUnits) Reload(ctx context.Context) error {
-	if len(s.owned) == 0 {
+	if len(s.owned) == 0 && len(s.sets) == 0 {
 		return fmt.Errorf("platform: module %s may not Reload units: it declares no unit", s.module)
 	}
 	return s.u.Reload(ctx)

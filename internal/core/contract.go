@@ -582,8 +582,9 @@ type PreflightCheck struct {
 }
 
 // The kinds of an owned path. Directories and users are the installer's,
-// recorded so that uninstall removes them; the other kinds are written
-// through FileWriter.
+// recorded so that uninstall removes them, except that the files of a dir
+// with a Pattern and of a unit-set are written through UnitSetWriter; the
+// other kinds are written through FileWriter.
 const (
 	OwnedFile       = "file"
 	OwnedBlock      = "block"
@@ -594,7 +595,11 @@ const (
 	OwnedManagedDir = "managed-dir" // a root-owned directory of flat module files
 	OwnedSysctl     = "sysctl"      // a kernel parameter under /proc/sys
 	OwnedServiceDir = "service-dir" // a directory owned by a module's service user
+	OwnedUnitSet    = "unit-set"    // unit files in UnitSetDir whose names match a pattern, each recorded as a unit
 )
+
+// UnitSetDir is the directory of every unit set.
+const UnitSetDir = "/etc/systemd/system"
 
 // OwnedPath is something a module or the core creates on the host and
 // uninstall removes (ADR 0009). For OwnedUser, Path is the user name; for
@@ -604,10 +609,14 @@ type OwnedPath struct {
 	Path          string
 	Kind          string // one of the Owned kinds
 	BlockIDs      []string
-	CommentPrefix string   // default "#"
-	Pattern       string   // sysctl: the value pattern; managed-dir, service-dir: the file-name pattern
-	User          string   // service-dir: the owning system user (an OwnedUser of the same module)
-	Subdirs       []string // service-dir: the only subdirectories, one level, created with it
+	CommentPrefix string // default "#"
+	// Pattern is, for sysctl, the value pattern; for managed-dir and
+	// service-dir, the file-name pattern; for unit-set, the unit-file names;
+	// for dir, the names of the files it may hold, each recorded as it is
+	// written (none without a Pattern).
+	Pattern string
+	User    string   // service-dir: the owning system user (an OwnedUser of the same module)
+	Subdirs []string // service-dir: the only subdirectories, one level, created with it
 }
 
 // RestoreEntry is one file a snapshot restores. Present false removes it.
@@ -761,6 +770,17 @@ type FileWriter interface {
 // when it is absent, and records nothing.
 type DirMaker interface {
 	MakeDir(ctx context.Context, module, dir string) error
+}
+
+// UnitSetWriter writes the files of a module's unit sets and of its dir
+// declarations with a Pattern, recording each file in the ownership store
+// as it is written and forgetting it as it is removed. The agent's
+// FileWriter implements it.
+type UnitSetWriter interface {
+	WriteUnitInSet(ctx context.Context, module, name string, data []byte) error
+	RemoveUnitInSet(ctx context.Context, module, name string) error
+	WriteDirFile(ctx context.Context, module, dir, name string, data []byte, mode fs.FileMode, gid int) error
+	RemoveDirFile(ctx context.Context, module, dir, name string) error
 }
 
 // OwnedEntry is one path or block Darkpanel wrote.

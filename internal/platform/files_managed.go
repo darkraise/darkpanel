@@ -106,12 +106,33 @@ func managedName(op core.OwnedPath, name string) error {
 	return nil
 }
 
+// recordedDir is how a directory Darkpanel makes and records is kept: its
+// kind in the ownership store, the mode it is made with, and the permission
+// bits it must not have.
+type recordedDir struct {
+	kind string
+	mode uint32
+	deny uint32
+}
+
+var (
+	managedDir = recordedDir{kind: core.OwnedManagedDir, mode: managedDirMode, deny: 0o077}
+	// patternDir is a dir with a Pattern: its files may run as another user,
+	// so others may open it, but only its owner writes it.
+	patternDir = recordedDir{kind: core.OwnedDir, mode: 0o755, deny: 0o022}
+)
+
 // openManaged opens dir, through its parent opened as openDir opens one, and
 // checks that it is module's recorded directory, owned like that parent with
 // no group or other access. With create, a missing dir is recorded, then made
 // with mode 0700; without, a missing dir fails with an error wrapping
 // fs.ErrNotExist.
 func (f *Files) openManaged(ctx context.Context, module, dir string, create bool) (int, error) {
+	return f.openRecorded(ctx, module, dir, managedDir, create)
+}
+
+// openRecorded is openManaged for a directory kept as rd.
+func (f *Files) openRecorded(ctx context.Context, module, dir string, rd recordedDir, create bool) (int, error) {
 	parentDir, name := filepath.Split(dir)
 	pfd, err := f.openDir(parentDir)
 	if err != nil {
@@ -121,7 +142,7 @@ func (f *Files) openManaged(ctx context.Context, module, dir string, create bool
 	fd, err := openBeneath(pfd, name, unix.O_RDONLY|unix.O_DIRECTORY, 0)
 	switch {
 	case errors.Is(err, unix.ENOENT) && create:
-		if fd, err = f.createManaged(ctx, module, dir, pfd, name); err != nil {
+		if fd, err = f.createRecorded(ctx, module, dir, pfd, name, rd); err != nil {
 			return -1, err
 		}
 	case err != nil:
@@ -145,22 +166,22 @@ func (f *Files) openManaged(ctx context.Context, module, dir string, create bool
 	case int(st.Uid) != f.parentUID:
 		_ = unix.Close(fd)
 		return -1, fmt.Errorf("platform: directory %s is owned by uid %d, want %d", dir, st.Uid, f.parentUID)
-	case st.Mode&0o077 != 0:
+	case st.Mode&rd.deny != 0:
 		_ = unix.Close(fd)
-		return -1, fmt.Errorf("platform: directory %s has mode %o, want %o", dir, st.Mode&0o7777, managedDirMode)
+		return -1, fmt.Errorf("platform: directory %s has mode %o, want %o", dir, st.Mode&0o7777, rd.mode)
 	}
 	return fd, nil
 }
 
-// createManaged records dir as module's, makes it in pfd as name and opens it.
-func (f *Files) createManaged(ctx context.Context, module, dir string, pfd int, name string) (int, error) {
+// createRecorded records dir as module's, makes it in pfd as name and opens it.
+func (f *Files) createRecorded(ctx context.Context, module, dir string, pfd int, name string, rd recordedDir) (int, error) {
 	// Recorded before the directory exists, so a crash after the mkdir still
 	// leaves it for uninstall to find.
-	entry := core.OwnedEntry{Path: dir, Module: module, Kind: core.OwnedManagedDir, CreatedAt: f.cfg.Clock.Now().UTC()}
+	entry := core.OwnedEntry{Path: dir, Module: module, Kind: rd.kind, CreatedAt: f.cfg.Clock.Now().UTC()}
 	if err := f.cfg.Ownership.Record(ctx, entry); err != nil {
 		return -1, err
 	}
-	if err := unix.Mkdirat(pfd, name, managedDirMode); err != nil {
+	if err := unix.Mkdirat(pfd, name, rd.mode); err != nil {
 		return -1, fmt.Errorf("platform: create directory %s: %w", dir, err)
 	}
 	if err := unix.Fsync(pfd); err != nil {
@@ -171,7 +192,7 @@ func (f *Files) createManaged(ctx context.Context, module, dir string, pfd int, 
 		return -1, fmt.Errorf("platform: open directory %s: %w", dir, err)
 	}
 	// Mkdirat applies the umask; the mode must not depend on it.
-	if err := unix.Fchmod(fd, managedDirMode); err != nil {
+	if err := unix.Fchmod(fd, rd.mode); err != nil {
 		_ = unix.Close(fd)
 		return -1, fmt.Errorf("platform: chmod directory %s: %w", dir, err)
 	}

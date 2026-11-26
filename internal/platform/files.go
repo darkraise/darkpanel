@@ -42,9 +42,9 @@ type FilesConfig struct {
 
 // Files is the core.FileWriter of the agent: it writes only the paths,
 // marked blocks, kernel parameters and directories a module declares, never
-// through a symlink (ADR 0009). Declarations of kind dir and user are
-// uninstall's to remove and are ignored here. Calls on one path are
-// serialised, so the agent must build exactly one Files.
+// through a symlink (ADR 0009). Declarations of kind user, and of kind dir
+// without a Pattern, are uninstall's to remove and are ignored here. Calls on
+// one path are serialised, so the agent must build exactly one Files.
 type Files struct {
 	cfg       FilesConfig
 	parentUID int
@@ -52,8 +52,9 @@ type Files struct {
 }
 
 var (
-	_ core.FileWriter = (*Files)(nil)
-	_ core.DirMaker   = (*Files)(nil)
+	_ core.FileWriter    = (*Files)(nil)
+	_ core.DirMaker      = (*Files)(nil)
+	_ core.UnitSetWriter = (*Files)(nil)
 )
 
 // NewFiles returns a writer for cfg.
@@ -65,7 +66,7 @@ func NewFiles(cfg FilesConfig) *Files {
 	locks := map[string]*sync.Mutex{}
 	for _, paths := range cfg.Owned {
 		for _, op := range paths {
-			if op.Kind == core.OwnedDir || op.Kind == core.OwnedUser {
+			if op.Kind == core.OwnedUser || (op.Kind == core.OwnedDir && op.Pattern == "") {
 				continue
 			}
 			if locks[op.Path] == nil {

@@ -140,15 +140,16 @@ The function you pass takes the context and the `core.Env` and returns the outpu
 |---|---|---|
 | `core.OwnedFile` | A file | |
 | `core.OwnedBlock` | Marked blocks in a shared file | `BlockIDs`, optional `CommentPrefix` (default `#`) |
-| `core.OwnedDir` | A directory | |
+| `core.OwnedDir` | A directory | Optional anchored `Pattern` (`^...$`) for the files it holds, written through `core.UnitSetWriter`, which makes it root-owned with mode 0755 and records each file; `Path` is then absolute and clean |
 | `core.OwnedUser` | A system user; `Path` is the user name | |
 | `core.OwnedUnit` | A systemd unit file | A module other than the core must use `/etc/systemd/system/darkpanel-<name>.service` |
 | `core.OwnedRestore` | A regular file a snapshot may rewrite or remove | `Path` is absolute and clean |
 | `core.OwnedManagedDir` | A root-owned directory of flat module files | `Path` is absolute and clean; optional `Pattern` for file names |
 | `core.OwnedSysctl` | A kernel parameter; `Path` is the key relative to `/proc/sys` | `Pattern` is required; a key has at most one `<iface>` segment |
 | `core.OwnedServiceDir` | A directory owned by the module's service user | `User` names an owned user of the module; optional `Subdirs` and `Pattern` |
+| `core.OwnedUnitSet` | Unit files whose names match a pattern, written through `core.UnitSetWriter` and recorded one by one as units | `Path` is `/etc/systemd/system`; `Pattern` is required, anchored, and names only units that start `darkpanel-<segment>-`, a segment no other module's unit set or unit shares and none of `task`, `update`, `rollback`, `agent` or `controller` |
 
-The registry refuses `Pattern` on a kind other than sysctl, managed-dir and service-dir, `User` and `Subdirs` on a kind other than service-dir, a `Pattern` that does not compile, and a path or block that two modules both declare. Two modules can share a file when they declare marked blocks with different ids.
+The registry refuses `Pattern` on a kind other than sysctl, managed-dir, service-dir, dir and unit-set, `User` and `Subdirs` on a kind other than service-dir, a `Pattern` that does not compile, and a path or block that two modules both declare. Two modules can share a file when they declare marked blocks with different ids.
 
 **Docker objects.** Containers, networks and volumes a module creates carry the label `darkpanel.module=<id>`; the key is `core.LabelModule`.
 
@@ -276,7 +277,7 @@ Guards, scope and reveal:
 
 Owned paths, units and migrations:
 
-- Owned paths follow the kinds of the table in the owned-paths section: a known kind, a unit path of the form `/etc/systemd/system/darkpanel-<name>.service` for any module but the core, absolute and clean paths for `restore`, `managed-dir` and `service-dir` (never `/`), a valid sysctl key with a `Pattern`, a `Pattern` only on `sysctl`, `managed-dir` and `service-dir`, `User` and `Subdirs` only on `service-dir`, and subdirectories that match `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` without repeats.
+- Owned paths follow the kinds of the table in the owned-paths section: a known kind, a unit path of the form `/etc/systemd/system/darkpanel-<name>.service` for any module but the core, absolute and clean paths for `restore`, `managed-dir` and `service-dir` (never `/`), a valid sysctl key with a `Pattern`, a `Pattern` only on `sysctl`, `managed-dir`, `service-dir`, `dir` and `unit-set`, a unit set under its own `darkpanel-<segment>-` prefix in `/etc/systemd/system`, `User` and `Subdirs` only on `service-dir`, and subdirectories that match `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` without repeats.
 - No other module declares the same owned path, user, or marked block id.
 - A module's external units match `^[A-Za-z0-9@._-]+\.service$`, are listed once, and list at least one operation out of `state`, `start`, `stop` and `restart`, each once.
 - `Migrations` has only the keys `core.SideController` and `core.SideAgent`.

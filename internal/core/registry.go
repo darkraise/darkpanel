@@ -29,6 +29,7 @@ var (
 	subdirPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	externalUnitPattern = regexp.MustCompile(`^[A-Za-z0-9@._-]+\.service$`)
 	streamNamePattern   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	unitSetPrefixRE     = regexp.MustCompile(`^darkpanel-[a-z0-9]+-`)
 )
 
 // sysctlIface is the one segment of a sysctl key that stands for a network
@@ -237,6 +238,11 @@ func checkOwnership(mods []Manifest) []error {
 				// A user name and a file path never name the same thing.
 			case aUser:
 				errs = append(errs, fmt.Errorf("user %s is declared by modules %s and %s", a.path.Path, a.module, b.module))
+			case a.path.Kind == OwnedUnitSet && b.path.Kind == OwnedUnitSet:
+				// Sets share their directory; distinct prefixes keep their names apart.
+				if pa := UnitSetPrefix(a.path.Pattern); pa != "" && pa == UnitSetPrefix(b.path.Pattern) {
+					errs = append(errs, fmt.Errorf("unit sets %s* are declared by modules %s and %s", pa, a.module, b.module))
+				}
 			case a.path.Kind == OwnedBlock && b.path.Kind == OwnedBlock:
 				for _, id := range a.path.BlockIDs {
 					if slices.Contains(b.path.BlockIDs, id) {
@@ -246,6 +252,18 @@ func checkOwnership(mods []Manifest) []error {
 				}
 			default:
 				errs = append(errs, fmt.Errorf("owned path %s is declared by modules %s and %s", a.path.Path, a.module, b.module))
+			}
+		}
+	}
+	for _, set := range decls {
+		prefix := UnitSetPrefix(set.path.Pattern)
+		if set.path.Kind != OwnedUnitSet || prefix == "" {
+			continue
+		}
+		for _, u := range decls {
+			if u.module != set.module && u.path.Kind == OwnedUnit && strings.HasPrefix(path.Base(u.path.Path), prefix) {
+				errs = append(errs, fmt.Errorf("unit %s of module %s is in the unit set %s* of module %s",
+					u.path.Path, u.module, prefix, set.module))
 			}
 		}
 	}
@@ -268,7 +286,26 @@ func checkOwnedPaths(m Manifest) []error {
 	for _, op := range m.OwnedPaths {
 		p := op.Path
 		switch op.Kind {
-		case OwnedFile, OwnedBlock, OwnedDir, OwnedUser:
+		case OwnedFile, OwnedBlock, OwnedUser:
+		case OwnedDir:
+			if op.Pattern == "" {
+				break
+			}
+			if !path.IsAbs(p) || path.Clean(p) != p || p == "/" {
+				fail("module %s: dir path %q is not absolute and clean", m.ID, p)
+			}
+			if !anchored(op.Pattern) {
+				fail("module %s: dir %s: Pattern `%s` must start with ^ and end with $", m.ID, p, op.Pattern)
+			}
+		case OwnedUnitSet:
+			if p != UnitSetDir {
+				fail("module %s: unit-set path %s must be %s", m.ID, p, UnitSetDir)
+			}
+			if op.Pattern == "" {
+				fail("module %s: unit-set %s has no Pattern", m.ID, p)
+			} else if problem := unitSetProblem(op.Pattern); problem != "" {
+				fail("module %s: unit-set pattern `%s`%s", m.ID, op.Pattern, problem)
+			}
 		case OwnedUnit:
 			if m.ID != ModuleIDCore && !moduleUnitPattern.MatchString(p) {
 				fail("module %s: unit path %s must match %s", m.ID, p, moduleUnitPattern)
@@ -294,8 +331,8 @@ func checkOwnedPaths(m Manifest) []error {
 			if _, err := regexp.Compile(op.Pattern); err != nil {
 				fail("module %s: owned path %s: Pattern does not compile: %v", m.ID, p, err)
 			}
-			if op.Kind != OwnedSysctl && op.Kind != OwnedManagedDir && op.Kind != OwnedServiceDir {
-				fail("module %s: owned path %s: Pattern is for kinds sysctl, managed-dir and service-dir only", m.ID, p)
+			if !slices.Contains([]string{OwnedSysctl, OwnedManagedDir, OwnedServiceDir, OwnedDir, OwnedUnitSet}, op.Kind) {
+				fail("module %s: owned path %s: Pattern is for kinds sysctl, managed-dir, service-dir, dir and unit-set only", m.ID, p)
 			}
 		}
 		switch {
@@ -319,6 +356,48 @@ func checkOwnedPaths(m Manifest) []error {
 		}
 	}
 	return errs
+}
+
+// reservedUnitSegments are the darkpanel-<segment>- prefixes of the units
+// the core starts or installs: task units, update and rollback runners, and
+// the agent's and controller's own.
+var reservedUnitSegments = []string{"task", "update", "rollback", "agent", "controller"}
+
+// anchored reports whether a pattern starts with ^ and ends with $.
+func anchored(pattern string) bool {
+	return strings.HasPrefix(pattern, "^") && strings.HasSuffix(pattern, "$")
+}
+
+// UnitSetPrefix is the darkpanel-<segment>- prefix that begins every name a
+// unit-set pattern matches, "" when the pattern guarantees none.
+func UnitSetPrefix(pattern string) string {
+	re, err := regexp.Compile(pattern)
+	if err != nil || !anchored(pattern) {
+		return ""
+	}
+	// LiteralPrefix begins every match; an alternation at the top leaves it
+	// empty, so a second branch cannot name a unit outside the prefix.
+	literal, _ := re.LiteralPrefix()
+	return unitSetPrefixRE.FindString(literal)
+}
+
+// unitSetProblem says what is wrong with a unit-set pattern, "" when
+// nothing is, starting with a separator for the caller's message.
+func unitSetProblem(pattern string) string {
+	if _, err := regexp.Compile(pattern); err != nil {
+		return "" // reported as a Pattern that does not compile
+	}
+	if !anchored(pattern) {
+		return " must start with ^ and end with $"
+	}
+	prefix := UnitSetPrefix(pattern)
+	if prefix == "" {
+		return " must name only units that start darkpanel-<segment>-"
+	}
+	if segment := strings.TrimSuffix(strings.TrimPrefix(prefix, "darkpanel-"), "-"); slices.Contains(reservedUnitSegments, segment) {
+		return ": units " + prefix + "* are the core's"
+	}
+	return ""
 }
 
 // sysctlKeyProblem says what is wrong with a sysctl key, or "" when nothing
