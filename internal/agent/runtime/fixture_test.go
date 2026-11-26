@@ -247,6 +247,7 @@ type fixture struct {
 	// policy is Config.PolicyFile from the next open on; the test's own
 	// uid stands for root.
 	policy string
+	shell  core.ShellStarter // Config.Shell from the next open on
 }
 
 func newFixture(t *testing.T) *fixture { return newFixtureWith(t) }
@@ -271,6 +272,7 @@ func (f *fixture) config() Config {
 		HostID: testHost, BinaryVersion: "test", BackupDir: filepath.Join(f.dir, "backups"),
 		Exec: platform.NewRunner(nil), FilesTestMode: true, Units: f.units,
 		PolicyFile: f.policy, PolicyOwner: uint32(os.Getuid()), //nolint:gosec // G115: a uid fits in 32 bits
+		Shell: f.shell,
 	}
 }
 

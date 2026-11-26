@@ -59,8 +59,8 @@ func (r *Runtime) OpenChannel(ctx context.Context, p core.Principal, module, nam
 	if err := streamParams.ValidateType(def.ParamsType, raw); err != nil {
 		return err
 	}
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	runCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	a, needsAccept := rw.(ChannelAccepter)
 	c := &channelConn{rw: rw, cancel: cancel, accepted: !needsAccept}
 	if err := r.addChannel(ctx, module, c); err != nil {
@@ -198,7 +198,7 @@ func (s *channelSet) closeAll(reason string) {
 // channel closed, and the accept sends the close frame.
 type channelConn struct {
 	rw     io.ReadWriteCloser
-	cancel context.CancelFunc
+	cancel context.CancelCauseFunc
 
 	wmu sync.Mutex // one frame at a time
 
@@ -258,7 +258,8 @@ func (c *channelConn) WriteFrame(t byte, p []byte) error {
 	return wire.WriteFrame(c.rw, t, p)
 }
 
-// Close marks the channel closed and ends the handler's context; once rw is
+// Close marks the channel closed and ends the handler's context with a
+// core.ChannelClosed cause holding reason; once rw is
 // accepted it also writes the close frame, waiting at most closeWriteWait
 // when rw has write deadlines, and closes rw. Later calls do nothing.
 func (c *channelConn) Close(reason string) error {
@@ -270,7 +271,7 @@ func (c *channelConn) Close(reason string) error {
 	c.closed, c.reason = true, reason
 	accepted := c.accepted
 	c.mu.Unlock()
-	c.cancel()
+	c.cancel(&core.ChannelClosed{Reason: reason})
 	if !accepted {
 		return nil
 	}

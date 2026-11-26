@@ -271,6 +271,9 @@ func newAgentRunCmd() *cobra.Command {
 				Updater:        host.Updater,
 				NeverConnected: neverConnected,
 			}
+			if scopes, ok := host.Systemd.(platform.ScopeStarter); ok {
+				cfg.Runtime.Shell = platform.NewShell(scopes)
+			}
 			if dev {
 				// The development agent runs as the invoking user, whose own
 				// CLI must reach the socket.
@@ -283,6 +286,8 @@ func newAgentRunCmd() *cobra.Command {
 				// The policy file is root's and the production host's; the
 				// development agent denies nothing.
 				cfg.Runtime.PolicyFile = ""
+				// A terminal is root's shell on the production host.
+				cfg.Runtime.Shell = nil
 			}
 			return errors.Join(startupCancelled(ctx, daemonRun(ctx, cfg)), host.Close())
 		},

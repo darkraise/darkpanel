@@ -69,6 +69,13 @@ type ChannelConn interface {
 	Close(reason string) error
 }
 
+// ChannelClosed is the cause of a channel handler's context once the agent
+// closed the channel (context.Cause): Reason is the close reason the peer
+// was sent.
+type ChannelClosed struct{ Reason string }
+
+func (e *ChannelClosed) Error() string { return "channel closed: " + e.Reason }
+
 // DefineChannel builds a ChannelDef from typed parameters. Open decodes the
 // parameters like an action input, refusing unknown members.
 func DefineChannel[P any](name string, open func(ctx context.Context, env Env, p P, c ChannelConn) error) ChannelDef {

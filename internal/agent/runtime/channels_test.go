@@ -75,7 +75,7 @@ func (m chModule) Channels() []core.ChannelDef {
 		}),
 		core.DefineChannel("holder", func(ctx context.Context, _ core.Env, _ chParams, _ core.ChannelConn) error {
 			<-ctx.Done()
-			m.ended <- ctx.Err()
+			m.ended <- context.Cause(ctx)
 			return nil
 		}),
 	}
@@ -208,13 +208,14 @@ func wantClose(t *testing.T, rw io.Reader, reason string, limit time.Duration) {
 	}
 }
 
-func (f *chFixture) wantEnded(limit time.Duration) {
+func (f *chFixture) wantEnded(limit time.Duration) error {
 	f.t.Helper()
 	select {
 	case err := <-f.ended:
-		_ = err // the handler's own end: a read error or nil
+		return err // the handler's own end: a read error, its context's cause or nil
 	case <-time.After(limit):
 		f.t.Fatalf("the module's handler did not end within %s", limit)
+		return nil
 	}
 }
 
@@ -298,7 +299,7 @@ func TestBadFrameCloses(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantClose(t, rw, runtime.CloseBadFrame, 2*time.Second)
-			f.wantEnded(2 * time.Second)
+			_ = f.wantEnded(2 * time.Second)
 		})
 		t.Run("client reads "+tc.name, func(t *testing.T) {
 			got := make(chan []byte, 1)
@@ -380,7 +381,7 @@ func TestChannelNotGuarded(t *testing.T) {
 	case <-time.After(time.Second - time.Since(start)):
 		t.Fatal("Runtime.Close did not return within 1 s of an open channel")
 	}
-	f.wantEnded(time.Second)
+	_ = f.wantEnded(time.Second)
 	_, err = f.client.OpenChannel(ctx, chUser, "test", "holder", nil)
 	wantCode(t, err, errcode.Unavailable)
 }
@@ -413,7 +414,10 @@ func TestModuleDisableClosesChannels(t *testing.T) {
 			rw := f.open("holder", nil)
 			tc.off(t, f)
 			wantClose(t, rw, runtime.CloseModuleOff, 2*time.Second)
-			f.wantEnded(2 * time.Second)
+			var cc *core.ChannelClosed
+			if cause := f.wantEnded(2 * time.Second); !errors.As(cause, &cc) || cc.Reason != runtime.CloseModuleOff {
+				t.Errorf("the handler's context ended with %v, want the close reason as its cause", cause)
+			}
 			_, err := f.client.OpenChannel(context.Background(), chUser, "console", "holder", nil)
 			wantCode(t, err, tc.code)
 		})

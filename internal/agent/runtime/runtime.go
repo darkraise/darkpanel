@@ -20,6 +20,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/core/store"
@@ -71,6 +72,10 @@ type Config struct {
 	// PolicyOwner is the uid that must own PolicyFile: root, 0, in
 	// production; tests that do not run as root set their own.
 	PolicyOwner uint32
+	// Shell starts the console's root shells, platform.NewShell in
+	// production; nil refuses every terminal. The console's Env.Shell
+	// reaches it only through the runtime's flag and policy check.
+	Shell core.ShellStarter
 }
 
 func (c Config) check() error {
@@ -326,7 +331,52 @@ var lookupHost = net.DefaultResolver.LookupHost
 
 // withProviders adds module's own providers to env.
 func (r *Runtime) withProviders(module string, env core.Env) core.Env {
-	return ModuleProviders(r.cfg.ControllerAddress, r.cfg.Log)(module, env)
+	env = ModuleProviders(r.cfg.ControllerAddress, r.cfg.Log)(module, env)
+	if module == consoleModule {
+		env.Shell = shellGuard{r: r, module: module}
+		env.Journal = moduleJournal{r: r}
+	}
+	return env
+}
+
+// consoleModule is the one module whose Env carries a shell and the module
+// journal.
+const consoleModule = "console"
+
+// shellGuard is the console's Env.Shell: each Start first checks, as the
+// call is made, that the policy file does not deny the module and that its
+// enabled flag is 1, so a shell never starts for a module turned off.
+type shellGuard struct {
+	r      *Runtime
+	module string
+}
+
+func (g shellGuard) Start(ctx context.Context, cols, rows uint16) (core.ShellSession, error) {
+	if g.r.Policy().Denied(g.module) {
+		return nil, deniedError(g.module)
+	}
+	enabled, err := g.r.moduleEnabled(ctx, g.module)
+	if err != nil {
+		return nil, err
+	}
+	if !enabled {
+		return nil, errcode.New(errcode.ModuleUnavailable, fmt.Sprintf("module %s is unavailable: it is disabled on this host", g.module))
+	}
+	if g.r.cfg.Shell == nil {
+		return nil, errcode.New(errcode.Unavailable, "this agent cannot start a terminal")
+	}
+	return g.r.cfg.Shell.Start(ctx, cols, rows)
+}
+
+// moduleJournal is a module's Env.Journal: one entry per transaction
+// through the agent journal the lifecycle appends to.
+type moduleJournal struct{ r *Runtime }
+
+func (j moduleJournal) Record(ctx context.Context, e core.JournalEntry) error {
+	if e.At.IsZero() {
+		e.At = j.r.cfg.Clock.Now()
+	}
+	return j.r.cfg.DB.Write(ctx, func(tx *sql.Tx) error { return j.r.journal.Append(ctx, tx, e) })
 }
 
 // homeModule is the one module whose Env carries the users' authorized

@@ -14,7 +14,7 @@ import (
 func TestChannelConnClosed(t *testing.T) {
 	agentEnd, peer := net.Pipe()
 	defer func() { _ = peer.Close() }()
-	c := &channelConn{rw: agentEnd, cancel: func() {}, accepted: true}
+	c := &channelConn{rw: agentEnd, cancel: func(error) {}, accepted: true}
 	got := make(chan []byte, 1)
 	go func() {
 		b, _ := io.ReadAll(peer)

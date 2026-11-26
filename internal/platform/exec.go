@@ -25,7 +25,11 @@ const maxExecArg = 4096
 
 // environment is the base environment of every program; a rule adds its Env
 // and nothing is inherited from the agent's own (ADR 0009).
-var environment = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C.UTF-8", "LC_ALL=C.UTF-8"}
+var environment = []string{"PATH=" + fixedPath, "LANG=C.UTF-8", "LC_ALL=C.UTF-8"}
+
+// fixedPath is the PATH of every program the agent runs, the console's
+// shell included.
+const fixedPath = "/usr/sbin:/usr/bin:/sbin:/bin"
 
 var errOutputTooLarge = errors.New("output too large")
 

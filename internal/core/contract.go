@@ -165,6 +165,37 @@ type Env struct {
 	ControllerAddrs []string
 	// Home reads and writes the users' authorized keys; set for module users.
 	Home HomeFiles
+	// Shell starts root's login shell on a new terminal; set for module
+	// console. It refuses while the module is off or denied by the policy file.
+	Shell ShellStarter
+	// Journal records a module's own audit entries in the agent journal,
+	// which the controller ingests like change entries; set for module
+	// console.
+	Journal ModuleJournal
+}
+
+// ShellStarter starts root's login shell on a new terminal of cols by rows
+// (ADR 0020): the one way to run a program outside the exec allowlist.
+type ShellStarter interface {
+	Start(ctx context.Context, cols, rows uint16) (ShellSession, error)
+}
+
+// ShellSession is a running shell's terminal. Read returns io.EOF once the
+// terminal hung up. Close hangs the terminal up and returns once the shell
+// exited, killing it when it outlives the hang-up. Wait returns the shell's
+// exit code, 128 plus the signal for a shell a signal ended.
+type ShellSession interface {
+	Read(p []byte) (int, error)
+	Write(p []byte) (int, error)
+	Resize(cols, rows uint16) error
+	Close() error
+	Wait() (exitCode int, err error)
+}
+
+// ModuleJournal appends one entry, with its At, Actor, Action, Phase, Input
+// and Source as given, to the agent journal in a transaction of its own.
+type ModuleJournal interface {
+	Record(ctx context.Context, e JournalEntry) error
 }
 
 // HomeFiles reads and writes ~user/.ssh/authorized_keys with sshd's

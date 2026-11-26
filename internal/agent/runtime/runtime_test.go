@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
 )
 
@@ -185,4 +187,75 @@ func TestPurgeRunsEveryIntervalUntilClose(t *testing.T) {
 		t.Errorf("armed timers after Close = %d, want 0", p)
 	}
 	f.rt.Close() // a second Close is harmless
+}
+
+// countingShell is Config.Shell; it counts the shells it was asked for.
+type countingShell struct{ n atomic.Int32 }
+
+func (s *countingShell) Start(context.Context, uint16, uint16) (core.ShellSession, error) {
+	s.n.Add(1)
+	return nil, nil
+}
+
+func TestShellWrapperRefuses(t *testing.T) {
+	f, _, _ := policyFixture(t, "")
+	sh := &countingShell{}
+	f.shell = sh
+	f.restart()
+	ctx := context.Background()
+	start := func() error {
+		t.Helper()
+		_, err := f.rt.moduleEnv("console").Shell.Start(ctx, 80, 24)
+		return err
+	}
+	if env := f.rt.moduleEnv("jobs"); env.Shell != nil || env.Journal != nil {
+		t.Error("a module other than console has a shell or the module journal")
+	}
+	wantRefused := func(why string, code errcode.Code, calls int32) {
+		t.Helper()
+		if err := start(); errcode.From(err).Code != code {
+			t.Errorf("%s: Start = %v, want %s", why, err, code)
+		}
+		if n := sh.n.Load(); n != calls {
+			t.Errorf("%s: the platform shell was asked %d times, want %d", why, n, calls)
+		}
+	}
+	wantRefused("flag 0", errcode.ModuleUnavailable, 0)
+	if err := f.rt.SetModuleEnabled(ctx, "console", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := start(); err != nil || sh.n.Load() != 1 {
+		t.Fatalf("enabled: Start = %v after %d calls, want the platform shell", err, sh.n.Load())
+	}
+	writePolicy(t, f.dir, `{"denyModules":["console"]}`, 0o644)
+	if err := f.rt.ReloadPolicy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	wantRefused("denied by the policy file", errcode.ModuleUnavailable, 1)
+	writePolicy(t, f.dir, `{"denyModules":[]}`, 0o644)
+	f.shell = nil
+	f.restart()
+	wantRefused("no platform shell", errcode.Unavailable, 1)
+}
+
+func TestModuleJournal(t *testing.T) {
+	f, _, _ := policyFixture(t, "")
+	ctx := context.Background()
+	e := core.JournalEntry{
+		Actor: "user:a", Action: "console.terminal.open", Version: 1, Phase: "open",
+		Input: json.RawMessage(`{"source":"192.0.2.1"}`), Result: "ok", Source: "192.0.2.1",
+	}
+	if err := f.rt.moduleEnv("console").Journal.Record(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	es, err := f.rt.Journal(ctx, 0, 0)
+	if err != nil || len(es) == 0 {
+		t.Fatalf("Journal = %v, %v", es, err)
+	}
+	got := es[len(es)-1]
+	e.Seq, e.At = got.Seq, t0
+	if !got.At.Equal(t0) || got.Seq == 0 || got.Actor != e.Actor || got.Action != e.Action || got.Phase != e.Phase ||
+		string(got.Input) != string(e.Input) || got.Source != e.Source || got.Result != e.Result {
+		t.Errorf("journal entry = %+v, want %+v at the runtime's clock", got, e)
+	}
 }
