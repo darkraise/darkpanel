@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/platform/netfilter"
 )
 
@@ -43,13 +44,14 @@ func otherVariant(v string) string {
 // foreign returns the reasons foreign netfilter hooks make the host
 // unsupported (spec 2.1): any rule, or a policy other than ACCEPT, in the
 // other iptables variant's tables, and any native nftables base chain with
-// a rule or a policy other than accept.
+// a rule or a policy other than accept, except fail2ban's table in exactly
+// the shape its actions create, which is returned as a neighbour (M11 spec 4).
 //
 // The legacy tables are read only when iptables-nft-save warned that some
 // exist, since it reads the same kernel list, and then only the listed
 // ones. Nothing nftables is read while nf_tables is not loaded: there is
 // nothing to read, and asking would make the kernel load the module.
-func foreign(ctx context.Context, x core.Runner, procNet string, nftLoaded bool, fams []famState) ([]string, error) {
+func foreign(ctx context.Context, x core.Runner, procNet string, nftLoaded bool, fams []famState) ([]string, []fwstate.Neighbour, error) {
 	var reasons []string
 	covered := map[nftTable]bool{}
 	for _, s := range fams {
@@ -59,7 +61,7 @@ func foreign(ctx context.Context, x core.Runner, procNet string, nftLoaded bool,
 		case other == variantLegacy && s.rs.LegacyPresent:
 			t, err := legacyTables(procNet, s.f)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			tables = t
 		case other == variantNFT && nftLoaded:
@@ -72,18 +74,18 @@ func foreign(ctx context.Context, x core.Runner, procNet string, nftLoaded bool,
 		}
 		rs, err := saveTables(ctx, x, s.f.tool, other, tables)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		reasons = append(reasons, foreignTables(s.f.tool+"-"+other, s.variant, rs)...)
 	}
 	if !nftLoaded {
-		return reasons, nil
+		return reasons, nil, nil
 	}
-	native, err := nativeTables(ctx, x, covered)
+	native, neighbours, err := nativeTables(ctx, x, covered)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return append(reasons, native...), nil
+	return append(reasons, native...), neighbours, nil
 }
 
 // foreignTables names every table, chain and policy of the other variant
@@ -110,14 +112,15 @@ func foreignTables(tool, variant string, rs *netfilter.Ruleset) []string {
 
 // nativeTables lists the nftables tables and reads each one that no save
 // tool has read. A name nft could take for an option is never passed to it.
-func nativeTables(ctx context.Context, x core.Runner, covered map[nftTable]bool) ([]string, error) {
+func nativeTables(ctx context.Context, x core.Runner, covered map[nftTable]bool) ([]string, []fwstate.Neighbour, error) {
 	out, err := run(ctx, x, "/usr/sbin/nft", "list", "tables")
 	if errors.Is(err, fs.ErrNotExist) {
-		return []string{nftMissing}, nil
+		return []string{nftMissing}, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	var neighbours []fwstate.Neighbour
 	tables, bad := parseNFTTables(out)
 	var reasons []string
 	for _, line := range bad {
@@ -133,7 +136,13 @@ func nativeTables(ctx context.Context, x core.Runner, covered map[nftTable]bool)
 		}
 		out, err := run(ctx, x, "/usr/sbin/nft", "list", "table", t.Family, t.Name)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		if t == f2bTable {
+			if n, ok := parseF2B(out); ok {
+				neighbours = append(neighbours, fwstate.Neighbour{Kind: "fail2ban", Banned: n.Banned})
+				continue
+			}
 		}
 		chains, err := parseNFTTable(out)
 		if err != nil {
@@ -151,5 +160,5 @@ func nativeTables(ctx context.Context, x core.Runner, covered map[nftTable]bool)
 			}
 		}
 	}
-	return reasons, nil
+	return reasons, neighbours, nil
 }

@@ -1028,6 +1028,9 @@ Returned in the `output` field of the response.
 | `loaded.ipv6` | boolean | yes |  |
 | `loaded.sysctl` | map of string | yes |  |
 | `loaded.variant` | string | yes |  |
+| `neighbours` | array of object | yes |  |
+| `neighbours[].banned` | integer | yes |  |
+| `neighbours[].kind` | string | yes | Values: fail2ban. |
 | `outOfSync` | array of object | yes |  |
 | `outOfSync[].chain` | string | yes |  |
 | `outOfSync[].family` | string | yes |  |

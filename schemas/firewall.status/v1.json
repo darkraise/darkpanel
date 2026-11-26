@@ -144,6 +144,24 @@
           "chains"
         ]
       },
+      "Neighbour": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "fail2ban"
+            ]
+          },
+          "banned": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "banned"
+        ]
+      },
       "Rule": {
         "properties": {
           "id": {
@@ -293,6 +311,12 @@
           "loaded": {
             "$ref": "#/$defs/LoadedState"
           },
+          "neighbours": {
+            "items": {
+              "$ref": "#/$defs/Neighbour"
+            },
+            "type": "array"
+          },
           "rules": {
             "items": {
               "$ref": "#/$defs/Rule"
@@ -309,6 +333,7 @@
           "outOfSync",
           "configured",
           "loaded",
+          "neighbours",
           "rules"
         ]
       }

@@ -127,11 +127,12 @@ func (r Reader) read(ctx context.Context, env core.Env, procNet string) (fwstate
 	if nftLoaded == nil {
 		nftLoaded = nfTablesLoaded
 	}
-	reasons, err := foreign(ctx, env.Exec, procNet, nftLoaded(), fams)
+	reasons, neighbours, err := foreign(ctx, env.Exec, procNet, nftLoaded(), fams)
 	if err != nil {
 		return fwstate.Loaded{}, err
 	}
 	st.Unsupported = append(st.Unsupported, reasons...)
+	st.Neighbours = neighbours
 	interfaces := r.Interfaces
 	if interfaces == nil {
 		interfaces = netstat.Interfaces

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
@@ -133,5 +134,30 @@ func TestUFWChainsLoaded(t *testing.T) {
 	}
 	if ufwRunning(fwstate.Loaded{}) || !ufwNeverStarted(fwstate.Loaded{}) {
 		t.Error("no ruleset reads as running")
+	}
+}
+
+// TestStatusNeighbours: a recognised foreign table, such as fail2ban's, is
+// listed as a neighbour and leaves the host supported.
+func TestStatusNeighbours(t *testing.T) {
+	h := newFakeHost(t)
+	b, err := json.Marshal(suStatus(t, h))
+	if err != nil || !strings.Contains(string(b), `"neighbours":[]`) {
+		t.Errorf("status without neighbours: %s, %v", b, err)
+	}
+	d := h.deps()
+	read := d.readLoaded
+	d.readLoaded = func(ctx context.Context, env core.Env) (fwstate.Loaded, error) {
+		st, err := read(ctx, env)
+		st.Neighbours = []fwstate.Neighbour{{Kind: "fail2ban", Banned: 1}}
+		return st, err
+	}
+	st, err := fw{d: d}.status(context.Background(), h.env())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err = json.Marshal(st)
+	if err != nil || !strings.Contains(string(b), `"neighbours":[{"kind":"fail2ban","banned":1}]`) || !st.Supported {
+		t.Errorf("status: %s, %v; want the fail2ban neighbour and supported", b, err)
 	}
 }

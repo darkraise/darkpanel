@@ -12435,6 +12435,24 @@
         ],
         "type": "object"
       },
+      "firewall.status.output.Neighbour": {
+        "properties": {
+          "banned": {
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "fail2ban"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "banned"
+        ],
+        "type": "object"
+      },
       "firewall.status.output.Rule": {
         "properties": {
           "action": {
@@ -12566,6 +12584,12 @@
           "loaded": {
             "$ref": "#/components/schemas/firewall.status.output.LoadedState"
           },
+          "neighbours": {
+            "items": {
+              "$ref": "#/components/schemas/firewall.status.output.Neighbour"
+            },
+            "type": "array"
+          },
           "outOfSync": {
             "items": {
               "$ref": "#/components/schemas/firewall.status.output.ChainDifference"
@@ -12599,6 +12623,7 @@
           "outOfSync",
           "configured",
           "loaded",
+          "neighbours",
           "rules"
         ],
         "type": "object"

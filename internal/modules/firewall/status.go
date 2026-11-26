@@ -22,10 +22,19 @@ type Status struct {
 	SyncError   string            `json:"syncError,omitempty"`
 	Configured  Configured        `json:"configured"`
 	Loaded      LoadedState       `json:"loaded"`
+	// Neighbours are foreign tables the firewall recognises and leaves
+	// alone, such as fail2ban's; they do not make the host unsupported.
+	Neighbours []Neighbour `json:"neighbours"`
 	// Rules are UFW's rules in its order (model.Merge): Darkpanel's carry
 	// origin darkpanel, the others manual; a manual rule the model cannot
 	// express carries only its id, origin and raw tuple, and is read-only.
 	Rules []model.Rule `json:"rules"`
+}
+
+// Neighbour is one recognised foreign table.
+type Neighbour struct {
+	Kind   string `json:"kind" jsonschema:"enum=fail2ban"`
+	Banned int    `json:"banned"` // addresses it bans
 }
 
 // Configured is UFW's configured state (spec 2.1).
@@ -94,6 +103,10 @@ func (f fw) status(ctx context.Context, env core.Env) (Status, error) {
 	}
 	if st.Rules == nil {
 		st.Rules = []model.Rule{}
+	}
+	st.Neighbours = []Neighbour{}
+	for _, n := range cur.Neighbours {
+		st.Neighbours = append(st.Neighbours, Neighbour{Kind: n.Kind, Banned: n.Banned})
 	}
 	if st.Loaded.Sysctl == nil {
 		st.Loaded.Sysctl = map[string]string{}

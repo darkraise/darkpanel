@@ -60,6 +60,14 @@ type Loaded struct {
 	V4, V6      *netfilter.Ruleset // that variant's five tables; V6 nil when ip6tables is absent
 	Sysctl      map[string]string  // supported keys in /proc/sys form to value, global and per present interface
 	Unsupported []string           // foreign netfilter hooks found (2.1)
+	Neighbours  []Neighbour        // foreign tables known to be harmless, left out of Unsupported
+}
+
+// Neighbour is a foreign nftables table the firewall recognises and leaves
+// alone: fail2ban's, which only drops or rejects the addresses it banned.
+type Neighbour struct {
+	Kind   string // "fail2ban"
+	Banned int    // the addresses it holds
 }
 
 // Transition is what an action makes UFW do (spec 2.3).
