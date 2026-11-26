@@ -5,13 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/netip"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
@@ -439,7 +442,7 @@ func TestEaNPMSteps(t *testing.T) {
 			eaWantStep(t, steps[5], "proxy", eaHost, "npm.proxyhost.add/v1", []string{"cert"})
 			wantProxy := npm.ProxyHostInput{
 				Domains: []string{eaName}, ForwardScheme: "https", ForwardHost: eaGateway.String(), ForwardPort: int(tc.want),
-				CertificateID: 42, SSLForced: true, HSTS: true,
+				CertificateID: 42, SSLForced: true, HSTS: true, Websockets: true,
 			}
 			if got := eaStrict[npm.ProxyHostInput](t, resolve(5)); !reflect.DeepEqual(got, wantProxy) {
 				t.Errorf("proxy input %+v, want %+v", got, wantProxy)
@@ -572,4 +575,186 @@ func TestEaOutput(t *testing.T) {
 			t.Errorf("output without the %s step: %v, want an error naming it", missing, err)
 		}
 	}
+}
+
+// rwStatus is the live exposure as panel.exposure.status answers it.
+func rwStatus(t *testing.T, r *lsRig) *ExposureView {
+	t.Helper()
+	raw, err := statusAction().Handler.Read(context.Background(), r.env(core.CallContext{}, ""), lsEmptyInput)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	return lsDecode[StatusOutput](t, raw).Exposure
+}
+
+// rwMigratedTunnel migrates a database to the module's first migration, stores an NPM and a tunnel exposure there, as
+// a controller did before the websockets column existed, then runs every migration.
+func rwMigratedTunnel(t *testing.T) map[string]bool {
+	t.Helper()
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := store.Open(ctx, filepath.Join(dir, "controller.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	coreSet, err := store.CoreMigrations(store.SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := fs.ReadFile(controllerMigrations(), "0001_panel.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrate := func(set fs.FS) {
+		t.Helper()
+		res, err := store.Migrate(ctx, db, store.MigrateOptions{
+			Side: store.SideController, BinaryVersion: "test", BackupRoot: filepath.Join(dir, "backups"), Keep: 5, Now: fdNow,
+		}, coreSet, []store.MigrationSet{{Module: ID, FS: set}})
+		if err != nil || len(res.Failed) > 0 {
+			t.Fatalf("migrate: %v %+v", err, res.Failed)
+		}
+	}
+	migrate(fstest.MapFS{"0001_panel.sql": {Data: first}})
+	for _, via := range []string{ViaNPM, ViaTunnel} {
+		fdExec(t, db, `INSERT INTO panel_exposures (id, via, hostname, host_id, tunnel, subnet, gateway, proxy, port, listener_id,
+			rule_id, state, created_at, updated_at) VALUES (?, ?, ?, 'h1', '', '172.31.255.248/29', '172.31.255.249',
+			'172.31.255.250', 9443, 'l1', 'r1', 'revoked', ?, ?)`, via, via, lsName, fdStamp(fdNow), fdStamp(fdNow))
+	}
+	migrate(controllerMigrations())
+	got := map[string]bool{}
+	rows, err := db.Read().QueryContext(ctx, `SELECT via, websockets FROM panel_exposures`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var via string
+		var ws bool
+		if err := rows.Scan(&via, &ws); err != nil {
+			t.Fatal(err)
+		}
+		got[via] = ws
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// TestRepairWebSockets: an NPM exposure made before exposures asked for WebSocket upgrades reports websockets false;
+// the repair turns them on through npm.proxyhost.websockets on the exposure's host and then records them, after which
+// the status reports true; the repair refuses an absent, tunnel or not-open exposure; an exposure opened now, and a
+// tunnel exposure after the migration, report true.
+func TestRepairWebSockets(t *testing.T) {
+	ctx := context.Background()
+	empty := json.RawMessage(`{}`)
+	repairCall := core.CallContext{ParentChangeID: lsOther, ParentAction: ActionWSRepair, StepID: "record"}
+
+	t.Run("an old NPM exposure is repaired", func(t *testing.T) {
+		r := lsNewRig(t)
+		r.expose(StateOpen, "", core.ListenerOpen)
+		if v := rwStatus(t, r); v == nil || v.Websockets {
+			t.Fatalf("status %+v, want an exposure without websockets", v)
+		}
+		steps, err := websocketsRepairAction().Handler.Steps(ctx, r.env(core.CallContext{}, ""), empty)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(steps) != 2 {
+			t.Fatalf("steps %+v, want proxy then record", steps)
+		}
+		eaWantStep(t, steps[0], "proxy", lsHost, "npm.proxyhost.websockets/v1", nil)
+		if got := eaStrict[npm.ProxyHostWebsocketsInput](t, steps[0].Input); got != (npm.ProxyHostWebsocketsInput{Domain: lsName, Websockets: true}) {
+			t.Errorf("proxy input %+v, want the hostname with websockets on", got)
+		}
+		eaWantStep(t, steps[1], "record", "", ActionWSRecord+"/v1", []string{"proxy"})
+		if string(steps[1].Input) != "{}" {
+			t.Errorf("record input %s, want {}", steps[1].Input)
+		}
+		def, ok := eaDef(t, "npm.proxyhost.websockets")
+		if !ok || def.Spec.Side != core.SideAgent || def.Spec.Class != core.ClassCompensable || def.Handler.Inverse == nil {
+			t.Errorf("npm.proxyhost.websockets declared %v: %+v, want a compensable agent action with an undo", ok, def.Spec)
+		}
+		if err := schema.NewValidator().ValidateInput(def, steps[0].Input); err != nil {
+			t.Errorf("proxy input %s is invalid for npm.proxyhost.websockets: %v", steps[0].Input, err)
+		}
+
+		record := websocketsRecordAction()
+		if _, err := record.Handler.Apply(ctx, r.env(core.CallContext{}, ""), empty); errcode.From(err).Code != errcode.InvalidInput || !core.IsDefinite(err) {
+			t.Errorf("record outside the repair = %v, want a definite request.invalid_input", err)
+		}
+		if v := rwStatus(t, r); v.Websockets {
+			t.Fatal("a refused record set websockets")
+		}
+		plan, err := record.Handler.Plan(ctx, r.env(repairCall, ""), empty)
+		if err != nil || len(plan.Diff) != 2 {
+			t.Errorf("record plan %+v (%v), want the flag's line pair", plan, err)
+		}
+		out, err := record.Handler.Apply(ctx, r.env(repairCall, ""), empty)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := lsDecode[ExposureView](t, out); !got.Websockets || got.ID != lsAdd {
+			t.Errorf("record output %+v, want exposure %s with websockets", got, lsAdd)
+		}
+		if v := rwStatus(t, r); !v.Websockets {
+			t.Errorf("status %+v after the record, want websockets", v)
+		}
+		if err := record.Handler.Verify(ctx, r.env(repairCall, ""), empty, out); err != nil {
+			t.Errorf("verify: %v", err)
+		}
+		plan, err = record.Handler.Plan(ctx, r.env(repairCall, ""), empty)
+		if err != nil || len(plan.Diff) != 0 {
+			t.Errorf("record plan after the record %+v (%v), want an empty diff", plan, err)
+		}
+		view, err := websocketsRepairAction().Handler.Output(ctx, r.env(core.CallContext{}, ""), empty, nil)
+		if err != nil || !lsDecode[ExposureView](t, view).Websockets {
+			t.Errorf("repair output %s (%v), want the exposure with websockets", view, err)
+		}
+	})
+
+	for _, tc := range []struct {
+		name  string
+		setup func(r *lsRig)
+		code  errcode.Code
+	}{
+		{"no exposure", func(*lsRig) {}, errcode.PanelNotExposed},
+		{"a gone exposure", func(r *lsRig) {
+			fdInsertChange(t, r.db, lsRemove, ActionRemove, "completed")
+			fdInsertExposure(t, r.db, lsRow(lsAdd, StateRevoked, lsRemove))
+		}, errcode.PanelNotExposed},
+		{"a tunnel exposure", func(r *lsRig) {
+			row := lsRow(lsAdd, StateOpen, "")
+			row.Via, row.Tunnel = ViaTunnel, lsTunnel
+			fdInsertExposure(t, r.db, row)
+		}, errcode.InvalidInput},
+		{"a revoked exposure", func(r *lsRig) { r.expose(StateRevoked, "", core.ListenerClosed) }, errcode.InvalidInput},
+		{"an exposure that needs repair", func(r *lsRig) { r.expose(StateNeedsRepair, "", core.ListenerClosed) }, errcode.InvalidInput},
+	} {
+		t.Run("refuses "+tc.name, func(t *testing.T) {
+			r := lsNewRig(t)
+			tc.setup(r)
+			steps, err := websocketsRepairAction().Handler.Steps(ctx, r.env(core.CallContext{}, ""), empty)
+			if errcode.From(err).Code != tc.code || !core.IsDefinite(err) || steps != nil {
+				t.Errorf("steps %+v, error %v; want a definite %s", steps, err, tc.code)
+			}
+		})
+	}
+
+	t.Run("an exposure opened now passes upgrades", func(t *testing.T) {
+		r := lsNewRig(t)
+		if _, err := listenerOpenAction().Handler.Apply(ctx, r.env(lsAddCall, lsChild), lsJSON(t, lsOpenInput(ViaNPM))); err != nil {
+			t.Fatal(err)
+		}
+		if v := rwStatus(t, r); v == nil || !v.Websockets {
+			t.Errorf("status %+v, want websockets", v)
+		}
+	})
+
+	t.Run("the migration marks tunnel exposures", func(t *testing.T) {
+		if got := rwMigratedTunnel(t); len(got) != 2 || got[ViaNPM] || !got[ViaTunnel] {
+			t.Errorf("websockets by way in %v, want npm false and tunnel true", got)
+		}
+	})
 }

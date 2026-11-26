@@ -17901,6 +17901,9 @@
           },
           "via": {
             "type": "string"
+          },
+          "websockets": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -17914,6 +17917,7 @@
           "port",
           "state",
           "listenerId",
+          "websockets",
           "createdAt"
         ],
         "type": "object"
@@ -18079,6 +18083,162 @@
         "required": [
           "network",
           "removed"
+        ],
+        "type": "object"
+      },
+      "panel.websockets.record.v1.input": {
+        "$ref": "#/components/schemas/panel.websockets.record.v1.input.WebsocketsRecordInput"
+      },
+      "panel.websockets.record.v1.input.WebsocketsRecordInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "panel.websockets.record.v1.output": {
+        "$ref": "#/components/schemas/panel.websockets.record.v1.output.ExposureView"
+      },
+      "panel.websockets.record.v1.output.ExposureView": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "gateway": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "hostId": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "listenerId": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "proxy": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "revoked",
+              "needs_repair"
+            ],
+            "type": "string"
+          },
+          "subnet": {
+            "format": "ip-prefix",
+            "type": "string"
+          },
+          "tunnel": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string"
+          },
+          "websockets": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "via",
+          "hostname",
+          "hostId",
+          "subnet",
+          "gateway",
+          "proxy",
+          "port",
+          "state",
+          "listenerId",
+          "websockets",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "panel.websockets.repair.v1.input": {
+        "$ref": "#/components/schemas/panel.websockets.repair.v1.input.WebsocketsRepairInput"
+      },
+      "panel.websockets.repair.v1.input.WebsocketsRepairInput": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "panel.websockets.repair.v1.output": {
+        "$ref": "#/components/schemas/panel.websockets.repair.v1.output.ExposureView"
+      },
+      "panel.websockets.repair.v1.output.ExposureView": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "gateway": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "hostId": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "listenerId": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "proxy": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "revoked",
+              "needs_repair"
+            ],
+            "type": "string"
+          },
+          "subnet": {
+            "format": "ip-prefix",
+            "type": "string"
+          },
+          "tunnel": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string"
+          },
+          "websockets": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "via",
+          "hostname",
+          "hostId",
+          "subnet",
+          "gateway",
+          "proxy",
+          "port",
+          "state",
+          "listenerId",
+          "websockets",
+          "createdAt"
         ],
         "type": "object"
       },
@@ -30073,6 +30233,180 @@
           }
         ],
         "summary": "Open the runtime listener that serves the exposed panel."
+      }
+    },
+    "/api/v1/actions/panel.websockets.record/v1/apply": {
+      "post": {
+        "operationId": "panel.websockets.record.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Record that the exposed panel passes WebSocket upgrades."
+      }
+    },
+    "/api/v1/actions/panel.websockets.record/v1/plan": {
+      "post": {
+        "operationId": "panel.websockets.record.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/panel.websockets.record.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Record that the exposed panel passes WebSocket upgrades."
+      }
+    },
+    "/api/v1/actions/panel.websockets.repair/v1/apply": {
+      "post": {
+        "operationId": "panel.websockets.repair.v1.apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn WebSocket upgrades on for the exposed panel's proxy host in Nginx Proxy Manager."
+      }
+    },
+    "/api/v1/actions/panel.websockets.repair/v1/plan": {
+      "post": {
+        "operationId": "panel.websockets.repair.v1.plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/panel.websockets.repair.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Turn WebSocket upgrades on for the exposed panel's proxy host in Nginx Proxy Manager."
       }
     },
     "/api/v1/actions/system.docker.install/v1/apply": {

@@ -62,6 +62,9 @@
           "listenerId": {
             "type": "string"
           },
+          "websockets": {
+            "type": "boolean"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -79,6 +82,7 @@
           "port",
           "state",
           "listenerId",
+          "websockets",
           "createdAt"
         ]
       },

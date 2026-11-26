@@ -144,7 +144,7 @@ func (addComposer) Steps(ctx context.Context, env core.Env, in ExposeInput) ([]c
 			template{"proxy", in.HostID, addProxyHost, map[string]any{
 				"domains": []string{"${input.hostname}"}, "forwardScheme": "https",
 				"forwardHost": "${steps.network.output.gateway}", "forwardPort": port,
-				"certificateId": "${steps.cert.output.id}", "sslForced": true, "hsts": true,
+				"certificateId": "${steps.cert.output.id}", "sslForced": true, "hsts": true, "websockets": true,
 			}},
 		)
 	}

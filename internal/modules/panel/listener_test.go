@@ -401,7 +401,7 @@ func TestLsOpenApply(t *testing.T) {
 			created, updated := row.CreatedAt, row.UpdatedAt
 			row.CreatedAt, row.UpdatedAt = fdNow, fdNow
 			want := lsRow(lsAdd, StateOpen, "")
-			want.Via, want.Tunnel = tc.via, in.Tunnel
+			want.Via, want.Tunnel, want.Websockets = tc.via, in.Tunnel, true
 			if row != want {
 				t.Errorf("exposure %+v, want %+v", row, want)
 			}

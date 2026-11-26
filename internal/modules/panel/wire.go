@@ -53,6 +53,10 @@ const (
 	ActionOpen = "panel.listener.open"
 	// ActionRevoke revokes the panel's listener.
 	ActionRevoke = "panel.listener.revoke"
+	// ActionWSRepair turns WebSocket upgrades on for an exposure made without them.
+	ActionWSRepair = "panel.websockets.repair"
+	// ActionWSRecord records that the live exposure passes WebSocket upgrades.
+	ActionWSRecord = "panel.websockets.record"
 )
 
 // PanelRange is the range the panel network's /29 is taken from.
@@ -152,6 +156,12 @@ type ListenerRevokeOutput struct {
 	Revoked    bool   `json:"revoked"` // false when the listener was already revoked or closed
 }
 
+// WebsocketsRepairInput is the input of panel.websockets.repair.
+type WebsocketsRepairInput struct{}
+
+// WebsocketsRecordInput is the input of panel.websockets.record.
+type WebsocketsRecordInput struct{}
+
 // StatusInput is the input of panel.exposure.status.
 type StatusInput struct{}
 
@@ -174,6 +184,7 @@ type ExposureView struct {
 	Port       int          `json:"port"`
 	State      string       `json:"state" jsonschema:"enum=open,enum=revoked,enum=needs_repair"`
 	ListenerID string       `json:"listenerId"`
+	Websockets bool         `json:"websockets"` // the exposure passes WebSocket upgrades
 	CreatedAt  time.Time    `json:"createdAt"`
 }
 

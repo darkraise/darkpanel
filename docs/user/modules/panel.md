@@ -85,12 +85,15 @@ When a step of `panel.exposure.remove` fails, you repair it with
 | `panel.exposure.status` | `darkpanel panel exposure status` | Shows whether the panel is exposed and how. | Nothing; it only reads. |
 | `panel.exposure.add` | `darkpanel panel exposure add` | Exposes the panel on the controller's host through Nginx Proxy Manager or a Cloudflare tunnel. | Your confirmation of the firewall rule. |
 | `panel.exposure.remove` | `darkpanel panel exposure remove` | Revokes the panel's listener, then removes its proxy host or hostname, attachment, network and firewall rule. | Your confirmation of the firewall change. |
+| `panel.websockets.repair` | `darkpanel panel websockets repair` | Turns WebSocket upgrades on for the proxy host of an exposure made through Nginx Proxy Manager before exposures asked for them, which the web terminal needs. | Nothing. Undo turns them off again. |
+| `panel.websockets.record` | `darkpanel panel websockets record` | Records that the exposed panel passes WebSocket upgrades. It runs only as a step of `panel.websockets.repair`. | Nothing. It is never reversed. |
 
 An action that runs on one host takes `--host <id or name>`; you can leave it
 out when you have only one host. These are `network create` and `network
 remove`. An action whose input names `hostId` takes `--host-id` and runs on the
 controller: `listener open` and `exposure add`. `exposure status`,
-`exposure remove` and `listener revoke` take no host. `--yes` skips the
+`exposure remove`, `listener revoke`, `websockets repair` and `websockets
+record` take no host. `--yes` skips the
 `Apply? [y/N]` question. `--local` sends an agent-side command to the agent
 socket of the host you are on, as root, when the controller cannot be reached.
 `listener revoke` is the exception to `--url`: it talks to the controller socket

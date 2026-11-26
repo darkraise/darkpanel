@@ -55,6 +55,8 @@ var rgActions = []rgAction{
 	{name: ActionStatus, class: core.ClassRead, side: core.SideController, in: rgType[StatusInput](), out: rgType[StatusOutput]()},
 	{name: ActionAdd, class: core.ClassComposite, side: core.SideController, locks: []string{"composite:panel"}, unwind: core.UnwindReverse, in: rgType[ExposeInput](), out: rgType[ExposeOutput]()},
 	{name: ActionRemove, class: core.ClassComposite, side: core.SideController, locks: []string{"composite:panel"}, unwind: core.UnwindForward, in: rgType[RemoveInput](), out: rgType[RemoveOutput]()},
+	{name: ActionWSRepair, class: core.ClassComposite, side: core.SideController, locks: []string{"composite:panel"}, unwind: core.UnwindReverse, in: rgType[WebsocketsRepairInput](), out: rgType[ExposureView]()},
+	{name: ActionWSRecord, class: core.ClassCompensable, side: core.SideController, locks: []string{"panel"}, converges: true, forwardOnly: true, in: rgType[WebsocketsRecordInput](), out: rgType[ExposureView]()},
 }
 
 func rgDefs(t *testing.T, m core.Module) map[string]core.ActionDef {
@@ -69,7 +71,7 @@ func rgDefs(t *testing.T, m core.Module) map[string]core.ActionDef {
 	return defs
 }
 
-// TestRgManifestDeclaresTheActions: the module declares the eight actions of the table, all version 1 and for
+// TestRgManifestDeclaresTheActions: the module declares the ten actions of the table, all version 1 and for
 // admins, each on its side under the panel lock (the composites under composite:panel, the reads under none), with the
 // class, handlers, flags and unwind policy of the table.
 func TestRgManifestDeclaresTheActions(t *testing.T) {
@@ -159,10 +161,12 @@ var rgSamples = map[string]any{
 	ActionConnCheck: ConnectorCheckInput{Tunnel: rgTunnel},
 	ActionOpen: ListenerOpenInput{Via: ViaNPM, Hostname: rgHostname, HostID: rgHostID, Subnet: rgSubnet, Gateway: rgGateway, Proxy: rgProxy,
 		Port: DefaultPort},
-	ActionRevoke: ListenerRevokeInput{},
-	ActionStatus: StatusInput{},
-	ActionAdd:    ExposeInput{Via: ViaTunnel, Hostname: rgHostname, HostID: rgHostID, Tunnel: rgTunnel, Port: 9444},
-	ActionRemove: RemoveInput{},
+	ActionRevoke:   ListenerRevokeInput{},
+	ActionStatus:   StatusInput{},
+	ActionAdd:      ExposeInput{Via: ViaTunnel, Hostname: rgHostname, HostID: rgHostID, Tunnel: rgTunnel, Port: 9444},
+	ActionRemove:   RemoveInput{},
+	ActionWSRepair: WebsocketsRepairInput{},
+	ActionWSRecord: WebsocketsRecordInput{},
 }
 
 func rgMembers(t *testing.T, v any) map[string]any {

@@ -59,7 +59,7 @@ func TestFdWireJSON(t *testing.T) {
 		State: StateOpen, ListenerID: "l1", CreatedAt: created,
 	}
 	const viewJSON = `{"id":"c1","via":"npm","hostname":"panel.example.org","hostId":"h1","subnet":"172.31.255.248/29",` +
-		`"gateway":"172.31.255.249","proxy":"172.31.255.250","port":9443,"state":"open","listenerId":"l1","createdAt":"2026-11-04T12:00:00Z"}`
+		`"gateway":"172.31.255.249","proxy":"172.31.255.250","port":9443,"state":"open","listenerId":"l1","websockets":false,"createdAt":"2026-11-04T12:00:00Z"}`
 	tests := []struct {
 		name string
 		v    any
@@ -96,7 +96,7 @@ func TestFdWireJSON(t *testing.T) {
 		{"status output with an exposure", StatusOutput{Exposed: true, Exposure: &view}, `{"exposed":true,"exposure":` + viewJSON + `}`},
 		{"exposure view of a tunnel", ExposureView{ID: "c2", Via: ViaTunnel, Tunnel: "t1", State: StateNeedsRepair},
 			`{"id":"c2","via":"tunnel","hostname":"","hostId":"","tunnel":"t1","subnet":"","gateway":"","proxy":"","port":0,` +
-				`"state":"needs_repair","listenerId":"","createdAt":"0001-01-01T00:00:00Z"}`},
+				`"state":"needs_repair","listenerId":"","websockets":false,"createdAt":"0001-01-01T00:00:00Z"}`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

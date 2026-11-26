@@ -9,6 +9,6 @@ func regActions(d agentDeps) []core.ActionDef {
 	return []core.ActionDef{
 		networkCreateAction(d), networkRemoveAction(d), connectorCheckAction(d),
 		listenerOpenAction(), listenerRevokeAction(), statusAction(),
-		exposureAddAction(), exposureRemoveAction(),
+		exposureAddAction(), exposureRemoveAction(), websocketsRepairAction(), websocketsRecordAction(),
 	}
 }

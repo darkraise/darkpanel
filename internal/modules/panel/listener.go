@@ -151,6 +151,8 @@ func (listenerOpenHandler) Apply(ctx context.Context, env core.Env, in ListenerO
 	row := exposureRow{
 		ID: id, Via: in.Via, Hostname: in.Hostname, HostID: in.HostID, Tunnel: in.Tunnel, Subnet: in.Subnet,
 		Gateway: in.Gateway, Proxy: in.Proxy, Port: in.Port, RuleID: RuleID(id), State: StateOpen, CreatedAt: now, UpdatedAt: now,
+		// Every exposure opened now passes upgrades: the add composite asks NPM for them, and a tunnel passes them.
+		Websockets: true,
 	}
 	state, err := listenerState(row)
 	if err != nil {

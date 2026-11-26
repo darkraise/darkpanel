@@ -48,6 +48,7 @@ type exposureRow struct {
 	Port                              int
 	ListenerID, RuleID, State         string
 	RemovalChangeID                   string
+	Websockets                        bool // the exposure passes WebSocket upgrades
 	CreatedAt, UpdatedAt              time.Time
 }
 
@@ -59,10 +60,10 @@ func liveExposure(ctx context.Context, q storeQueryer) (exposureRow, bool, error
 		created, updated       string
 	)
 	err := q.QueryRowContext(ctx, `SELECT e.id, e.via, e.hostname, e.host_id, e.tunnel, e.subnet, e.gateway, e.proxy, e.port,
-		e.listener_id, e.rule_id, e.state, e.removal_change_id, e.created_at, e.updated_at
+		e.listener_id, e.rule_id, e.state, e.removal_change_id, e.websockets, e.created_at, e.updated_at
 		FROM panel_exposures e WHERE NOT (`+GoneSQL+`) ORDER BY e.created_at, e.id LIMIT 1`).Scan(
 		&r.ID, &r.Via, &r.Hostname, &r.HostID, &r.Tunnel, &subnet, &gateway, &proxy, &r.Port,
-		&r.ListenerID, &r.RuleID, &r.State, &r.RemovalChangeID, &created, &updated)
+		&r.ListenerID, &r.RuleID, &r.State, &r.RemovalChangeID, &r.Websockets, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return exposureRow{}, false, nil
 	}
@@ -90,9 +91,9 @@ func liveExposure(ctx context.Context, q storeQueryer) (exposureRow, bool, error
 // insertExposure stores r.
 func insertExposure(ctx context.Context, tx *sql.Tx, r exposureRow) error {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO panel_exposures (id, via, hostname, host_id, tunnel, subnet, gateway, proxy, port,
-		listener_id, rule_id, state, removal_change_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		listener_id, rule_id, state, removal_change_id, websockets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.Via, r.Hostname, r.HostID, r.Tunnel, r.Subnet.String(), r.Gateway.String(), r.Proxy.String(), r.Port,
-		r.ListenerID, r.RuleID, r.State, r.RemovalChangeID,
+		r.ListenerID, r.RuleID, r.State, r.RemovalChangeID, r.Websockets,
 		r.CreatedAt.UTC().Format(storeTimeFormat), r.UpdatedAt.UTC().Format(storeTimeFormat)); err != nil {
 		return fmt.Errorf("panel: insert exposure %s: %w", r.ID, err)
 	}
@@ -118,6 +119,22 @@ func setExposureState(ctx context.Context, tx *sql.Tx, id, state, removalChangeI
 	return nil
 }
 
+// setExposureWebsockets records that exposure id passes WebSocket upgrades.
+func setExposureWebsockets(ctx context.Context, tx *sql.Tx, id string, at time.Time) error {
+	res, err := tx.ExecContext(ctx, `UPDATE panel_exposures SET websockets = 1, updated_at = ? WHERE id = ?`, at.UTC().Format(storeTimeFormat), id)
+	if err != nil {
+		return fmt.Errorf("panel: record exposure %s passes WebSockets: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("panel: record exposure %s passes WebSockets: %w", id, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("panel: exposure %s does not exist", id)
+	}
+	return nil
+}
+
 // deleteExposure deletes exposure id. There being none is not an error: the undo of a listener open may run twice.
 func deleteExposure(ctx context.Context, tx *sql.Tx, id string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM panel_exposures WHERE id = ?`, id); err != nil {
@@ -130,7 +147,8 @@ func deleteExposure(ctx context.Context, tx *sql.Tx, id string) error {
 func (r exposureRow) view() ExposureView {
 	return ExposureView{
 		ID: r.ID, Via: r.Via, Hostname: r.Hostname, HostID: r.HostID, Tunnel: r.Tunnel, Subnet: r.Subnet,
-		Gateway: r.Gateway, Proxy: r.Proxy, Port: r.Port, State: r.State, ListenerID: r.ListenerID, CreatedAt: r.CreatedAt,
+		Gateway: r.Gateway, Proxy: r.Proxy, Port: r.Port, State: r.State, ListenerID: r.ListenerID, Websockets: r.Websockets,
+		CreatedAt: r.CreatedAt,
 	}
 }
 

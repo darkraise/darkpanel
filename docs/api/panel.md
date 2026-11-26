@@ -183,3 +183,77 @@ Returned in the `output` field of the change that apply returns.
 |---|---|---|---|
 | `network` | string | yes |  |
 | `removed` | boolean | yes |  |
+
+## panel.websockets.record v1
+
+Record that the exposed panel passes WebSocket upgrades.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/panel.websockets.record/v1/plan` |
+| apply | `POST /api/v1/actions/panel.websockets.record/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `gateway` | string (ip-address) | yes |  |
+| `hostId` | string | yes |  |
+| `hostname` | string | yes |  |
+| `id` | string | yes |  |
+| `listenerId` | string | yes |  |
+| `port` | integer | yes |  |
+| `proxy` | string (ip-address) | yes |  |
+| `state` | string | yes | Values: open, revoked, needs_repair. |
+| `subnet` | string (ip-prefix) | yes |  |
+| `tunnel` | string | no |  |
+| `via` | string | yes |  |
+| `websockets` | boolean | yes |  |
+
+## panel.websockets.repair v1
+
+Turn WebSocket upgrades on for the exposed panel's proxy host in Nginx Proxy Manager.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/actions/panel.websockets.repair/v1/plan` |
+| apply | `POST /api/v1/actions/panel.websockets.repair/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+This action takes no input fields.
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `createdAt` | string (date-time) | yes |  |
+| `gateway` | string (ip-address) | yes |  |
+| `hostId` | string | yes |  |
+| `hostname` | string | yes |  |
+| `id` | string | yes |  |
+| `listenerId` | string | yes |  |
+| `port` | integer | yes |  |
+| `proxy` | string (ip-address) | yes |  |
+| `state` | string | yes | Values: open, revoked, needs_repair. |
+| `subnet` | string (ip-prefix) | yes |  |
+| `tunnel` | string | no |  |
+| `via` | string | yes |  |
+| `websockets` | boolean | yes |  |
