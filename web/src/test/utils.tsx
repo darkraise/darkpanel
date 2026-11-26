@@ -14,6 +14,8 @@ export interface FetchCall {
   path: string
   headers: Headers
   body: unknown
+  // raw is a body that is not a JSON string, such as a file's bytes.
+  raw?: BodyInit | null
 }
 
 export interface StubResponse {
@@ -24,8 +26,12 @@ export interface StubResponse {
 
 export type StubHandler = StubResponse | ((call: FetchCall) => StubResponse | Promise<StubResponse>)
 
+// A string body with a Content-Type that is not JSON goes as it is.
 function toResponse({ status = 200, body, headers = {} }: StubResponse): Response {
   const h = new Headers(headers)
+  if (typeof body === "string" && h.has("Content-Type") && !(h.get("Content-Type") ?? "").includes("json")) {
+    return new Response(body, { status, headers: h })
+  }
   if (body !== undefined && !h.has("Content-Type")) {
     h.set("Content-Type", status >= 400 ? "application/problem+json" : "application/json")
   }
@@ -45,6 +51,7 @@ export function stubFetch(routes: Record<string, StubHandler>): FetchCall[] {
         path: url.pathname + url.search,
         headers: new Headers(init?.headers),
         body: typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : undefined,
+        raw: typeof init?.body === "string" ? undefined : init?.body,
       }
       calls.push(call)
       const handler = routes[`${method} ${url.pathname}`]

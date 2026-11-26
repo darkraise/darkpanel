@@ -41,6 +41,7 @@ export const stepsQueryKey = (id: string) => ["steps", id] as const
 export const effectsQueryKey = (id: string) => ["effects", id] as const
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"])
+const UNREACHABLE = "The controller cannot be reached. Check that it is running."
 const SUCCESSFUL_STATES = new Set(["completed", "confirmed", "pending"])
 // A change ends in these states by a repair, an undo stopped at an accepted
 // effect or a release: outcomes an operator chose, although a repaired or
@@ -129,16 +130,73 @@ async function send<T>(method: string, path: string, body?: unknown, signal?: Ab
       signal,
     })
   } catch {
-    throw new ApiError(0, "network", "The controller cannot be reached. Check that it is running.")
+    throw new ApiError(0, "network", UNREACHABLE)
   }
-  if (!res.ok) {
-    const err = await problemFrom(res)
-    if (err.code === "auth.required" && startedIn === generation) unauthorizedHandler?.()
-    if (err.code === "auth.csrf") csrfRejectedHandler?.()
-    throw err
-  }
+  if (!res.ok) throw await refusal(res, startedIn)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
+}
+
+async function refusal(res: Response, startedIn: number): Promise<ApiError> {
+  const err = await problemFrom(res)
+  if (err.code === "auth.required" && startedIn === generation) unauthorizedHandler?.()
+  if (err.code === "auth.csrf") csrfRejectedHandler?.()
+  return err
+}
+
+// rawRequest sends a request whose body or answer is not JSON (the file
+// manager's text, downloads and uploads), refused like request and asking a
+// step-up once on auth.step_up_required. A body goes as
+// application/octet-stream; fetch sets its Content-Length.
+export function rawRequest(method: string, path: string, init: { body?: Blob; signal?: AbortSignal } = {}): Promise<Response> {
+  return withStepUp(async () => {
+    const startedIn = generation
+    const headers: Record<string, string> = {}
+    if (init.body !== undefined) headers["Content-Type"] = "application/octet-stream"
+    if (UNSAFE_METHODS.has(method) && csrfToken !== null) headers[CSRF_HEADER] = csrfToken
+    let res: Response
+    try {
+      res = await fetch(path, { method, headers, credentials: "same-origin", body: init.body, signal: init.signal })
+    } catch (err) {
+      if (init.signal?.aborted === true) throw err
+      throw new ApiError(0, "network", UNREACHABLE)
+    }
+    if (!res.ok) throw await refusal(res, startedIn)
+    return res
+  })
+}
+
+// upload POSTs body to path, reporting the bytes sent, which fetch cannot;
+// an abort of signal rejects with an AbortError.
+export function upload<T>(path: string, body: Blob, onProgress: (sent: number) => void, signal: AbortSignal): Promise<T> {
+  return withStepUp(
+    () =>
+      new Promise<T>((resolve, reject) => {
+        const startedIn = generation
+        const xhr = new XMLHttpRequest()
+        xhr.open("POST", path)
+        xhr.setRequestHeader("Content-Type", "application/octet-stream")
+        if (csrfToken !== null) xhr.setRequestHeader(CSRF_HEADER, csrfToken)
+        xhr.upload.onprogress = (e) => onProgress(e.loaded)
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(JSON.parse(xhr.responseText) as T)
+            return
+          }
+          const headers = new Headers()
+          for (const h of ["Content-Type", "Retry-After"]) {
+            const v = xhr.getResponseHeader(h)
+            if (v !== null) headers.set(h, v)
+          }
+          void refusal(new Response(xhr.responseText, { status: xhr.status, headers }), startedIn).then(reject)
+        }
+        xhr.onerror = () => reject(new ApiError(0, "network", UNREACHABLE))
+        xhr.onabort = () => reject(new DOMException("The upload was cancelled", "AbortError"))
+        if (signal.aborted) return reject(new DOMException("The upload was cancelled", "AbortError"))
+        signal.addEventListener("abort", () => xhr.abort(), { once: true })
+        xhr.send(body)
+      }),
+  )
 }
 
 async function problemFrom(res: Response): Promise<ApiError> {

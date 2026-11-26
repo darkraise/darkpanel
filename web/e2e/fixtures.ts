@@ -655,7 +655,7 @@ function systemApply(name: string, input: Record<string, unknown>, sys: SystemCo
   }
 }
 
-type Reply = { status?: number; json?: unknown; sse?: string }
+type Reply = { status?: number; json?: unknown; sse?: string; text?: string; headers?: Record<string, string> }
 
 function problem(status: number, code: string, detail: string): Reply {
   return { status, json: { type: "about:blank", title: detail, status, detail, code } }
@@ -674,6 +674,7 @@ const ACTION = /^\/api\/v1\/(?:hosts\/([^/]+)\/)?actions\/([^/]+)\/v\d+\/(read|p
 const RESOURCE = /^\/api\/v1\/hosts\/[^/]+\/resources\/([^/]+)\/([^/]+)$/
 const STREAM = /^\/api\/v1\/hosts\/[^/]+\/streams\/docker\/(logs|stats)$/
 const AVAILABILITY = /^\/api\/v1\/hosts\/[^/]+\/modules\/([^/]+)\/availability$/
+const FILES = /^\/api\/v1\/hosts\/[^/]+\/files\/([a-z]+)$/
 const CHANGE = /^\/api\/v1\/changes\/([^/]+)(?:\/(confirm|revert|steps))?$/
 
 // Changes applied during a test, so the reads after them show their effect.
@@ -690,6 +691,8 @@ interface Applied {
   unbanned: Set<string>
   // The M11 modules turned on that ship off (console, jobs).
   enabled: Set<string>
+  // The text of each file the console's editor saved.
+  files: Map<string, string>
 }
 
 // M11 is how mockApi gives web-1 the M11 modules: not at all, or with the
@@ -947,7 +950,7 @@ export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?:
   const fixtures: Fixtures = { unhandled: [] }
   const changes = new Map<string, Change>()
   const planned = new Map<string, Record<string, unknown>>()
-  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false, unbanned: new Set(), enabled: new Set(opts.console === true ? ["console"] : []) }
+  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false, unbanned: new Set(), enabled: new Set(opts.console === true ? ["console"] : []), files: new Map() }
   const worstCase = opts.worstCase ?? false
   const sys = systemContext(opts.systemState, worstCase)
   const steps = new Map<string, Step[]>()
@@ -962,6 +965,10 @@ export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?:
       if (reply === null) {
         fixtures.unhandled.push(`${method} ${path}`)
         await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify(problem(404, "not_found", "No fixture").json) })
+        return
+      }
+      if (reply.text !== undefined) {
+        await route.fulfill({ status: reply.status ?? 200, headers: { "Content-Type": "text/plain; charset=utf-8", ...reply.headers }, body: reply.text })
         return
       }
       if (reply.sse !== undefined) {
@@ -1008,6 +1015,8 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
   if (/^\/api\/v1\/hosts\/[^/]+\/channels\/console\/terminal\/ticket$/.test(path) && method === "POST") {
     return bodyOf(route).code === "123456" ? { json: { ticket: "ticket-fixture" } } : problem(401, "auth.invalid_credentials", "wrong authenticator code")
   }
+  const files = FILES.exec(path)
+  if (files !== null) return fileReply(method, files[1] ?? "", route, applied)
   // No OIDC provider and no Tailscale listener: the login page offers only the form.
   if (path === "/api/v1/auth/methods") return { json: { oidc: null, tailscale: false } }
   if (path === "/api/v1/events") return { status: 204 }
@@ -1120,6 +1129,28 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
 export interface TerminalMock {
   urls: string[]
   resizes: { cols: number; rows: number }[]
+}
+
+const HOSTS_FILE = "127.0.0.1 localhost\n127.0.1.1 web-1\n"
+
+// fileReply answers the console's file manager: /etc lists filesDefault,
+// other folders are empty; reads and writes of text need the step-up, and a
+// write carrying an outdated hash is a conflict.
+function fileReply(method: string, op: string, route: Route, applied: Applied): Reply | null {
+  const q = new URL(route.request().url()).searchParams
+  const target = q.get("path") ?? ""
+  const sha = (text: string) => createHash("sha256").update(text).digest("hex")
+  const current = applied.files.get(target) ?? (target === "/etc/hosts" ? HOSTS_FILE : null)
+  if (op === "list" && method === "GET") return { json: target === "/etc" ? m11.filesDefault : { path: target, entries: [] } }
+  if (op !== "read" && op !== "write") return null
+  if (!applied.elevated) return problem(403, "auth.step_up_required", "enter an authenticator code to continue")
+  if (current === null) return problem(404, "not_found", `no file ${target}`)
+  if (op === "read" && method === "GET") return { text: current, headers: { "Darkpanel-Sha256": sha(current) } }
+  if (op !== "write" || method !== "POST") return null
+  if (q.get("sha256") !== sha(current)) return problem(409, "files.conflict", "Changed on the host")
+  const text = route.request().postDataBuffer()?.toString("utf8") ?? ""
+  applied.files.set(target, text)
+  return { json: { sha256: sha(text), size: Buffer.byteLength(text) } }
 }
 
 // mockTerminal answers the console terminal's WebSocket with a tiny shell:
