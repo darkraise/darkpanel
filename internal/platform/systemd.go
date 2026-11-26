@@ -79,6 +79,9 @@ type execCommand struct {
 type DBusSystemd struct {
 	bus  busCaller
 	conn *dbus.Conn
+	// proc is where StartScope reads a moved process's cgroup; "" skips
+	// that wait, for a bus that moves nothing.
+	proc string
 }
 
 var _ Systemd = (*DBusSystemd)(nil)
@@ -90,7 +93,7 @@ func NewSystemd(ctx context.Context) (*DBusSystemd, error) {
 	if err != nil {
 		return nil, fmt.Errorf("platform: connect to the system bus: %w", err)
 	}
-	s := &DBusSystemd{bus: connCaller{conn}, conn: conn}
+	s := &DBusSystemd{bus: connCaller{conn}, conn: conn, proc: "/proc"}
 	if _, err := s.bus.call(ctx, systemdPath, "org.freedesktop.DBus.Peer.Ping"); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("platform: systemd does not answer on the system bus: %w", err)

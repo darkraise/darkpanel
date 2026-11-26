@@ -232,3 +232,43 @@ func TestShellScope(t *testing.T) {
 		}
 	})
 }
+
+func TestWaitInCgroup(t *testing.T) {
+	const unit = "darkpanel-console-0123456789abcdef.scope"
+	write := func(t *testing.T, proc, text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(proc, "42"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(proc, "42", "cgroup"), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("moved", func(t *testing.T) {
+		proc := t.TempDir()
+		write(t, proc, "0::/system.slice/"+unit+"\n")
+		if err := waitInCgroup(context.Background(), proc, 42, unit, time.Second); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("moved later", func(t *testing.T) {
+		proc := t.TempDir()
+		write(t, proc, "0::/system.slice/darkpanel-agent.service\n")
+		go func() {
+			time.Sleep(50 * time.Millisecond)
+			moved := "1:name=systemd:/system.slice/" + unit + "\n0::/system.slice/" + unit + "\n"
+			_ = os.WriteFile(filepath.Join(proc, "42", "cgroup"), []byte(moved), 0o600)
+		}()
+		if err := waitInCgroup(context.Background(), proc, 42, unit, 5*time.Second); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("never moved", func(t *testing.T) {
+		proc := t.TempDir()
+		write(t, proc, "0::/system.slice/darkpanel-agent.service\n")
+		err := waitInCgroup(context.Background(), proc, 42, unit, 100*time.Millisecond)
+		if err == nil || !strings.Contains(err.Error(), "is not in "+unit) {
+			t.Fatalf("waitInCgroup = %v, want it to say the process is not in %s", err, unit)
+		}
+	})
+}

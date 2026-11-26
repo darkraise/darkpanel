@@ -11,6 +11,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -28,8 +30,13 @@ type ScopeStarter interface {
 	StartScope(ctx context.Context, name string, pid int) error
 }
 
+// scopeWait bounds how long StartScope waits for systemd to move the
+// process into its scope.
+const scopeWait = 5 * time.Second
+
 // StartScope starts the transient scope name, which must end in .scope,
-// holding pid. The "fail" mode refuses a name already loaded.
+// holding pid, and returns once pid is in it. The "fail" mode refuses a name
+// already loaded.
 func (s *DBusSystemd) StartScope(ctx context.Context, name string, pid int) error {
 	what := "start " + name
 	if !strings.HasSuffix(name, ".scope") || pid <= 0 {
@@ -40,8 +47,44 @@ func (s *DBusSystemd) StartScope(ctx context.Context, name string, pid int) erro
 		{"PIDs", dbus.MakeVariant([]uint32{uint32(pid)})}, //nolint:gosec // G115: a positive pid, checked above
 		{"CollectMode", dbus.MakeVariant("inactive-or-failed")},
 	}
-	_, err := s.manager(ctx, what, "StartTransientUnit", name, "fail", props, []auxUnit{})
-	return err
+	if _, err := s.manager(ctx, what, "StartTransientUnit", name, "fail", props, []auxUnit{}); err != nil || s.proc == "" {
+		return err
+	}
+	return waitInCgroup(ctx, s.proc, pid, name, scopeWait)
+}
+
+// waitInCgroup waits until proc/<pid>/cgroup places pid in unit. systemd
+// answers StartTransientUnit once the job is queued; a child the process
+// forks before the move stays in the agent's cgroup, and the agent's stop
+// kills it.
+func waitInCgroup(ctx context.Context, proc string, pid int, unit string, limit time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	path := filepath.Join(proc, strconv.Itoa(pid), "cgroup")
+	for {
+		b, err := os.ReadFile(path) //nolint:gosec // G304: a process's cgroup file under proc
+		if err != nil {
+			return fmt.Errorf("platform: read %s: %w", path, err)
+		}
+		if inCgroup(b, unit) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("platform: process %d is not in %s after %s", pid, unit, limit)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+// inCgroup reports whether a /proc/<pid>/cgroup text has a line ending in unit.
+func inCgroup(cgroup []byte, unit string) bool {
+	for line := range bytes.SplitSeq(cgroup, []byte("\n")) {
+		if bytes.HasSuffix(line, []byte("/"+unit)) {
+			return true
+		}
+	}
+	return false
 }
 
 // Shell is core.ShellStarter: root's login shell on a new PTY, in a new
