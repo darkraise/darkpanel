@@ -550,3 +550,37 @@ func TestCloseDuringAccept(t *testing.T) {
 		t.Fatal("Runtime.Close hung on the channel closed during its accept")
 	}
 }
+
+func TestClientChannelWriteDeadline(t *testing.T) {
+	f := newEchoFixture(t, "test")
+	rw := f.open("echoes", url.Values{"tag": {"a"}})
+	d, ok := rw.(interface{ SetWriteDeadline(time.Time) error })
+	if !ok {
+		t.Fatal("the client's channel has no SetWriteDeadline")
+	}
+	if err := d.SetWriteDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	// Nobody reads the echoes, so the stream's window fills and a write
+	// waits until the deadline fails it.
+	done := make(chan error, 1)
+	go func() {
+		big := make([]byte, wire.MaxFramePayload)
+		for i := 0; i < 1024; i++ {
+			if err := wire.WriteFrame(rw, wire.FrameData, big); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- errors.New("32 MiB went out without a reader")
+	}()
+	select {
+	case err := <-done:
+		var ne net.Error
+		if !errors.As(err, &ne) || !ne.Timeout() {
+			t.Errorf("the blocked write ended with %v, want a timeout", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the blocked write outlived its deadline")
+	}
+}
