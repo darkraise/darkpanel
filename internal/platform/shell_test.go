@@ -206,9 +206,14 @@ func TestShellScope(t *testing.T) {
 		if !slices.Equal(pids, []uint32{uint32(pid)}) { //nolint:gosec // G115: a pid
 			t.Errorf("scope PIDs = %v, want the shell's %d", pids, pid)
 		}
-		environ, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid))
-		if err != nil {
-			t.Fatal(err)
+		// cmd.Start returns once exec closes the child's close-on-exec pipe,
+		// which the kernel does before it lays out the new environment, so
+		// environ reads empty for a moment.
+		var environ []byte
+		for deadline := time.Now().Add(5 * time.Second); len(environ) == 0 && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+			if environ, err = os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid)); err != nil {
+				t.Fatal(err)
+			}
 		}
 		want := "TERM=xterm-256color\x00HOME=/root\x00USER=root\x00LOGNAME=root\x00SHELL=/bin/sh\x00PATH=/usr/sbin:/usr/bin:/sbin:/bin\x00LANG=en_GB.UTF-8\x00"
 		if string(environ) != want {
