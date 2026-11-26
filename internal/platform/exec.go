@@ -291,7 +291,19 @@ func (r *Runner) Stream(ctx context.Context, path string, args []string, onLine 
 		}
 	}
 	if exitErr != nil {
-		return fmt.Errorf("platform: %s exited with code %d: %s", path, exitErr.ExitCode(), bytes.TrimSpace(stderr.buf.Bytes()))
+		return &StreamExit{Path: path, Code: exitErr.ExitCode(), Stderr: string(bytes.TrimSpace(stderr.buf.Bytes()))}
 	}
 	return nil
+}
+
+// StreamExit is Stream's error for a program that exited with a code other
+// than 0.
+type StreamExit struct {
+	Path   string
+	Code   int
+	Stderr string // the last 4 KiB, trimmed
+}
+
+func (e *StreamExit) Error() string {
+	return fmt.Sprintf("platform: %s exited with code %d: %s", e.Path, e.Code, e.Stderr)
 }

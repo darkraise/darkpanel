@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/modules/tailscale/link"
@@ -19,14 +20,17 @@ type module struct {
 	// agentOnTailnet reports whether the agent's own connection to its
 	// controller runs over the Tailscale interface.
 	agentOnTailnet func(ctx context.Context) (bool, error)
+	journal        *journalState
 }
 
 // Module returns the services module.
-func Module() core.Module { return module{agentOnTailnet: liveAgentOnTailnet} }
+func Module() core.Module {
+	return module{agentOnTailnet: liveAgentOnTailnet, journal: &journalState{}}
+}
 
 // Manifest declares the module.
 func (m module) Manifest() core.Manifest {
-	return core.Manifest{ID: ID, Version: 1, DefaultEnabled: true, Actions: append(m.reads(), m.mutations()...)}
+	return core.Manifest{ID: ID, Version: 1, DefaultEnabled: true, Actions: slices.Concat(m.reads(), m.journalReads(), m.mutations())}
 }
 
 // liveAgentOnTailnet looks for an established TCP connection this process

@@ -17030,6 +17030,98 @@
         ],
         "type": "object"
       },
+      "services.journal.query.v1.input": {
+        "$ref": "#/components/schemas/services.journal.query.v1.input.JournalQuery"
+      },
+      "services.journal.query.v1.input.JournalQuery": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "maxLength": 512,
+            "type": "string"
+          },
+          "priority": {
+            "maximum": 7,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "since": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "substring": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "until": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "services.journal.query.v1.output": {
+        "$ref": "#/components/schemas/services.journal.query.v1.output.JournalPage"
+      },
+      "services.journal.query.v1.output.Entry": {
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer"
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "time": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "time",
+          "priority",
+          "message"
+        ],
+        "type": "object"
+      },
+      "services.journal.query.v1.output.JournalPage": {
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/services.journal.query.v1.output.Entry"
+            },
+            "type": "array"
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entries",
+          "more"
+        ],
+        "type": "object"
+      },
       "services.unit.disable.v1.input": {
         "$ref": "#/components/schemas/services.unit.disable.v1.input.UnitInput"
       },
@@ -36299,6 +36391,72 @@
           }
         ],
         "summary": "Remove the panel network between the proxy and the panel's listener."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.journal.query/v1/read": {
+      "post": {
+        "operationId": "services.journal.query.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/services.journal.query.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/services.journal.query.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read a page of journal entries by unit, priority, time range and message text."
       }
     },
     "/api/v1/hosts/{host}/actions/services.unit.disable/v1/apply": {

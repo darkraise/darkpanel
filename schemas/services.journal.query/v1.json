@@ -1,0 +1,105 @@
+{
+  "name": "services.journal.query",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/JournalQuery",
+    "$defs": {
+      "JournalQuery": {
+        "properties": {
+          "unit": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "maximum": 7,
+            "minimum": 0
+          },
+          "since": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "until": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "substring": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/JournalPage",
+    "$defs": {
+      "Entry": {
+        "properties": {
+          "time": {
+            "type": "integer"
+          },
+          "priority": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "time",
+          "priority",
+          "message"
+        ]
+      },
+      "JournalPage": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/$defs/Entry"
+            },
+            "type": "array"
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "cursor": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entries",
+          "more"
+        ]
+      }
+    }
+  }
+}

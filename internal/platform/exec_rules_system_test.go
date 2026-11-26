@@ -182,3 +182,57 @@ func TestSystemRulesKeepTail(t *testing.T) {
 		t.Errorf("needrestart env = %q, %v; NEEDRESTART_SUSPEND would make it list nothing", env, err)
 	}
 }
+
+func TestJournalctlRule(t *testing.T) {
+	r := NewRunner(ProductionRules())
+	all := JournalArgs{
+		Unit: "systemd-networkd.service", Priority: 0, Since: 1764000000, Until: 1764003600,
+		AfterCursor: "s=0a1b;i=2c;b=3d4e;m=5f;t=6a;x=7b", Grep: `\Qa(b[c.d\E\\E\Q\E`, Lines: 1001, Reverse: true,
+	}
+	allowed := [][]string{
+		JournalctlProbe(),
+		JournalctlRead(JournalArgs{Priority: -1}),
+		JournalctlRead(all),
+		JournalctlRead(JournalArgs{Unit: "user@1000.service", Priority: 7, Lines: 500, Follow: true}),
+		JournalctlRead(JournalArgs{Priority: -1, Grep: `\Qplain\E`, Follow: true, Lines: 1}),
+		JournalctlRead(JournalArgs{Unit: `systemd-fsck@dev-disk-by\x2duuid-1.service`, Priority: -1}),
+	}
+	for _, v := range allowed {
+		if _, err := r.match(JournalctlPath, v); err != nil {
+			t.Errorf("journalctl %v refused: %v", v, err)
+		}
+	}
+	base := JournalctlRead(JournalArgs{Priority: -1})
+	with := func(extra ...string) []string { return append(slices.Clone(base), extra...) }
+	refused := map[string][]string{
+		"--file":              with("--file=/var/log/journal/x/system.journal"),
+		"--directory":         with("--directory=/home/u"),
+		"--root":              with("--root=/mnt"),
+		"--merge":             with("--merge"),
+		"a bare unit name":    with("--unit=nginx"),
+		"a unit with a slash": with("--unit=../x.service"),
+		"a unit glob":         with("--unit=*.service"),
+		"priority 8":          with("--priority=8"),
+		"priority by name":    with("--priority=err"),
+		"a relative since":    with("--since=yesterday"),
+		"a cursor with junk":  with("--after-cursor=s=1;--file"),
+		"a regular grep":      with("--grep=a.*b"),
+		"an open quote":       with(`--grep=\Qa\Eb.*\E`),
+		"lines over 1001":     with("--lines=5000"),
+		"lines zero":          with("--lines=0"),
+		"case sensitive":      with("--case-sensitive=yes"),
+		"a flag twice":        with("--unit=a.service", "--unit=b.service"),
+		"a positional match":  with("_PID=1"),
+		"export output":       {"--output=export", "--no-pager", "--all", "--output-fields=__REALTIME_TIMESTAMP,PRIORITY,_SYSTEMD_UNIT,_PID,MESSAGE"},
+		"no base flags":       {"--unit=nginx.service"},
+		"the probe on a file": append(JournalctlProbe(), "--file=/x"),
+	}
+	for name, v := range refused {
+		if _, err := r.match(JournalctlPath, v); err == nil {
+			t.Errorf("%s: journalctl %v allowed", name, v)
+		}
+	}
+	if _, err := r.match("/bin/journalctl", base); err == nil {
+		t.Error("journalctl allowed at another path")
+	}
+}

@@ -3,6 +3,8 @@ package platform
 import (
 	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 // DpkgQueryFormat is the fixed dpkg-query format of the system module: one
@@ -165,6 +167,7 @@ func systemRules() []ExecRule {
 		{Path: "/usr/bin/apt-cache", Match: execMatchAptCache, MaxOutput: 32 << 20},
 		{Path: "/usr/bin/apt-config", Match: exactly(SystemAptConfigDump())},
 		{Path: "/usr/sbin/needrestart", Match: exactly(SystemNeedrestart())},
+		{Path: JournalctlPath, Match: execMatchJournalctl},
 	}
 }
 
@@ -233,4 +236,132 @@ func systemNamesValid(names []string) bool {
 		}
 	}
 	return true
+}
+
+// JournalctlPath is the journal reader of the services module.
+const JournalctlPath = "/usr/bin/journalctl"
+
+// journalctlBase opens every journal query and follow. --all keeps fields
+// over 4 KiB, which the JSON output otherwise prints as null.
+var journalctlBase = []string{
+	"--output=json", "--no-pager", "--all",
+	"--output-fields=__REALTIME_TIMESTAMP,PRIORITY,_SYSTEMD_UNIT,_PID,MESSAGE",
+}
+
+// JournalArgs are the filters of a journal query or follow. Zero values
+// leave a filter out; Priority below 0 does.
+type JournalArgs struct {
+	Unit         string
+	Priority     int
+	Since, Until int64 // seconds since the epoch
+	AfterCursor  string
+	Grep         string // a pattern of literals only: \Q...\E pieces
+	Lines        int
+	Reverse      bool
+	Follow       bool
+}
+
+// JournalctlRead is the journalctl vector of a.
+func JournalctlRead(a JournalArgs) []string {
+	v := slices.Clone(journalctlBase)
+	if a.Unit != "" {
+		v = append(v, "--unit="+a.Unit)
+	}
+	if a.Priority >= 0 {
+		v = append(v, "--priority="+strconv.Itoa(a.Priority))
+	}
+	if a.Since > 0 {
+		v = append(v, "--since=@"+strconv.FormatInt(a.Since, 10))
+	}
+	if a.Until > 0 {
+		v = append(v, "--until=@"+strconv.FormatInt(a.Until, 10))
+	}
+	if a.AfterCursor != "" {
+		v = append(v, "--after-cursor="+a.AfterCursor)
+	}
+	if a.Grep != "" {
+		v = append(v, "--grep="+a.Grep, "--case-sensitive=no")
+	}
+	if a.Lines > 0 {
+		v = append(v, "--lines="+strconv.Itoa(a.Lines))
+	}
+	if a.Reverse {
+		v = append(v, "--reverse")
+	}
+	if a.Follow {
+		v = append(v, "--follow")
+	}
+	return v
+}
+
+// JournalctlProbe fails when journalctl cannot match patterns: one built
+// without PCRE2, or without the library to load. It prints nothing.
+func JournalctlProbe() []string {
+	return []string{"--no-pager", "--quiet", "--lines=0", "--grep=probe"}
+}
+
+var (
+	// JournalUnitPattern is a unit name with its type, as systemd prints it.
+	JournalUnitPattern = regexp.MustCompile(`^[A-Za-z0-9:_.\\@-]{1,240}\.(service|socket|timer|mount|path|target|swap|slice|scope|device|automount)$`)
+	// JournalCursorPattern is a journal cursor: s=…;i=…;b=…;m=…;t=…;x=….
+	JournalCursorPattern = regexp.MustCompile(`^[a-z]=[0-9a-f]{1,64}(;[a-z]=[0-9a-f]{1,64}){0,7}$`)
+	journalSecondsArg    = regexp.MustCompile(`^@[0-9]{1,12}$`)
+	journalLinesArg      = regexp.MustCompile(`^[0-9]{1,4}$`)
+)
+
+// journalMaxLines is the most --lines a query or follow asks for.
+const journalMaxLines = 1001
+
+// execMatchJournalctl allows the probe and JournalctlRead vectors: the base
+// flags, then each filter at most once with a value of its shape. Every
+// other option, --file, --directory, --root and --merge among them, is
+// refused.
+func execMatchJournalctl(args []string) error {
+	if execOneOf(args, JournalctlProbe()) == nil {
+		return nil
+	}
+	if len(args) < len(journalctlBase) || !slices.Equal(args[:len(journalctlBase)], journalctlBase) {
+		return errExecVector
+	}
+	values := map[string]func(string) bool{
+		"--unit":           JournalUnitPattern.MatchString,
+		"--priority":       func(v string) bool { return len(v) == 1 && v[0] >= '0' && v[0] <= '7' },
+		"--since":          journalSecondsArg.MatchString,
+		"--until":          journalSecondsArg.MatchString,
+		"--after-cursor":   JournalCursorPattern.MatchString,
+		"--grep":           journalLiteralPattern,
+		"--case-sensitive": func(v string) bool { return v == "no" },
+		"--lines": func(v string) bool {
+			n, err := strconv.Atoi(v)
+			return journalLinesArg.MatchString(v) && err == nil && n >= 1 && n <= journalMaxLines
+		},
+	}
+	seen := map[string]bool{}
+	for _, a := range args[len(journalctlBase):] {
+		name, value, hasValue := strings.Cut(a, "=")
+		if seen[name] {
+			return errExecVector
+		}
+		seen[name] = true
+		switch {
+		case !hasValue && (name == "--reverse" || name == "--follow"):
+		case hasValue && values[name] != nil && values[name](value):
+		default:
+			return errExecVector
+		}
+	}
+	return nil
+}
+
+// journalLiteralPattern reports whether p is \Q<s>\E with every \E inside
+// s written as \E\\E\Q, so PCRE2 reads all of p as literal text.
+func journalLiteralPattern(p string) bool {
+	inner, ok := strings.CutPrefix(p, `\Q`)
+	if !ok {
+		return false
+	}
+	if inner, ok = strings.CutSuffix(inner, `\E`); !ok {
+		return false
+	}
+	return !strings.Contains(strings.ReplaceAll(inner, `\E\\E\Q`, ""), `\E`)
 }

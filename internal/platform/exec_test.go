@@ -391,6 +391,10 @@ func TestStreamReportsExitCode(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "exited with code 2") {
 		t.Fatalf("err = %v, want the exit code", err)
 	}
+	var exit *StreamExit
+	if !errors.As(err, &exit) || exit.Code != 2 || !strings.Contains(exit.Stderr, "nonexistent-darkpanel-path") {
+		t.Errorf("err = %#v, want a StreamExit with code 2 and stderr", err)
+	}
 }
 
 // childPID returns the PID of a child of this process running comm.

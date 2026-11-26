@@ -2,6 +2,45 @@
 
 Back to the [API reference](README.md).
 
+## services.journal.query v1
+
+Read a page of journal entries by unit, priority, time range and message text.
+
+| Operation | Request |
+|---|---|
+| read | `POST /api/v1/hosts/{host}/actions/services.journal.query/v1/read` |
+
+Minimum scope: `read`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `cursor` | string | no |  |
+| `priority` | integer | no |  |
+| `since` | integer | no |  |
+| `substring` | string | no |  |
+| `unit` | string | no |  |
+| `until` | integer | no |  |
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `cursor` | string | no |  |
+| `entries` | array of object | yes |  |
+| `entries[].message` | string | yes |  |
+| `entries[].pid` | integer | no |  |
+| `entries[].priority` | integer or null | yes |  |
+| `entries[].time` | integer | yes |  |
+| `entries[].truncated` | boolean | no |  |
+| `entries[].unit` | string | no |  |
+| `more` | boolean | yes |  |
+
 ## services.unit.disable v1
 
 Disable a service, socket or timer at boot.
