@@ -52,13 +52,35 @@ type ticket struct {
 	expires       time.Time
 }
 
-// longLived tracks the controller's channels: the terminal tickets and the
-// open terminals per user. CloseStreams ends the channels with the SSE
-// streams.
+// longLived is the registry of the controller's long-lived requests (spec
+// 1.2): the open event streams and terminals per principal, and the
+// terminal tickets. CloseStreams ends every one of them.
 type longLived struct {
 	mu        sync.Mutex
 	tickets   map[string]ticket
-	terminals map[string]int // by Principal.Actor
+	events    map[string]int // GET /api/v1/events streams by Principal.Actor
+	terminals map[string]int // terminals by Principal.Actor
+}
+
+// take counts one more request of actor in *counts unless it holds limit;
+// release gives it back.
+func (l *longLived) take(counts *map[string]int, actor string, limit int, full error) (release func(), err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if *counts == nil {
+		*counts = map[string]int{}
+	}
+	if (*counts)[actor] >= limit {
+		return nil, full
+	}
+	(*counts)[actor]++
+	return func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if (*counts)[actor]--; (*counts)[actor] <= 0 {
+			delete(*counts, actor)
+		}
+	}, nil
 }
 
 func (l *longLived) addTicket(t string, tk ticket, now time.Time) {
@@ -88,22 +110,8 @@ func (l *longLived) takeTicket(t, session, host string, now time.Time) bool {
 }
 
 func (l *longLived) takeTerminal(actor string) (release func(), err error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.terminals == nil {
-		l.terminals = map[string]int{}
-	}
-	if l.terminals[actor] >= MaxUserTerminals {
-		return nil, errcode.New(errcode.ConsoleLimit, fmt.Sprintf("at most %d open terminals per user", MaxUserTerminals))
-	}
-	l.terminals[actor]++
-	return func() {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		if l.terminals[actor]--; l.terminals[actor] <= 0 {
-			delete(l.terminals, actor)
-		}
-	}, nil
+	return l.take(&l.terminals, actor, MaxUserTerminals,
+		errcode.New(errcode.ConsoleLimit, fmt.Sprintf("at most %d open terminals per user", MaxUserTerminals)))
 }
 
 func errNeedsSession() error {
@@ -144,7 +152,7 @@ func (s *Server) handleTerminalTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := base64.RawURLEncoding.EncodeToString(b[:])
-	s.long.addTicket(t, ticket{session: c.session, host: host, expires: s.clock().Now().Add(TicketTTL)}, s.clock().Now())
+	s.longLived.addTicket(t, ticket{session: c.session, host: host, expires: s.clock().Now().Add(TicketTTL)}, s.clock().Now())
 	writeJSON(w, s.log, http.StatusOK, struct {
 		Ticket string `json:"ticket"`
 	}{t})
@@ -174,7 +182,7 @@ func (s *Server) handleChannel(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, s.log, err)
 		return
 	}
-	release, err := s.long.takeTerminal(c.principal.Actor)
+	release, err := s.longLived.takeTerminal(c.principal.Actor)
 	if err != nil {
 		writeProblem(w, s.log, err)
 		return
@@ -227,7 +235,7 @@ func (s *Server) channelChecks(r *http.Request, c caller, host, module, name str
 		return err
 	}
 	if module != ticketModule || name != ticketChannel ||
-		!s.long.takeTicket(r.URL.Query().Get("ticket"), c.session, host, s.clock().Now()) {
+		!s.longLived.takeTicket(r.URL.Query().Get("ticket"), c.session, host, s.clock().Now()) {
 		return errcode.New(errcode.StepUpRequired, "opening a terminal needs a fresh ticket")
 	}
 	return authorizeHost(c.principal, host, core.ScopeAdmin)
@@ -331,14 +339,18 @@ func (b *bridge) run(ctx context.Context) string {
 			reason = closeAgentGone
 		}
 	}
-	// An agent that stopped reading cannot hold the close.
+	// An agent that stopped reading cannot hold the close: the deadline
+	// also fails a data write blocked in pumpBrowser, and a connection
+	// without deadlines is closed when the close frame is not out in time.
 	if d, ok := b.agent.(interface{ SetWriteDeadline(time.Time) error }); ok {
 		_ = d.SetWriteDeadline(time.Now().Add(closeWriteWait))
 	}
+	stuck := time.AfterFunc(closeWriteWait, func() { _ = b.agent.Close() })
 	payload, _ := json.Marshal(struct {
 		Reason string `json:"reason"`
 	}{reason})
 	_ = b.toAgent(wire.FrameClose, payload)
+	stuck.Stop()
 	_ = b.agent.Close()
 	<-fromAgent
 	return reason

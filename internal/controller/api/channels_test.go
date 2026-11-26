@@ -391,8 +391,12 @@ func TestKeepaliveAndActivity(t *testing.T) {
 		r := newTermRig(t, false, 0)
 		_, agent, _ := r.dial(r.admin, termHost, r.ticket(r.admin), nil)
 		// The browser reads nothing, so no pong answers.
+		before := r.h.clock.Pending()
 		r.h.clock.Advance(SSEHeartbeat)
-		time.Sleep(50 * time.Millisecond)
+		deadline := time.Now().Add(5 * time.Second)
+		for r.h.clock.Pending() < before && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond) // until the ping arms its pong timer
+		}
 		r.h.clock.Advance(PongTimeout)
 		if got := agentClose(t, agent); got != "browser gone" {
 			t.Errorf("closed with %q, want browser gone", got)
@@ -589,4 +593,46 @@ func TestUserLimitAndOldAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantProblem(t, "a member's ticket", r.postTicket(member, `{"code":"`+r.code(member)+`"}`), http.StatusForbidden, errcode.Forbidden)
+}
+
+// stuckAgent is an agent channel without deadlines that nobody reads.
+type stuckAgent struct{ io.ReadWriteCloser }
+
+func TestStuckAgentReleases(t *testing.T) {
+	r := newTermRig(t, false, 0)
+	r.h.disp.OpenChannelFunc = func(context.Context, core.Principal, string, string, string, url.Values) (io.ReadWriteCloser, error) {
+		a, b := net.Pipe()
+		t.Cleanup(func() { _ = b.Close() })
+		r.agents <- b
+		return stuckAgent{a}, nil
+	}
+	ws, _, code := r.dial(r.admin, termHost, r.ticket(r.admin), nil)
+	if code != "" {
+		t.Fatal(code)
+	}
+	// The data write blocks on the agent that never reads.
+	if err := ws.Write(context.Background(), websocket.MessageBinary, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	r.h.srv.CloseStreams()
+	if got := closeReason(t, ws); got != "agent restarted" {
+		t.Errorf("closed with %q, want agent restarted", got)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("the close took %v with a stuck agent", d)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		r.h.srv.longLived.mu.Lock()
+		n := len(r.h.srv.longLived.terminals)
+		r.h.srv.longLived.mu.Unlock()
+		if n == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the stuck terminal kept its slot")
+		}
+		time.Sleep(time.Millisecond)
+	}
 }

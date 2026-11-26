@@ -459,8 +459,8 @@ func TestSSEEventSlots(t *testing.T) {
 	for _, release := range releases[1:] {
 		release()
 	}
-	if len(srv.eventStreams) != 0 {
-		t.Fatalf("open streams after every release: %v", srv.eventStreams)
+	if len(srv.longLived.events) != 0 {
+		t.Fatalf("open streams after every release: %v", srv.longLived.events)
 	}
 }
 

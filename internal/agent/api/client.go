@@ -594,6 +594,12 @@ type clientChannel struct {
 	wmu sync.Mutex
 }
 
+// The controller's bridge bounds its last write to a channel with this.
+var _ interface{ SetWriteDeadline(time.Time) error } = (*clientChannel)(nil)
+
+// SetWriteDeadline bounds the channel's writes, as net.Conn's does.
+func (c *clientChannel) SetWriteDeadline(t time.Time) error { return c.conn.SetWriteDeadline(t) }
+
 func (c *clientChannel) Read(p []byte) (int, error) {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()

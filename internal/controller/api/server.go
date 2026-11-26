@@ -113,11 +113,11 @@ type Server struct {
 	tailscale  atomic.Pointer[func() []netip.Addr]
 	whoisLimit whoisThrottle
 
-	eventsMu     sync.Mutex
-	eventStreams map[string]int // open GET /api/v1/events streams per Principal.Actor
-	streamsDone  chan struct{}  // closed by CloseStreams
+	streamsDone  chan struct{} // closed by CloseStreams
 	closeStreams sync.Once
-	long         longLived // terminal tickets and open terminals
+	// longLived counts the long-lived requests (event streams, terminals)
+	// and holds the terminal tickets; CloseStreams ends them all.
+	longLived longLived
 }
 
 // ListenerState is the listener state the UI footer shows (spec section 13):
@@ -196,7 +196,7 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Clock == nil {
 		cfg.Clock = core.SystemClock{}
 	}
-	s := &Server{cfg: cfg, log: cfg.Log, mux: http.NewServeMux(), eventStreams: map[string]int{}, streamsDone: make(chan struct{})}
+	s := &Server{cfg: cfg, log: cfg.Log, mux: http.NewServeMux(), streamsDone: make(chan struct{})}
 	for _, rt := range s.networkRoutes() {
 		h := rt.handler
 		if !rt.public {

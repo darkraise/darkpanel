@@ -231,17 +231,6 @@ func (s *Server) sseRecheck(r *http.Request, expires *time.Time) (core.Principal
 // eventSlot takes one of actor's MaxEventStreams event streams; release
 // gives it back.
 func (s *Server) eventSlot(actor string) (release func(), err error) {
-	s.eventsMu.Lock()
-	defer s.eventsMu.Unlock()
-	if s.eventStreams[actor] >= MaxEventStreams {
-		return nil, errcode.New(errcode.StreamLimit, fmt.Sprintf("at most %d event streams per principal", MaxEventStreams))
-	}
-	s.eventStreams[actor]++
-	return func() {
-		s.eventsMu.Lock()
-		defer s.eventsMu.Unlock()
-		if s.eventStreams[actor]--; s.eventStreams[actor] == 0 {
-			delete(s.eventStreams, actor)
-		}
-	}, nil
+	return s.longLived.take(&s.longLived.events, actor, MaxEventStreams,
+		errcode.New(errcode.StreamLimit, fmt.Sprintf("at most %d event streams per principal", MaxEventStreams)))
 }
