@@ -693,6 +693,8 @@ interface Applied {
   enabled: Set<string>
   // The text of each file the console's editor saved.
   files: Map<string, string>
+  // The jobs jobs.job.create added.
+  jobs: m11.M11Job[]
 }
 
 // M11 is how mockApi gives web-1 the M11 modules: not at all, or with the
@@ -721,7 +723,7 @@ const READS: Record<string, (worstCase: boolean, applied: Applied, sys: SystemCo
   "users.sshd.get": () => m11.sshdState,
   "fail2ban.status.get": () => m11.fail2banInstalled,
   "fail2ban.ban.list": (worstCase, applied) => ({ bans: (worstCase ? m11.bansWorst : m11.bansDefault).filter((b) => !applied.unbanned.has(`${b.jail} ${b.address}`)) }),
-  "jobs.job.list": (worstCase) => (worstCase ? m11.jobsWorst : m11.jobsDefault),
+  "jobs.job.list": (worstCase, applied) => (worstCase ? m11.jobsWorst : { ...m11.jobsDefault, jobs: [...m11.jobsDefault.jobs, ...applied.jobs] }),
   "jobs.schedule.check": () => m11.scheduleNext,
   "tuning.swap.get": () => m11.swapDefault,
   "tuning.sysctl.get": () => m11.sysctlDefault,
@@ -888,7 +890,7 @@ function applies(name: string, changes: Map<string, Change>, input: Record<strin
 const M11_CHANGE_ID = "01JE000000000000000000C011"
 
 // The users actions that need a step-up window (M11 spec section 0).
-const M11_STEP_UP = new Set(["users.user.create", "users.key.add", "users.password.set", "users.sudo.add"])
+const M11_STEP_UP = new Set(["users.user.create", "users.key.add", "users.password.set", "users.sudo.add", "jobs.job.create", "jobs.job.update"])
 
 // keyOf is the key row users.key.list answers for a key line.
 function keyOf(line: string): (typeof m11.keysDeploy.keys)[number] {
@@ -904,6 +906,10 @@ function m11Plans(name: string, input: Record<string, unknown>, applied: Applied
   if (name.startsWith("fail2ban.")) {
     const what = typeof input.address === "string" ? input.address : "fail2ban"
     return { json: plan({ action: name, diff: [{ op: "~", text: `${what}: ${name.slice("fail2ban.".length)}` }] }) }
+  }
+  if (name.startsWith("jobs.") || name.startsWith("tuning.")) {
+    const what = typeof input.slug === "string" ? input.slug : name.slice(0, name.indexOf("."))
+    return { json: plan({ action: name, diff: [{ op: "~", text: `${what}: ${name.slice(name.indexOf(".") + 1)}` }] }) }
   }
   if (name.startsWith("users.")) {
     const who = typeof input.name === "string" ? input.name : ""
@@ -923,6 +929,13 @@ function m11Applies(name: string, input: Record<string, unknown>, applied: Appli
     applied.keys.set(input.name, keys)
   }
   if (name === "fail2ban.ban.remove") applied.unbanned.add(`${String(input.jail)} ${String(input.address)}`)
+  if (name === "jobs.job.create") {
+    const job = { ...m11.jobsDefault.jobs[0], ...input, enabled: true, running: false, nextRun: "2026-11-28T00:00:00Z", lastStart: "", lastResult: "", exitStatus: null } as m11.M11Job
+    applied.jobs.push(job)
+  }
+  // A kernel parameter change reverts unless it is confirmed.
+  if (name === "tuning.sysctl.apply") return change({ id: M11_CHANGE_ID, action: name, class: "revertible", state: "pending", revertDeadline: new Date(Date.now() + 120_000).toISOString() })
+  if (name.startsWith("jobs.") || name.startsWith("tuning.")) return change({ id: M11_CHANGE_ID, action: name, class: "compensable", state: "completed" })
   if (name.startsWith("users.") || name.startsWith("fail2ban.")) return change({ id: M11_CHANGE_ID, action: name, class: "compensable", state: "completed" })
   if (!name.startsWith("services.unit.")) return null
   return change({ id: M11_CHANGE_ID, action: name, class: "compensable", state: "completed" })
@@ -944,13 +957,14 @@ export interface Fixtures {
 // 70-character names. systemState picks a named System or Docker install
 // state (SYSTEM_STATES) for web-1. m11 gives web-1 the six M11 modules, console
 // and jobs off, whose reads answer from src/modules/m11-fixtures.ts, and the
-// caller admin on it ("operate" makes the caller an operator there); the
-// step-up endpoint accepts the code 123456.
-export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean; systemState?: SystemState; m11?: boolean | "operate"; console?: boolean }): Promise<Fixtures> {
+// caller admin on it ("operate" makes the caller an operator there); console
+// and jobs turn those modules on; the step-up endpoint accepts the code
+// 123456.
+export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean; systemState?: SystemState; m11?: boolean | "operate"; console?: boolean; jobs?: boolean }): Promise<Fixtures> {
   const fixtures: Fixtures = { unhandled: [] }
   const changes = new Map<string, Change>()
   const planned = new Map<string, Record<string, unknown>>()
-  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false, unbanned: new Set(), enabled: new Set(opts.console === true ? ["console"] : []), files: new Map() }
+  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false, unbanned: new Set(), enabled: new Set([...(opts.console === true ? ["console"] : []), ...(opts.jobs === true ? ["jobs"] : [])]), files: new Map(), jobs: [] }
   const worstCase = opts.worstCase ?? false
   const sys = systemContext(opts.systemState, worstCase)
   const steps = new Map<string, Step[]>()
