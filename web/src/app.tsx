@@ -21,9 +21,10 @@ import { UsersPage } from "@/pages/users"
 import { RequireAdmin, RequireSession, SessionProvider } from "@/session/session"
 import { Shell } from "@/shell"
 
-// The M10 state boards are a development tool: in a production build the
+// The M10 and M11 state boards are a development tool: in a production build the
 // condition is false, so the route and its chunk are left out.
 const M10Boards = import.meta.env.DEV ? lazy(() => import("@/boards/m10-boards").then((m) => ({ default: m.M10Boards }))) : null
+const M11Boards = import.meta.env.DEV ? lazy(() => import("@/boards/m11-boards").then((m) => ({ default: m.M11Boards }))) : null
 const TailnetDevicesBoards = import.meta.env.DEV
   ? lazy(() => import("@/boards/tailnet-devices-boards").then((m) => ({ default: m.TailnetDevicesBoards })))
   : null
@@ -52,6 +53,16 @@ export function App() {
             element={
               <Suspense fallback={<Spinner aria-label="Loading boards" />}>
                 <M10Boards />
+              </Suspense>
+            }
+          />
+        )}
+        {M11Boards && import.meta.env.DEV && (
+          <Route
+            path="/__boards/m11"
+            element={
+              <Suspense fallback={<Spinner aria-label="Loading boards" />}>
+                <M11Boards />
               </Suspense>
             }
           />

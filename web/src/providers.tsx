@@ -2,6 +2,7 @@ import { useLayoutEffect, type ReactNode } from "react"
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query"
 import { ThemeProvider, useTheme } from "darkraise-ui/theme"
 import { RouterAdapterProvider } from "darkraise-ui/router"
+import { StepUpProvider } from "@/components/step-up-dialog"
 import { routerAdapter } from "@/router/adapter"
 import { themeConfig } from "@/theme.config"
 
@@ -23,7 +24,9 @@ export function Providers({ client, children }: { client: QueryClient; children:
     <ThemeProvider config={themeConfig}>
       <ThemeAttributes />
       <QueryClientProvider client={client}>
-        <RouterAdapterProvider value={routerAdapter}>{children}</RouterAdapterProvider>
+        <RouterAdapterProvider value={routerAdapter}>
+          <StepUpProvider>{children}</StepUpProvider>
+        </RouterAdapterProvider>
       </QueryClientProvider>
     </ThemeProvider>
   )

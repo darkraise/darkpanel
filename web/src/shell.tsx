@@ -12,8 +12,8 @@ import { StatusPill } from "@/components/visual/status-pill"
 import type { Status } from "@/components/visual/status"
 import { AdminExposureBanner } from "@/modules/npm/banner"
 import { PanelExposureBanner } from "@/modules/panel/banner"
-import { enabledModules, moduleRegistry } from "@/modules/registry"
-import { canOnHost, isAdmin } from "@/session/can"
+import { hostTabs, moduleRegistry } from "@/modules/registry"
+import { isAdmin } from "@/session/can"
 import { useSession } from "@/session/use-session"
 
 // navigation lists each host with its module pages under Hosts, and the
@@ -27,9 +27,7 @@ function navigation(hosts: Host[], admin: boolean): NavGroup[] {
     return {
       label: host.name,
       href,
-      children: enabledModules(moduleRegistry, host)
-        .filter((m) => canOnHost(host, m.scope ?? "read"))
-        .map((m) => ({ label: m.label, href: `${href}/${m.id}`, icon: m.icon })),
+      children: hostTabs(moduleRegistry, host).map((m) => ({ label: m.label, href: `${href}/${m.id}`, icon: m.icon })),
     }
   })
   const globals: NavItem[] = !admin

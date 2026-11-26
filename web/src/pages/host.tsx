@@ -13,7 +13,8 @@ import { SkeletonTiles } from "@/components/visual/skeleton-tiles"
 import { usePageTitle } from "@/lib/page-title"
 import { HostScope, canOnHost, isAdmin } from "@/session/can"
 import { useSession } from "@/session/use-session"
-import { enabledModules, moduleRegistry, moduleView, type ModuleView } from "@/modules/registry"
+import { hostTabs, moduleRegistry, moduleView, type ModuleView } from "@/modules/registry"
+import { ModuleOff } from "@/modules/module-off"
 import { AdapterLink } from "@/router/adapter-link"
 import { HostOverview } from "./host-overview"
 import { hostStatus } from "./host-status"
@@ -37,6 +38,8 @@ function ModuleBody({ view, host }: { view: ModuleView; host: Host }) {
           <EmptyState data-testid="state-disabled" title="Module not enabled" description="This module is not enabled on this host." />
         </>
       )
+    case "off":
+      return <ModuleOff host={host} entry={view.entry} />
     case "unreported": {
       const Unreported = view.entry.unreported
       return (
@@ -149,9 +152,7 @@ export function HostPage() {
   const base = `/hosts/${encodeURIComponent(host.id)}`
   const tabs: Tab[] = [
     { label: "Overview", value: "overview", href: base },
-    ...enabledModules(moduleRegistry, host)
-      .filter((m) => canOnHost(host, m.scope ?? "read", session))
-      .map((m) => ({ label: m.label, value: m.id, href: `${base}/${m.id}` })),
+    ...hostTabs(moduleRegistry, host, session).map((m) => ({ label: m.label, value: m.id, href: `${base}/${m.id}` })),
   ]
   const header = <HostHeader host={host} tabs={tabs} />
   const scope = isAdmin(session) ? "admin" : host.scope

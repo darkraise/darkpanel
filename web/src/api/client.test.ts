@@ -1,3 +1,4 @@
+import { createElement } from "react"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import {
   ApiError,
@@ -22,10 +23,13 @@ import {
   revertChange,
   setCsrfRejectedHandler,
   setCsrfToken,
+  setStepUpHandler,
   setUnauthorizedHandler,
   undoChange,
 } from "./client"
-import { stubFetch } from "@/test/utils"
+import { screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { renderWithProviders, stubFetch } from "@/test/utils"
 import type { Change, Plan } from "./types"
 
 function respond(status: number, body?: unknown, headers: Record<string, string> = {}): Response {
@@ -294,4 +298,55 @@ test("listRollouts reads core.update.rollouts with no input", async () => {
   expect(await listRollouts()).toEqual({ rollouts: [] })
   expect(calls[0]?.body).toEqual({ input: {} })
   expect(ROLLOUTS_QUERY_KEY).toEqual(["rollouts"])
+})
+
+describe("step-up", () => {
+  const READ = "POST /api/v1/hosts/h1/actions/jobs.job.list/v1/read"
+  const required = { status: 403, body: { type: "about:blank", title: "", status: 403, detail: "enter an authenticator code to continue", code: "auth.step_up_required" } }
+
+  afterEach(() => {
+    setStepUpHandler(null)
+  })
+
+  test("retries once after step-up", async () => {
+    let reads = 0
+    const calls = stubFetch({
+      [READ]: () => (++reads === 1 ? required : { body: { output: { jobs: [] } } }),
+      "POST /api/v1/auth/step-up": { status: 204 },
+    })
+    const { unmount } = renderWithProviders(createElement("p", null, "page"))
+    const user = userEvent.setup()
+    const pending = readAction("jobs.job.list", 1, {}, "h1")
+    await screen.findByRole("dialog")
+    await user.keyboard("123456{Enter}")
+    expect(await pending).toEqual({ jobs: [] })
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "POST /api/v1/hosts/h1/actions/jobs.job.list/v1/read",
+      "POST /api/v1/auth/step-up",
+      "POST /api/v1/hosts/h1/actions/jobs.job.list/v1/read",
+    ])
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    unmount()
+  })
+
+  test("a request refused again after the step-up is not retried a second time", async () => {
+    const calls = stubFetch({ [READ]: required })
+    const handler = vi.fn(() => Promise.resolve(true))
+    setStepUpHandler(handler)
+    await expect(readAction("jobs.job.list", 1, {}, "h1")).rejects.toMatchObject({ code: "auth.step_up_required" })
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(calls).toHaveLength(2)
+  })
+
+  test("a cancelled step-up answers the refusal without a retry", async () => {
+    const calls = stubFetch({ [READ]: required })
+    setStepUpHandler(() => Promise.resolve(false))
+    await expect(readAction("jobs.job.list", 1, {}, "h1")).rejects.toMatchObject({ code: "auth.step_up_required" })
+    expect(calls).toHaveLength(1)
+  })
+
+  test("without a handler the refusal is answered as it came", async () => {
+    stubFetch({ [READ]: required })
+    await expect(readAction("jobs.job.list", 1, {}, "h1")).rejects.toMatchObject({ code: "auth.step_up_required" })
+  })
 })

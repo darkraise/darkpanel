@@ -70,6 +70,7 @@ let csrfToken: string | null = null
 let generation = 0
 let unauthorizedHandler: (() => void) | null = null
 let csrfRejectedHandler: (() => void) | null = null
+let stepUpHandler: (() => Promise<boolean>) | null = null
 
 // Every login and logout sets the CSRF token and so starts a new session
 // generation. An auth.required answer to a request begun in an earlier
@@ -91,7 +92,30 @@ export function setCsrfRejectedHandler(handler: (() => void) | null): void {
   csrfRejectedHandler = handler
 }
 
-export async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+// setStepUpHandler sets what a request refused auth.step_up_required asks
+// for a step-up: it answers true once the session is elevated, false when the
+// user cancelled.
+export function setStepUpHandler(handler: (() => Promise<boolean>) | null): void {
+  stepUpHandler = handler
+}
+
+// withStepUp runs attempt and, when it is refused auth.step_up_required,
+// asks for a step-up and runs it once more after a successful one.
+export async function withStepUp<T>(attempt: () => Promise<T>): Promise<T> {
+  try {
+    return await attempt()
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.code !== "auth.step_up_required" || stepUpHandler === null) throw err
+    if (!(await stepUpHandler())) throw err
+    return attempt()
+  }
+}
+
+export function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  return withStepUp(() => send<T>(method, path, body, signal))
+}
+
+async function send<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const startedIn = generation
   const headers: Record<string, string> = { Accept: "application/json", "Content-Type": "application/json" }
   if (UNSAFE_METHODS.has(method) && csrfToken !== null) headers[CSRF_HEADER] = csrfToken
@@ -220,6 +244,11 @@ export function getTailscaleMatch(): Promise<TailscaleMatch> {
 // signInTailscale answers a session, or the code step while it waits.
 export function signInTailscale(): Promise<Session | TailscaleCodeStep> {
   return request<Session | TailscaleCodeStep>("POST", "/api/v1/auth/tailscale", {})
+}
+
+// stepUp elevates the session for 15 minutes with a fresh authenticator code.
+export function stepUp(code: string): Promise<void> {
+  return request<void>("POST", "/api/v1/auth/step-up", { code })
 }
 
 export function finishCodeStep(code: string): Promise<Session> {

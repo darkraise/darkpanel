@@ -56,6 +56,9 @@ export interface ModuleEntry {
   containerActions?: ContainerAction[]
   hostCreate?: HostCreateExtension
   global?: GlobalPage
+  // Set for a module that is off by default: its tab stays while it is off
+  // and says what turning it on allows.
+  off?: { allows: string }
   // The scope on a host its host pages need, read when absent; a host whose
   // scope is lower has no tab for the module.
   scope?: Scope

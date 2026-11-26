@@ -6,6 +6,7 @@ import type { InstanceStatus } from "../src/modules/npm/types"
 import type { Summary } from "../src/modules/hostinfo/types"
 import { installedFixture, rebootFixture, updatesFixture } from "../src/modules/system/fixtures"
 import type { DockerState, InstalledPackage, Updates } from "../src/modules/system/types"
+import * as m11 from "../src/modules/m11-fixtures"
 
 export const HOST_ID = "01JE00000000000000000000H1"
 const OFFLINE_HOST_ID = "01JE00000000000000000000H2"
@@ -663,9 +664,9 @@ function sse(events: { event: string; data: unknown }[]): Reply {
   return { sse: events.map((e) => `event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`).join("") }
 }
 
-function bodyOf(route: Route): { input?: Record<string, unknown> } {
+function bodyOf(route: Route): { input?: Record<string, unknown>; code?: unknown } {
   const text = route.request().postData()
-  return text === null ? {} : (JSON.parse(text) as { input?: Record<string, unknown> })
+  return text === null ? {} : (JSON.parse(text) as { input?: Record<string, unknown>; code?: unknown })
 }
 
 const ACTION = /^\/api\/v1\/(?:hosts\/([^/]+)\/)?actions\/([^/]+)\/v\d+\/(read|plan|apply)$/
@@ -681,12 +682,32 @@ interface Applied {
   rollouts: Rollout[]
 }
 
-const READS: Record<string, (worstCase: boolean, applied: Applied, sys: SystemContext) => unknown> = {
-  "core.host.list": (worstCase, applied, sys) => ({
+// m11Host gives web-1 the six M11 modules, console and jobs off as they ship.
+function m11Host(h: Host): Host {
+  if (h.id !== HOST_ID) return h
+  const added = ["services", "users", "fail2ban", "console", "jobs", "tuning"].map((id) => moduleState(id, { enabled: id !== "console" && id !== "jobs" }))
+  return { ...h, modules: [...h.modules, ...added] }
+}
+
+const READS: Record<string, (worstCase: boolean, applied: Applied, sys: SystemContext, withM11: boolean) => unknown> = {
+  "core.host.list": (worstCase, applied, sys, withM11) => ({
     hosts: (worstCase ? worstHosts : hosts)
       .filter((h) => !applied.deleted.has(h.id))
-      .map((h) => systemHost(applied.revoked.has(h.id) ? { ...h, state: "revoked" } : h, sys)),
+      .map((h) => systemHost(applied.revoked.has(h.id) ? { ...h, state: "revoked" } : h, sys))
+      .map((h) => (withM11 ? m11Host(h) : h)),
   }),
+  // The M11 reads; worstCase answers each list's worst case.
+  "services.unit.list": (worstCase) => ({ units: worstCase ? m11.unitsWorst : m11.unitsDefault }),
+  "services.journal.query": (worstCase) => (worstCase ? m11.journalWorst : m11.journalDefault),
+  "users.user.list": (worstCase) => ({ accounts: worstCase ? m11.accountsWorst : m11.accountsDefault }),
+  "users.key.list": () => m11.keysDeploy,
+  "users.sshd.get": () => m11.sshdState,
+  "fail2ban.status.get": () => m11.fail2banInstalled,
+  "fail2ban.ban.list": (worstCase) => ({ bans: worstCase ? m11.bansWorst : m11.bansDefault }),
+  "jobs.job.list": (worstCase) => (worstCase ? m11.jobsWorst : m11.jobsDefault),
+  "jobs.schedule.check": () => m11.scheduleNext,
+  "tuning.swap.get": () => m11.swapDefault,
+  "tuning.sysctl.get": () => m11.sysctlDefault,
   "core.audit.list": (worstCase) => ({ entries: worstCase ? worstAudit : worstAudit.slice(0, 3), nextBefore: null }),
   "core.token.list": () => ({ tokens }),
   "core.update.status": (worstCase) => ({ transactions: worstCase ? worstTransactions : [] }),
@@ -861,8 +882,10 @@ export interface Fixtures {
 // pages must hold: 50 hosts, three update transactions and 20 rollouts, and
 // on the System pages 400 upgradable and 3000 installed packages with
 // 70-character names. systemState picks a named System or Docker install
-// state (SYSTEM_STATES) for web-1.
-export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean; systemState?: SystemState }): Promise<Fixtures> {
+// state (SYSTEM_STATES) for web-1. m11 gives web-1 the six M11 modules, console
+// and jobs off, whose reads answer from src/modules/m11-fixtures.ts; the
+// step-up endpoint accepts the code 123456.
+export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean; systemState?: SystemState; m11?: boolean }): Promise<Fixtures> {
   const fixtures: Fixtures = { unhandled: [] }
   const changes = new Map<string, Change>()
   const planned = new Map<string, Record<string, unknown>>()
@@ -876,7 +899,7 @@ export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?:
       const request = route.request()
       const method = request.method()
       const path = new URL(request.url()).pathname
-      const reply = answer(method, path, route, opts.signedIn, { changes, planned, applied, worstCase, sys, steps })
+      const reply = answer(method, path, route, opts.signedIn, { changes, planned, applied, worstCase, sys, steps, m11: opts.m11 ?? false })
       if (reply === "hang") return
       if (reply === null) {
         fixtures.unhandled.push(`${method} ${path}`)
@@ -906,6 +929,7 @@ interface MockState {
   worstCase: boolean
   sys: SystemContext
   steps: Map<string, Step[]>
+  m11: boolean
 }
 
 function answer(method: string, path: string, route: Route, signedIn: boolean, state: MockState): Reply | "hang" | null {
@@ -915,6 +939,9 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
   }
   if (path === "/api/v1/auth/login") return problem(401, "auth.invalid", "Login failed.")
   if (path === "/api/v1/auth/logout") return { status: 204 }
+  if (path === "/api/v1/auth/step-up" && method === "POST") {
+    return bodyOf(route).code === "123456" ? { status: 204 } : problem(401, "auth.invalid_credentials", "wrong authenticator code")
+  }
   // No OIDC provider and no Tailscale listener: the login page offers only the form.
   if (path === "/api/v1/auth/methods") return { json: { oidc: null, tailscale: false } }
   if (path === "/api/v1/events") return { status: 204 }
@@ -932,7 +959,7 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
           return { json: { output: searchHits(typeof term === "string" ? term : "", sys) } }
         }
         const read = READS[name]
-        return read === undefined ? null : { json: { output: read(worstCase, applied, sys) } }
+        return read === undefined ? null : { json: { output: read(worstCase, applied, sys, state.m11) } }
       }
       case "plan": {
         const input = bodyOf(route).input ?? {}
