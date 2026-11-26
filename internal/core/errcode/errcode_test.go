@@ -160,6 +160,7 @@ func TestSection11Codes(t *testing.T) {
 		{FirewallDockerUserInUse, "firewall.docker_user_in_use", 409, "DOCKER-USER holds foreign rules"},
 		{DockerEngineUnavailable, "docker.engine_unavailable", 503, "Docker Engine unavailable"},
 		{DockerInUse, "docker.in_use", 409, "In use"},
+		{ServicesProtected, "services.protected", 409, "Protected unit"},
 		{DockerOwned, "docker.owned", 409, "Owned by a Darkpanel module"},
 		{DockerComposeUnavailable, "docker.compose_unavailable", 409, "Compose unavailable or project refused"},
 		{TailscaleUnavailable, "tailscale.unavailable", 503, "Tailscale unavailable"},

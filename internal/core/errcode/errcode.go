@@ -97,6 +97,7 @@ const (
 	FirewallDockerUserInUse          Code = "firewall.docker_user_in_use"
 	DockerEngineUnavailable          Code = "docker.engine_unavailable"
 	DockerInUse                      Code = "docker.in_use"
+	ServicesProtected                Code = "services.protected"
 	DockerOwned                      Code = "docker.owned"
 	DockerComposeUnavailable         Code = "docker.compose_unavailable"
 	TailscaleUnavailable             Code = "tailscale.unavailable"
@@ -243,6 +244,7 @@ var registry = map[Code]info{
 	FirewallDockerUserInUse:          {http.StatusConflict, "DOCKER-USER holds foreign rules"},
 	DockerEngineUnavailable:          {http.StatusServiceUnavailable, "Docker Engine unavailable"},
 	DockerInUse:                      {http.StatusConflict, "In use"},
+	ServicesProtected:                {http.StatusConflict, "Protected unit"},
 	DockerOwned:                      {http.StatusConflict, "Owned by a Darkpanel module"},
 	DockerComposeUnavailable:         {http.StatusConflict, "Compose unavailable or project refused"},
 	TailscaleUnavailable:             {http.StatusServiceUnavailable, "Tailscale unavailable"},

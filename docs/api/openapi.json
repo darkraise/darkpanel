@@ -17030,6 +17030,933 @@
         ],
         "type": "object"
       },
+      "services.unit.disable.v1.input": {
+        "$ref": "#/components/schemas/services.unit.disable.v1.input.UnitInput"
+      },
+      "services.unit.disable.v1.input.GuardContext": {
+        "additionalProperties": false,
+        "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/services.unit.disable.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/services.unit.disable.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "services.unit.disable.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "services.unit.disable.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ],
+        "type": "object"
+      },
+      "services.unit.disable.v1.input.UnitInput": {
+        "additionalProperties": false,
+        "properties": {
+          "guard": {
+            "$ref": "#/components/schemas/services.unit.disable.v1.input.GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.disable.v1.output": {
+        "$ref": "#/components/schemas/services.unit.disable.v1.output.UnitChanged"
+      },
+      "services.unit.disable.v1.output.UnitChanged": {
+        "properties": {
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.enable.v1.input": {
+        "$ref": "#/components/schemas/services.unit.enable.v1.input.UnitInput"
+      },
+      "services.unit.enable.v1.input.GuardContext": {
+        "additionalProperties": false,
+        "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/services.unit.enable.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/services.unit.enable.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "services.unit.enable.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "services.unit.enable.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ],
+        "type": "object"
+      },
+      "services.unit.enable.v1.input.UnitInput": {
+        "additionalProperties": false,
+        "properties": {
+          "guard": {
+            "$ref": "#/components/schemas/services.unit.enable.v1.input.GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.enable.v1.output": {
+        "$ref": "#/components/schemas/services.unit.enable.v1.output.UnitChanged"
+      },
+      "services.unit.enable.v1.output.UnitChanged": {
+        "properties": {
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.get.v1.input": {
+        "$ref": "#/components/schemas/services.unit.get.v1.input.GetInput"
+      },
+      "services.unit.get.v1.input.GetInput": {
+        "additionalProperties": false,
+        "properties": {
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.get.v1.output": {
+        "$ref": "#/components/schemas/services.unit.get.v1.output.UnitDetail"
+      },
+      "services.unit.get.v1.output.UnitDetail": {
+        "properties": {
+          "active": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "dropIns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enabled": {
+            "type": "string"
+          },
+          "load": {
+            "type": "string"
+          },
+          "mainPid": {
+            "type": "integer"
+          },
+          "memoryCurrent": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "restarts": {
+            "type": "integer"
+          },
+          "startedAt": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sub": {
+            "type": "string"
+          },
+          "tasks": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          },
+          "unitFile": {
+            "type": "string"
+          },
+          "unitFileText": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "description",
+          "load",
+          "active",
+          "sub",
+          "enabled",
+          "restarts",
+          "dropIns"
+        ],
+        "type": "object"
+      },
+      "services.unit.list.v1.input": {
+        "$ref": "#/components/schemas/services.unit.list.v1.input.ListInput"
+      },
+      "services.unit.list.v1.input.ListInput": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "services.unit.list.v1.output": {
+        "$ref": "#/components/schemas/services.unit.list.v1.output.UnitList"
+      },
+      "services.unit.list.v1.output.Unit": {
+        "properties": {
+          "active": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "string"
+          },
+          "load": {
+            "type": "string"
+          },
+          "mainPid": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "description",
+          "load",
+          "active",
+          "sub",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "services.unit.list.v1.output.UnitList": {
+        "properties": {
+          "units": {
+            "items": {
+              "$ref": "#/components/schemas/services.unit.list.v1.output.Unit"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "units"
+        ],
+        "type": "object"
+      },
+      "services.unit.reload.v1.input": {
+        "$ref": "#/components/schemas/services.unit.reload.v1.input.UnitInput"
+      },
+      "services.unit.reload.v1.input.GuardContext": {
+        "additionalProperties": false,
+        "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/services.unit.reload.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/services.unit.reload.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "services.unit.reload.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "services.unit.reload.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ],
+        "type": "object"
+      },
+      "services.unit.reload.v1.input.UnitInput": {
+        "additionalProperties": false,
+        "properties": {
+          "guard": {
+            "$ref": "#/components/schemas/services.unit.reload.v1.input.GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.reload.v1.output": {
+        "$ref": "#/components/schemas/services.unit.reload.v1.output.UnitChanged"
+      },
+      "services.unit.reload.v1.output.UnitChanged": {
+        "properties": {
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.restart.v1.input": {
+        "$ref": "#/components/schemas/services.unit.restart.v1.input.UnitInput"
+      },
+      "services.unit.restart.v1.input.GuardContext": {
+        "additionalProperties": false,
+        "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/services.unit.restart.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/services.unit.restart.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "services.unit.restart.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "services.unit.restart.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ],
+        "type": "object"
+      },
+      "services.unit.restart.v1.input.UnitInput": {
+        "additionalProperties": false,
+        "properties": {
+          "guard": {
+            "$ref": "#/components/schemas/services.unit.restart.v1.input.GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.restart.v1.output": {
+        "$ref": "#/components/schemas/services.unit.restart.v1.output.UnitChanged"
+      },
+      "services.unit.restart.v1.output.UnitChanged": {
+        "properties": {
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.start.v1.input": {
+        "$ref": "#/components/schemas/services.unit.start.v1.input.UnitInput"
+      },
+      "services.unit.start.v1.input.GuardContext": {
+        "additionalProperties": false,
+        "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/services.unit.start.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/services.unit.start.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "services.unit.start.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "services.unit.start.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ],
+        "type": "object"
+      },
+      "services.unit.start.v1.input.UnitInput": {
+        "additionalProperties": false,
+        "properties": {
+          "guard": {
+            "$ref": "#/components/schemas/services.unit.start.v1.input.GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.start.v1.output": {
+        "$ref": "#/components/schemas/services.unit.start.v1.output.UnitChanged"
+      },
+      "services.unit.start.v1.output.UnitChanged": {
+        "properties": {
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.stop.v1.input": {
+        "$ref": "#/components/schemas/services.unit.stop.v1.input.UnitInput"
+      },
+      "services.unit.stop.v1.input.GuardContext": {
+        "additionalProperties": false,
+        "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/services.unit.stop.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/services.unit.stop.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "services.unit.stop.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "services.unit.stop.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ],
+        "type": "object"
+      },
+      "services.unit.stop.v1.input.UnitInput": {
+        "additionalProperties": false,
+        "properties": {
+          "guard": {
+            "$ref": "#/components/schemas/services.unit.stop.v1.input.GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
+      "services.unit.stop.v1.output": {
+        "$ref": "#/components/schemas/services.unit.stop.v1.output.UnitChanged"
+      },
+      "services.unit.stop.v1.output.UnitChanged": {
+        "properties": {
+          "unit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit"
+        ],
+        "type": "object"
+      },
       "system.autoupdates.output": {
         "$ref": "#/components/schemas/system.autoupdates.output.AutoUpdates"
       },
@@ -35354,6 +36281,780 @@
           }
         ],
         "summary": "Remove the panel network between the proxy and the panel's listener."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.disable/v1/apply": {
+      "post": {
+        "operationId": "services.unit.disable.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Disable a service, socket or timer at boot."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.disable/v1/plan": {
+      "post": {
+        "operationId": "services.unit.disable.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/services.unit.disable.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Disable a service, socket or timer at boot."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.enable/v1/apply": {
+      "post": {
+        "operationId": "services.unit.enable.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Enable a service, socket or timer at boot."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.enable/v1/plan": {
+      "post": {
+        "operationId": "services.unit.enable.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/services.unit.enable.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Enable a service, socket or timer at boot."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.get/v1/read": {
+      "post": {
+        "operationId": "services.unit.get.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/services.unit.get.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/services.unit.get.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Show one unit: its state, memory, tasks, restarts, start time, unit file and drop-ins."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.list/v1/read": {
+      "post": {
+        "operationId": "services.unit.list.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/services.unit.list.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/services.unit.list.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the services, sockets, timers, mounts, paths and targets of the host with their state."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.reload/v1/apply": {
+      "post": {
+        "operationId": "services.unit.reload.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Reload the configuration of a service, socket or timer."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.reload/v1/plan": {
+      "post": {
+        "operationId": "services.unit.reload.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/services.unit.reload.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Reload the configuration of a service, socket or timer."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.restart/v1/apply": {
+      "post": {
+        "operationId": "services.unit.restart.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Restart a service, socket or timer."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.restart/v1/plan": {
+      "post": {
+        "operationId": "services.unit.restart.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/services.unit.restart.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Restart a service, socket or timer."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.start/v1/apply": {
+      "post": {
+        "operationId": "services.unit.start.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Start a service, socket or timer."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.start/v1/plan": {
+      "post": {
+        "operationId": "services.unit.start.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/services.unit.start.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Start a service, socket or timer."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.stop/v1/apply": {
+      "post": {
+        "operationId": "services.unit.stop.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Stop a service, socket or timer."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/services.unit.stop/v1/plan": {
+      "post": {
+        "operationId": "services.unit.stop.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/services.unit.stop.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Stop a service, socket or timer."
       }
     },
     "/api/v1/hosts/{host}/actions/system.autoupdates.set/v1/apply": {

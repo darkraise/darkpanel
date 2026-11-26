@@ -1,0 +1,138 @@
+{
+  "name": "services.unit.restart",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UnitInput",
+    "$defs": {
+      "GuardContext": {
+        "properties": {
+          "client": {
+            "$ref": "#/$defs/Peer"
+          },
+          "via": {
+            "$ref": "#/$defs/ProxyPath"
+          },
+          "panelListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "type": "string",
+              "format": "ip-address"
+            },
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "Peer": {
+        "properties": {
+          "addr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "addr",
+          "port"
+        ]
+      },
+      "ProxyPath": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "proxyAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "listenerAddr": {
+            "type": "string",
+            "format": "ip-address-port"
+          },
+          "public": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ]
+      },
+      "UnitInput": {
+        "properties": {
+          "guard": {
+            "$ref": "#/$defs/GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "unit"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UnitChanged",
+    "$defs": {
+      "UnitChanged": {
+        "properties": {
+          "unit": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit"
+        ]
+      }
+    }
+  }
+}

@@ -248,7 +248,8 @@ type ActionSpec struct {
 	CompensatedBy string // compensable only, an action name
 	ForwardOnly   bool   // compensable: never reversed; requires Converges
 	// TypedConfirmation makes a compensable action's apply repeat the phrase
-	// its plan names, as an irreversible action's always does.
+	// its plan names, as an irreversible action's always does. A plan of such
+	// an action that names no phrase asks for none.
 	TypedConfirmation bool
 	Converges         bool          // apply run again with the same input, after a partial or complete apply, ends in the same state and plans an empty diff when the effect is present
 	RepairedBy        string        // revertible only, required: an action of the same module

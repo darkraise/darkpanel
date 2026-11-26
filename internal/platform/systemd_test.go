@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+
+	"github.com/darkraise/darkpanel/internal/core"
 )
 
 // busCall is one method call the fake bus received.
@@ -505,5 +508,86 @@ func TestSystemdLive(t *testing.T) {
 
 	if st, err := s.State(ctx, prefix+"-missing.service"); err != nil || st.LoadState != "not-found" {
 		t.Errorf("a missing unit: %+v, %v; want LoadState not-found", st, err)
+	}
+}
+
+func TestUnitInspect(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "nginx.service")
+	if err := os.WriteFile(file, []byte(strings.Repeat("x", 70<<10)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := dbus.ObjectPath("/org/freedesktop/systemd1/unit/nginx_2eservice")
+	started := time.Date(2026, 11, 26, 8, 0, 0, 0, time.UTC)
+	bus := &fakeBus{reply: func(c busCall) ([]any, error) {
+		switch {
+		case c.method == "org.freedesktop.systemd1.Manager.LoadUnit" && c.args[0] == "nginx":
+			return []any{path}, nil
+		case c.method == "org.freedesktop.systemd1.Manager.LoadUnit":
+			return []any{dbus.ObjectPath("/org/freedesktop/systemd1/unit/gone")}, nil
+		case c.method == "org.freedesktop.DBus.Properties.GetAll" && c.path == path && c.args[0] == unitInterface:
+			return []any{map[string]dbus.Variant{
+				"Id": dbus.MakeVariant("nginx.service"), "Names": dbus.MakeVariant([]string{"nginx.service", "nginx"}),
+				"Description": dbus.MakeVariant("A web server"), "LoadState": dbus.MakeVariant("loaded"),
+				"ActiveState": dbus.MakeVariant("active"), "SubState": dbus.MakeVariant("running"),
+				"UnitFileState": dbus.MakeVariant("enabled"), "Requires": dbus.MakeVariant([]string{"system.slice"}),
+				"Wants": dbus.MakeVariant([]string{}), "Triggers": dbus.MakeVariant([]string{}),
+				"RefuseManualStart": dbus.MakeVariant(false), "AllowIsolate": dbus.MakeVariant(false),
+				"SuccessAction": dbus.MakeVariant("none"), "FailureAction": dbus.MakeVariant("reboot"),
+				"JobTimeoutAction": dbus.MakeVariant("none"), "StartLimitAction": dbus.MakeVariant("none"),
+				"FragmentPath": dbus.MakeVariant(file), "DropInPaths": dbus.MakeVariant([]string{"/etc/x.conf"}),
+				"ActiveEnterTimestamp": dbus.MakeVariant(uint64(started.UnixMicro())),
+			}}, nil
+		case c.method == "org.freedesktop.DBus.Properties.GetAll" && c.path == path && c.args[0] == serviceInterface:
+			return []any{map[string]dbus.Variant{"MainPID": dbus.MakeVariant(uint32(42)), "NRestarts": dbus.MakeVariant(uint32(2)),
+				"MemoryCurrent": dbus.MakeVariant(uint64(12 << 20)), "TasksCurrent": dbus.MakeVariant(^uint64(0))}}, nil
+		case c.method == "org.freedesktop.DBus.Properties.GetAll":
+			return []any{map[string]dbus.Variant{"Id": dbus.MakeVariant("gone.service"), "LoadState": dbus.MakeVariant("not-found")}}, nil
+		}
+		return nil, fmt.Errorf("unexpected %s %v on %s", c.method, c.args, c.path)
+	}}
+	got, err := newSystemd(bus).Inspect(context.Background(), "nginx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "nginx.service" || !slices.Equal(got.Names, []string{"nginx.service", "nginx"}) || got.MainPID != 42 ||
+		got.Restarts != 2 || got.MemoryCurrent == nil || *got.MemoryCurrent != 12<<20 || got.TasksCurrent != nil ||
+		got.FailureAction != "reboot" || !got.StartedAt.Equal(started) || got.FragmentPath != file ||
+		len(got.FileText) != 64<<10 || !got.FileTruncated || !slices.Equal(got.DropInPaths, []string{"/etc/x.conf"}) {
+		t.Errorf("Inspect = %+v", got)
+	}
+	gone, err := newSystemd(bus).Inspect(context.Background(), "gone.service")
+	if err != nil || gone.LoadState != "not-found" {
+		t.Errorf("Inspect of a missing unit = %+v, %v", gone, err)
+	}
+}
+
+func TestUnitListAll(t *testing.T) {
+	svc := dbus.ObjectPath("/org/freedesktop/systemd1/unit/nginx_2eservice")
+	bus := &fakeBus{reply: func(c busCall) ([]any, error) {
+		switch {
+		case c.method == "org.freedesktop.systemd1.Manager.ListUnitsByPatterns":
+			return []any{[][]any{{"nginx.service", "A web server", "loaded", "active", "running", "", svc, uint32(0), "", dbus.ObjectPath("/")}}}, nil
+		case c.method == "org.freedesktop.systemd1.Manager.ListUnitFilesByPatterns":
+			return []any{[][]any{{"/lib/systemd/system/nginx.service", "enabled"}, {"/lib/systemd/system/apache2.service", "disabled"},
+				{"/lib/systemd/system/getty@.service", "enabled"}}}, nil
+		case c.method == "org.freedesktop.DBus.Properties.Get" && c.path == svc:
+			return []any{dbus.MakeVariant(uint32(42))}, nil
+		}
+		return nil, fmt.Errorf("unexpected %s %v on %s", c.method, c.args, c.path)
+	}}
+	got, err := newSystemd(bus).ListAll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []core.UnitInfo{
+		{ID: "apache2.service", LoadState: "not-loaded", ActiveState: "inactive", SubState: "dead", UnitFileState: "disabled"},
+		{ID: "nginx.service", Description: "A web server", LoadState: "loaded", ActiveState: "active", SubState: "running",
+			UnitFileState: "enabled", MainPID: 42},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ListAll = %+v\nwant %+v", got, want)
+	}
+	if got := sig(bus.calls[0].args); got != "asas" {
+		t.Errorf("signature %q, want asas", got)
 	}
 }

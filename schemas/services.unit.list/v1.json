@@ -1,0 +1,83 @@
+{
+  "name": "services.unit.list",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ListInput",
+    "$defs": {
+      "ListInput": {
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UnitList",
+    "$defs": {
+      "Unit": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "load": {
+            "type": "string"
+          },
+          "active": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "string"
+          },
+          "mainPid": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "type",
+          "description",
+          "load",
+          "active",
+          "sub",
+          "enabled"
+        ]
+      },
+      "UnitList": {
+        "properties": {
+          "units": {
+            "items": {
+              "$ref": "#/$defs/Unit"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "units"
+        ]
+      }
+    }
+  }
+}

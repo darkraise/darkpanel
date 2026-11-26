@@ -1,6 +1,11 @@
 package core
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+
+	"github.com/darkraise/darkpanel/internal/core/errcode"
+)
 
 // Access is what a principal may do on each host, resolved per request.
 type Access struct {
@@ -129,4 +134,14 @@ func (r *RowScope) Shows(hostID string) bool {
 	}
 	i := sort.SearchStrings(r.HostIDs, hostID)
 	return i < len(r.HostIDs) && r.HostIDs[i] == hostID
+}
+
+// RequireScope refuses env's principal with auth.forbidden when its scope on
+// env.HostID is below need. A handler calls it in Plan when one input, such
+// as a unit another module manages, needs more than the action's own scope.
+func RequireScope(env Env, need Scope) error {
+	if env.Principal.HostAccess().On(env.HostID).Allows(need) {
+		return nil
+	}
+	return errcode.New(errcode.Forbidden, fmt.Sprintf("this request needs the %s scope", need))
 }

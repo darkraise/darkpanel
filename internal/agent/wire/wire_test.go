@@ -50,6 +50,15 @@ func TestRoundTrips(t *testing.T) {
 	} {
 		check(t, "Principal", roundTrip(t, FromPrincipal(p)).Core(), p)
 	}
+	member := core.Principal{Actor: "user:01M", UserID: "01M", Source: "100.64.0.4",
+		Access: core.Access{Hosts: map[string]core.Scope{"01H": core.ScopeOperate, "01X": core.ScopeAdmin}}}
+	got := roundTrip(t, FromPrincipalOn(member, "01H")).Core()
+	if s := got.HostAccess().On("01H"); s != core.ScopeOperate {
+		t.Errorf("member's scope on its host after the round trip = %q, want operate", s)
+	}
+	if _, ok := got.Access.Hosts["01X"]; ok {
+		t.Error("the round trip carried a grant on another host")
+	}
 	for _, h := range []core.AgentHello{
 		{ProtocolVersion: 1, BinaryVersion: "0.2.0", OS: "linux", Arch: "amd64", HostID: "01H", JournalEpoch: "01E",
 			ControllerConnected: &yes,

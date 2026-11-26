@@ -121,6 +121,7 @@ func (r *Registry) Register(ctx context.Context, hostID, serial string, s *trans
 	r.generation++
 	ls := &liveSession{hostID: hostID, session: s, generation: r.generation}
 	ls.client = api.NewClient(api.ClientConfig{
+		HostID: hostID,
 		Dial: func(ctx context.Context) (net.Conn, error) {
 			c, err := s.Open(ctx)
 			if err != nil {

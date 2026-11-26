@@ -27,8 +27,12 @@ type scopedUnits struct {
 // ScopeUnits returns u limited to module m (1.8): every method on the units
 // m declares as owned paths of kind unit, State on task units, the declared
 // ops on m's external units, and Reload when m declares a unit. Everything
-// else fails with an error naming the module, the method and the unit.
+// else fails with an error naming the module, the method and the unit. The
+// services module gets adminUnits instead (ADR 0020).
 func ScopeUnits(u core.Units, m core.Manifest) core.Units {
+	if m.ID == ServicesModule {
+		return adminUnits{u: u}
+	}
 	s := &scopedUnits{u: u, module: m.ID, owned: map[string]bool{}, paths: map[string]bool{}, external: map[string][]string{}}
 	for _, p := range m.OwnedPaths {
 		if p.Kind == core.OwnedUnit {

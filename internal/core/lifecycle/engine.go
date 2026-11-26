@@ -412,7 +412,7 @@ func (e *Engine) makePlan(ctx context.Context, p core.Principal, def core.Action
 	}
 	if !typedConfirmation(def.Spec) {
 		out.Confirmation = ""
-	} else if out.Confirmation == "" {
+	} else if out.Confirmation == "" && def.Spec.Class == core.ClassIrreversible {
 		return core.PlanView{}, fmt.Errorf("lifecycle: %s returned no confirmation phrase", ref)
 	}
 	// One reading: the id may be stamped later than now, but expiry and

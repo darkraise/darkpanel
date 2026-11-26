@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -336,3 +338,183 @@ func (s *DBusSystemd) property(ctx context.Context, path dbus.ObjectPath, iface,
 	}
 	return v.Store(dst)
 }
+
+// ReloadUnit queues a reload job for unit, as systemctl reload does.
+func (s *DBusSystemd) ReloadUnit(ctx context.Context, unit string) error {
+	_, err := s.manager(ctx, "reload "+unit, "ReloadUnit", unit, "replace")
+	return err
+}
+
+// listedTypes are the unit types ListAll returns.
+var listedTypes = []string{"*.service", "*.socket", "*.timer", "*.mount", "*.path", "*.target"}
+
+// listedFile is one entry of ListUnitFilesByPatterns' answer, D-Bus (ss).
+type listedFile struct{ Path, State string }
+
+// ListAll returns the loaded units and the unit files of listedTypes, unit
+// file templates left out, sorted by name.
+func (s *DBusSystemd) ListAll(ctx context.Context) ([]core.UnitInfo, error) {
+	what := "list units"
+	body, err := s.manager(ctx, what, "ListUnitsByPatterns", []string{}, slices.Clone(listedTypes))
+	if err != nil {
+		return nil, err
+	}
+	var units []listedUnit
+	if err := dbus.Store(body, &units); err != nil {
+		return nil, fmt.Errorf("platform: %s: %w", what, err)
+	}
+	if body, err = s.manager(ctx, "list unit files", "ListUnitFilesByPatterns", []string{}, slices.Clone(listedTypes)); err != nil {
+		return nil, err
+	}
+	var files []listedFile
+	if err := dbus.Store(body, &files); err != nil {
+		return nil, fmt.Errorf("platform: list unit files: %w", err)
+	}
+	fileState := make(map[string]string, len(files))
+	for _, f := range files {
+		fileState[filepath.Base(f.Path)] = f.State
+	}
+	out := make([]core.UnitInfo, 0, len(units)+len(files))
+	seen := make(map[string]bool, len(units))
+	for _, u := range units {
+		info := core.UnitInfo{ID: u.Name, Description: u.Description, LoadState: u.LoadState,
+			ActiveState: u.ActiveState, SubState: u.SubState, UnitFileState: fileState[u.Name]}
+		if info.MainPID, err = s.mainPID(ctx, u.Path, u.Name, u.LoadState); err != nil {
+			return nil, fmt.Errorf("platform: %s: read MainPID of %s: %w", what, u.Name, err)
+		}
+		seen[u.Name] = true
+		out = append(out, info)
+	}
+	for name, state := range fileState {
+		if seen[name] || strings.Contains(name, "@.") {
+			continue
+		}
+		out = append(out, core.UnitInfo{ID: name, LoadState: "not-loaded", ActiveState: "inactive", SubState: "dead", UnitFileState: state})
+	}
+	slices.SortFunc(out, func(a, b core.UnitInfo) int { return strings.Compare(a.ID, b.ID) })
+	return out, nil
+}
+
+// typeInterfaces are the D-Bus interfaces of the unit types whose processes
+// systemd accounts.
+var typeInterfaces = map[string]string{
+	"service": serviceInterface,
+	"socket":  "org.freedesktop.systemd1.Socket",
+	"mount":   "org.freedesktop.systemd1.Mount",
+	"swap":    "org.freedesktop.systemd1.Swap",
+}
+
+// maxUnitFileText is the most of a unit file Inspect returns.
+const maxUnitFileText = 64 << 10
+
+// Inspect loads unit and reads its properties: names and dependencies are
+// those systemd resolved, so an alias reports the unit it names.
+func (s *DBusSystemd) Inspect(ctx context.Context, unit string) (core.UnitInfo, error) {
+	what := "inspect " + unit
+	body, err := s.manager(ctx, what, "LoadUnit", unit)
+	if err != nil {
+		return core.UnitInfo{}, err
+	}
+	var path dbus.ObjectPath
+	if err := dbus.Store(body, &path); err != nil {
+		return core.UnitInfo{}, fmt.Errorf("platform: %s: %w", what, err)
+	}
+	props, err := s.allProperties(ctx, path, unitInterface)
+	if err != nil {
+		return core.UnitInfo{}, fmt.Errorf("platform: %s: %w", what, err)
+	}
+	var info core.UnitInfo
+	var startedUsec uint64
+	for name, dst := range map[string]any{
+		"Id": &info.ID, "Description": &info.Description, "LoadState": &info.LoadState, "ActiveState": &info.ActiveState,
+		"SubState": &info.SubState, "UnitFileState": &info.UnitFileState, "Names": &info.Names,
+		"Requires": &info.Requires, "Wants": &info.Wants, "Triggers": &info.Triggers,
+		"RefuseManualStart": &info.RefuseManualStart, "AllowIsolate": &info.AllowIsolate,
+		"SuccessAction": &info.SuccessAction, "FailureAction": &info.FailureAction,
+		"JobTimeoutAction": &info.JobTimeoutAction, "StartLimitAction": &info.StartLimitAction,
+		"FragmentPath": &info.FragmentPath, "DropInPaths": &info.DropInPaths, "ActiveEnterTimestamp": &startedUsec,
+	} {
+		if err := storeProperty(props, name, dst); err != nil {
+			return core.UnitInfo{}, fmt.Errorf("platform: %s: read %s: %w", what, name, err)
+		}
+	}
+	if info.ID == "" {
+		info.ID = unit
+	}
+	if info.LoadState == "not-found" {
+		return info, nil
+	}
+	if startedUsec > 0 {
+		info.StartedAt = time.UnixMicro(int64(startedUsec)).UTC() //nolint:gosec // G115: microseconds since 1970 fit in int64
+	}
+	if iface := typeInterfaces[info.ID[strings.LastIndexByte(info.ID, '.')+1:]]; iface != "" {
+		tp, err := s.allProperties(ctx, path, iface)
+		if err != nil {
+			return core.UnitInfo{}, fmt.Errorf("platform: %s: %w", what, err)
+		}
+		var memory, tasks uint64
+		for name, dst := range map[string]any{"MainPID": &info.MainPID, "NRestarts": &info.Restarts, "MemoryCurrent": &memory, "TasksCurrent": &tasks} {
+			if err := storeProperty(tp, name, dst); err != nil {
+				return core.UnitInfo{}, fmt.Errorf("platform: %s: read %s: %w", what, name, err)
+			}
+		}
+		// systemd reports an unaccounted value as the maximum uint64.
+		if _, ok := tp["MemoryCurrent"]; ok && memory != ^uint64(0) {
+			info.MemoryCurrent = &memory
+		}
+		if _, ok := tp["TasksCurrent"]; ok && tasks != ^uint64(0) {
+			info.TasksCurrent = &tasks
+		}
+	}
+	if info.FragmentPath != "" {
+		if info.FileText, info.FileTruncated, err = readUnitFile(info.FragmentPath); err != nil {
+			return core.UnitInfo{}, fmt.Errorf("platform: %s: %w", what, err)
+		}
+	}
+	return info, nil
+}
+
+// allProperties reads every property of iface of the object at path.
+func (s *DBusSystemd) allProperties(ctx context.Context, path dbus.ObjectPath, iface string) (map[string]dbus.Variant, error) {
+	body, err := s.bus.call(ctx, path, "org.freedesktop.DBus.Properties.GetAll", iface)
+	if err != nil {
+		return nil, fmt.Errorf("read the properties of %s: %w", iface, err)
+	}
+	var props map[string]dbus.Variant
+	if err := dbus.Store(body, &props); err != nil {
+		return nil, fmt.Errorf("read the properties of %s: %w", iface, err)
+	}
+	return props, nil
+}
+
+// storeProperty stores props[name] in dst; a missing property leaves dst.
+func storeProperty(props map[string]dbus.Variant, name string, dst any) error {
+	v, ok := props[name]
+	if !ok {
+		return nil
+	}
+	return v.Store(dst)
+}
+
+// readUnitFile reads the first 64 KiB of the regular file systemd loaded a
+// unit from.
+func readUnitFile(path string) (string, bool, error) {
+	f, err := os.Open(path) //nolint:gosec // G304: the FragmentPath systemd reports, read only
+	if err != nil {
+		return "", false, fmt.Errorf("read unit file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return "", false, fmt.Errorf("read unit file %s: not a regular file", path)
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxUnitFileText+1))
+	if err != nil {
+		return "", false, fmt.Errorf("read unit file: %w", err)
+	}
+	if len(b) > maxUnitFileText {
+		return string(b[:maxUnitFileText]), true, nil
+	}
+	return string(b), false, nil
+}
+
+var _ core.UnitAdmin = (*DBusSystemd)(nil)

@@ -34,6 +34,9 @@ type ClientConfig struct {
 	// client of the agent socket does. Its Protocol is ignored: the client
 	// always sends this binary's protocol.
 	Controller *ControllerHello
+	// HostID is the host the client talks to; when set, the principal header
+	// carries the caller's scope there (wire.Principal.HostScope).
+	HostID string
 }
 
 // controllerPrincipal is what a controller's client sends as
@@ -128,7 +131,7 @@ func (c *Client) do(ctx context.Context, req request, out any) error {
 		principal = &controllerPrincipal
 	}
 	if principal != nil {
-		b, err := json.Marshal(wire.FromPrincipal(*principal))
+		b, err := json.Marshal(c.wirePrincipal(*principal))
 		if err != nil {
 			return fmt.Errorf("api: %s: encode the principal: %w", what, err)
 		}
@@ -479,7 +482,7 @@ func (c *Client) OpenStream(ctx context.Context, p core.Principal, module, name 
 	if err != nil {
 		return nil, fmt.Errorf("api: %s: %w", what, err)
 	}
-	b, err := json.Marshal(wire.FromPrincipal(p))
+	b, err := json.Marshal(c.wirePrincipal(p))
 	if err != nil {
 		return nil, fmt.Errorf("api: %s: encode the principal: %w", what, err)
 	}
@@ -498,4 +501,12 @@ func (c *Client) OpenStream(ctx context.Context, p core.Principal, module, name 
 		return nil, fmt.Errorf("api: %s: read the answer: %w", what, err)
 	}
 	return nil, answerError(what, resp, data)
+}
+
+// wirePrincipal is p as the principal header carries it.
+func (c *Client) wirePrincipal(p core.Principal) wire.Principal {
+	if c.cfg.HostID == "" {
+		return wire.FromPrincipal(p)
+	}
+	return wire.FromPrincipalOn(p, c.cfg.HostID)
 }

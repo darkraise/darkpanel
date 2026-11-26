@@ -60,3 +60,43 @@ type UnitStatus struct {
 	Name string
 	UnitState
 }
+
+// UnitAdmin is the unit client of the services module, the one module that
+// drives units it does not declare (ADR 0020): only .service, .socket and
+// .timer units that are not Darkpanel's own, and reads of every unit.
+type UnitAdmin interface {
+	Units
+	// ReloadUnit asks a unit to reload its configuration (systemctl reload).
+	ReloadUnit(ctx context.Context, unit string) error
+	// ListAll returns every loaded unit and every unit file, templates left
+	// out, of the types service, socket, timer, mount, path and target, with
+	// the list fields of UnitInfo. A unit file systemd has not loaded reports
+	// LoadState "not-loaded".
+	ListAll(ctx context.Context) ([]UnitInfo, error)
+	// Inspect loads unit and reads every field of UnitInfo. A unit that does
+	// not exist reports LoadState "not-found".
+	Inspect(ctx context.Context, unit string) (UnitInfo, error)
+}
+
+// UnitInfo is what systemd reports of one unit. ListAll fills the fields up
+// to MainPID; Inspect fills them all.
+type UnitInfo struct {
+	ID                               string
+	Description                      string
+	LoadState, ActiveState, SubState string
+	UnitFileState                    string // "enabled", "disabled", "static", ...; "" without a unit file
+	MainPID                          uint32
+	Names                            []string // every name of the unit, ID included
+	Requires, Wants, Triggers        []string
+	RefuseManualStart, AllowIsolate  bool
+	// The action properties: "none" or what systemd does when the unit
+	// succeeds, fails, times out on a job or hits its start limit.
+	SuccessAction, FailureAction, JobTimeoutAction, StartLimitAction string
+	MemoryCurrent, TasksCurrent                                      *uint64 // nil when systemd does not account them
+	Restarts                                                         uint32
+	StartedAt                                                        time.Time // zero when the unit never became active
+	FragmentPath                                                     string
+	FileText                                                         string // the unit file, at most 64 KiB
+	FileTruncated                                                    bool
+	DropInPaths                                                      []string
+}

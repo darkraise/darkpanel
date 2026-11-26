@@ -1,0 +1,120 @@
+{
+  "name": "services.unit.get",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/GetInput",
+    "$defs": {
+      "GetInput": {
+        "properties": {
+          "unit": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "unit"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/UnitDetail",
+    "$defs": {
+      "UnitDetail": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "load": {
+            "type": "string"
+          },
+          "active": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "string"
+          },
+          "mainPid": {
+            "type": "integer"
+          },
+          "memoryCurrent": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tasks": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "restarts": {
+            "type": "integer"
+          },
+          "startedAt": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitFile": {
+            "type": "string"
+          },
+          "unitFileText": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "dropIns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "type",
+          "description",
+          "load",
+          "active",
+          "sub",
+          "enabled",
+          "restarts",
+          "dropIns"
+        ]
+      }
+    }
+  }
+}

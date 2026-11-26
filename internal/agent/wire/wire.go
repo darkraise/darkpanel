@@ -51,6 +51,10 @@ type Principal struct {
 	TokenID string `json:"tokenId"`
 	Scope   string `json:"scope"`
 	Source  string `json:"source"`
+	// HostScope is the principal's scope on the agent's host, which the
+	// controller resolves from its grants; the agent sees no other host. An
+	// agent older than M11 ignores it.
+	HostScope string `json:"hostScope,omitempty"`
 }
 
 // FromPrincipal converts p.
@@ -58,9 +62,21 @@ func FromPrincipal(p core.Principal) Principal {
 	return Principal{Actor: p.Actor, UserID: p.UserID, TokenID: p.TokenID, Scope: string(p.Scope), Source: p.Source}
 }
 
-// Core converts p back.
+// FromPrincipalOn converts p with its scope on hostID.
+func FromPrincipalOn(p core.Principal, hostID string) Principal {
+	w := FromPrincipal(p)
+	w.HostScope = string(p.HostAccess().On(hostID))
+	return w
+}
+
+// Core converts p back. A HostScope becomes the principal's access on every
+// host, which on the agent is its own host only.
 func (p Principal) Core() core.Principal {
-	return core.Principal{Actor: p.Actor, UserID: p.UserID, TokenID: p.TokenID, Scope: core.Scope(p.Scope), Source: p.Source}
+	c := core.Principal{Actor: p.Actor, UserID: p.UserID, TokenID: p.TokenID, Scope: core.Scope(p.Scope), Source: p.Source}
+	if p.HostScope != "" {
+		c.Access = core.Access{All: core.Scope(p.HostScope)}
+	}
+	return c
 }
 
 // CallContext is core.CallContext without RepairOf, which the agent derives
