@@ -87,27 +87,49 @@ type recordedFiles struct {
 	env core.Env
 }
 
+// admin refuses a principal below admin on the host: every file
+// operation, a read included, runs as root.
+func (f *recordedFiles) admin() error { return core.RequireScope(f.env, core.ScopeAdmin) }
+
 func (f *recordedFiles) List(ctx context.Context, path, cursor string) (core.DirPage, error) {
+	if err := f.admin(); err != nil {
+		return core.DirPage{}, err
+	}
 	return f.env.ConsoleFS.List(ctx, path, cursor)
 }
 
 func (f *recordedFiles) Stat(ctx context.Context, path string) (core.FileInfo, error) {
+	if err := f.admin(); err != nil {
+		return core.FileInfo{}, err
+	}
 	return f.env.ConsoleFS.Stat(ctx, path)
 }
 
 func (f *recordedFiles) ReadText(ctx context.Context, path string) ([]byte, string, error) {
+	if err := f.admin(); err != nil {
+		return nil, "", err
+	}
 	return f.env.ConsoleFS.ReadText(ctx, path)
 }
 
 func (f *recordedFiles) Open(ctx context.Context, path string) (io.ReadCloser, int64, error) {
+	if err := f.admin(); err != nil {
+		return nil, 0, err
+	}
 	return f.env.ConsoleFS.Open(ctx, path)
 }
 
 func (f *recordedFiles) RemoveTemp(ctx context.Context, path string) error {
+	if err := f.admin(); err != nil {
+		return err
+	}
 	return f.env.ConsoleFS.RemoveTemp(ctx, path)
 }
 
 func (f *recordedFiles) WriteText(ctx context.Context, path string, data []byte, expectSHA string) (string, error) {
+	if err := f.admin(); err != nil {
+		return "", err
+	}
 	size := int64(len(data))
 	var sum string
 	err := f.m.recordOp(ctx, f.env, "write", fileRecord{Path: path, Size: &size}, func(ctx context.Context, res *fileRecord) error {
@@ -120,6 +142,9 @@ func (f *recordedFiles) WriteText(ctx context.Context, path string, data []byte,
 }
 
 func (f *recordedFiles) Upload(ctx context.Context, path string, r io.Reader, size int64) (string, error) {
+	if err := f.admin(); err != nil {
+		return "", err
+	}
 	var sum string
 	err := f.m.recordOp(ctx, f.env, "upload", fileRecord{Path: path, Size: &size}, func(ctx context.Context, res *fileRecord) error {
 		var err error
@@ -131,24 +156,36 @@ func (f *recordedFiles) Upload(ctx context.Context, path string, r io.Reader, si
 }
 
 func (f *recordedFiles) Mkdir(ctx context.Context, path string) error {
+	if err := f.admin(); err != nil {
+		return err
+	}
 	return f.m.recordOp(ctx, f.env, "mkdir", fileRecord{Path: path}, func(ctx context.Context, _ *fileRecord) error {
 		return f.env.ConsoleFS.Mkdir(ctx, path)
 	})
 }
 
 func (f *recordedFiles) Rename(ctx context.Context, from, to string) error {
+	if err := f.admin(); err != nil {
+		return err
+	}
 	return f.m.recordOp(ctx, f.env, "rename", fileRecord{Path: from, To: to}, func(ctx context.Context, _ *fileRecord) error {
 		return f.env.ConsoleFS.Rename(ctx, from, to)
 	})
 }
 
 func (f *recordedFiles) Delete(ctx context.Context, path, confirm string) error {
+	if err := f.admin(); err != nil {
+		return err
+	}
 	return f.m.recordOp(ctx, f.env, "delete", fileRecord{Path: path}, func(ctx context.Context, _ *fileRecord) error {
 		return f.env.ConsoleFS.Delete(ctx, path, confirm)
 	})
 }
 
 func (f *recordedFiles) Chmod(ctx context.Context, path string, mode fs.FileMode) error {
+	if err := f.admin(); err != nil {
+		return err
+	}
 	rec := fileRecord{Path: path, Mode: fmt.Sprintf("%04o", uint32(mode))}
 	return f.m.recordOp(ctx, f.env, "chmod", rec, func(ctx context.Context, _ *fileRecord) error {
 		return f.env.ConsoleFS.Chmod(ctx, path, mode)
@@ -156,6 +193,9 @@ func (f *recordedFiles) Chmod(ctx context.Context, path string, mode fs.FileMode
 }
 
 func (f *recordedFiles) Chown(ctx context.Context, path string, uid, gid int) error {
+	if err := f.admin(); err != nil {
+		return err
+	}
 	rec := fileRecord{Path: path, UID: &uid, GID: &gid}
 	return f.m.recordOp(ctx, f.env, "chown", rec, func(ctx context.Context, _ *fileRecord) error {
 		return f.env.ConsoleFS.Chown(ctx, path, uid, gid)
@@ -185,8 +225,9 @@ func (m *module) recordOp(ctx context.Context, env core.Env, op string, intent f
 	}
 	action := actionFilePrefix + op
 	if err := recordFile(ctx, env, action, PhaseIntent, env.Principal.Actor, at, intent, nil); err != nil {
-		_ = env.DB.Write(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx, "DELETE FROM console_file_ops WHERE id = ?", id)
+		cleanup := context.WithoutCancel(ctx)
+		_ = env.DB.Write(cleanup, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(cleanup, "DELETE FROM console_file_ops WHERE id = ?", id)
 			return err
 		})
 		return err

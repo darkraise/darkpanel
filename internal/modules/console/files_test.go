@@ -688,3 +688,48 @@ func TestTransferNotGuarded(t *testing.T) {
 		}
 	})
 }
+
+// TestFilesNeedAdmin sends every file route as an operator: each answers
+// auth.forbidden, and nothing is journaled or changed.
+func TestFilesNeedAdmin(t *testing.T) {
+	r := newFilesRig(t)
+	r.write("srv/f", "f")
+	op := core.Principal{Actor: "user:op", UserID: "op", Scope: core.ScopeOperate, Source: "192.0.2.8"}
+	asOperator := func(req *http.Request) *http.Request {
+		req.Header.Set(wire.HeaderPrincipal, principalHeader(t, op))
+		return req
+	}
+	change := func(op string, body wire.FileChange) *http.Request {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.request(http.MethodPost, op, nil, bytes.NewReader(b), "application/json")
+	}
+	for name, req := range map[string]*http.Request{
+		"list":     r.request(http.MethodGet, "list", q("path", "/srv"), nil, ""),
+		"stat":     r.request(http.MethodGet, "stat", q("path", "/srv/f"), nil, ""),
+		"read":     r.request(http.MethodGet, "read", q("path", "/srv/f"), nil, ""),
+		"download": r.request(http.MethodGet, "download", q("path", "/srv/f"), nil, ""),
+		"write":    r.request(http.MethodPost, "write", q("path", "/srv/f", "sha256", hashOf([]byte("f"))), strings.NewReader("x"), "application/octet-stream"),
+		"upload":   r.request(http.MethodPost, "upload", q("path", "/srv/u"), strings.NewReader("x"), "application/octet-stream"),
+		"mkdir":    change("mkdir", wire.FileChange{Path: "/srv/d"}),
+		"rename":   change("rename", wire.FileChange{Path: "/srv/f", To: "/srv/g"}),
+		"delete":   change("delete", wire.FileChange{Path: "/srv/f"}),
+		"chmod":    change("chmod", wire.FileChange{Path: "/srv/f", Mode: "0777"}),
+		"chown":    change("chown", wire.FileChange{Path: "/srv/f", UID: new(0)}),
+	} {
+		wantProblem(t, name, r.serve(asOperator(req)), 403, errcode.Forbidden)
+	}
+	var n int
+	if err := r.db.Read().QueryRow("SELECT count(*) FROM core_journal WHERE action LIKE 'console.file.%'").Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d file entries journaled for the operator (%v), want none", n, err)
+	}
+	entries, err := os.ReadDir(r.path("srv"))
+	if err != nil || len(entries) != 1 {
+		t.Errorf("/srv after the refusals: %v, %v; want f alone", entries, err)
+	}
+	if b, _ := os.ReadFile(r.path("srv/f")); string(b) != "f" {
+		t.Errorf("/srv/f = %q", b)
+	}
+}

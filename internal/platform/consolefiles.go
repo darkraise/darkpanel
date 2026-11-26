@@ -799,10 +799,18 @@ func (f *ConsoleFiles) Delete(ctx context.Context, p, confirm string) error {
 }
 
 // removeAllAt removes the directory name of dirfd, whose path is p, and
-// everything in it, never following a symbolic link and refusing a
-// directory on a device other than dev.
+// everything in it, never following a symbolic link and refusing a mount
+// point, on dev or another device.
 func removeAllAt(ctx context.Context, dirfd int, name, p string, dev uint64) error {
-	fd, err := openBeneath(dirfd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	// RESOLVE_NO_XDEV also stops at a bind mount of the same filesystem,
+	// whose device the check below cannot tell apart.
+	fd, err := unix.Openat2(dirfd, name, &unix.OpenHow{
+		Flags:   unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC,
+		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_XDEV,
+	})
+	if errors.Is(err, unix.EXDEV) {
+		return invalid("%s is a mount point; unmount it first", p)
+	}
 	if err != nil {
 		return fileError(p, err)
 	}
