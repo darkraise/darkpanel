@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/controller/auth"
 	"github.com/darkraise/darkpanel/internal/controller/events"
@@ -119,6 +120,8 @@ type Server struct {
 	// file transfers) and holds the terminal tickets; CloseStreams ends them
 	// all.
 	longLived longLived
+	// transferIdle is TransferChunkTimeout; tests shorten it.
+	transferIdle time.Duration
 }
 
 // ListenerState is the listener state the UI footer shows (spec section 13):
@@ -197,7 +200,8 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Clock == nil {
 		cfg.Clock = core.SystemClock{}
 	}
-	s := &Server{cfg: cfg, log: cfg.Log, mux: http.NewServeMux(), streamsDone: make(chan struct{})}
+	s := &Server{cfg: cfg, log: cfg.Log, mux: http.NewServeMux(), streamsDone: make(chan struct{}),
+		transferIdle: TransferChunkTimeout}
 	for _, rt := range s.networkRoutes() {
 		h := rt.handler
 		if !rt.public {

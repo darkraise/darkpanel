@@ -355,16 +355,36 @@ func newFileLink(t *testing.T, h *harness, wrap func(net.Conn) net.Conn) *fileLi
 // browser signs the admin in, steps up and serves h on a real listener.
 type browser struct {
 	ts            *httptest.Server
+	client        *http.Client
+	cookie        string
 	session, csrf string
 }
 
 func newBrowser(t *testing.T, h *harness) *browser {
 	t.Helper()
+	return newBrowserTimeouts(t, h, 0, false)
+}
+
+// newBrowserTimeouts is newBrowser on a listener whose read and write
+// timeouts are timeout, as production's are (0 sets none); with h2 it
+// serves HTTP/2 over TLS, as the TLS listeners do.
+func newBrowserTimeouts(t *testing.T, h *harness, timeout time.Duration, h2 bool) *browser {
+	t.Helper()
 	session, csrf := h.login()
 	stepUp(t, h, h.code(), session, csrf)
-	ts := httptest.NewServer(h.srv.Handler())
+	ts := httptest.NewUnstartedServer(h.srv.Handler())
+	ts.Config.ReadTimeout, ts.Config.WriteTimeout = timeout, timeout
+	b := &browser{ts: ts, session: session, csrf: csrf, cookie: SessionCookiePlain}
+	if h2 {
+		ts.EnableHTTP2 = true
+		ts.StartTLS()
+		b.cookie = SessionCookieSecure
+	} else {
+		ts.Start()
+	}
 	t.Cleanup(ts.Close)
-	return &browser{ts: ts, session: session, csrf: csrf}
+	b.client = ts.Client()
+	return b
 }
 
 func (b *browser) do(t *testing.T, method, op, query string, body io.Reader, size int64) *http.Response {
@@ -377,9 +397,9 @@ func (b *browser) do(t *testing.T, method, op, query string, body io.Reader, siz
 		r.ContentLength = size
 		r.Header.Set("Content-Type", "application/octet-stream")
 	}
-	r.Header.Set("Cookie", SessionCookiePlain+"="+b.session)
+	r.Header.Set("Cookie", b.cookie+"="+b.session)
 	r.Header.Set(CSRFHeader, b.csrf)
-	res, err := http.DefaultClient.Do(r)
+	res, err := b.client.Do(r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,6 +506,17 @@ func TestStreamingRoundTrip(t *testing.T) {
 	if on, err := os.ReadFile(link.agent.files.at("/text.txt")); err != nil || !bytes.Equal(on, text) {
 		t.Errorf("the agent holds %d bytes, %v; want the 1 MiB written", len(on), err)
 	}
+	for _, op := range []string{"write", "upload"} {
+		e := b.written(t, b.do(t, "POST", op, "path=/empty-"+op+"&sha256=", bytes.NewReader(nil), 0))
+		empty := sha256.Sum256(nil)
+		if e.Size != 0 || e.SHA256 != hex.EncodeToString(empty[:]) {
+			t.Errorf("an empty %s answered %+v", op, e)
+		}
+		if st, err := os.Stat(link.agent.files.at("/empty-" + op)); err != nil || st.Size() != 0 {
+			t.Errorf("an empty %s left %v, %v on the agent", op, st, err)
+		}
+	}
+
 	mk, err := http.NewRequest("POST", b.ts.URL+filePath("mkdir", ""), strings.NewReader(`{"path":"/made"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -827,9 +858,8 @@ func TestTransferLifecycle(t *testing.T) {
 // ends: an upload the agent stops reading answers unavailable, and a
 // download the agent stops sending is cut, never passed off as whole.
 func TestTransferStalls(t *testing.T) {
-	transferIdle = 300 * time.Millisecond
-	t.Cleanup(func() { transferIdle = TransferChunkTimeout })
 	h := newHarness(t)
+	h.srv.transferIdle = 300 * time.Millisecond
 	h.disp.FileFunc = func(ctx context.Context, _ core.Principal, _ string, req core.FileRequest) (core.FileAnswer, error) {
 		if req.Op == "upload" && req.Query.Get("path") == "/moving" {
 			if _, err := io.Copy(io.Discard, req.Body); err != nil {
@@ -881,5 +911,92 @@ func TestTransferStalls(t *testing.T) {
 	_ = dl.Body.Close()
 	if err == nil || string(got) != "half" {
 		t.Errorf("a stalled download read %q, %v; want the half sent and an error", got, err)
+	}
+}
+
+// TestFileAnswerTypes: the controller sets each answer's Content-Type
+// itself, whatever the agent claims, so no file is rendered on the panel's
+// origin.
+func TestFileAnswerTypes(t *testing.T) {
+	h := newHarness(t)
+	h.disp.FileFunc = func(_ context.Context, _ core.Principal, _ string, req core.FileRequest) (core.FileAnswer, error) {
+		if req.Body != nil {
+			_, _ = io.Copy(io.Discard, req.Body)
+		}
+		return core.FileAnswer{Status: 200, ContentType: "text/html", Size: 13, Body: io.NopCloser(strings.NewReader("<script>x</script>"[:13]))}, nil
+	}
+	session, csrf := h.login()
+	stepUp(t, h, h.code(), session, csrf)
+	want := map[string]string{"list": "application/json", "stat": "application/json", "read": "text/plain; charset=utf-8",
+		"download": "application/octet-stream", "write": "application/json", "upload": "application/json"}
+	for _, fc := range fileCases {
+		ct, ok := want[fc.op]
+		if !ok {
+			continue
+		}
+		rec := h.serve(withSession(fc.request(), session, csrf))
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != ct || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: %d, Content-Type %q, nosniff %q; want %q", fc.op, rec.Code, rec.Header().Get("Content-Type"),
+				rec.Header().Get("X-Content-Type-Options"), ct)
+		}
+	}
+	rec := h.serve(withSession(fileCase{op: "download", method: "GET"}.request(), session, csrf))
+	if cd := rec.Header().Get("Content-Disposition"); cd != "attachment" {
+		t.Errorf("a download without a path: Content-Disposition %q, want a bare attachment", cd)
+	}
+}
+
+// TestTransfersOutlastListenerTimeouts: an upload and a download that take
+// longer than the listener's read and write timeouts complete, since a
+// transfer renews its own deadlines per chunk.
+func TestTransfersOutlastListenerTimeouts(t *testing.T) {
+	const timeout = 300 * time.Millisecond
+	for _, h2 := range []bool{false, true} {
+		t.Run(map[bool]string{false: "HTTP/1.1", true: "HTTP/2"}[h2], func(t *testing.T) {
+			h := newHarness(t)
+			link := newFileLink(t, h, func(c net.Conn) net.Conn { return c })
+			b := newBrowserTimeouts(t, h, timeout, h2)
+
+			pr, pw := io.Pipe()
+			go func() {
+				for range 12 {
+					time.Sleep(100 * time.Millisecond)
+					if _, err := pw.Write([]byte{7}); err != nil {
+						return
+					}
+				}
+				_ = pw.Close()
+			}()
+			start := time.Now()
+			up := b.written(t, b.do(t, "POST", "upload", "path=/paced.bin", pr, 12))
+			if up.Size != 12 || time.Since(start) < 4*timeout {
+				t.Errorf("the paced upload answered %+v after %v", up, time.Since(start))
+			}
+
+			// Big enough that the handler outlives the timeouts even though the
+			// kernel's socket buffers take several MiB of it at once.
+			data := bytes.Repeat([]byte("darkpanel"), 4<<20)
+			if err := os.WriteFile(link.agent.files.at("/big.txt"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			start = time.Now()
+			res := b.do(t, "GET", "download", "path=/big.txt", nil, 0)
+			var got bytes.Buffer
+			buf := make([]byte, 256<<10)
+			var err error
+			for err == nil {
+				var n int
+				n, err = res.Body.Read(buf)
+				got.Write(buf[:n])
+				time.Sleep(10 * time.Millisecond)
+			}
+			_ = res.Body.Close()
+			if !errors.Is(err, io.EOF) || !bytes.Equal(got.Bytes(), data) || time.Since(start) < 4*timeout {
+				t.Errorf("the slow download read %d of %d bytes in %v, ending %v", got.Len(), len(data), time.Since(start), err)
+			}
+			if h2 && res.ProtoMajor != 2 {
+				t.Errorf("the download went over %s, want HTTP/2", res.Proto)
+			}
+		})
 	}
 }

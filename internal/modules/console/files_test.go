@@ -683,8 +683,17 @@ func TestTransferNotGuarded(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatal("the upload's request did not end")
 		}
-		if e := r.fileJournal("console.file.upload"); len(e) == 0 || e[len(e)-1].Input.Path != "/srv/three" || e[len(e)-1].Result != "error" {
-			t.Errorf("the ended upload's last entry: %+v", e[len(e)-1:])
+		// A dropped request can end before the handler journals the result.
+		for i := 0; ; i++ {
+			e := r.fileJournal("console.file.upload")
+			if len(e) > 0 && e[len(e)-1].Input.Path == "/srv/three" && e[len(e)-1].Result == "error" {
+				break
+			}
+			if i == 100 {
+				t.Errorf("the ended upload's last entry: %+v", e[max(len(e)-1, 0):])
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
 		}
 	})
 }

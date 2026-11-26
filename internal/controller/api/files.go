@@ -33,29 +33,35 @@ const (
 	transferChunk        = 32 << 10
 )
 
-// transferIdle is TransferChunkTimeout; tests shorten it.
-var transferIdle = TransferChunkTimeout
-
 // fileModule is the module whose enablement a transfer rechecks.
 const fileModule = "console"
 
 // fileOp is how the controller serves one file endpoint: its method,
-// whether it needs the step-up window, whether it is a transfer and the
-// query parameters it passes on.
+// whether it needs the step-up window, whether it is a transfer, the query
+// parameters it passes on and the Content-Type of its answer. The
+// controller sets that type itself: an agent's own could have a file
+// rendered as a page of the panel's origin.
 type fileOp struct {
 	method   string
 	stepUp   bool
 	transfer bool
 	query    []string
+	answer   string
 }
 
+const (
+	jsonAnswer = "application/json"
+	textAnswer = "text/plain; charset=utf-8"
+	byteAnswer = "application/octet-stream"
+)
+
 var fileOps = map[string]fileOp{
-	"list":     {method: http.MethodGet, query: []string{"path", "cursor"}},
-	"stat":     {method: http.MethodGet, query: []string{"path"}},
-	"read":     {method: http.MethodGet, stepUp: true, query: []string{"path"}},
-	"download": {method: http.MethodGet, stepUp: true, transfer: true, query: []string{"path"}},
-	"write":    {method: http.MethodPost, stepUp: true, query: []string{"path", "sha256"}},
-	"upload":   {method: http.MethodPost, stepUp: true, transfer: true, query: []string{"path"}},
+	"list":     {method: http.MethodGet, query: []string{"path", "cursor"}, answer: jsonAnswer},
+	"stat":     {method: http.MethodGet, query: []string{"path"}, answer: jsonAnswer},
+	"read":     {method: http.MethodGet, stepUp: true, query: []string{"path"}, answer: textAnswer},
+	"download": {method: http.MethodGet, stepUp: true, transfer: true, query: []string{"path"}, answer: byteAnswer},
+	"write":    {method: http.MethodPost, stepUp: true, query: []string{"path", "sha256"}, answer: jsonAnswer},
+	"upload":   {method: http.MethodPost, stepUp: true, transfer: true, query: []string{"path"}, answer: jsonAnswer},
 	"mkdir":    {method: http.MethodPost, stepUp: true},
 	"rename":   {method: http.MethodPost, stepUp: true},
 	"delete":   {method: http.MethodPost, stepUp: true},
@@ -123,7 +129,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, s.log, err)
 			return
 		}
-		s.answerFile(w, r, ans, nil)
+		s.answerFile(w, r, op, ans, nil)
 		return
 	}
 	release, err := s.longLived.takeTransfer(host)
@@ -148,10 +154,11 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		case r.Context().Err() != nil:
 			return // the browser left
 		}
+		_ = t.rc.SetWriteDeadline(time.Now().Add(s.transferIdle))
 		writeProblem(w, s.log, err)
 		return
 	}
-	s.answerFile(w, r, ans, t)
+	s.answerFile(w, r, op, ans, t)
 }
 
 // fileRequest checks r's body and keeps the query parameters op passes on.
@@ -200,16 +207,14 @@ func fileRequest(w http.ResponseWriter, r *http.Request, name string, op fileOp)
 // A transfer renews the write deadline before each chunk; a download is
 // sent as an attachment. An answer cut short aborts the connection, so the
 // browser never takes part of a file for the whole of it.
-func (s *Server) answerFile(w http.ResponseWriter, r *http.Request, ans core.FileAnswer, t *transfer) {
+func (s *Server) answerFile(w http.ResponseWriter, r *http.Request, op fileOp, ans core.FileAnswer, t *transfer) {
 	if ans.Body == nil {
 		w.WriteHeader(ans.Status)
 		return
 	}
 	defer func() { _ = ans.Body.Close() }()
 	h := w.Header()
-	if ans.ContentType != "" {
-		h.Set("Content-Type", ans.ContentType)
-	}
+	h.Set("Content-Type", op.answer)
 	if ans.Size >= 0 {
 		h.Set("Content-Length", strconv.FormatInt(ans.Size, 10))
 	}
@@ -218,7 +223,7 @@ func (s *Server) answerFile(w http.ResponseWriter, r *http.Request, ans core.Fil
 	}
 	if r.PathValue("op") == "download" {
 		name := path.Base(r.URL.Query().Get("path"))
-		if d := mime.FormatMediaType("attachment", map[string]string{"filename": name}); d != "" {
+		if d := mime.FormatMediaType("attachment", map[string]string{"filename": name}); d != "" && name != "." && name != "/" {
 			h.Set("Content-Disposition", d)
 		} else {
 			h.Set("Content-Disposition", "attachment")
@@ -237,7 +242,7 @@ func (s *Server) answerFile(w http.ResponseWriter, r *http.Request, ans core.Fil
 			// The check comes after the renewal: an end that unblocks the
 			// write after it is not undone by it.
 			if t != nil {
-				_ = rc.SetWriteDeadline(time.Now().Add(transferIdle))
+				_ = rc.SetWriteDeadline(time.Now().Add(s.transferIdle))
 				if t.ctx.Err() != nil {
 					panic(http.ErrAbortHandler)
 				}
@@ -280,7 +285,7 @@ func (c *chunkReader) Read(p []byte) (int, error) {
 	if c.t.ctx.Err() != nil {
 		return 0, context.Cause(c.t.ctx)
 	}
-	_ = c.t.rc.SetReadDeadline(time.Now().Add(transferIdle))
+	_ = c.t.rc.SetReadDeadline(time.Now().Add(c.t.s.transferIdle))
 	if c.t.ctx.Err() != nil {
 		return 0, context.Cause(c.t.ctx)
 	}
@@ -321,7 +326,12 @@ func (s *Server) startTransfer(w http.ResponseWriter, r *http.Request, c caller,
 	ctx, cancel := context.WithCancelCause(r.Context())
 	t := &transfer{s: s, r: r, rc: http.NewResponseController(w), ctx: ctx, cancel: cancel,
 		done: make(chan struct{}), touch: make(chan struct{}, 1)}
-	t.idle = time.AfterFunc(transferIdle, func() { cancel(errTransferStalled) })
+	t.idle = time.AfterFunc(s.transferIdle, func() { cancel(errTransferStalled) })
+	// The listener's deadlines count from the request's start; a transfer
+	// renews its own per chunk instead (spec 1.2). An upload's answer and a
+	// download's request body need none until then.
+	_ = t.rc.SetReadDeadline(time.Time{})
+	_ = t.rc.SetWriteDeadline(time.Time{})
 	// A transfer a check ended may be blocked on the browser: an upload's
 	// next chunk, or a download's write once its answer started. Ending it
 	// otherwise leaves the deadlines alone, for the connection's next
@@ -342,7 +352,7 @@ func (s *Server) startTransfer(w http.ResponseWriter, r *http.Request, c caller,
 // moved records that a chunk moved: it renews the stall timer and asks the
 // watcher to touch the session.
 func (t *transfer) moved() {
-	t.idle.Reset(transferIdle)
+	t.idle.Reset(t.s.transferIdle)
 	select {
 	case t.touch <- struct{}{}:
 	default:

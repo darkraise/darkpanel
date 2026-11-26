@@ -532,7 +532,12 @@ func (c *Client) File(ctx context.Context, p core.Principal, req core.FileReques
 		u += "?" + req.Query.Encode()
 	}
 	var body io.Reader
-	if req.Body != nil {
+	switch {
+	case req.Body != nil && req.Size == 0:
+		// Any other empty body would be sent chunked, without the
+		// Content-Length the agent requires.
+		body = http.NoBody
+	case req.Body != nil:
 		// Only the body's own Read is passed on: a bare io.Reader keeps the
 		// transport from treating a known type specially.
 		body = struct{ io.Reader }{req.Body}
