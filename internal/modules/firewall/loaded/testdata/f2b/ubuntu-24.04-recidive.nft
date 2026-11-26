@@ -1,0 +1,17 @@
+table inet f2b-table {
+	set addr-set-sshd {
+		type ipv4_addr
+		elements = { 192.0.2.10 }
+	}
+
+	set addr-set-recidive {
+		type ipv4_addr
+		elements = { 192.0.2.11 }
+	}
+
+	chain f2b-chain {
+		type filter hook input priority filter - 1; policy accept;
+		tcp dport 22 ip saddr @addr-set-sshd reject with icmp port-unreachable
+		meta l4proto tcp ip saddr @addr-set-recidive reject with icmp port-unreachable
+	}
+}
