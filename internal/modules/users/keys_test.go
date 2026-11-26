@@ -113,6 +113,12 @@ func TestKeyAddKeepsLines(t *testing.T) {
 	if r.keys["alice"] != orig {
 		t.Errorf("after remove\n%q\nwant the original\n%q", r.keys["alice"], orig)
 	}
+	// Removing the line with options says the options cannot come back.
+	plan, err = remove.Plan(ctx, r.env(adminP), KeyRemoveInput{Name: "alice", Fingerprint: fingerprint(t, old)})
+	if err != nil || len(plan.Diff) != 2 || !strings.Contains(plan.Diff[1].Text, `from="10.0.0.1"`) ||
+		!strings.Contains(plan.Diff[1].Text, "without them") {
+		t.Errorf("remove of a line with options: %+v, %v", plan, err)
+	}
 	if err := remove.Verify(ctx, r.env(adminP), rm, KeyChanged{}); err != nil {
 		t.Errorf("verify remove: %v", err)
 	}

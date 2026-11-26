@@ -103,13 +103,9 @@ func (h *HomeFiles) openHome(u homeUser, create bool) (homeFd, sshFd int, err er
 	sshPath := filepath.Join(u.home, sshDirName)
 	sshFd, err = openBeneath(homeFd, sshDirName, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 	if errors.Is(err, unix.ENOENT) && create {
-		if err := unix.Mkdirat(homeFd, sshDirName, 0o700); err != nil {
-			return fail(fmt.Errorf("platform: create %s: %w", sshPath, err))
+		if sshFd, err = makeSSHDir(homeFd, sshPath, u); err != nil {
+			return fail(err)
 		}
-		if err := unix.Fchownat(homeFd, sshDirName, u.uid, u.gid, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-			return fail(fmt.Errorf("platform: chown %s: %w", sshPath, err))
-		}
-		sshFd, err = openBeneath(homeFd, sshDirName, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 	}
 	switch {
 	case errors.Is(err, unix.ENOENT):
@@ -126,6 +122,36 @@ func (h *HomeFiles) openHome(u homeUser, create bool) (homeFd, sshFd int, err er
 		return fail(err)
 	}
 	return homeFd, sshFd, nil
+}
+
+// makeSSHDir creates .ssh in homeFd and gives it to the user through a
+// descriptor of the directory it made: the user owns the home and could
+// swap the name between the mkdir and a chown by name.
+func makeSSHDir(homeFd int, sshPath string, u homeUser) (int, error) {
+	if err := unix.Mkdirat(homeFd, sshDirName, 0o700); err != nil {
+		return -1, fmt.Errorf("platform: create %s: %w", sshPath, err)
+	}
+	fd, err := openBeneath(homeFd, sshDirName, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return -1, fmt.Errorf("platform: open %s: %w", sshPath, err)
+	}
+	var st unix.Stat_t
+	err = unix.Fstat(fd, &st)
+	switch {
+	case err != nil:
+		err = fmt.Errorf("platform: stat %s: %w", sshPath, err)
+	case int(st.Uid) != unix.Geteuid() || st.Mode&0o777 != 0o700:
+		err = fmt.Errorf("platform: %s changed while it was created", sshPath)
+	default:
+		if err = unix.Fchown(fd, u.uid, u.gid); err != nil {
+			err = fmt.Errorf("platform: chown %s: %w", sshPath, err)
+		}
+	}
+	if err != nil {
+		_ = unix.Close(fd)
+		return -1, err
+	}
+	return fd, nil
 }
 
 // isSymlinkAt reports whether name in dirfd is a symbolic link: O_NOFOLLOW

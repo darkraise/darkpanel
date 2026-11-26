@@ -270,11 +270,19 @@ func (h keyHandler) planOutcome(ctx context.Context, env core.Env, name, key, fi
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	line := core.DiffLine{Op: "+", Text: "Authorize the key " + fp + " for " + name}
-	if !h.add {
-		line = core.DiffLine{Op: "-", Text: "Remove the key " + fp + " from " + name}
+	if h.add {
+		return core.PlanOutcome{Diff: []core.DiffLine{{Op: "+", Text: "Authorize the key " + fp + " for " + name}}, StateHash: keysHash(data)}, nil
 	}
-	return core.PlanOutcome{Diff: []core.DiffLine{line}, StateHash: keysHash(data)}, nil
+	diff := []core.DiffLine{{Op: "-", Text: "Remove the key " + fp + " from " + name}}
+	// users.key.add takes no options, so it cannot put back a line that had
+	// some; the plan says so before the line goes.
+	for _, kl := range parseKeys(data) {
+		if kl.key.Fingerprint == fp && kl.key.Options != "" {
+			diff = append(diff, core.DiffLine{Op: "-", Text: "Its options " + kl.key.Options +
+				" go with it; users.key.add restores the key without them"})
+		}
+	}
+	return core.PlanOutcome{Diff: diff, StateHash: keysHash(data)}, nil
 }
 
 func (h keyHandler) apply(ctx context.Context, env core.Env, name, key, fingerprint string) (KeyChanged, error) {
