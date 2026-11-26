@@ -433,6 +433,7 @@ func (s *DBusSystemd) Inspect(ctx context.Context, unit string) (core.UnitInfo, 
 		"SuccessAction": &info.SuccessAction, "FailureAction": &info.FailureAction,
 		"JobTimeoutAction": &info.JobTimeoutAction, "StartLimitAction": &info.StartLimitAction,
 		"FragmentPath": &info.FragmentPath, "DropInPaths": &info.DropInPaths, "ActiveEnterTimestamp": &startedUsec,
+		"InactiveExitTimestamp": &info.LeftInactive,
 	} {
 		if err := storeProperty(props, name, dst); err != nil {
 			return core.UnitInfo{}, fmt.Errorf("platform: %s: read %s: %w", what, name, err)
@@ -467,9 +468,7 @@ func (s *DBusSystemd) Inspect(ctx context.Context, unit string) (core.UnitInfo, 
 		}
 	}
 	if info.FragmentPath != "" {
-		if info.FileText, info.FileTruncated, err = readUnitFile(info.FragmentPath); err != nil {
-			return core.UnitInfo{}, fmt.Errorf("platform: %s: %w", what, err)
-		}
+		info.FileText, info.FileTruncated = readUnitFile(info.FragmentPath)
 	}
 	return info, nil
 }
@@ -496,25 +495,29 @@ func storeProperty(props map[string]dbus.Variant, name string, dst any) error {
 	return v.Store(dst)
 }
 
-// readUnitFile reads the first 64 KiB of the regular file systemd loaded a
-// unit from.
-func readUnitFile(path string) (string, bool, error) {
+// readUnitFile reads the first 64 KiB of the file systemd loaded a unit
+// from, and whether it cut it there. It reads only a regular file every user
+// may read, as systemctl cat run by any user would: a unit file kept from
+// other users may carry credentials in Environment=, and the read scope is
+// enough to see the text. A masked unit (a link to /dev/null), a deleted
+// file or one that fails to read leaves the text empty.
+func readUnitFile(path string) (string, bool) {
 	f, err := os.Open(path) //nolint:gosec // G304: the FragmentPath systemd reports, read only
 	if err != nil {
-		return "", false, fmt.Errorf("read unit file: %w", err)
+		return "", false
 	}
 	defer func() { _ = f.Close() }()
-	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
-		return "", false, fmt.Errorf("read unit file %s: not a regular file", path)
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() || st.Mode().Perm()&0o004 == 0 {
+		return "", false
 	}
 	b, err := io.ReadAll(io.LimitReader(f, maxUnitFileText+1))
 	if err != nil {
-		return "", false, fmt.Errorf("read unit file: %w", err)
+		return "", false
 	}
 	if len(b) > maxUnitFileText {
-		return string(b[:maxUnitFileText]), true, nil
+		return string(b[:maxUnitFileText]), true
 	}
-	return string(b), false, nil
+	return string(b), false
 }
 
 var _ core.UnitAdmin = (*DBusSystemd)(nil)

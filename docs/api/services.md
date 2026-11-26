@@ -42,6 +42,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `leftInactive` | integer | no |  |
 | `unit` | string | yes |  |
 
 ## services.unit.enable v1
@@ -84,6 +85,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `leftInactive` | integer | no |  |
 | `unit` | string | yes |  |
 
 ## services.unit.get v1
@@ -202,6 +204,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `leftInactive` | integer | no |  |
 | `unit` | string | yes |  |
 
 ## services.unit.restart v1
@@ -244,6 +247,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `leftInactive` | integer | no |  |
 | `unit` | string | yes |  |
 
 ## services.unit.start v1
@@ -286,6 +290,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `leftInactive` | integer | no |  |
 | `unit` | string | yes |  |
 
 ## services.unit.stop v1
@@ -328,4 +333,5 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `leftInactive` | integer | no |  |
 | `unit` | string | yes |  |

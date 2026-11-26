@@ -512,10 +512,20 @@ func TestSystemdLive(t *testing.T) {
 }
 
 func TestUnitInspect(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "nginx.service")
-	if err := os.WriteFile(file, []byte(strings.Repeat("x", 70<<10)), 0o600); err != nil {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "nginx.service")
+	if err := os.WriteFile(file, []byte(strings.Repeat("x", 70<<10)), 0o644); err != nil { //nolint:gosec // G306: a unit file every user may read
 		t.Fatal(err)
 	}
+	secret := filepath.Join(dir, "secret.service")
+	if err := os.WriteFile(secret, []byte("[Service]\nEnvironment=TOKEN=s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	masked := filepath.Join(dir, "masked.service")
+	if err := os.Symlink("/dev/null", masked); err != nil {
+		t.Fatal(err)
+	}
+	frag := file
 	path := dbus.ObjectPath("/org/freedesktop/systemd1/unit/nginx_2eservice")
 	started := time.Date(2026, 11, 26, 8, 0, 0, 0, time.UTC)
 	bus := &fakeBus{reply: func(c busCall) ([]any, error) {
@@ -534,7 +544,7 @@ func TestUnitInspect(t *testing.T) {
 				"RefuseManualStart": dbus.MakeVariant(false), "AllowIsolate": dbus.MakeVariant(false),
 				"SuccessAction": dbus.MakeVariant("none"), "FailureAction": dbus.MakeVariant("reboot"),
 				"JobTimeoutAction": dbus.MakeVariant("none"), "StartLimitAction": dbus.MakeVariant("none"),
-				"FragmentPath": dbus.MakeVariant(file), "DropInPaths": dbus.MakeVariant([]string{"/etc/x.conf"}),
+				"FragmentPath": dbus.MakeVariant(frag), "DropInPaths": dbus.MakeVariant([]string{"/etc/x.conf"}),
 				"ActiveEnterTimestamp": dbus.MakeVariant(uint64(started.UnixMicro())),
 			}}, nil
 		case c.method == "org.freedesktop.DBus.Properties.GetAll" && c.path == path && c.args[0] == serviceInterface:
@@ -554,6 +564,12 @@ func TestUnitInspect(t *testing.T) {
 		got.FailureAction != "reboot" || !got.StartedAt.Equal(started) || got.FragmentPath != file ||
 		len(got.FileText) != 64<<10 || !got.FileTruncated || !slices.Equal(got.DropInPaths, []string{"/etc/x.conf"}) {
 		t.Errorf("Inspect = %+v", got)
+	}
+	for _, frag = range []string{secret, masked, filepath.Join(dir, "deleted.service")} {
+		got, err := newSystemd(bus).Inspect(context.Background(), "nginx")
+		if err != nil || got.FileText != "" || got.FileTruncated || got.FragmentPath != frag || got.MainPID != 42 {
+			t.Errorf("Inspect with unit file %s: text %q, %+v, %v; want no text and the other fields", filepath.Base(frag), got.FileText, got.FragmentPath, err)
+		}
 	}
 	gone, err := newSystemd(bus).Inspect(context.Background(), "gone.service")
 	if err != nil || gone.LoadState != "not-found" {

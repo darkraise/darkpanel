@@ -20,9 +20,12 @@ type UnitInput struct {
 }
 
 // UnitChanged is the answer of a mutating action: the unit it acted on,
-// under its own name when the input named an alias.
+// under its own name when the input named an alias, and for start and
+// restart the unit's InactiveExitTimestamp before the job, which Verify
+// expects to advance.
 type UnitChanged struct {
-	Unit string `json:"unit"`
+	Unit         string `json:"unit"`
+	LeftInactive uint64 `json:"leftInactive,omitempty"` // microseconds
 }
 
 // verifyPoll is how often Verify reads the unit while a job runs.
@@ -71,6 +74,21 @@ func (h unitHandler) check(ctx context.Context, env core.Env, in UnitInput) (cor
 		return core.UnitInfo{}, demands{}, err
 	}
 	d := demandsOf(u, h.op)
+	if h.op.starts() && (unitType(u.ID) == "timer" || unitType(u.ID) == "socket") {
+		// Starting a timer or socket starts what it triggers, so it asks
+		// what starting those asks.
+		for _, name := range u.Triggers {
+			t, err := inspect(ctx, env, name)
+			if err != nil {
+				return core.UnitInfo{}, demands{}, err
+			}
+			td := demandsOf(t, opStart)
+			d.admin, d.phrase = d.admin || td.admin, d.phrase || td.phrase
+			if d.module == "" {
+				d.module = td.module
+			}
+		}
+	}
 	if d.admin {
 		if err := core.RequireScope(env, core.ScopeAdmin); err != nil {
 			return core.UnitInfo{}, demands{}, core.Definite(err)
@@ -83,7 +101,25 @@ func (h unitHandler) check(ctx context.Context, env core.Env, in UnitInput) (cor
 		}
 		return core.UnitInfo{}, demands{}, invalid("/unit", fmt.Sprintf("%s is %s; only an enabled or disabled unit can be %sd", u.ID, state, h.op))
 	}
+	if why := h.noChange(u); why != "" {
+		return core.UnitInfo{}, demands{}, invalid("/unit", why)
+	}
 	return u, d, nil
+}
+
+// noChange is why op would leave u as it is, or "". Such a change is
+// refused: its compensation would then change the unit, such as stopping a
+// service that ran before the start.
+func (h unitHandler) noChange(u core.UnitInfo) string {
+	switch {
+	case h.op == opStart && slices.Contains([]string{"active", "activating", "reloading"}, u.ActiveState):
+		return u.ID + " is already " + u.ActiveState
+	case h.op == opStop && (u.ActiveState == "inactive" || u.ActiveState == "failed"):
+		return u.ID + " is already " + u.ActiveState
+	case h.op == opEnable && u.UnitFileState == "enabled", h.op == opDisable && u.UnitFileState == "disabled":
+		return u.ID + " is already " + u.UnitFileState
+	}
+	return ""
 }
 
 // Plan reports what op does to the unit, the guards it trips and, for a
@@ -153,13 +189,13 @@ func (h unitHandler) Apply(ctx context.Context, env core.Env, in UnitInput) (Uni
 	if err != nil {
 		return UnitChanged{}, err
 	}
-	return UnitChanged{Unit: u.ID}, nil
+	return UnitChanged{Unit: u.ID, LeftInactive: u.LeftInactive}, nil
 }
 
 // Verify waits for the unit's job to finish and checks the state it left:
-// started units are not failed, stopped units are inactive or failed, and
-// unit files are enabled or disabled as asked.
-func (h unitHandler) Verify(ctx context.Context, env core.Env, in UnitInput, _ UnitChanged) error {
+// started units run, or ran and ended without failing, stopped units are
+// inactive or failed, and unit files are enabled or disabled as asked.
+func (h unitHandler) Verify(ctx context.Context, env core.Env, in UnitInput, out UnitChanged) error {
 	admin, err := unitAdmin(env)
 	if err != nil {
 		return err
@@ -169,7 +205,7 @@ func (h unitHandler) Verify(ctx context.Context, env core.Env, in UnitInput, _ U
 		return err
 	}
 	for {
-		if h.op == opEnable || h.op == opDisable {
+		if h.op != opStop {
 			if u, err = admin.Inspect(ctx, u.ID); err != nil {
 				return err
 			}
@@ -178,7 +214,7 @@ func (h unitHandler) Verify(ctx context.Context, env core.Env, in UnitInput, _ U
 		if err != nil {
 			return err
 		}
-		done, problem := h.settled(u, st)
+		done, problem := h.settled(u, st, out.LeftInactive)
 		if done && problem == "" {
 			return nil
 		}
@@ -194,8 +230,11 @@ func (h unitHandler) Verify(ctx context.Context, env core.Env, in UnitInput, _ U
 }
 
 // settled reports whether op's effect can be judged yet, and what is wrong
-// when it can.
-func (h unitHandler) settled(u core.UnitInfo, st core.UnitState) (bool, string) {
+// when it can. A start or restart that left the unit inactive counts only
+// when the unit left inactive after before: a oneshot that ran and ended,
+// not a job that never started it (a failed dependency, a cancel). A
+// Verify after recovery has no before and accepts any such exit.
+func (h unitHandler) settled(u core.UnitInfo, st core.UnitState, before uint64) (bool, string) {
 	switch h.op {
 	case opEnable:
 		return true, wrongFileState(u, "enabled", "enabled-runtime")
@@ -213,6 +252,9 @@ func (h unitHandler) settled(u core.UnitInfo, st core.UnitState) (bool, string) 
 	}
 	if st.ActiveState == "failed" {
 		return true, fmt.Sprintf("%s failed after the %s; its journal says why", u.ID, h.op)
+	}
+	if h.op.starts() && st.ActiveState == "inactive" && (u.LeftInactive == 0 || u.LeftInactive <= before) {
+		return true, fmt.Sprintf("the %s job ended without starting %s; its journal says why", h.op, u.ID)
 	}
 	return true, ""
 }

@@ -142,6 +142,22 @@ func TestGuardedUnits(t *testing.T) {
 		}
 	})
 
+	t.Run("triggered units", func(t *testing.T) {
+		r := newRig(t, unit("docker.socket", func(u *core.UnitInfo) { u.Triggers = []string{"docker.service"} }), unit("docker.service"),
+			unit("reboot-check.timer", func(u *core.UnitInfo) { u.Triggers = []string{"reboot-check.service"} }),
+			unit("reboot-check.service", func(u *core.UnitInfo) { u.FailureAction = "reboot" }))
+		for _, name := range []string{"docker.socket", "reboot-check.timer"} {
+			_, err := r.plan(opStart, operatorP, name)
+			wantCode(t, "start "+name+" as an operator", err, errcode.Forbidden)
+			if out, err := r.plan(opStart, adminP, name); err != nil || out.Confirmation != name {
+				t.Errorf("start %s as an admin: %+v, %v; want the typed phrase", name, out, err)
+			}
+		}
+		if out, _ := r.plan(opStart, adminP, "docker.socket"); !slices.ContainsFunc(out.Guards, func(g core.Guard) bool { return g.ID == GuardModuleChange }) {
+			t.Errorf("start docker.socket: guards %+v, want %s", out.Guards, GuardModuleChange)
+		}
+	})
+
 	t.Run("tailnet link", func(t *testing.T) {
 		r := newRig(t, unit("tailscaled.service"))
 		for _, on := range []bool{true, false} {

@@ -79,7 +79,8 @@ type UnitAdmin interface {
 }
 
 // UnitInfo is what systemd reports of one unit. ListAll fills the fields up
-// to MainPID; Inspect fills them all.
+// to MainPID; Inspect fills them all, and leaves FileText empty for a unit
+// file that is not a regular file every user may read.
 type UnitInfo struct {
 	ID                               string
 	Description                      string
@@ -95,6 +96,7 @@ type UnitInfo struct {
 	MemoryCurrent, TasksCurrent                                      *uint64 // nil when systemd does not account them
 	Restarts                                                         uint32
 	StartedAt                                                        time.Time // zero when the unit never became active
+	LeftInactive                                                     uint64    // InactiveExitTimestamp, microseconds; it advances whenever a job starts the unit
 	FragmentPath                                                     string
 	FileText                                                         string // the unit file, at most 64 KiB
 	FileTruncated                                                    bool

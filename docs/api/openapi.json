@@ -17146,6 +17146,9 @@
       },
       "services.unit.disable.v1.output.UnitChanged": {
         "properties": {
+          "leftInactive": {
+            "type": "integer"
+          },
           "unit": {
             "type": "string"
           }
@@ -17271,6 +17274,9 @@
       },
       "services.unit.enable.v1.output.UnitChanged": {
         "properties": {
+          "leftInactive": {
+            "type": "integer"
+          },
           "unit": {
             "type": "string"
           }
@@ -17573,6 +17579,9 @@
       },
       "services.unit.reload.v1.output.UnitChanged": {
         "properties": {
+          "leftInactive": {
+            "type": "integer"
+          },
           "unit": {
             "type": "string"
           }
@@ -17698,6 +17707,9 @@
       },
       "services.unit.restart.v1.output.UnitChanged": {
         "properties": {
+          "leftInactive": {
+            "type": "integer"
+          },
           "unit": {
             "type": "string"
           }
@@ -17823,6 +17835,9 @@
       },
       "services.unit.start.v1.output.UnitChanged": {
         "properties": {
+          "leftInactive": {
+            "type": "integer"
+          },
           "unit": {
             "type": "string"
           }
@@ -17948,6 +17963,9 @@
       },
       "services.unit.stop.v1.output.UnitChanged": {
         "properties": {
+          "leftInactive": {
+            "type": "integer"
+          },
           "unit": {
             "type": "string"
           }

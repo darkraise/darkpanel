@@ -153,7 +153,21 @@ func (r *rig) env(p core.Principal) core.Env {
 	return core.Env{HostID: testHost, Principal: p, DB: r.db, Units: r.units}
 }
 
+// plan plans o on name after putting the unit in a state o changes, so a
+// rule, not a no-op, decides the answer.
 func (r *rig) plan(o op, p core.Principal, name string) (core.PlanOutcome, error) {
+	if u := r.units.find(name); u != nil {
+		switch o {
+		case opStart:
+			u.ActiveState = "inactive"
+		case opStop:
+			u.ActiveState = "active"
+		case opEnable:
+			u.UnitFileState = "disabled"
+		case opDisable:
+			u.UnitFileState = "enabled"
+		}
+	}
 	return unitHandler{m: r.module(), op: o}.Plan(context.Background(), r.env(p), UnitInput{Unit: name})
 }
 
@@ -271,9 +285,35 @@ func TestUnitApplyAndVerify(t *testing.T) {
 	if !slices.Equal(r.units.calls, want) {
 		t.Errorf("calls %v, want %v", r.units.calls, want)
 	}
-	r.units.units["nginx.service"].ActiveState = "failed"
+	nginx := r.units.units["nginx.service"]
+	nginx.ActiveState = "failed"
 	err := unitHandler{m: r.module(), op: opRestart}.Verify(ctx, env, UnitInput{Unit: "nginx.service"}, UnitChanged{})
 	if err == nil || !strings.Contains(err.Error(), "failed after the restart") {
 		t.Errorf("verify of a failed restart: %v", err)
+	}
+	// A start that leaves the unit inactive verifies only when the unit left
+	// inactive after the apply, as a oneshot does.
+	nginx.ActiveState, nginx.LeftInactive = "inactive", 100
+	start := unitHandler{m: r.module(), op: opStart}
+	if err := start.Verify(ctx, env, UnitInput{Unit: "nginx.service"}, UnitChanged{LeftInactive: 100}); err == nil ||
+		!strings.Contains(err.Error(), "ended without starting") {
+		t.Errorf("verify of a start that never ran: %v", err)
+	}
+	nginx.LeftInactive = 200
+	if err := start.Verify(ctx, env, UnitInput{Unit: "nginx.service"}, UnitChanged{LeftInactive: 100}); err != nil {
+		t.Errorf("verify of a oneshot that ran: %v", err)
+	}
+
+	// A change that changes nothing is refused, so its compensation cannot
+	// change the unit.
+	nginx.ActiveState, nginx.UnitFileState = "active", "enabled"
+	for _, o := range []op{opStart, opEnable} {
+		_, err := unitHandler{m: r.module(), op: o}.Plan(ctx, env, UnitInput{Unit: "nginx.service"})
+		wantCode(t, string(o)+" of a unit already so", err, errcode.InvalidInput)
+	}
+	nginx.ActiveState, nginx.UnitFileState = "failed", "disabled"
+	for _, o := range []op{opStop, opDisable} {
+		_, err := unitHandler{m: r.module(), op: o}.Plan(ctx, env, UnitInput{Unit: "nginx.service"})
+		wantCode(t, string(o)+" of a unit already so", err, errcode.InvalidInput)
 	}
 }

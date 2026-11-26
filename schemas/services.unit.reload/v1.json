@@ -126,6 +126,9 @@
         "properties": {
           "unit": {
             "type": "string"
+          },
+          "leftInactive": {
+            "type": "integer"
           }
         },
         "type": "object",
