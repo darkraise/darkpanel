@@ -56,7 +56,7 @@ func TestM11F2BProbe(t *testing.T) {
 		out = t.TempDir()
 	}
 	for _, d := range []string{"f2b", "actions"} {
-		if err := os.MkdirAll(filepath.Join(out, d), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(out, d), 0o755); err != nil { //nolint:gosec // G301: testdata directories committed to the repository
 			t.Fatal(err)
 		}
 	}
@@ -95,7 +95,7 @@ func TestM11F2BProbe(t *testing.T) {
 elif grep -q 'No such file or directory' /run/f2b.err; then echo absent
 else cat /run/f2b.err >&2; exit 1; fi`)
 		name := filepath.Join(out, "f2b", o.ID+"-"+c+".nft")
-		if err := os.WriteFile(name, []byte(table), 0o644); err != nil {
+		if err := os.WriteFile(name, []byte(table), 0o644); err != nil { //nolint:gosec // G306: testdata committed to the repository
 			t.Fatal(err)
 		}
 		if strings.TrimSpace(table) == "absent" {
@@ -128,7 +128,7 @@ else cat /run/f2b.err >&2; exit 1; fi`)
 	units := root("systemctl show --property=" + strings.Join(m11UnitProps, ",") +
 		" $(systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -v '@\\.service$')")
 	listing := shutdownUnits(units)
-	if err := os.WriteFile(filepath.Join(out, "actions", o.ID+".txt"), []byte(listing), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(out, "actions", o.ID+".txt"), []byte(listing), 0o644); err != nil { //nolint:gosec // G306: testdata committed to the repository
 		t.Fatal(err)
 	}
 	t.Logf("units that can power the host off:\n%s", listing)

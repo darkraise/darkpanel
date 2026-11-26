@@ -52,7 +52,7 @@ const (
 	// TOTP code, a caller that cannot give one, and a code of a step already used.
 	StepUpRequired    Code = "auth.step_up_required"
 	StepUpUnavailable Code = "auth.step_up_unavailable"
-	StepUpWait        Code = "auth.step_up_wait"
+	StepUpWait        Code = "auth.step_up_wait" //nolint:gosec // G101: an error code, not a credential
 )
 
 // Action-level codes: they appear in a change's error or in the audit log,
