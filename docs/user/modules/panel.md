@@ -86,7 +86,7 @@ When a step of `panel.exposure.remove` fails, you repair it with
 | `panel.exposure.add` | `darkpanel panel exposure add` | Exposes the panel on the controller's host through Nginx Proxy Manager or a Cloudflare tunnel. | Your confirmation of the firewall rule. |
 | `panel.exposure.remove` | `darkpanel panel exposure remove` | Revokes the panel's listener, then removes its proxy host or hostname, attachment, network and firewall rule. | Your confirmation of the firewall change. |
 | `panel.websockets.repair` | `darkpanel panel websockets repair` | Turns WebSocket upgrades on for the proxy host of an exposure made through Nginx Proxy Manager before exposures asked for them, which the web terminal needs. | Nothing. Undo turns them off again. |
-| `panel.websockets.record` | `darkpanel panel websockets record` | Records that the exposed panel passes WebSocket upgrades. It runs only as a step of `panel.websockets.repair`. | Nothing. It is never reversed. |
+| `panel.websockets.record` | `darkpanel panel websockets record` | Records that the exposed panel passes WebSocket upgrades. It runs only as a step of `panel.websockets.repair`. | Nothing. Undo clears the record. |
 
 An action that runs on one host takes `--host <id or name>`; you can leave it
 out when you have only one host. These are `network create` and `network

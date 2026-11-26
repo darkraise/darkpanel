@@ -56,7 +56,7 @@ var rgActions = []rgAction{
 	{name: ActionAdd, class: core.ClassComposite, side: core.SideController, locks: []string{"composite:panel"}, unwind: core.UnwindReverse, in: rgType[ExposeInput](), out: rgType[ExposeOutput]()},
 	{name: ActionRemove, class: core.ClassComposite, side: core.SideController, locks: []string{"composite:panel"}, unwind: core.UnwindForward, in: rgType[RemoveInput](), out: rgType[RemoveOutput]()},
 	{name: ActionWSRepair, class: core.ClassComposite, side: core.SideController, locks: []string{"composite:panel"}, unwind: core.UnwindReverse, in: rgType[WebsocketsRepairInput](), out: rgType[ExposureView]()},
-	{name: ActionWSRecord, class: core.ClassCompensable, side: core.SideController, locks: []string{"panel"}, converges: true, forwardOnly: true, in: rgType[WebsocketsRecordInput](), out: rgType[ExposureView]()},
+	{name: ActionWSRecord, class: core.ClassCompensable, side: core.SideController, locks: []string{"panel"}, undoer: true, converges: true, in: rgType[WebsocketsRecordInput](), out: rgType[ExposureView]()},
 }
 
 func rgDefs(t *testing.T, m core.Module) map[string]core.ActionDef {

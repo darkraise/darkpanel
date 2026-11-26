@@ -691,7 +691,7 @@ func TestRepairWebSockets(t *testing.T) {
 		if err != nil || len(plan.Diff) != 2 {
 			t.Errorf("record plan %+v (%v), want the flag's line pair", plan, err)
 		}
-		out, err := record.Handler.Apply(ctx, r.env(repairCall, ""), empty)
+		out, err := record.Handler.Apply(ctx, r.env(repairCall, lsChild), empty)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -757,4 +757,55 @@ func TestRepairWebSockets(t *testing.T) {
 			t.Errorf("websockets by way in %v, want npm false and tunnel true", got)
 		}
 	})
+}
+
+// TestRepairWebSocketsUndo: the record journals one local modify of the exposure's recorded flag when it sets it, its
+// observation reads the flag, and its undo clears the record again, once; a record that is already set journals nothing.
+func TestRepairWebSocketsUndo(t *testing.T) {
+	ctx := context.Background()
+	empty := json.RawMessage(`{}`)
+	repairCall := core.CallContext{ParentChangeID: lsOther, ParentAction: ActionWSRepair, StepID: "record"}
+	record := websocketsRecordAction()
+
+	r := lsNewRig(t)
+	r.expose(StateOpen, "", core.ListenerOpen)
+	if _, err := record.Handler.Apply(ctx, r.env(repairCall, lsChild), empty); err != nil {
+		t.Fatal(err)
+	}
+	effects, _ := r.j.List(ctx)
+	if len(effects) != 1 {
+		t.Fatalf("journal %+v, want one effect", effects)
+	}
+	e := effects[0]
+	if e.Kind != core.EffectModify || e.Resource != "panel.websockets:"+lsAdd || !e.Local || !e.InverseLocal || e.State != core.EffectMade ||
+		string(e.Before.State) != `{"websockets":false}` || e.After == nil || string(e.After.State) != `{"websockets":true}` {
+		t.Fatalf("effect %+v, want a made local modify of panel.websockets:%s from false to true", e, lsAdd)
+	}
+	obs, err := record.Handler.Observe(ctx, r.env(repairCall, lsChild), e)
+	if err != nil || obs.Matches != 1 || !obs.Exclusive || obs.Resource != e.Resource || string(obs.Current.State) != `{"websockets":true}` {
+		t.Errorf("observation %+v (%v), want the recorded flag on", obs, err)
+	}
+	for i := range 2 {
+		if _, err := record.Handler.Inverse(ctx, r.env(core.CallContext{}, lsChild), e); err != nil {
+			t.Fatalf("inverse %d: %v", i+1, err)
+		}
+		if v := rwStatus(t, r); v == nil || v.Websockets {
+			t.Errorf("status %+v after inverse %d, want websockets false", v, i+1)
+		}
+	}
+	obs, err = record.Handler.Observe(ctx, r.env(repairCall, lsChild), e)
+	if err != nil || string(obs.Current.State) != `{"websockets":false}` {
+		t.Errorf("observation after the undo %+v (%v), want the flag off", obs, err)
+	}
+
+	set := lsNewRig(t)
+	row := lsRow(lsAdd, StateOpen, "")
+	row.Websockets = true
+	fdInsertExposure(t, set.db, row)
+	if _, err := record.Handler.Apply(ctx, set.env(repairCall, lsChild), empty); err != nil {
+		t.Fatal(err)
+	}
+	if effects, _ := set.j.List(ctx); len(effects) != 0 {
+		t.Errorf("a record already set journaled %+v", effects)
+	}
 }

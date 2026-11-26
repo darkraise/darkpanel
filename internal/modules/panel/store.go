@@ -119,15 +119,15 @@ func setExposureState(ctx context.Context, tx *sql.Tx, id, state, removalChangeI
 	return nil
 }
 
-// setExposureWebsockets records that exposure id passes WebSocket upgrades.
-func setExposureWebsockets(ctx context.Context, tx *sql.Tx, id string, at time.Time) error {
-	res, err := tx.ExecContext(ctx, `UPDATE panel_exposures SET websockets = 1, updated_at = ? WHERE id = ?`, at.UTC().Format(storeTimeFormat), id)
+// setExposureWebsockets records whether exposure id passes WebSocket upgrades.
+func setExposureWebsockets(ctx context.Context, tx *sql.Tx, id string, on bool, at time.Time) error {
+	res, err := tx.ExecContext(ctx, `UPDATE panel_exposures SET websockets = ?, updated_at = ? WHERE id = ?`, on, at.UTC().Format(storeTimeFormat), id)
 	if err != nil {
-		return fmt.Errorf("panel: record exposure %s passes WebSockets: %w", id, err)
+		return fmt.Errorf("panel: record exposure %s WebSocket passthrough: %w", id, err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("panel: record exposure %s passes WebSockets: %w", id, err)
+		return fmt.Errorf("panel: record exposure %s WebSocket passthrough: %w", id, err)
 	}
 	if n == 0 {
 		return fmt.Errorf("panel: exposure %s does not exist", id)
