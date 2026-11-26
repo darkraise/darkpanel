@@ -982,13 +982,13 @@ jobs:
           if-no-files-found: ignore
 
   vm-m11:
-    # TestM11F2BProbe boots one bare VM, installs fail2ban with its nftables
-    # actions and records the table it creates, which the firewall's fail2ban
-    # recognition is written against. The limit is the step's -timeout plus
-    # 20 minutes of setup.
+    # TestM11 boots two labs for the previous release against this build,
+    # then one lab for the six M11 modules, the terminal and file manager
+    # directly and through NPM, and the agent's footprint. The limit is the
+    # step's -timeout plus 20 minutes of setup.
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -1027,20 +1027,17 @@ jobs:
           path: ~/.cache/darkpanel-harness
           key: harness-images-${{ matrix.os }}-${{ hashFiles('test/harness/images.json') }}
       - run: go vet -tags harness ./test/...
-      - name: Record fail2ban's nftables table
+      # Its own deadline is 90 minutes, and the extra 10 leave its VM cleanups
+      # time to finish.
+      - name: Run the M11 harness
         run: >-
-          go test -tags harness -timeout 40m -v -run '^TestM11F2BProbe$' ./test/harness/
+          go test -tags harness -timeout 100m -v -run '^TestM11$' ./test/harness/
           -args -os ${{ matrix.os }} -m11
-          -m11-record "$RUNNER_TEMP/m11-recordings"
+          -bin "$GITHUB_WORKSPACE/bin/darkpanel-linux-amd64"
+          -m2 "$GITHUB_WORKSPACE/bin/harness"
+          -commit "$GITHUB_SHA"
           -workdir "$RUNNER_TEMP/harness-m11"
           -cache "$HOME/.cache/darkpanel-harness"
-      - if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: m11-recordings-${{ matrix.os }}
-          path: ${{ runner.temp }}/m11-recordings
-          retention-days: 7
-          if-no-files-found: ignore
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
