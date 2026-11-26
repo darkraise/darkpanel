@@ -1,0 +1,57 @@
+{
+  "name": "tuning.sysctl.apply",
+  "version": 1,
+  "class": "revertible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SysctlInput",
+    "$defs": {
+      "SysctlInput": {
+        "properties": {
+          "values": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "description": "Value by dotted key, a port range as LOW HIGH; each is written live and to the file. A key left out leaves the file and keeps its live value; an empty object removes the file."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "values"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SysctlApplied",
+    "$defs": {
+      "SysctlApplied": {
+        "properties": {
+          "set": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "written": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The keys whose live value changed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "set",
+          "written"
+        ]
+      }
+    }
+  }
+}

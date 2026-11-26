@@ -24,9 +24,10 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/users"
 )
 
-// All returns every compiled-in module in registration order.
+// All returns every compiled-in module in registration order. tuning,
+// last, is given the others: it lists the sysctl keys they declare.
 func All() []core.Module {
-	return []core.Module{
+	others := []core.Module{
 		hostinfo.Module(),
 		firewall.Module(),
 		docker.Module(),
@@ -44,6 +45,6 @@ func All() []core.Module {
 		fail2ban.Module(),
 		console.Module(),
 		jobs.Module(),
-		tuning.Module(),
 	}
+	return append(others, tuning.Module(others...))
 }

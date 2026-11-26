@@ -430,3 +430,80 @@ func TestRegistry(t *testing.T) {
 		}
 	}
 }
+
+// sysctlOverlaps lists every pair of modules that declare one sysctl key:
+// equal segment by segment, where an <iface> segment of either takes any.
+func sysctlOverlaps(mods []core.Manifest) []string {
+	type decl struct{ module, key string }
+	var all []decl
+	for _, m := range mods {
+		for _, op := range m.OwnedPaths {
+			if op.Kind == core.OwnedSysctl {
+				all = append(all, decl{m.ID, op.Path})
+			}
+		}
+	}
+	overlap := func(a, b string) bool {
+		as, bs := strings.Split(a, "/"), strings.Split(b, "/")
+		if len(as) != len(bs) {
+			return false
+		}
+		for i := range as {
+			if as[i] != bs[i] && as[i] != "<iface>" && bs[i] != "<iface>" {
+				return false
+			}
+		}
+		return true
+	}
+	var out []string
+	for i, a := range all {
+		for _, b := range all[i+1:] {
+			if a.module != b.module && overlap(a.key, b.key) {
+				out = append(out, fmt.Sprintf("%s %s and %s %s", a.module, a.key, b.module, b.key))
+			}
+		}
+	}
+	return out
+}
+
+// TestSysctlKeysUnique is spec section 7's check: no two modules declare
+// one sysctl key, so the key tuning sets is never one another module
+// writes.
+func TestSysctlKeysUnique(t *testing.T) {
+	sysctl := func(id string, keys ...string) core.Manifest {
+		m := core.Manifest{ID: id}
+		for _, k := range keys {
+			m.OwnedPaths = append(m.OwnedPaths, core.OwnedPath{Path: k, Kind: core.OwnedSysctl, Pattern: "^[0-9]+$"})
+		}
+		return m
+	}
+	for name, c := range map[string]struct {
+		mods []core.Manifest
+		want int
+	}{
+		"one key in two modules":    {[]core.Manifest{sysctl("a", "vm/swappiness"), sysctl("b", "vm/swappiness")}, 1},
+		"an interface key and one":  {[]core.Manifest{sysctl("a", "net/ipv6/conf/<iface>/forwarding"), sysctl("b", "net/ipv6/conf/all/forwarding")}, 1},
+		"two keys of one module":    {[]core.Manifest{sysctl("a", "vm/swappiness", "vm/dirty_ratio")}, 0},
+		"different keys":            {[]core.Manifest{sysctl("a", "vm/swappiness"), sysctl("b", "vm/dirty_ratio")}, 0},
+		"same prefix, other length": {[]core.Manifest{sysctl("a", "net/ipv4/conf/<iface>/rp_filter"), sysctl("b", "net/ipv4/conf/rp_filter")}, 0},
+	} {
+		if got := sysctlOverlaps(c.mods); len(got) != c.want {
+			t.Errorf("%s: overlaps %q, want %d", name, got, c.want)
+		}
+	}
+	reg := built(t)
+	if got := sysctlOverlaps(reg.Modules()); len(got) != 0 {
+		t.Errorf("modules declare one sysctl key: %q", got)
+	}
+	declared := 0
+	for _, m := range reg.Modules() {
+		for _, op := range m.OwnedPaths {
+			if op.Kind == core.OwnedSysctl && (m.ID == "tuning" || m.ID == "firewall") {
+				declared++
+			}
+		}
+	}
+	if declared < 16+5 {
+		t.Errorf("the registry declares %d sysctl keys of tuning and firewall, want the 16 and 5 they declare", declared)
+	}
+}

@@ -1,0 +1,99 @@
+{
+  "name": "tuning.sysctl.get",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {},
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SysctlState",
+    "$defs": {
+      "SysctlKeyState": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The dotted name, as sysctl.d files write it."
+          },
+          "help": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "integer",
+              "choice",
+              "port-range"
+            ],
+            "description": "Empty for a key another module manages."
+          },
+          "min": {
+            "type": "string",
+            "description": "Integer and port-range kinds: the lowest value, in decimal (fs.file-max exceeds a JavaScript number)."
+          },
+          "max": {
+            "type": "string",
+            "description": "Integer and port-range kinds: the highest value, in decimal."
+          },
+          "choices": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Choice kind: the values the key takes on this host."
+          },
+          "live": {
+            "type": "string",
+            "description": "The kernel's value now; a port range as LOW HIGH."
+          },
+          "set": {
+            "type": "string",
+            "description": "The value 99-zz-darkpanel.conf holds."
+          },
+          "laterFiles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Files that set the key after 99-zz-darkpanel.conf at boot, in the order they apply."
+          },
+          "owner": {
+            "type": "string",
+            "description": "The module that manages the key; tuning does not change it."
+          },
+          "unavailable": {
+            "type": "string",
+            "description": "Why the key cannot be set on this host."
+          }
+        },
+        "type": "object",
+        "required": [
+          "key"
+        ]
+      },
+      "SysctlState": {
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/$defs/SysctlKeyState"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "keys"
+        ]
+      }
+    }
+  }
+}
