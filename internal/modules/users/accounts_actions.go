@@ -43,7 +43,7 @@ type CreateInput struct {
 	Password string `json:"password,omitempty" secret:"erase" jsonschema:"minLength=8,maxLength=256" jsonschema_description:"An optional password, 8-256 characters with no control character."`
 }
 
-// PasswordInput is the input of users.user.password.set.
+// PasswordInput is the input of users.password.set.
 type PasswordInput struct {
 	Name     string `json:"name" jsonschema:"pattern=^[a-z_][a-z0-9_-]{0\\,31}$" jsonschema_description:"The account name."`
 	Password string `json:"password" secret:"erase" jsonschema:"minLength=8,maxLength=256" jsonschema_description:"8-256 characters with no control character."`
@@ -416,7 +416,7 @@ func (h passwordHandler) Verify(ctx context.Context, env core.Env, in PasswordIn
 	return verifyPassword(ctx, env, in.Name, true)
 }
 
-// noHash is the password hash users.user.password.remove leaves.
+// noHash is the password hash users.password.remove leaves.
 const noHash = "*"
 
 type noPasswordHandler struct{ m module }
