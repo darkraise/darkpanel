@@ -333,7 +333,6 @@
           "outOfSync",
           "configured",
           "loaded",
-          "neighbours",
           "rules"
         ]
       }

@@ -12623,7 +12623,6 @@
           "outOfSync",
           "configured",
           "loaded",
-          "neighbours",
           "rules"
         ],
         "type": "object"

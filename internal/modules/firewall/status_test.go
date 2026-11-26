@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/fwstate"
 	"github.com/darkraise/darkpanel/internal/modules/firewall/model"
 )
@@ -142,8 +144,21 @@ func TestUFWChainsLoaded(t *testing.T) {
 func TestStatusNeighbours(t *testing.T) {
 	h := newFakeHost(t)
 	b, err := json.Marshal(suStatus(t, h))
-	if err != nil || !strings.Contains(string(b), `"neighbours":[]`) {
+	if err != nil || strings.Contains(string(b), `"neighbours"`) {
 		t.Errorf("status without neighbours: %s, %v", b, err)
+	}
+	// An agent one minor older sends no neighbours: the member is optional.
+	raw, err := schema.Output(reflect.TypeOf(Status{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Defs map[string]struct {
+			Required []string `json:"required"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil || slices.Contains(doc.Defs["Status"].Required, "neighbours") || len(doc.Defs["Status"].Required) == 0 {
+		t.Errorf("Status requires %v (%v); neighbours must be optional", doc.Defs["Status"].Required, err)
 	}
 	d := h.deps()
 	read := d.readLoaded

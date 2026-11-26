@@ -1028,7 +1028,7 @@ Returned in the `output` field of the response.
 | `loaded.ipv6` | boolean | yes |  |
 | `loaded.sysctl` | map of string | yes |  |
 | `loaded.variant` | string | yes |  |
-| `neighbours` | array of object | yes |  |
+| `neighbours` | array of object | no |  |
 | `neighbours[].banned` | integer | yes |  |
 | `neighbours[].kind` | string | yes | Values: fail2ban. |
 | `outOfSync` | array of object | yes |  |

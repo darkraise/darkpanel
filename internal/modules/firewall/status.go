@@ -24,7 +24,8 @@ type Status struct {
 	Loaded      LoadedState       `json:"loaded"`
 	// Neighbours are foreign tables the firewall recognises and leaves
 	// alone, such as fail2ban's; they do not make the host unsupported.
-	Neighbours []Neighbour `json:"neighbours"`
+	// Optional: an agent one minor older never sends it.
+	Neighbours []Neighbour `json:"neighbours,omitempty"`
 	// Rules are UFW's rules in its order (model.Merge): Darkpanel's carry
 	// origin darkpanel, the others manual; a manual rule the model cannot
 	// express carries only its id, origin and raw tuple, and is read-only.
@@ -104,7 +105,6 @@ func (f fw) status(ctx context.Context, env core.Env) (Status, error) {
 	if st.Rules == nil {
 		st.Rules = []model.Rule{}
 	}
-	st.Neighbours = []Neighbour{}
 	for _, n := range cur.Neighbours {
 		st.Neighbours = append(st.Neighbours, Neighbour{Kind: n.Kind, Banned: n.Banned})
 	}
