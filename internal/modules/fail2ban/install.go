@@ -106,6 +106,16 @@ func (h installHandler) Task(ctx context.Context, env core.Env, _ struct{}) (Pac
 	if _, err := apt(ctx, env, platform.SystemAptRun("install", platform.Fail2banPackages)); err != nil {
 		return Packages{}, err
 	}
+	// The package's maintainer scripts leave fail2ban stopped on some OS.
+	st, err := env.Units.State(ctx, fail2banUnit)
+	if err != nil {
+		return Packages{}, fmt.Errorf("fail2ban: read %s: %w", fail2banUnit, err)
+	}
+	if st.ActiveState != "active" {
+		if err := env.Units.Start(ctx, fail2banUnit); err != nil {
+			return Packages{}, fmt.Errorf("fail2ban: start %s: %w", fail2banUnit, err)
+		}
+	}
 	return Packages{Packages: slices.Clone(platform.Fail2banPackages)}, nil
 }
 

@@ -65,7 +65,8 @@ func (m module) Manifest() core.Manifest {
 			{Path: SettingsFile, Kind: core.OwnedFile},
 		},
 		ExternalUnits: []core.ExternalUnit{
-			{Name: fail2banUnit, Ops: state}, {Name: crowdsecUnit, Ops: state}, {Name: controllerUnit, Ops: state},
+			{Name: fail2banUnit, Ops: []string{core.UnitOpState, core.UnitOpStart}},
+			{Name: crowdsecUnit, Ops: state}, {Name: controllerUnit, Ops: state},
 		},
 	}
 }

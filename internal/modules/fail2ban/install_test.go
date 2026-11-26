@@ -25,8 +25,10 @@ type rig struct {
 	files   map[string][]byte
 	dirs    map[string]bool
 	units   map[string]core.UnitState
-	effects *effects
-	addrs   []string
+	// installed is fail2ban.service's state once apt installed the package.
+	installed core.UnitState
+	effects   *effects
+	addrs     []string
 }
 
 func newRig(t *testing.T) *rig {
@@ -36,7 +38,8 @@ func newRig(t *testing.T) *rig {
 		units: map[string]core.UnitState{
 			fail2banUnit: {LoadState: "loaded", ActiveState: "active"},
 		},
-		effects: &effects{}, addrs: []string{"198.51.100.7"},
+		installed: core.UnitState{LoadState: "loaded", ActiveState: "active"},
+		effects:   &effects{}, addrs: []string{"198.51.100.7"},
 	}
 	r.answer(platform.Fail2banClientPath, platform.Fail2banVersion(), testdata(t, "version"))
 	r.answer(platform.Fail2banClientPath, platform.Fail2banStatus(""), testdata(t, "status"))
@@ -109,6 +112,9 @@ func (x runner) Run(_ context.Context, cmd core.Cmd) (core.CmdResult, error) {
 		return core.CmdResult{}, fmt.Errorf("refused %q", k)
 	}
 	x.r.events = append(x.r.events, "run "+k)
+	if k == key("/usr/bin/apt-get", platform.SystemAptRun("install", platform.Fail2banPackages)) {
+		x.r.units[fail2banUnit] = x.r.installed
+	}
 	res, ok := x.r.answers[k]
 	if !ok {
 		x.r.t.Errorf("unexpected command %q", k)
@@ -184,6 +190,14 @@ func (u units) State(_ context.Context, name string) (core.UnitState, error) {
 		return st, nil
 	}
 	return core.UnitState{LoadState: "not-found", ActiveState: "inactive"}, nil
+}
+
+func (u units) Start(_ context.Context, name string) error {
+	u.r.events = append(u.r.events, "start "+name)
+	st := u.r.units[name]
+	st.ActiveState = "active"
+	u.r.units[name] = st
+	return nil
 }
 
 // effects records the journal calls of one change.
@@ -281,6 +295,20 @@ func TestInstallWritesSettingsFirst(t *testing.T) {
 	r = newRig(t)
 	_, err = (installHandler{m: r.module()}).Plan(ctx, r.env(adminP), struct{}{})
 	wantCode(t, "install over an installed fail2ban", err, errcode.InvalidInput)
+}
+
+func TestInstallStartsAStoppedFail2ban(t *testing.T) {
+	r := uninstalled(t)
+	r.installed = core.UnitState{LoadState: "loaded", ActiveState: "inactive"}
+	if _, err := (installHandler{m: r.module()}).Task(context.Background(), r.env(adminP), struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if last := r.events[len(r.events)-1]; last != "start "+fail2banUnit {
+		t.Errorf("last event %q, want start %s after the install", last, fail2banUnit)
+	}
+	if st := r.units[fail2banUnit]; st.ActiveState != "active" {
+		t.Errorf("%s is %s after the install, want active", fail2banUnit, st.ActiveState)
+	}
 }
 
 func TestCrowdSecPresent(t *testing.T) {
