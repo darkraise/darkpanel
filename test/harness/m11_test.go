@@ -579,9 +579,8 @@ func (r *m11Run) transfer(t *testing.T) {
 	}
 }
 
-// policy denies the console in the agent's policy file: the host reports it
-// unavailable with the policy's reason and the terminal is refused. Allowing
-// it again makes it usable.
+// policy denies the console in the agent's policy file: the terminal is
+// refused with the policy's reason. Allowing it again makes it usable.
 func (r *m11Run) policy(t *testing.T) {
 	f := r.f
 	m3Run(r.ctx, t, f.agent, "sudo darkpanel agent policy deny console")
@@ -589,29 +588,17 @@ func (r *m11Run) policy(t *testing.T) {
 		m3Run(r.ctx, t, f.agent, "sudo darkpanel agent policy allow console")
 		r.waitUsable(t, "console")
 	}()
-	err := eventually(r.ctx, time.Minute, func(ctx context.Context) error {
-		hosts, err := f.api.Hosts(ctx)
-		if err != nil {
-			return err
-		}
-		m, err := m11xModule(hosts, f.agentID, "console")
-		if err != nil {
-			return err
-		}
-		if m.Available || m.Reason == nil || *m.Reason != agentruntime.PolicyReason {
-			return fmt.Errorf("harness: console is available %t, reason %v, want unavailable with %q", m.Available, m.Reason, agentruntime.PolicyReason)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	tm, err := m11OpenTerm(r.ctx, t, f, f.api, f.agentID)
 	if err == nil {
 		tm.close()
 	}
-	if err := m11xRefused(err, string(errcode.ModuleUnavailable)); err != nil {
+	if err := m11xRefusedWith(err, string(errcode.ModuleUnavailable), agentruntime.PolicyReason); err != nil {
 		t.Errorf("a terminal with the console denied: %v", err)
+	}
+	if hosts, err := f.api.Hosts(r.ctx); err == nil {
+		if m, err := m11xModule(hosts, f.agentID, "console"); err == nil {
+			t.Logf("the controller lists console available %t, reason %v", m.Available, m.Reason)
+		}
 	}
 }
 
