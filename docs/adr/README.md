@@ -30,6 +30,8 @@ Check the files with `bash scripts/check-adrs.sh --complete`.
 - [ADR 0018: Roles, host groups and sign-in methods](0018-roles-host-groups-sign-in.md)
 - [ADR 0019: Remembered tailnet devices](0019-remembered-tailnet-devices.md);
   amends ADR 0018's Tailscale identity decisions
+- [ADR 0020: Host administration access](0020-host-administration-access.md);
+  bounds the exceptions to ADR 0009 and extends ADR 0003 with duplex channels
 
 ## Format
 

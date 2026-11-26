@@ -44,7 +44,44 @@ var dnPages = []dnPage{
 		"npm.not_public", "cloudflare.connector_missing", "darkpanel-panel", "dp-panel", "172.31.255.0/24", "9443",
 		"sudo darkpanel panel listener revoke", "Panel exposed via", "Let's Encrypt",
 	}},
+	{"services", "docs/user/modules/services.md", []string{
+		"services.protected", "services.network_stack", "services.tailnet_link", "services.module_change", "core.stream_limit",
+		"services.journal-follow", "Use Reboot on the System tab", "Darkpanel manages its own units", "--confirmation",
+		"RefuseManualStart", "SuccessAction", "systemd-journald.service", "at most 8", "2 MiB",
+	}},
+	{"users", "docs/user/modules/users.md", []string{
+		"users.no_way_in", "auth.step_up_required", "/etc/ssh/sshd_config.d/00-darkpanel.conf", "50-cloud-init.conf",
+		"sshd -T", "sshd -t", "usermod --expiredate 1", "/var/lib/darkpanel/users", "3072 bits", "yescrypt",
+		"authorizedkeysfile", "Match", "--confirm-timeout", "UID 1000 to 59999", "sshd_config.d/*.conf",
+	}},
+	{"fail2ban", "docs/user/modules/fail2ban.md", []string{
+		"fail2ban.self_ban", "system.removal_refused", "/etc/fail2ban/jail.d/zz-darkpanel.local", "python3-systemd",
+		"nftables-multiport", "backend = systemd", "100.64.0.0/10", "fd7a:115c:a1e0::/48", "recidive", "inet f2b-table",
+		"CrowdSec", "fail2ban: <n> banned addresses", "reports the firewall unsupported",
+	}},
+	{"console", "docs/user/modules/console.md", []string{
+		"auth.step_up_required", "auth.step_up_unavailable", "auth.step_up_wait", "console.limit", "files.conflict",
+		"files.not_text", "module.unavailable", "Update the agent to use the terminal",
+		"Turned off on this host by its policy file", "/etc/darkpanel/agent-policy.json", "darkpanel agent policy deny",
+		"core.module.enable", "nohup", "tmux", "SIGHUP", "darkpanel-console-", "30 minutes", "12 hours",
+		"Terminal needs WebSocket passthrough", "512 MiB", "1 MiB", "console.terminal.open", "console.terminal.close",
+		".darkpanel-tmp-", "The agent restarted; open a new terminal",
+	}},
+	{"jobs", "docs/user/modules/jobs.md", []string{
+		"auth.step_up_required", "darkpanel-job-", "/var/lib/darkpanel/jobs", "systemd-analyze calendar", "OnCalendar=",
+		"Persistent=", "RandomizedDelaySec=", "/etc/crontab", "/etc/cron.d", "/var/spool/cron/crontabs",
+		"darkpanel agent policy deny", "core.module.enable",
+	}},
+	{"tuning", "docs/user/modules/tuning.md", []string{
+		"/etc/sysctl.d/99-zz-darkpanel.conf", "/etc/ufw/sysctl.conf", "/darkpanel.swap", "/etc/fstab", "ext4", "xfs",
+		"256 MiB", "64 GiB", "available memory less 256 MiB", "--confirm-timeout", "vm.swappiness",
+		"net.ipv4.tcp_congestion_control", "net.ipv4.ip_local_port_range",
+	}},
 }
+
+// dnNoActions are the modules whose page documents channels and file
+// endpoints rather than actions.
+var dnNoActions = []string{"console"}
 
 // dnSections are the level-two headings every page has, in this order.
 var dnSections = []string{
@@ -65,6 +102,12 @@ func TestDnPagesNameEveryAction(t *testing.T) {
 	for _, p := range dnPages {
 		t.Run(p.module, func(t *testing.T) {
 			names := dcModuleNames(t, p.module)
+			if slices.Contains(dnNoActions, p.module) {
+				if len(names) != 0 {
+					t.Fatalf("module %s now has actions %v; take it out of dnNoActions", p.module, names)
+				}
+				return
+			}
 			if len(names) == 0 {
 				t.Fatalf("module %s has no action or resource to document", p.module)
 			}

@@ -34,6 +34,7 @@ var w10tmOutline = []string{
 	"### Exposure",
 	"### DERP host",
 	"### Package management",
+	"### Host administration",
 	"## Known residual risks",
 }
 
@@ -58,6 +59,7 @@ var w10tmFacts = map[string][]string{
 	"Cloud credentials":            {"sealed", "write-only", "uncertain", "token"},
 	"Exposure":                     {"X-Darkpanel-Client", "revoked", "port 81", "banner", "unreadable"},
 	"DERP host":                    {"-verify-clients", "darkpanel-derp", "tailscaled", "pinned", "signature"},
+	"Host administration":          {"step-up", "TOTP", "compromised controller", "agent-policy.json", "audit", "openat2", "users.no_way_in"},
 }
 
 // w10tmMitigationPaths are the repository paths an area's mitigations name.
@@ -71,6 +73,7 @@ var w10tmMitigationPaths = map[string][]string{
 	"Cloud credentials":            {"internal/controller/cloud"},
 	"Exposure":                     {"internal/controller/listen", "internal/modules/npm/npmapi", "web/src/modules/npm/banner.tsx"},
 	"DERP host":                    {"internal/modules/derp/artifact", "release/releasetool"},
+	"Host administration":          {"internal/controller/auth", "internal/platform", "internal/agent/runtime", "internal/modules/console"},
 }
 
 // w10tmOpen are the terms the open security questions use; each appears in

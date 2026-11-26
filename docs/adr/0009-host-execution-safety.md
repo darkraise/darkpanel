@@ -6,6 +6,9 @@
 
 Accepted
 
+The host administration modules' exceptions to it, each with its bound, are
+recorded in [ADR 0020: Host administration access](0020-host-administration-access.md).
+
 ## Context
 
 The agent runs as root (ADR 0001), so anything it executes or writes on the

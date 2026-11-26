@@ -6,6 +6,9 @@
 
 Accepted
 
+Duplex channels, an additive extension of protocol version 1, are recorded
+in [ADR 0020: Host administration access](0020-host-administration-access.md).
+
 ## Context
 
 Agents open no listening port and dial out (product spec Constraints). The same

@@ -6,8 +6,9 @@
 
 Darkpanel is a single-binary fleet manager for owners of unmanaged Linux
 servers. One controller, with a CLI and a web UI, manages the firewall, Docker,
-Tailscale and the services you expose on each host, and every host updates
-itself from signed releases with automatic rollback.
+Tailscale and the services you expose on each host, administers its services,
+users, SSH and scheduled jobs, and every host updates itself from signed
+releases with automatic rollback.
 
 ## Features
 
@@ -26,6 +27,18 @@ itself from signed releases with automatic rollback.
   [tailnet](docs/user/modules/tailnet.md), [DERP](docs/user/modules/derp.md)
   relays, and exposure through [Nginx Proxy Manager](docs/user/modules/npm.md)
   or [Cloudflare tunnels](docs/user/modules/cloudflare.md).
+- **Host administration.** Start, stop and enable systemd
+  [services](docs/user/modules/services.md) and read or follow their journal;
+  manage login [users and SSH](docs/user/modules/users.md) keys and harden the
+  SSH daemon behind a lockout guard and a revert timer; ban SSH attackers with
+  [fail2ban](docs/user/modules/fail2ban.md); run [scheduled
+  jobs](docs/user/modules/jobs.md) as systemd timers; and set kernel parameters
+  and a swap file with [tuning](docs/user/modules/tuning.md).
+- **Console.** Admins can open a root terminal and a file manager for a
+  host's files in the browser with the [console](docs/user/modules/console.md).
+  It is off until turned on per host, asks for an authenticator code, records
+  every session and file change in the audit log, and root on the host can deny
+  it, and scheduled jobs, in a policy file the controller cannot change.
 - **Signed updates.** A host updates one at a time, the controller's own host
   first, from releases whose minisign signature it verifies. Each update takes a
   backup, keeps the previous binary, and rolls back within two minutes when the

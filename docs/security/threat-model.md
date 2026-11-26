@@ -4,7 +4,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 
 ## Scope
 
-- Covered: the controller, the agents it manages, the modules shipped in v1 (firewall, Docker, Tailscale, tailnet, DERP, Nginx Proxy Manager, Cloudflare, panel exposure, system, notifications and metrics), the sign-in methods (password and TOTP, OIDC, Tailscale identity), the CLI, the web UI, backup and restore, and the update path.
+- Covered: the controller, the agents it manages, the modules shipped in v1 (firewall, Docker, Tailscale, tailnet, DERP, Nginx Proxy Manager, Cloudflare, panel exposure, system, notifications and metrics) and the host administration modules (services, users, fail2ban, console, jobs and tuning), the sign-in methods (password and TOTP, OIDC, Tailscale identity), the CLI, the web UI, backup and restore, and the update path.
 - Not covered: a compromised root account on a host (the agent runs as root, so a root attacker already holds the host), physical access, and the security of Tailscale, Cloudflare, Let's Encrypt and Docker themselves.
 - Not covered: a malicious administrator. An admin can do everything an admin may do; the model limits what a lower scope, a stolen credential or a mistake can do.
 
@@ -23,6 +23,7 @@ This page is the written threat model of Darkpanel. It states what the product p
 - The DERP node key. Theft lets an attacker impersonate the relay.
 - Notification channel credentials: ntfy topics and tokens, Telegram bot tokens, Discord and webhook URLs, webhook signing keys and SMTP passwords, and the OIDC client secret. Theft lets an attacker post to those destinations or act as Darkpanel at the provider.
 - The packages of every managed host and Docker's data on it. A wrong package change removes what keeps the host reachable or bootable; a purge deletes every container, image and volume.
+- Root on every host where the console or jobs module is on, and the login accounts and SSH configuration of every host. A misuse of the console or a job is a root action; a wrong SSH change locks every account out.
 
 ## Actors
 
@@ -391,6 +392,41 @@ The `system` module runs apt and dpkg as root on agent hosts, schedules reboots 
 - Installing or upgrading a package runs its maintainer scripts as root; this is the operator's confirmed choice and equivalent in power to the Docker and Compose actions.
 - A package source the host already trusts is trusted as apt trusts it.
 - An uninstall without purge proceeds when the Docker daemon does not answer, and its plan says the labelled-container check could not run.
+
+### Host administration
+
+The `services`, `users`, `fail2ban`, `console`, `jobs` and `tuning` modules manage what the operator owns on a host. ADR 0020 records each place where they step outside the declared paths and allowlisted commands of ADR 0009, with its bound.
+
+#### Threats
+
+- A stolen session or API token used to open a root terminal, read secrets from files, or plant a job that runs as root.
+- A cross-site page in an admin's browser opening a terminal WebSocket with the admin's cookie.
+- A compromised controller turning the console or jobs on and using them: step-up and enablement are both judged by the controller.
+- An SSH change, a lock, a key removal or a password removal that leaves no account able to sign in.
+- A file manager write that follows a symlink planted by an unprivileged user, or that changes Darkpanel's own state.
+- A unit change that powers the host off, cuts the agent's network, or fights another module's change.
+- A password kept in a plan row, a log or an answer after it was set.
+- A terminal or transfer that outlives the access that opened it.
+
+#### Mitigations
+
+- The console and jobs are off by default per host and need admin on the host. A terminal open needs a fresh TOTP code traded for a single-use ticket valid 30 seconds and bound to the session and host; file content reads, file writes, job create and update and the account actions that grant a way in need step-up, a session elevated by a code within 15 minutes. A code is accepted once, wrong codes count against the sign-in rate limit, and API tokens cannot step up (`internal/controller/auth/stepup.go`, `internal/controller/api/channels.go`).
+- The terminal WebSocket requires an `Origin` equal to the panel's own origin as well as the ticket, and channels and transfers are rechecked with the event streams: sign-out, user disable, demotion, revocation and module disable end them with `revoked` or `expired` (`internal/controller/api/channels.go`, `internal/controller/api/files.go`).
+- The host-local policy file `/etc/darkpanel/agent-policy.json`, written only by root on the host through `darkpanel agent policy deny|allow`, denies the console and jobs whatever the controller pushes; the agent's shell, file provider and job timers check it beside the module flag (`internal/agent/runtime`, `internal/cli/agent_policy.go`).
+- The shell starts only through `platform.Shell`, in its own transient scope, and only for the console module; the file manager resolves every target with `openat2(RESOLVE_NO_SYMLINKS)` and refuses writes under `/proc`, `/sys`, `/dev`, `/run`, `/boot/efi`, `/etc/darkpanel`, `/var/lib/darkpanel` and the Darkpanel binary, and reads under `/proc`, `/sys`, `/dev`, `/etc/darkpanel` and `/var/lib/darkpanel` (`internal/platform/shell.go`, `internal/platform/consolefiles.go`, `internal/modules/console`).
+- The agent journals every terminal open and close and an intent and a result for every file change, so the controller's audit receives them at least once and an agent crash leaves an `interrupted` result rather than no record; no terminal content is stored (`internal/modules/console`, `internal/controller/audit`).
+- The guard `users.no_way_in` refuses a change after which no account could sign in, judged on `sshd -T`'s effective settings; sshd changes revert unless confirmed, and `authorized_keys` is written only inside a home and `.ssh` that pass sshd's StrictModes rule (`internal/modules/users`, `internal/platform/homefiles.go`).
+- Passwords are secret inputs fed to `chpasswd` on standard input, never logged or returned, and erased from the sealed plan row on agent and controller when the change ends or the plan expires (`internal/modules/users`, `internal/core/lifecycle`).
+- `services` refuses power, isolate and final-target units, Darkpanel's own units and D-Bus, guards the network stack and the tailnet link without override, and needs admin, the unit name typed and an idle managing module for units another module manages (`internal/modules/services/rules.go`).
+- Jobs run only as units of the recorded `unit-set` pattern, never through the shell provider, and only as root or a login user (`internal/modules/jobs`, `internal/platform/files_unitset.go`).
+
+#### Residual risk
+
+- An admin with the console holds root on that host by design; the bound is who is admin, the step-up and the audit, not what the shell can do.
+- A compromised controller holds root on every host where the console or jobs module is on. The host-local policy file is the only defence, and only where the owner set it.
+- A command typed into the terminal is not recorded, only that a terminal was open, for how long and how many bytes passed.
+- The lockout guard cannot see the overrides of an sshd `Match` block, and says so.
+- A job's command can hold secrets that admins on the controller can read.
 
 ## Known residual risks
 

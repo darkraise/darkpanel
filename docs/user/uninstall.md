@@ -96,6 +96,35 @@ sudo darkpanel uninstall --module-option firewall.rules=baseline --module-option
 The command refuses a module, a key or a value that no module declares before
 it removes anything.
 
+## What uninstall leaves on the host
+
+Removing a file Darkpanel wrote for another program changes what that program
+does. The plan names each effect after the file:
+
+- Removing `/etc/ssh/sshd_config.d/00-darkpanel.conf`:
+  sshd falls back to its other files and defaults, which often turns password
+  sign-in back on.
+- Removing `/etc/fail2ban/jail.d/zz-darkpanel.local`:
+  fail2ban falls back to its package defaults. The `fail2ban` package stays
+  installed.
+- Removing `/etc/sysctl.d/99-zz-darkpanel.conf`:
+  kernel parameters fall back to their boot values at the next boot; the live
+  values stay until then.
+
+When the host has Darkpanel's swap file, a `swap` step runs `swapoff` on
+`/darkpanel.swap` before the file and its `/etc/fstab` line go. Before any
+step, the uninstall refuses while the swapped memory exceeds
+available memory less 256 MiB; free memory and run it again.
+
+Scheduled jobs go with the rest: the uninstall stops and disables every job
+timer, then removes the job units, their scripts and their directory.
+
+The login users, their authorized keys and their passwords stay, with their
+home directories and `sudo` membership: they are the host's data, not
+Darkpanel's. So do the services you started or enabled and the files you
+changed in the console. Lock or delete the accounts you no longer need before
+you uninstall, with [Users and SSH](modules/users.md).
+
 ## Keep your data
 
 With `--keep-data`, the uninstall removes the services, units and binary, but

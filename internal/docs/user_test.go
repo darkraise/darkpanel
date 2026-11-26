@@ -1,6 +1,8 @@
 package docs_test
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -32,6 +34,8 @@ var duIndexed = []string{
 	"users-and-roles.md", "sign-in.md", "notifications.md", "metrics-and-alerts.md",
 	"modules/hostinfo.md", "modules/firewall.md", "modules/docker.md", "modules/tailscale.md", "modules/tailnet.md",
 	"modules/derp.md", "modules/npm.md", "modules/cloudflare.md", "modules/panel.md", "modules/system.md",
+	"modules/services.md", "modules/users.md", "modules/fail2ban.md", "modules/console.md", "modules/jobs.md",
+	"modules/tuning.md",
 	"../dev/module-guide.md", "../api/README.md", "../versioning.md",
 }
 
@@ -65,6 +69,39 @@ func TestDuIndexLinksEveryPage(t *testing.T) {
 		links = append(links, "]("+target+")")
 	}
 	dcMentions(t, "docs/user/README.md", links...)
+}
+
+// duGuideElsewhere are the modules whose guide is a page of docs/user
+// rather than of docs/user/modules, relative to docs/user.
+var duGuideElsewhere = map[string]string{"notify": "notifications.md", "metrics": "metrics-and-alerts.md"}
+
+func TestDuEveryModuleHasAPage(t *testing.T) {
+	root := dcRoot(t)
+	dirs, err := os.ReadDir(filepath.Join(root, "internal", "modules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, m := range modules.All() {
+		ids[m.Manifest().ID] = true
+	}
+	index := dcRead(t, "docs/user/README.md")
+	for _, d := range dirs {
+		if !d.IsDir() || !ids[d.Name()] {
+			continue
+		}
+		page, ok := duGuideElsewhere[d.Name()]
+		if !ok {
+			page = "modules/" + d.Name() + ".md"
+		}
+		if _, err := os.Stat(filepath.Join(root, "docs", "user", filepath.FromSlash(page))); err != nil {
+			t.Errorf("docs: module %s has no page docs/user/%s", d.Name(), page)
+			continue
+		}
+		if !strings.Contains(index, "]("+page+")") {
+			t.Errorf("docs: docs/user/README.md does not link the page of module %s, %s", d.Name(), page)
+		}
+	}
 }
 
 func TestDuInstall(t *testing.T) {
@@ -129,6 +166,15 @@ func TestDuUninstall(t *testing.T) {
 		t.Fatal("docs: no module declares an uninstall option")
 	}
 	dcMentions(t, "docs/user/uninstall.md", options...)
+
+	// What removing the host administration modules' files does to the host,
+	// and the host data uninstall leaves.
+	dcMentions(t, "docs/user/uninstall.md",
+		"/etc/ssh/sshd_config.d/00-darkpanel.conf", "sshd falls back to its other files and defaults",
+		"/etc/fail2ban/jail.d/zz-darkpanel.local", "fail2ban falls back to its package defaults",
+		"/etc/sysctl.d/99-zz-darkpanel.conf", "kernel parameters fall back to their boot values",
+		"/darkpanel.swap", "swapoff", "available memory less 256 MiB",
+		"login users", "authorized keys", "passwords stay")
 }
 
 func TestDuAdministration(t *testing.T) {

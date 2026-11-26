@@ -64,3 +64,24 @@ func TestReadmeInstallNamesNewestRelease(t *testing.T) {
 		}
 	}
 }
+
+// TestReadmeNamesM11Modules holds the README's feature list to naming the
+// host administration modules and linking their guides.
+func TestReadmeNamesM11Modules(t *testing.T) {
+	readme := dcRead(t, "README.md")
+	start := strings.Index(readme, "## Features\n")
+	end := strings.Index(readme, "\n## Status")
+	if start < 0 || end < start {
+		t.Fatal("README.md has no Features section before Status")
+	}
+	features := strings.Join(strings.Fields(readme[start:end]), " ")
+	want := []string{
+		"services", "journal", "users", "SSH", "fail2ban", "terminal", "files", "scheduled jobs", "swap", "kernel",
+	}
+	for _, id := range []string{"services", "users", "fail2ban", "console", "jobs", "tuning"} {
+		want = append(want, "(docs/user/modules/"+id+".md)")
+	}
+	for _, name := range dcMissing(features, want) {
+		t.Errorf("README.md's feature list does not name %q", name)
+	}
+}

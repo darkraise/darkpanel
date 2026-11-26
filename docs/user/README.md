@@ -3,7 +3,9 @@
 Darkpanel is an MIT-licensed, single-binary VPS and self-hosted fleet manager,
 with a CLI and a web UI, for owners of unmanaged Linux servers. It starts with
 a Docker-aware UFW firewall, Docker, Tailscale and DERP, reverse-proxy exposure
-and safe self-update.
+and safe self-update, and administers each host's services, users and SSH,
+intrusion prevention, scheduled jobs and kernel tuning, with a root console for
+admins.
 
 ## Get started
 
@@ -46,6 +48,16 @@ Each module has a page of its own:
   hostnames they serve.
 - [panel](modules/panel.md) exposes the Darkpanel web interface itself through
   Nginx Proxy Manager or a tunnel.
+- [services](modules/services.md) starts, stops and enables systemd units and
+  reads and follows the journal.
+- [users](modules/users.md) manages login accounts, their SSH keys and the
+  SSH daemon's hardening.
+- [fail2ban](modules/fail2ban.md) installs fail2ban and bans addresses that
+  keep failing to sign in over SSH.
+- [console](modules/console.md) opens a root terminal and a file manager on a
+  host, for admins, after an authenticator code.
+- [jobs](modules/jobs.md) runs commands on a schedule through systemd timers.
+- [tuning](modules/tuning.md) sets kernel parameters and manages a swap file.
 
 ## When something goes wrong
 
