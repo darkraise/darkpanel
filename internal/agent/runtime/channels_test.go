@@ -494,3 +494,55 @@ func TestHelloUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// gatedConn is one end of a pipe whose Accept waits until released.
+type gatedConn struct {
+	net.Conn
+	entered, release chan struct{}
+}
+
+func (g *gatedConn) Accept() error {
+	close(g.entered)
+	<-g.release
+	return nil
+}
+
+// TestCloseDuringAccept closes a module's channels while one is being
+// accepted: the close frame still goes out once it is accepted, the
+// connection is closed and the handler never runs.
+func TestCloseDuringAccept(t *testing.T) {
+	f := newEchoFixture(t, "test")
+	agentEnd, peer := net.Pipe()
+	t.Cleanup(func() { _ = peer.Close() })
+	g := &gatedConn{Conn: agentEnd, entered: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan error, 1)
+	go func() { done <- f.rt.OpenChannel(context.Background(), chUser, "test", "echoes", nil, g) }()
+	<-g.entered
+	f.rt.CloseModuleChannels("test")
+	close(g.release)
+	wantClose(t, peer, runtime.CloseModuleOff, 2*time.Second)
+	if _, _, err := wire.ReadFrame(peer); !errors.Is(err, io.EOF) {
+		t.Errorf("after the close frame: %v, want the connection closed", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("OpenChannel = %v, want nil once accepted", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OpenChannel did not return")
+	}
+	select {
+	case err := <-f.ended:
+		t.Errorf("the handler ran (ended with %v) on a channel closed before it opened", err)
+	default:
+	}
+	// Runtime.Close has nothing left to wait for.
+	closed := make(chan struct{})
+	go func() { f.rt.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Runtime.Close hung on the channel closed during its accept")
+	}
+}

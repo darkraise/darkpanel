@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"sync"
 	"time"
@@ -60,15 +61,21 @@ func (r *Runtime) OpenChannel(ctx context.Context, p core.Principal, module, nam
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	c := &channelConn{rw: rw, cancel: cancel}
+	a, needsAccept := rw.(ChannelAccepter)
+	c := &channelConn{rw: rw, cancel: cancel, accepted: !needsAccept}
 	if err := r.addChannel(ctx, module, c); err != nil {
 		return err
 	}
 	defer r.channels.remove(module, c)
-	if a, ok := rw.(ChannelAccepter); ok {
+	if needsAccept {
 		if err := a.Accept(); err != nil {
 			_ = rw.Close()
 			return fmt.Errorf("runtime: accept channel %s.%s: %w", module, name, err)
+		}
+		if c.markAccepted() {
+			// A close came while the channel was being accepted; the
+			// close frame went out now, and the handler never runs.
+			return nil
 		}
 	}
 	env := r.moduleEnv(module)
@@ -77,13 +84,21 @@ func (r *Runtime) OpenChannel(ctx context.Context, p core.Principal, module, nam
 		return def.Open(runCtx, env, raw, c)
 	})
 	reason := CloseEnded
-	// A peer that went away ends the handler's reads with io.EOF.
-	if err != nil && !errors.Is(err, io.EOF) && !c.isClosed() {
+	// A peer that went away ends the handler's reads with io.EOF, and a
+	// close from this side ends them with the close's own errors.
+	if err != nil && !errors.Is(err, io.EOF) && (!c.isClosed() || !closeCaused(err)) {
 		r.cfg.Log.Warn("runtime: channel failed", "channel", module+"."+name, "actor", p.Actor, "error", err)
 		reason = CloseFailed
 	}
 	_ = c.Close(reason)
 	return nil
+}
+
+// closeCaused reports whether err is what a handler sees once its channel
+// was closed under it.
+func closeCaused(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, errChannelClosed) ||
+		errors.Is(err, net.ErrClosed) || errors.Is(err, io.ErrClosedPipe)
 }
 
 // addChannel counts c among module's open channels once the module may open
@@ -178,20 +193,25 @@ func (s *channelSet) closeAll(reason string) {
 	s.wg.Wait()
 }
 
-// channelConn is the agent's end of one channel.
+// channelConn is the agent's end of one channel. Until rw is accepted
+// nothing may be written to it, so a Close before then only marks the
+// channel closed, and the accept sends the close frame.
 type channelConn struct {
 	rw     io.ReadWriteCloser
 	cancel context.CancelFunc
 
-	wmu       sync.Mutex // one frame at a time
-	closeOnce sync.Once
+	wmu sync.Mutex // one frame at a time
+
 	mu        sync.Mutex
 	closed    bool
+	reason    string // the close's reason
+	accepted  bool   // rw may be written; true from the start without an accepter
+	finishing bool   // the close frame and rw.Close are under way or done
 }
 
 var _ core.ChannelConn = (*channelConn)(nil)
 
-// errChannelClosed is a write on a closed channel.
+// errChannelClosed is a read or write on a closed channel.
 var errChannelClosed = errors.New("runtime: the channel is closed")
 
 func (c *channelConn) isClosed() bool {
@@ -200,10 +220,26 @@ func (c *channelConn) isClosed() bool {
 	return c.closed
 }
 
+// markAccepted marks rw accepted and reports whether the channel was closed
+// before, in which case it finishes that close now.
+func (c *channelConn) markAccepted() bool {
+	c.mu.Lock()
+	c.accepted = true
+	closed, reason := c.closed, c.reason
+	c.mu.Unlock()
+	if closed {
+		_ = c.finish(reason)
+	}
+	return closed
+}
+
 // ReadFrame reads the peer's next frame; the peer's close frame is returned
 // like any other. A frame the codec refuses closes the channel with reason
 // "bad frame".
 func (c *channelConn) ReadFrame() (byte, []byte, error) {
+	if c.isClosed() {
+		return 0, nil, errChannelClosed
+	}
 	t, p, err := wire.ReadFrame(c.rw)
 	if errors.Is(err, wire.ErrFrame) {
 		_ = c.Close(CloseBadFrame)
@@ -211,35 +247,53 @@ func (c *channelConn) ReadFrame() (byte, []byte, error) {
 	return t, p, err
 }
 
+// WriteFrame writes one frame. The closed check is made under wmu, so no
+// frame follows the close frame.
 func (c *channelConn) WriteFrame(t byte, p []byte) error {
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
 	if c.isClosed() {
 		return errChannelClosed
 	}
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
 	return wire.WriteFrame(c.rw, t, p)
 }
 
-// Close marks the channel closed, ends the handler's context, writes the
-// close frame, waiting at most closeWriteWait when rw has write deadlines,
-// and closes rw.
+// Close marks the channel closed and ends the handler's context; once rw is
+// accepted it also writes the close frame, waiting at most closeWriteWait
+// when rw has write deadlines, and closes rw. Later calls do nothing.
 func (c *channelConn) Close(reason string) error {
-	var err error
-	c.closeOnce.Do(func() {
-		c.mu.Lock()
-		c.closed = true
+	c.mu.Lock()
+	if c.closed {
 		c.mu.Unlock()
-		c.cancel()
-		if d, ok := c.rw.(interface{ SetWriteDeadline(time.Time) error }); ok {
-			_ = d.SetWriteDeadline(time.Now().Add(closeWriteWait))
-		}
-		payload, _ := json.Marshal(struct {
-			Reason string `json:"reason"`
-		}{reason})
-		c.wmu.Lock()
-		_ = wire.WriteFrame(c.rw, wire.FrameClose, payload)
-		c.wmu.Unlock()
-		err = c.rw.Close()
-	})
-	return err
+		return nil
+	}
+	c.closed, c.reason = true, reason
+	accepted := c.accepted
+	c.mu.Unlock()
+	c.cancel()
+	if !accepted {
+		return nil
+	}
+	return c.finish(reason)
+}
+
+// finish writes the close frame and closes rw, once.
+func (c *channelConn) finish(reason string) error {
+	c.mu.Lock()
+	if c.finishing {
+		c.mu.Unlock()
+		return nil
+	}
+	c.finishing = true
+	c.mu.Unlock()
+	if d, ok := c.rw.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		_ = d.SetWriteDeadline(time.Now().Add(closeWriteWait))
+	}
+	payload, _ := json.Marshal(struct {
+		Reason string `json:"reason"`
+	}{reason})
+	c.wmu.Lock()
+	_ = wire.WriteFrame(c.rw, wire.FrameClose, payload)
+	c.wmu.Unlock()
+	return c.rw.Close()
 }
