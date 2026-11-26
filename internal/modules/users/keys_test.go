@@ -104,21 +104,38 @@ func TestKeyAddKeepsLines(t *testing.T) {
 	}
 
 	rm := KeyRemoveInput{Name: "alice", Fingerprint: fp}
-	if _, err := remove.Plan(ctx, r.env(adminP), rm); err != nil {
-		t.Fatal(err)
+	if plan, err := remove.Plan(ctx, r.env(adminP), rm); err != nil || plan.Diff[0].Text != "Remove the key "+fp+" from alice: "+line {
+		t.Fatalf("remove plan %+v, %v", plan, err)
 	}
-	if _, err := remove.Apply(ctx, r.env(adminP), rm); err != nil {
+	out, err := remove.Apply(ctx, r.env(adminP), rm)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if r.keys["alice"] != orig {
 		t.Errorf("after remove\n%q\nwant the original\n%q", r.keys["alice"], orig)
 	}
+	// The removed line is what users.key.add takes to put it back.
+	if !slices.Equal(out.Removed, []string{line}) {
+		t.Errorf("removed %q, want %q", out.Removed, line)
+	}
+	if _, err := add.Apply(ctx, r.env(adminP), KeyInput{Name: "alice", Key: out.Removed[0]}); err != nil || r.keys["alice"] != orig+line+"\n" {
+		t.Errorf("add of the removed line: %q, %v", r.keys["alice"], err)
+	}
+	r.keys["alice"] = orig
 	// Removing the line with options says the options cannot come back.
 	plan, err = remove.Plan(ctx, r.env(adminP), KeyRemoveInput{Name: "alice", Fingerprint: fingerprint(t, old)})
 	if err != nil || len(plan.Diff) != 2 || !strings.Contains(plan.Diff[1].Text, `from="10.0.0.1"`) ||
 		!strings.Contains(plan.Diff[1].Text, "without them") {
 		t.Errorf("remove of a line with options: %+v, %v", plan, err)
 	}
+	out, err = remove.Apply(ctx, r.env(adminP), KeyRemoveInput{Name: "alice", Fingerprint: fingerprint(t, old)})
+	if err != nil || !slices.Equal(out.Removed, []string{old}) {
+		t.Fatalf("remove of the line with options: %+v, %v", out, err)
+	}
+	if _, _, err := parseNewKey("/key", out.Removed[0]); err != nil {
+		t.Errorf("the removed line %q is not one users.key.add takes: %v", out.Removed[0], err)
+	}
+	r.keys["alice"] = orig
 	if err := remove.Verify(ctx, r.env(adminP), rm, KeyChanged{}); err != nil {
 		t.Errorf("verify remove: %v", err)
 	}

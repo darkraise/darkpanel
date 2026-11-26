@@ -21453,6 +21453,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "removed": {
+            "description": "The removed key lines without their options, as users.key.add takes them.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -21557,6 +21564,13 @@
           },
           "name": {
             "type": "string"
+          },
+          "removed": {
+            "description": "The removed key lines without their options, as users.key.add takes them.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [

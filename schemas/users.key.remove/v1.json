@@ -41,6 +41,13 @@
           },
           "fingerprint": {
             "type": "string"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The removed key lines without their options, as users.key.add takes them."
           }
         },
         "type": "object",

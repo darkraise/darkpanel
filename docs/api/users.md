@@ -30,6 +30,7 @@ Returned in the `output` field of the change that apply returns.
 |---|---|---|---|
 | `fingerprint` | string | yes |  |
 | `name` | string | yes |  |
+| `removed` | array of string | no | The removed key lines without their options, as users.key.add takes them. |
 
 ## users.key.list v1
 
@@ -90,6 +91,7 @@ Returned in the `output` field of the change that apply returns.
 |---|---|---|---|
 | `fingerprint` | string | yes |  |
 | `name` | string | yes |  |
+| `removed` | array of string | no | The removed key lines without their options, as users.key.add takes them. |
 
 ## users.password.remove v1
 

@@ -60,8 +60,9 @@ type KeyRemoveInput struct {
 
 // KeyChanged names the account and the key a change acted on.
 type KeyChanged struct {
-	Name        string `json:"name"`
-	Fingerprint string `json:"fingerprint"`
+	Name        string   `json:"name"`
+	Fingerprint string   `json:"fingerprint"`
+	Removed     []string `json:"removed,omitempty" jsonschema_description:"The removed key lines without their options, as users.key.add takes them."`
 }
 
 func (m module) keyActions() []core.ActionDef {
@@ -156,6 +157,27 @@ func parseKeys(data []byte) []keyLine {
 				Options: strings.Join(options, ",")}
 		}
 		out = append(out, kl)
+	}
+	return out
+}
+
+// removedLines are the lines of fingerprint in data as users.key.add takes
+// them: the key and its comment, without options.
+func removedLines(data []byte, fingerprint string) []string {
+	var out []string
+	for _, kl := range parseKeys(data) {
+		if kl.key.Fingerprint != fingerprint {
+			continue
+		}
+		pub, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(kl.text))
+		if err != nil {
+			continue
+		}
+		line := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub)))
+		if comment != "" {
+			line += " " + comment
+		}
+		out = append(out, line)
 	}
 	return out
 }
@@ -273,7 +295,7 @@ func (h keyHandler) planOutcome(ctx context.Context, env core.Env, name, key, fi
 	if h.add {
 		return core.PlanOutcome{Diff: []core.DiffLine{{Op: "+", Text: "Authorize the key " + fp + " for " + name}}, StateHash: keysHash(data)}, nil
 	}
-	diff := []core.DiffLine{{Op: "-", Text: "Remove the key " + fp + " from " + name}}
+	diff := []core.DiffLine{{Op: "-", Text: "Remove the key " + fp + " from " + name + ": " + removedLines(data, fp)[0]}}
 	// users.key.add takes no options, so it cannot put back a line that had
 	// some; the plan says so before the line goes.
 	for _, kl := range parseKeys(data) {
@@ -286,14 +308,18 @@ func (h keyHandler) planOutcome(ctx context.Context, env core.Env, name, key, fi
 }
 
 func (h keyHandler) apply(ctx context.Context, env core.Env, name, key, fingerprint string) (KeyChanged, error) {
-	_, want, fp, err := h.plan(ctx, env, name, key, fingerprint)
+	data, want, fp, err := h.plan(ctx, env, name, key, fingerprint)
 	if err != nil {
 		return KeyChanged{}, err
 	}
 	if err := env.Home.WriteAuthorizedKeys(ctx, name, want); err != nil {
 		return KeyChanged{}, err
 	}
-	return KeyChanged{Name: name, Fingerprint: fp}, nil
+	out := KeyChanged{Name: name, Fingerprint: fp}
+	if !h.add {
+		out.Removed = removedLines(data, fp)
+	}
+	return out, nil
 }
 
 func (h keyHandler) verify(ctx context.Context, env core.Env, name, fingerprint string) error {
