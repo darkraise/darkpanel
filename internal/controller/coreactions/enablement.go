@@ -149,10 +149,11 @@ func pushEnabled(ctx context.Context, env core.Env, in ModuleInput, enabled bool
 	}
 	env.Log.Warn("coreactions: push module enablement", "host", in.HostID, "module", in.ModuleID,
 		"enabled", enabled, "error", err)
-	// An agent without the route answers not_found, and saying hello again
-	// cannot help it.
+	// An agent without the route answers not_found, and one whose policy
+	// file denies the module answers module.unavailable; saying hello again
+	// cannot help either.
 	var coded *errcode.Error
-	if errors.As(err, &coded) && coded.Code == errcode.NotFound {
+	if errors.As(err, &coded) && (coded.Code == errcode.NotFound || coded.Code == errcode.ModuleUnavailable) {
 		return
 	}
 	if r, ok := env.Agents.(interface{ RepushEnablement(hostID string) }); ok && reached {

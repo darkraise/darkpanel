@@ -70,6 +70,7 @@ func TestEnablementPushFailureIsLogged(t *testing.T) {
 	gone := errors.New("the agent went away")
 	noRoute := errcode.New(errcode.NotFound, "no agent API route PUT /agent/v1/modules/demo/enabled")
 	offline := errcode.New(errcode.HostOffline, "host h1 is offline")
+	denied := errcode.New(errcode.ModuleUnavailable, "module demo is unavailable: Turned off on this host by its policy file")
 	tests := []struct {
 		name, action, logged string
 		missing              bool
@@ -80,6 +81,7 @@ func TestEnablementPushFailureIsLogged(t *testing.T) {
 		{"disable, push fails", "core.module.disable", gone.Error(), false, gone, nil, []string{"h1"}},
 		{"disable, host unknown", "core.module.disable", "host h1 not found", true, gone, nil, nil},
 		{"enable, agent without the route", "core.module.enable", "no agent API route", false, noRoute, nil, nil},
+		{"enable, denied by the host's policy", "core.module.enable", "its policy file", false, denied, nil, nil},
 		{"disable, host offline", "core.module.disable", "host h1 is offline", false, gone, offline, nil},
 	}
 	for _, tt := range tests {

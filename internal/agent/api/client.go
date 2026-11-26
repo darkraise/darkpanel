@@ -317,6 +317,12 @@ func (c *Client) SetModuleEnabled(ctx context.Context, moduleID string, enabled 
 	return c.do(ctx, req, nil)
 }
 
+// ReloadPolicy asks the agent to read its host-local policy file again; only
+// the agent socket serves it.
+func (c *Client) ReloadPolicy(ctx context.Context) error {
+	return c.do(ctx, request{method: http.MethodPost, path: "policy/reload"}, nil)
+}
+
 // Availability asks which actions of a module are available. An agent
 // without the route answers not_found, as for an unknown module.
 func (c *Client) Availability(ctx context.Context, moduleID string) (core.ModuleAvailability, error) {

@@ -201,7 +201,10 @@ func newAgentCmd() *cobra.Command {
 		Short: "Run, enroll and check this host's agent",
 		RunE:  runGroup,
 	}
-	cmd.AddCommand(newAgentRunCmd(), newAgentEnrollCmd(), newAgentCheckCmd(), newAgentTaskCmd())
+	cmd.AddCommand(newAgentRunCmd(), newAgentEnrollCmd(), newAgentCheckCmd(), newAgentTaskCmd(),
+		cli.NewAgentPolicyCommand(cli.AgentPolicyConfig{
+			Path: runtime.PolicyPath, Socket: paths.Production().AgentSocket, Geteuid: func() int { return geteuid() },
+		}))
 	return cmd
 }
 
@@ -263,7 +266,7 @@ func newAgentRunCmd() *cobra.Command {
 					DB: host.DB, Sealer: host.Sealer, Clock: core.SystemClock{}, Log: log, Registry: host.Registry,
 					BinaryVersion: buildinfo.Version, BackupDir: p.AgentBackups(),
 					Exec:  platform.NewRunner(platform.ProductionRules()),
-					Units: host.Systemd, TaskBinary: p.Binary(),
+					Units: host.Systemd, TaskBinary: p.Binary(), PolicyFile: runtime.PolicyPath,
 				},
 				Updater:        host.Updater,
 				NeverConnected: neverConnected,
@@ -277,6 +280,9 @@ func newAgentRunCmd() *cobra.Command {
 				// task change would wait forever; without units the engine
 				// refuses task actions at apply.
 				cfg.Runtime.Units = nil
+				// The policy file is root's and the production host's; the
+				// development agent denies nothing.
+				cfg.Runtime.PolicyFile = ""
 			}
 			return errors.Join(startupCancelled(ctx, daemonRun(ctx, cfg)), host.Close())
 		},

@@ -65,6 +65,12 @@ type Config struct {
 	// enrolled with, "" when it is not; nil means "". Env.ControllerAddrs
 	// resolves it per call.
 	ControllerAddress func() string
+	// PolicyFile is the host-local policy file, PolicyPath in production;
+	// "" reads none and denies nothing.
+	PolicyFile string
+	// PolicyOwner is the uid that must own PolicyFile: root, 0, in
+	// production; tests that do not run as root set their own.
+	PolicyOwner uint32
 }
 
 func (c Config) check() error {
@@ -105,6 +111,12 @@ type Runtime struct {
 
 	streams streamSet // the running module streams; Close ends them
 
+	// enableMu orders flag changes and policy reloads, so the last one's
+	// hook call matches the stored flag and the policy in force.
+	enableMu sync.Mutex
+	policyMu sync.Mutex
+	policy   Policy // the host-local policy file's, from Open on
+
 	// loopMu is held while a purge runs, so Close waits for it.
 	loopMu sync.Mutex
 	timer  core.Timer
@@ -112,7 +124,8 @@ type Runtime struct {
 }
 
 // Open migrates agent.db (core first, then each module's agent migrations; a
-// failed module migration makes that module unavailable), builds the one
+// failed module migration makes that module unavailable), reads the policy
+// file, builds the one
 // platform.Files of the agent from the registry's owned paths, builds the
 // agent lifecycle engine, runs its Recover once, runs every module's
 // preflight checks, purges expired plans and then every PurgeInterval, and
@@ -157,6 +170,7 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 		eng.Close()
 		return nil, fmt.Errorf("runtime: recover: %w", err)
 	}
+	r.loadPolicy()
 	for _, m := range r.modules() {
 		r.setStatus(r.check(ctx, m))
 	}
@@ -266,9 +280,14 @@ func journalEpoch(ctx context.Context, db *store.DB, now time.Time) (string, err
 }
 
 // check runs m's preflight checks in order; the first failure's error text is
-// the reason. A module whose migrations failed is not checked.
+// the reason. A module the policy file denies, or whose migrations failed, is
+// not checked.
 func (r *Runtime) check(ctx context.Context, m core.Manifest) core.ModuleStatus {
 	st := core.ModuleStatus{ID: m.ID, Version: m.Version}
+	if r.Policy().Denied(m.ID) {
+		st.Reason = PolicyReason
+		return st
+	}
 	if r.isBroken(m.ID) {
 		st.Reason = ReasonMigrationFailed
 		return st

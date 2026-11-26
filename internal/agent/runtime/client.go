@@ -52,10 +52,14 @@ func (r *Runtime) Preflight(ctx context.Context, moduleID string) (core.ModuleSt
 }
 
 // usable refuses, with module.unavailable, an action or resource name of a
-// module whose migrations failed. Enablement and preflight results are the
-// dispatcher's to enforce.
+// module the policy file denies or whose migrations failed. Enablement and
+// preflight results are the dispatcher's to enforce, but the policy file is
+// the host's, so the agent enforces it whatever the controller believes.
 func (r *Runtime) usable(name string) error {
 	moduleID, _, _ := strings.Cut(name, ".")
+	if r.Policy().Denied(moduleID) {
+		return deniedError(moduleID)
+	}
 	if r.isBroken(moduleID) {
 		return errcode.New(errcode.ModuleUnavailable,
 			fmt.Sprintf("module %s is unavailable: %s", moduleID, ReasonMigrationFailed))

@@ -281,4 +281,18 @@ func TestHelloPushesEnablement(t *testing.T) {
 	if len(pushed) != 0 {
 		t.Errorf("pushes after not_found = %q, want none", pushed)
 	}
+
+	// Nor can one whose policy file denies the module.
+	refuseErr = errcode.New(errcode.ModuleUnavailable, "module off is unavailable: Turned off on this host by its policy file")
+	h.hosts.RepushEnablement("h2")
+	if _, err := h.hosts.Agent(ctx, "h2"); err != nil {
+		t.Fatal(err)
+	}
+	pushed = nil
+	if _, err := h.hosts.Agent(ctx, "h2"); err != nil {
+		t.Fatal(err)
+	}
+	if len(pushed) != 0 {
+		t.Errorf("pushes after module.unavailable = %q, want none", pushed)
+	}
 }

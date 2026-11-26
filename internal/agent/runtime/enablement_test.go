@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
@@ -90,14 +91,20 @@ func TestSetModuleEnabledUnknown(t *testing.T) {
 	}
 }
 
-// hookModule records each OnEnabled call and fails each one with fail.
+// hookModule records each OnEnabled call and fails each one with fail. Its
+// id is "hooked" unless id names another.
 type hookModule struct {
+	id    string
 	calls *[]bool
 	fail  error
 }
 
 func (m hookModule) Manifest() core.Manifest {
-	return core.Manifest{ID: "hooked", Version: 1}
+	id := m.id
+	if id == "" {
+		id = "hooked"
+	}
+	return core.Manifest{ID: id, Version: 1}
 }
 
 func (m hookModule) OnEnabled(_ context.Context, env core.Env, enabled bool) error {
@@ -132,5 +139,31 @@ func TestEnablementHook(t *testing.T) {
 	f.restart()
 	if want := []bool{true}; !slices.Equal(calls, want) {
 		t.Errorf("calls at a restart %v, want %v (the stored flag)", calls, want)
+	}
+	t.Run("denied by policy", testEnablementHookDenied)
+}
+
+// testEnablementHookDenied calls the hook of a module the policy file denies
+// with false, at start and when the controller pushes true, which is refused.
+func testEnablementHookDenied(t *testing.T) {
+	ctx := context.Background()
+	var calls []bool
+	h := &fixHost{}
+	reg, err := core.NewRegistry(kvModule{}, badModule{h}, flakyModule{h}, boomModule{}, hookModule{id: "jobs", calls: &calls})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fixture{t: t, host: h, clock: coretest.NewFakeClock(t0), reg: reg, dir: t.TempDir()}
+	f.policy = writePolicy(t, f.dir, `{"denyModules":["jobs"]}`, 0o644)
+	f.open()
+	if err := f.rt.SetModuleEnabled(ctx, "jobs", true); err == nil {
+		t.Error("SetModuleEnabled(jobs, true) under a policy that denies jobs succeeded")
+	}
+	f.restart()
+	if want := []bool{false, false, false}; !slices.Equal(calls, want) {
+		t.Errorf("calls %v, want %v (start, the refused push, the restart with the stored true)", calls, want)
+	}
+	if v, ok := f.enMeta("jobs"); !ok || v != "1" {
+		t.Errorf("module_enabled.jobs = %q (present %t), want the pushed 1 kept for when the policy allows it", v, ok)
 	}
 }

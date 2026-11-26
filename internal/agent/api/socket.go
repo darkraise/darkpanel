@@ -21,6 +21,10 @@ type SocketConfig struct {
 	// credentials; it is asked on every request, so an enrollment while the
 	// socket serves takes effect at once.
 	Identity func() (hostID string, enrolled bool)
+	// ReloadPolicy reads the host-local policy file again; nil leaves the
+	// route out. Only the socket serves it: the file is the host's, and the
+	// controller has no say in it.
+	ReloadPolicy func(ctx context.Context) error
 }
 
 // NewSocketHandler serves the agent API on the agent socket, whose peer the
@@ -29,9 +33,11 @@ type SocketConfig struct {
 // hello and reads are served. Enablement is the controller's rule and is not
 // applied, but a module whose preflight checks fail is refused. The journal
 // routes are absent: the controller alone collects and acknowledges the
-// journal. A request carrying a call context is refused, and so is a plan
-// whose input carries a guard context: only the controller sends either, so
-// a break-glass plan runs with the guard context empty (spec 1.5).
+// journal. POST policy/reload, which the controller's routes lack, reads the
+// host-local policy file again. A request carrying a call context is
+// refused, and so is a plan whose input carries a guard context: only the
+// controller sends either, so a break-glass plan runs with the guard context
+// empty (spec 1.5).
 func NewSocketHandler(cfg Config, sock SocketConfig) http.Handler {
 	h := &handler{cfg: cfg}
 	h.principal = func(*http.Request) (core.Principal, error) { return socketPrincipal(sock.Identity()), nil }
@@ -42,6 +48,15 @@ func NewSocketHandler(cfg Config, sock SocketConfig) http.Handler {
 	h.hello = func(*http.Request) error { return nil }
 	h.planInput = refuseSuppliedGuard
 	mux := h.routes(false)
+	if sock.ReloadPolicy != nil {
+		mux.HandleFunc("POST "+prefix+"policy/reload", func(w http.ResponseWriter, r *http.Request) {
+			if err := sock.ReloadPolicy(r.Context()); err != nil {
+				h.writeProblem(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if len(r.Header.Values(wire.HeaderCall)) > 0 {
 			h.writeProblem(w, errcode.New(errcode.InvalidInput,

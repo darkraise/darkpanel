@@ -204,7 +204,8 @@ func (d *daemon) open(ctx context.Context, id identity) error {
 	}
 	d.ident, d.rt = id, rt
 	d.sock = api.NewSocketHandler(api.Config{Agent: rt, Log: d.log}, api.SocketConfig{
-		Identity: func() (string, bool) { return id.hostID, id.enrolled },
+		Identity:     func() (string, bool) { return id.hostID, id.enrolled },
+		ReloadPolicy: rt.ReloadPolicy,
 	})
 	d.log.Info("daemon: serving", "host", id.hostID, "enrolled", id.enrolled)
 	return nil

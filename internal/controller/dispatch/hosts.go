@@ -261,21 +261,30 @@ type moduleFlag struct {
 // pushEnablement hands the agent the stored enabled flag of every module its
 // hello reported (spec 1.4): the agent runs a module's background tasks only
 // while the flag is set. A failed push is logged and leaves the hello
-// standing; unless the agent answered not_found, the next Agent call says
-// hello again, which pushes every flag again. It reports whether any push
-// failed that way. An agent without the route answers not_found, and trying
-// again cannot help it.
+// standing; unless the agent answered not_found or module.unavailable, the
+// next Agent call says hello again, which pushes every flag again. It
+// reports whether any push failed that way. An agent without the route
+// answers not_found, and one whose policy file denies the module answers
+// module.unavailable; trying again cannot help either.
 func (h *Hosts) pushEnablement(ctx context.Context, hostID string, c core.AgentClient, flags []moduleFlag) (retry bool) {
 	for _, f := range flags {
 		if err := c.SetModuleEnabled(ctx, f.id, f.enabled); err != nil {
 			h.cfg.Log.Warn("dispatch: push module enablement", "host", hostID, "module", f.id, "error", err)
-			var coded *errcode.Error
-			if !errors.As(err, &coded) || coded.Code != errcode.NotFound {
+			if !pushFinal(err) {
 				retry = true
 			}
 		}
 	}
 	return retry
+}
+
+// pushFinal reports whether an agent's refusal of an enabled flag is one
+// that pushing again cannot change: not_found from an agent without the
+// route or the module, module.unavailable from one whose policy file denies
+// the module.
+func pushFinal(err error) bool {
+	var coded *errcode.Error
+	return errors.As(err, &coded) && (coded.Code == errcode.NotFound || coded.Code == errcode.ModuleUnavailable)
 }
 
 // nullText stores an empty string as NULL, which reads as "not reported".

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -243,6 +244,9 @@ type fixture struct {
 	db    *store.DB
 	rt    *Runtime
 	units core.Units // Config.Units from the next open on
+	// policy is Config.PolicyFile from the next open on; the test's own
+	// uid stands for root.
+	policy string
 }
 
 func newFixture(t *testing.T) *fixture { return newFixtureWith(t) }
@@ -266,6 +270,7 @@ func (f *fixture) config() Config {
 		DB: f.db, Sealer: coretest.Sealer{}, Clock: f.clock, Log: slog.New(slog.DiscardHandler), Registry: f.reg,
 		HostID: testHost, BinaryVersion: "test", BackupDir: filepath.Join(f.dir, "backups"),
 		Exec: platform.NewRunner(nil), FilesTestMode: true, Units: f.units,
+		PolicyFile: f.policy, PolicyOwner: uint32(os.Getuid()), //nolint:gosec // G115: a uid fits in 32 bits
 	}
 }
 
