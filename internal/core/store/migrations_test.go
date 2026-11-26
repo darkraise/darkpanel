@@ -1218,3 +1218,62 @@ func TestRtCompositeRetiresMigration(t *testing.T) {
 		t.Error("a NULL retires was accepted")
 	}
 }
+
+func TestAuditConsolePhasesMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openTemp(t)
+	if _, err := Migrate(ctx, db, migrateOpts(t, "m10", time.Now()), coreSetUpTo(t, SideController, 20), nil); err != nil {
+		t.Fatal(err)
+	}
+	const at = "2026-11-27T00:00:00.000000000Z"
+	insert := `INSERT INTO core_audit (id, seq, epoch, at, actor, host_id, action, version, phase, change_id, input_json,
+		result, error_code, source) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`
+	exec := func(args ...any) error {
+		_, err := db.Writer().ExecContext(ctx, insert, args...)
+		return err
+	}
+	for _, args := range [][]any{
+		{"A1", nil, "", at, "user:alice", nil, "fix.item.add", "apply", "C1", `{"name":"a"}`, "ok", nil, "127.0.0.1"},
+		{"A2", 7, "E1", at, "system:fix.service", "H1", "fix.item.add", "check", nil, nil, "error", "fix.failed", nil},
+	} {
+		if err := exec(args...); err != nil {
+			t.Fatalf("audit row %v: %v", args[0], err)
+		}
+	}
+	phases := []string{"open", "close", "intent", "result"}
+	for i, phase := range phases {
+		if err := exec(fmt.Sprintf("B%d", i), nil, "", at, "user:alice", "H1", "console.terminal.open", phase, nil, nil, "ok", nil, nil); err == nil {
+			t.Fatalf("phase %s was accepted before the migration", phase)
+		}
+	}
+	const audit = `SELECT json_array(id, seq, epoch, at, actor, host_id, action, version, phase, change_id, input_json,
+		result, error_code, source) FROM core_audit ORDER BY id`
+	const indexes = "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'core_audit' AND sql IS NOT NULL ORDER BY name"
+	rowsBefore, indexesBefore := surfacesRows(t, db, audit), surfacesRows(t, db, indexes)
+
+	set, err := CoreMigrations(SideController)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Migrate(ctx, db, migrateOpts(t, "m11", time.Now()), set, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Applied) == 0 || res.Applied[0].Number != 21 || res.Applied[0].Name != "audit_console_phases" {
+		t.Fatalf("applied %+v, want 0021_audit_console_phases first", res.Applied)
+	}
+	if after := surfacesRows(t, db, audit); !slices.Equal(after, rowsBefore) {
+		t.Errorf("audit rows after the migration = %v, want %v", after, rowsBefore)
+	}
+	if after := surfacesRows(t, db, indexes); !slices.Equal(after, indexesBefore) {
+		t.Errorf("core_audit indexes after the migration = %v, want %v", after, indexesBefore)
+	}
+	for i, phase := range phases {
+		if err := exec(fmt.Sprintf("N%d", i), i+1, "E2", at, "user:alice", "H1", "console.file.upload", phase, nil, `{"path":"/tmp/x"}`, "ok", nil, "192.0.2.7"); err != nil {
+			t.Errorf("phase %s refused: %v", phase, err)
+		}
+	}
+	if err := exec("R1", nil, "", at, "user:alice", "H1", "console.terminal.open", "bogus", nil, nil, "ok", nil, nil); err == nil {
+		t.Error("an unknown phase was accepted after the migration")
+	}
+}

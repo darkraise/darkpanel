@@ -319,3 +319,23 @@ func TestZeroTimeTakesTheClock(t *testing.T) {
 		t.Errorf("entry = %+v, want the clock's time and no input", got)
 	}
 }
+
+func TestIngestStoresConsolePhases(t *testing.T) {
+	s, _, _ := newTestStore(t)
+	ctx := context.Background()
+	var entries []core.JournalEntry
+	for i, e := range []struct{ action, phase string }{
+		{"console.terminal.open", "open"}, {"console.terminal.close", "close"},
+		{"console.file.upload", "intent"}, {"console.file.upload", "result"},
+	} {
+		entries = append(entries, core.JournalEntry{Seq: int64(i + 1), At: t0, Actor: "user:u1", Action: e.action, Version: 1,
+			Phase: e.phase, Result: "ok", Source: "192.0.2.1", Input: json.RawMessage(`{"source":"192.0.2.1"}`)})
+	}
+	if err := s.Ingest(ctx, "h1", entries); err != nil {
+		t.Fatalf("ingest of the console's entries: %v", err)
+	}
+	got, _ := list(t, s, core.AuditQuery{HostID: "h1", Action: "console.file.upload"})
+	if len(got) != 2 || got[0].Phase != "result" || got[1].Phase != "intent" {
+		t.Errorf("console.file.upload entries = %+v, want result then intent", got)
+	}
+}
