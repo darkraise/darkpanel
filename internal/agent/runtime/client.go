@@ -43,8 +43,7 @@ func (r *Runtime) Preflight(ctx context.Context, moduleID string) (core.ModuleSt
 	if !ok {
 		return core.ModuleStatus{}, errcode.New(errcode.NotFound, fmt.Sprintf("no module %s", moduleID))
 	}
-	st := r.check(ctx, m)
-	r.setStatus(st)
+	st := r.setStatus(r.check(ctx, m))
 	if err := r.syncTasks(ctx, moduleID); err != nil {
 		r.cfg.Log.Error("runtime: background tasks after a preflight", "module", moduleID, "error", err)
 	}

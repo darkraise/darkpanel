@@ -103,9 +103,13 @@ type Runtime struct {
 	// unit client, for the engine and for moduleEnv.
 	moduleUnits func(module string) core.Units
 
+	// statusMu also guards policy, so a status is stored against the policy
+	// in force when it is stored: a check that began under an older policy
+	// cannot store a denied module as available.
 	statusMu sync.Mutex
 	status   map[string]core.ModuleStatus
 	broken   map[string]bool // modules whose migrations failed; unusable until a restart
+	policy   Policy          // the host-local policy file's, from Open on
 
 	bg *background // the modules' background tasks, from the end of Open
 
@@ -114,8 +118,6 @@ type Runtime struct {
 	// enableMu orders flag changes and policy reloads, so the last one's
 	// hook call matches the stored flag and the policy in force.
 	enableMu sync.Mutex
-	policyMu sync.Mutex
-	policy   Policy // the host-local policy file's, from Open on
 
 	// loopMu is held while a purge runs, so Close waits for it.
 	loopMu sync.Mutex
@@ -375,10 +377,16 @@ func (r *Runtime) isBroken(moduleID string) bool {
 	return r.broken[moduleID]
 }
 
-func (r *Runtime) setStatus(st core.ModuleStatus) {
+// setStatus stores st, as the policy in force reports it, and returns what
+// it stored.
+func (r *Runtime) setStatus(st core.ModuleStatus) core.ModuleStatus {
 	r.statusMu.Lock()
 	defer r.statusMu.Unlock()
+	if r.policy.Denied(st.ID) {
+		st.Available, st.Reason = false, PolicyReason
+	}
 	r.status[st.ID] = st
+	return st
 }
 
 // statuses returns every module's last status in registration order.

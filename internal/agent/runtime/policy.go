@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -72,9 +73,26 @@ func NewPolicy(modules []string) (Policy, error) {
 
 // ReadPolicy reads the policy file at path, which must be a regular file
 // owned by owner (root in production) that neither its group nor others can
-// write, holding exactly one PolicyFile object. An absent file denies
-// nothing.
+// write, in a directory held to the same rules, holding exactly one
+// PolicyFile object. An absent file denies nothing.
 func ReadPolicy(path string, owner uint32) (Policy, error) {
+	// Whoever can write the directory can remove the file, and an absent
+	// file denies nothing, so the directory is held to the file's rules.
+	dir := filepath.Dir(path)
+	var dst unix.Stat_t
+	err := unix.Stat(dir, &dst)
+	switch {
+	case errors.Is(err, unix.ENOENT):
+		return Policy{}, nil
+	case err != nil:
+		return Policy{}, fmt.Errorf("read the policy file's directory: %w", err)
+	}
+	switch {
+	case dst.Uid != owner:
+		return Policy{}, fmt.Errorf("the policy file's directory %s is owned by uid %d, not root", dir, dst.Uid)
+	case dst.Mode&0o022 != 0:
+		return Policy{}, fmt.Errorf("the policy file's directory %s is writable by its group or others (mode %04o)", dir, dst.Mode&0o7777)
+	}
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) //nolint:gosec // G304: the configured policy file
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -130,8 +148,8 @@ func ParsePolicy(data []byte) (PolicyFile, error) {
 
 // Policy is the policy in force.
 func (r *Runtime) Policy() Policy {
-	r.policyMu.Lock()
-	defer r.policyMu.Unlock()
+	r.statusMu.Lock()
+	defer r.statusMu.Unlock()
 	return r.policy
 }
 
@@ -159,17 +177,22 @@ func (r *Runtime) ReloadPolicy(ctx context.Context) error {
 	if r.cfg.PolicyFile == "" {
 		return errcode.New(errcode.InvalidInput, "this agent reads no policy file")
 	}
+	// The file is read under enableMu, so of two overlapping reloads the
+	// later one applies what the file held last.
+	r.enableMu.Lock()
+	defer r.enableMu.Unlock()
 	p, err := ReadPolicy(r.cfg.PolicyFile, r.cfg.PolicyOwner)
 	if err != nil {
 		return errcode.New(errcode.InvalidInput, err.Error()+"; the policy in force stays")
 	}
-	r.enableMu.Lock()
-	defer r.enableMu.Unlock()
-	r.policyMu.Lock()
+	r.statusMu.Lock()
 	old := r.policy
 	r.policy = p
-	r.policyMu.Unlock()
+	r.statusMu.Unlock()
 	r.cfg.Log.Info("runtime: policy file read", "policy", p.String())
+	// The policy is in force now, so a failure on one module must not keep
+	// the others from following it.
+	var errs []error
 	for _, m := range r.modules() {
 		if old.Denied(m.ID) == p.Denied(m.ID) {
 			continue
@@ -177,12 +200,17 @@ func (r *Runtime) ReloadPolicy(ctx context.Context) error {
 		r.setStatus(r.check(ctx, m))
 		enabled, err := r.moduleEnabled(ctx, m.ID)
 		if err != nil {
-			return err
+			// callHook passes false for a denied module whatever the flag.
+			r.cfg.Log.Warn("runtime: read the enabled flag after a policy reload", "module", m.ID, "error", err)
+			errs = append(errs, err)
 		}
 		r.callHook(ctx, m.ID, enabled)
 		if err := r.syncTasks(ctx, m.ID); err != nil {
-			return err
+			errs = append(errs, err)
 		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("runtime: the policy is in force, but: %w", err)
 	}
 	return nil
 }

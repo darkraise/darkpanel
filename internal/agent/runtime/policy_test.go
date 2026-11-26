@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -29,16 +30,50 @@ func writePolicy(t *testing.T, dir, text string, mode os.FileMode) string {
 }
 
 // policyModule is a module named id with one agent read action,
-// id.item.get, and a hook that records each call in calls.
+// id.item.get, a hook that records each call in calls, and, when gate is
+// set, a preflight check that waits at the gate while it is armed.
 type policyModule struct {
 	id    string
 	calls *[]bool
+	gate  *preflightGate
+}
+
+// preflightGate holds a preflight check, once armed, until released.
+type preflightGate struct {
+	mu      sync.Mutex
+	armed   bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *preflightGate) arm() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.armed, g.entered, g.release = true, make(chan struct{}), make(chan struct{})
+}
+
+func (g *preflightGate) wait() {
+	g.mu.Lock()
+	armed, entered, release := g.armed, g.entered, g.release
+	g.armed = false
+	g.mu.Unlock()
+	if armed {
+		close(entered)
+		<-release
+	}
 }
 
 func (m policyModule) Manifest() core.Manifest {
-	return core.Manifest{ID: m.id, Version: 1, Actions: []core.ActionDef{
+	man := core.Manifest{ID: m.id, Version: 1, Actions: []core.ActionDef{
 		core.DefineRead(core.ActionSpec{Name: m.id + ".item.get", Version: 1, Side: core.SideAgent}, echo{}),
 	}}
+	if m.gate != nil {
+		man.Preflight = []core.PreflightCheck{{ID: "gate", Run: func(context.Context, core.Env) error {
+			m.gate.wait()
+			return nil
+		}}}
+	}
+	return man
 }
 
 func (m policyModule) OnEnabled(_ context.Context, _ core.Env, enabled bool) error {
@@ -50,10 +85,17 @@ func (m policyModule) OnEnabled(_ context.Context, _ core.Env, enabled bool) err
 // with the policy file text (none when text is "").
 func policyFixture(t *testing.T, text string) (f *fixture, console, jobs *[]bool) {
 	t.Helper()
+	return policyFixtureGated(t, text, nil)
+}
+
+// policyFixtureGated is policyFixture whose jobs module waits at gate in
+// its preflight check.
+func policyFixtureGated(t *testing.T, text string, gate *preflightGate) (f *fixture, console, jobs *[]bool) {
+	t.Helper()
 	console, jobs = &[]bool{}, &[]bool{}
 	h := &fixHost{}
 	reg, err := core.NewRegistry(kvModule{}, badModule{h}, flakyModule{h}, boomModule{},
-		policyModule{id: "console", calls: console}, policyModule{id: "jobs", calls: jobs})
+		policyModule{id: "console", calls: console}, policyModule{id: "jobs", calls: jobs, gate: gate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,6 +212,34 @@ func TestPolicyValidation(t *testing.T) {
 			}
 		})
 	}
+	t.Run("directory", func(t *testing.T) {
+		for _, mode := range []os.FileMode{0o770, 0o757} {
+			dir := filepath.Join(t.TempDir(), "etc")
+			if err := os.Mkdir(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := writePolicy(t, dir, `{"denyModules":[]}`, 0o644)
+			if err := os.Chmod(dir, mode); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ReadPolicy(path, uid); err == nil || !strings.Contains(err.Error(), "directory") {
+				t.Errorf("directory mode %04o: ReadPolicy = %v, want the directory refused", mode, err)
+			}
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ReadPolicy(path, uid); err == nil {
+				t.Errorf("directory mode %04o: an absent file in it read as a policy denying nothing", mode)
+			}
+		}
+		if _, err := ReadPolicy(filepath.Join(t.TempDir(), "agent-policy.json"), uid+1); err == nil || !strings.Contains(err.Error(), "directory") {
+			t.Errorf("a directory not root's: ReadPolicy = %v, want it refused", err)
+		}
+		p, err := ReadPolicy(filepath.Join(t.TempDir(), "missing", "agent-policy.json"), uid)
+		if err != nil || p.Denied("jobs") {
+			t.Errorf("a missing directory: ReadPolicy = %v, %v; want a policy denying nothing", p, err)
+		}
+	})
 	t.Run("absent", func(t *testing.T) {
 		p, err := ReadPolicy(filepath.Join(t.TempDir(), "agent-policy.json"), uid)
 		if err != nil || p.Denied("console") || p.Denied("jobs") {
@@ -243,5 +313,39 @@ func TestPolicyReloadDenies(t *testing.T) {
 		if want := []bool{false, true, false, true}; !slices.Equal(calls, want) {
 			t.Errorf("%s hook calls %v, want %v", name, calls, want)
 		}
+	}
+}
+
+// TestPolicyReloadDuringPreflight denies jobs while a preflight check of jobs
+// that began under the old policy still runs: the check's result must not
+// store jobs as available.
+func TestPolicyReloadDuringPreflight(t *testing.T) {
+	ctx := context.Background()
+	gate := &preflightGate{}
+	f, _, _ := policyFixtureGated(t, "", gate)
+	if err := f.rt.SetModuleEnabled(ctx, "jobs", true); err != nil {
+		t.Fatal(err)
+	}
+	gate.arm()
+	done := make(chan core.ModuleStatus)
+	go func() {
+		st, err := f.rt.Preflight(ctx, "jobs")
+		if err != nil {
+			t.Error(err)
+		}
+		done <- st
+	}()
+	<-gate.entered
+	writePolicy(t, f.dir, `{"denyModules":["jobs"]}`, 0o644)
+	if err := f.rt.ReloadPolicy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	close(gate.release)
+	if st := <-done; st.Available || st.Reason != PolicyReason {
+		t.Errorf("Preflight that overlapped the reload = available %t reason %q, want the policy's reason", st.Available, st.Reason)
+	}
+	f.wantDenied("jobs")
+	if f.rt.taskModuleAvailable("jobs") {
+		t.Error("background tasks may run for jobs after the reload denied it")
 	}
 }

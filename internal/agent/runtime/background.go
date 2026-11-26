@@ -135,7 +135,7 @@ func (r *Runtime) syncTasks(ctx context.Context, moduleID string) error {
 func (r *Runtime) taskModuleAvailable(moduleID string) bool {
 	r.statusMu.Lock()
 	defer r.statusMu.Unlock()
-	return r.status[moduleID].Available
+	return r.status[moduleID].Available && !r.policy.Denied(moduleID)
 }
 
 // startTasks runs one goroutine per task, plus one per Watch, on a context
