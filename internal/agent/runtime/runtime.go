@@ -10,6 +10,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
+	iofs "io/fs"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -76,6 +78,11 @@ type Config struct {
 	// production; nil refuses every terminal. The console's Env.Shell
 	// reaches it only through the runtime's flag and policy check.
 	Shell core.ShellStarter
+	// ConsoleFS is the console's file manager, platform.NewConsoleFiles in
+	// production; nil refuses every file operation. The console's
+	// Env.ConsoleFS reaches it only through the runtime's flag and policy
+	// check.
+	ConsoleFS core.ConsoleFiles
 }
 
 func (c Config) check() error {
@@ -118,8 +125,9 @@ type Runtime struct {
 
 	bg *background // the modules' background tasks, from the end of Open
 
-	streams  streamSet  // the running module streams; Close ends them
-	channels channelSet // the open module channels; Close ends them
+	streams   streamSet   // the running module streams; Close ends them
+	channels  channelSet  // the open module channels; Close ends them
+	transfers transferSet // the running uploads and downloads; Close ends them
 
 	// enableMu orders flag changes and policy reloads, so the last one's
 	// hook call matches the stored flag and the policy in force.
@@ -203,6 +211,7 @@ func (r *Runtime) Close() {
 	r.stopBackground()
 	r.streams.close()
 	r.channels.closeAll(CloseAgentRestarted)
+	r.transfers.closeAll()
 	r.loopMu.Lock()
 	r.closed = true
 	if r.timer != nil {
@@ -335,12 +344,13 @@ func (r *Runtime) withProviders(module string, env core.Env) core.Env {
 	if module == consoleModule {
 		env.Shell = shellGuard{r: r, module: module}
 		env.Journal = moduleJournal{r: r}
+		env.ConsoleFS = filesGuard{r: r, module: module}
 	}
 	return env
 }
 
-// consoleModule is the one module whose Env carries a shell and the module
-// journal.
+// consoleModule is the one module whose Env carries a shell, the file
+// manager and the module journal.
 const consoleModule = "console"
 
 // shellGuard is the console's Env.Shell: each Start first checks, as the
@@ -366,6 +376,129 @@ func (g shellGuard) Start(ctx context.Context, cols, rows uint16) (core.ShellSes
 		return nil, errcode.New(errcode.Unavailable, "this agent cannot start a terminal")
 	}
 	return g.r.cfg.Shell.Start(ctx, cols, rows)
+}
+
+// filesGuard is the console's Env.ConsoleFS: each call first checks, as it
+// is made, that the policy file does not deny the module and that its
+// enabled flag is 1. RemoveTemp, which only removes a temporary file a
+// write left behind, runs whatever the flag.
+type filesGuard struct {
+	r      *Runtime
+	module string
+}
+
+var _ core.ConsoleFiles = filesGuard{}
+
+func (g filesGuard) check(ctx context.Context) (core.ConsoleFiles, error) {
+	if g.r.Policy().Denied(g.module) {
+		return nil, deniedError(g.module)
+	}
+	enabled, err := g.r.moduleEnabled(ctx, g.module)
+	if err != nil {
+		return nil, err
+	}
+	if !enabled {
+		return nil, errcode.New(errcode.ModuleUnavailable, fmt.Sprintf("module %s is unavailable: it is disabled on this host", g.module))
+	}
+	if g.r.cfg.ConsoleFS == nil {
+		return nil, errcode.New(errcode.Unavailable, "this agent has no file manager")
+	}
+	return g.r.cfg.ConsoleFS, nil
+}
+
+func (g filesGuard) List(ctx context.Context, path, cursor string) (core.DirPage, error) {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return core.DirPage{}, err
+	}
+	return fs.List(ctx, path, cursor)
+}
+
+func (g filesGuard) Stat(ctx context.Context, path string) (core.FileInfo, error) {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return core.FileInfo{}, err
+	}
+	return fs.Stat(ctx, path)
+}
+
+func (g filesGuard) ReadText(ctx context.Context, path string) ([]byte, string, error) {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	return fs.ReadText(ctx, path)
+}
+
+func (g filesGuard) Open(ctx context.Context, path string) (io.ReadCloser, int64, error) {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return fs.Open(ctx, path)
+}
+
+func (g filesGuard) WriteText(ctx context.Context, path string, data []byte, expectSHA string) (string, error) {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return "", err
+	}
+	return fs.WriteText(ctx, path, data, expectSHA)
+}
+
+func (g filesGuard) Upload(ctx context.Context, path string, r io.Reader, size int64) (string, error) {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return "", err
+	}
+	return fs.Upload(ctx, path, r, size)
+}
+
+func (g filesGuard) Mkdir(ctx context.Context, path string) error {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return err
+	}
+	return fs.Mkdir(ctx, path)
+}
+
+func (g filesGuard) Rename(ctx context.Context, from, to string) error {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return err
+	}
+	return fs.Rename(ctx, from, to)
+}
+
+func (g filesGuard) Delete(ctx context.Context, path, confirm string) error {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return err
+	}
+	return fs.Delete(ctx, path, confirm)
+}
+
+func (g filesGuard) Chmod(ctx context.Context, path string, mode iofs.FileMode) error {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return err
+	}
+	return fs.Chmod(ctx, path, mode)
+}
+
+func (g filesGuard) Chown(ctx context.Context, path string, uid, gid int) error {
+	fs, err := g.check(ctx)
+	if err != nil {
+		return err
+	}
+	return fs.Chown(ctx, path, uid, gid)
+}
+
+func (g filesGuard) RemoveTemp(ctx context.Context, path string) error {
+	if g.r.cfg.ConsoleFS == nil {
+		return nil // nothing was ever written
+	}
+	return g.r.cfg.ConsoleFS.RemoveTemp(ctx, path)
 }
 
 // moduleJournal is a module's Env.Journal: one entry per transaction

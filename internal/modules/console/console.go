@@ -16,10 +16,11 @@ var migrationsFS embed.FS
 
 type module struct {
 	terms *terminals // the host's open terminals
+	ops   *fileOps   // the file operations running in this process
 }
 
 // Module returns the console module.
-func Module() core.Module { return &module{terms: newTerminals()} }
+func Module() core.Module { return &module{terms: newTerminals(), ops: newFileOps()} }
 
 // Manifest declares the module.
 func (m *module) Manifest() core.Manifest {

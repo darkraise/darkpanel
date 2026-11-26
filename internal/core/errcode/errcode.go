@@ -99,6 +99,8 @@ const (
 	DockerInUse                      Code = "docker.in_use"
 	ServicesProtected                Code = "services.protected"
 	ConsoleLimit                     Code = "console.limit"
+	FilesConflict                    Code = "files.conflict"
+	FilesNotText                     Code = "files.not_text"
 	DockerOwned                      Code = "docker.owned"
 	DockerComposeUnavailable         Code = "docker.compose_unavailable"
 	TailscaleUnavailable             Code = "tailscale.unavailable"
@@ -247,6 +249,8 @@ var registry = map[Code]info{
 	DockerInUse:                      {http.StatusConflict, "In use"},
 	ServicesProtected:                {http.StatusConflict, "Protected unit"},
 	ConsoleLimit:                     {http.StatusTooManyRequests, "Console limit reached"},
+	FilesConflict:                    {http.StatusConflict, "Changed on the host"},
+	FilesNotText:                     {http.StatusUnprocessableEntity, "Not a text file"},
 	DockerOwned:                      {http.StatusConflict, "Owned by a Darkpanel module"},
 	DockerComposeUnavailable:         {http.StatusConflict, "Compose unavailable or project refused"},
 	TailscaleUnavailable:             {http.StatusServiceUnavailable, "Tailscale unavailable"},

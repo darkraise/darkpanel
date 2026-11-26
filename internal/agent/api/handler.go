@@ -62,6 +62,7 @@ const (
 	opStreams      = "streams"
 	opStream       = "stream"
 	opChannel      = "channel"
+	opFiles        = "files"
 )
 
 // ControllerHello is the controller's half of a hello, sent in the headers
@@ -146,6 +147,7 @@ func (h *handler) routes(controller bool) *http.ServeMux {
 		mux.HandleFunc("GET "+prefix+"streams", h.handleStreams)
 		mux.HandleFunc("GET "+prefix+"streams/{module}/{name}", h.handleStream)
 		mux.HandleFunc("GET "+prefix+"channels/{module}/{name}", h.handleChannel)
+		h.fileRoutes(mux)
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.writeProblem(w, errcode.New(errcode.NotFound, fmt.Sprintf("no agent API route %s %s", r.Method, r.URL.Path)))

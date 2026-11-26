@@ -188,8 +188,13 @@ func record(ctx context.Context, env core.Env, action, phase, actor string, at t
 
 // OnEnabled runs as the agent starts and on every flag change: it journals
 // the close, with reason "agent restarted", of every terminal kept open
-// that this process does not run, as one a crash left behind.
+// that this process does not run, as one a crash left behind, and the
+// result "interrupted" of every file operation a crash cut off.
 func (m *module) OnEnabled(ctx context.Context, env core.Env, _ bool) error {
+	return errors.Join(m.sweepTerminals(ctx, env), m.sweepFiles(ctx, env))
+}
+
+func (m *module) sweepTerminals(ctx context.Context, env core.Env) error {
 	type left struct{ id, actor, source string }
 	var orphans []left
 	err := func() error {

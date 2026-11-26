@@ -46,6 +46,7 @@ type Registry struct {
 	channels  map[string]ChannelDef   // by "<module>.<name>"
 	names     map[string]bool         // action names, any version
 	hooks     map[string]EnablementHook
+	files     map[string]FileManager
 }
 
 // ModuleStream is one stream and the module that serves it.
@@ -64,6 +65,7 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 		channels:  map[string]ChannelDef{},
 		names:     map[string]bool{},
 		hooks:     map[string]EnablementHook{},
+		files:     map[string]FileManager{},
 	}
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
@@ -82,6 +84,9 @@ func NewRegistry(mods ...Module) (*Registry, error) {
 		ids[m.ID] = true
 		if h, ok := mod.(EnablementHook); ok {
 			r.hooks[m.ID] = h
+		}
+		if f, ok := mod.(FileManager); ok {
+			r.files[m.ID] = f
 		}
 		if m.Version < 1 {
 			fail("module %s: version %d, want at least 1", m.ID, m.Version)
@@ -858,6 +863,13 @@ func (r *Registry) Modules() []Manifest { return slices.Clone(r.modules) }
 func (r *Registry) EnablementHook(id string) (EnablementHook, bool) {
 	h, ok := r.hooks[id]
 	return h, ok
+}
+
+// FileManager returns the file manager of module id, when its module value
+// implements FileManager.
+func (r *Registry) FileManager(id string) (FileManager, bool) {
+	f, ok := r.files[id]
+	return f, ok
 }
 
 // Module returns one module's manifest.

@@ -39,6 +39,9 @@ const (
 	// own Internal reads (spec 1.7); "1" is its only value. The agent
 	// serves an Internal action on the reveal route only with it.
 	HeaderInternal = "Darkpanel-Internal"
+	// HeaderSHA256 carries the SHA-256 (hex) of the text a file read
+	// answers, the hash its write sends back.
+	HeaderSHA256 = "Darkpanel-Sha256"
 )
 
 // MaxBody is the largest request or response body the agent API accepts.
@@ -534,4 +537,23 @@ func raw(m json.RawMessage) json.RawMessage {
 // serves (spec 1.6).
 type Streams struct {
 	Streams []core.StreamInfo `json:"streams"`
+}
+
+// FileWritten answers a file write or upload: the written bytes' SHA-256
+// (hex) and their count.
+type FileWritten struct {
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+}
+
+// FileChange is the body of the file endpoints mkdir, rename, delete, chmod
+// and chown: Path, then To for a rename, Confirm for a directory's delete,
+// Mode (octal) for a chmod, UID and GID for a chown, a missing one kept.
+type FileChange struct {
+	Path    string `json:"path"`
+	To      string `json:"to,omitempty"`
+	Confirm string `json:"confirm,omitempty"`
+	Mode    string `json:"mode,omitempty"`
+	UID     *int   `json:"uid,omitempty"`
+	GID     *int   `json:"gid,omitempty"`
 }

@@ -319,21 +319,22 @@ func (d *daemon) session(ctx context.Context, c *Credentials, b *transport.Backo
 }
 
 // guard holds mu for reading around each request, so the runtime is never
-// replaced under one. A module stream or channel may run for hours, so its
-// request holds mu only until its answer starts, or a channel's connection
-// is hijacked for its 101: by then the runtime has opened it, and a
-// replacement's Runtime.Close ends it.
+// replaced under one. A module stream, a channel or a file transfer may run
+// for hours, so its request holds mu only until its answer starts, a
+// channel's connection is hijacked for its 101, or the runtime counted the
+// transfer (an upload answers only at its end): by then the runtime has
+// opened it, and a replacement's Runtime.Close ends it.
 func (d *daemon) guard(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		d.mu.RLock()
-		if !api.OpensStream(r) && !api.OpensChannel(r) {
+		if !api.OpensStream(r) && !api.OpensChannel(r) && !api.OpensTransfer(r) {
 			defer d.mu.RUnlock()
 			h.ServeHTTP(w, r)
 			return
 		}
 		sw := &unlockOnAnswer{ResponseWriter: w, unlock: sync.OnceFunc(d.mu.RUnlock)}
 		defer sw.unlock()
-		h.ServeHTTP(sw, r)
+		h.ServeHTTP(sw, r.WithContext(api.WithRelease(r.Context(), sw.unlock)))
 	})
 }
 

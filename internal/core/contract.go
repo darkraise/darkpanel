@@ -172,6 +172,10 @@ type Env struct {
 	// which the controller ingests like change entries; set for module
 	// console.
 	Journal ModuleJournal
+	// ConsoleFS is the file manager's root file access; set for module
+	// console. It refuses while the module is off or denied by the policy
+	// file.
+	ConsoleFS ConsoleFiles
 }
 
 // ShellStarter starts root's login shell on a new terminal of cols by rows
@@ -203,6 +207,95 @@ type ModuleJournal interface {
 type HomeFiles interface {
 	ReadAuthorizedKeys(ctx context.Context, user string) ([]byte, error)
 	WriteAuthorizedKeys(ctx context.Context, user string, data []byte) error
+}
+
+// ConsoleFiles is the console's file manager over the whole host, as root
+// (ADR 0020). Paths are absolute. A path with a symbolic link in any
+// component is refused, and so are writes, renames and deletes of the
+// protected paths. ReadText returns a file of at most 1 MiB of UTF-8 and its
+// SHA-256 (hex); WriteText replaces a file only while its SHA-256 is still
+// expectSHA ("" for a file that must not exist yet) and returns the new
+// hash; Upload writes exactly size bytes from r and returns their hash.
+// Delete removes a directory, recursively, only when confirm is its path.
+// RemoveTemp removes a temporary file a write left behind, as
+// RecordTemp named it; nothing else.
+type ConsoleFiles interface {
+	List(ctx context.Context, path, cursor string) (DirPage, error)
+	Stat(ctx context.Context, path string) (FileInfo, error)
+	ReadText(ctx context.Context, path string) ([]byte, string, error)
+	Open(ctx context.Context, path string) (io.ReadCloser, int64, error)
+	WriteText(ctx context.Context, path string, data []byte, expectSHA string) (string, error)
+	Upload(ctx context.Context, path string, r io.Reader, size int64) (string, error)
+	Mkdir(ctx context.Context, path string) error
+	Rename(ctx context.Context, from, to string) error
+	Delete(ctx context.Context, path, confirm string) error
+	Chmod(ctx context.Context, path string, mode fs.FileMode) error
+	Chown(ctx context.Context, path string, uid, gid int) error
+	RemoveTemp(ctx context.Context, path string) error
+}
+
+// FileManager is a module serving the agent's file endpoints: Files wraps
+// env.ConsoleFS with the module's records of every operation.
+type FileManager interface {
+	Files(env Env) ConsoleFiles
+}
+
+// DirPage is one page of a directory listing: directories first, then by
+// name. Next is the cursor of the next page, "" on the last. Protected is
+// why writes in the directory are refused, "" when they are not.
+type DirPage struct {
+	Path      string     `json:"path"`
+	Entries   []FileInfo `json:"entries"`
+	Next      string     `json:"next,omitempty"`
+	Protected string     `json:"protected,omitempty"`
+}
+
+// The types of a FileInfo.
+const (
+	FileTypeFile    = "file"
+	FileTypeDir     = "dir"
+	FileTypeSymlink = "symlink"
+	FileTypeOther   = "other" // a device, socket or FIFO
+)
+
+// FileInfo describes one directory entry, never following a symbolic link.
+// A name that is not UTF-8 has its invalid bytes escaped as \xNN, Escaped
+// set and its bytes in Raw (standard base64). Mode is the permission bits in
+// octal, set-id and sticky bits included. Owner and Group fall back to the
+// numeric ids. Protected is why writes to the entry are refused, "" when
+// they are not.
+type FileInfo struct {
+	Name      string    `json:"name"`
+	Escaped   bool      `json:"escaped,omitempty"`
+	Raw       string    `json:"raw,omitempty"`
+	Type      string    `json:"type"`
+	Size      int64     `json:"size"`
+	Mode      string    `json:"mode"`
+	UID       int       `json:"uid"`
+	GID       int       `json:"gid"`
+	Owner     string    `json:"owner"`
+	Group     string    `json:"group"`
+	Modified  time.Time `json:"modified"`
+	Target    string    `json:"target,omitempty"`
+	Protected string    `json:"protected,omitempty"`
+}
+
+type tempRecordKey struct{}
+
+// WithTempRecord returns ctx carrying record, which a ConsoleFiles write
+// calls with the path of its temporary file once the file exists and before
+// any byte is written to it, so a crash leaves the path on record. An error
+// from record ends the write.
+func WithTempRecord(ctx context.Context, record func(path string) error) context.Context {
+	return context.WithValue(ctx, tempRecordKey{}, record)
+}
+
+// RecordTemp calls the record of ctx, if any, with path.
+func RecordTemp(ctx context.Context, path string) error {
+	if record, ok := ctx.Value(tempRecordKey{}).(func(string) error); ok {
+		return record(path)
+	}
+	return nil
 }
 
 // CallContext is why a change runs. It comes from the controller, never from

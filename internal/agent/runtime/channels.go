@@ -121,10 +121,11 @@ func (r *Runtime) addChannel(ctx context.Context, module string, c *channelConn)
 }
 
 // CloseModuleChannels closes every open channel of module with the reason
-// "module turned off". Each module's Open then sees its context end and its
-// reads fail.
+// "module turned off", and ends its transfers. Each module's Open then sees
+// its context end and its reads fail.
 func (r *Runtime) CloseModuleChannels(module string) {
 	r.channels.closeModule(module, CloseModuleOff)
+	r.transfers.closeModule(module, errTransfersOff)
 }
 
 // channelSet is the runtime's open channels by module. Its zero value is

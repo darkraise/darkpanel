@@ -267,6 +267,7 @@ func newAgentRunCmd() *cobra.Command {
 					BinaryVersion: buildinfo.Version, BackupDir: p.AgentBackups(),
 					Exec:  platform.NewRunner(platform.ProductionRules()),
 					Units: host.Systemd, TaskBinary: p.Binary(), PolicyFile: runtime.PolicyPath,
+					ConsoleFS: platform.NewConsoleFiles(platform.ConsoleFilesConfig{Root: "/", Binary: p.Binary()}),
 				},
 				Updater:        host.Updater,
 				NeverConnected: neverConnected,
@@ -286,8 +287,10 @@ func newAgentRunCmd() *cobra.Command {
 				// The policy file is root's and the production host's; the
 				// development agent denies nothing.
 				cfg.Runtime.PolicyFile = ""
-				// A terminal is root's shell on the production host.
+				// A terminal is root's shell, and the file manager root's
+				// access, on the production host.
 				cfg.Runtime.Shell = nil
+				cfg.Runtime.ConsoleFS = nil
 			}
 			return errors.Join(startupCancelled(ctx, daemonRun(ctx, cfg)), host.Close())
 		},
