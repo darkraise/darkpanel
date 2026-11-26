@@ -37,7 +37,7 @@ import (
 const (
 	// m11Deadline bounds TestM11. The workflow step's -timeout keeps 10
 	// minutes more for the cleanups that stop the VMs.
-	m11Deadline = 90 * time.Minute
+	m11Deadline = 50 * time.Minute
 	m11User     = "m11user"
 	// m11SSHAddr is sshd on a VM's loopback, dialled from inside the VM.
 	m11SSHAddr = "127.0.0.1:22"

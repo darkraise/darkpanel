@@ -984,11 +984,12 @@ jobs:
   vm-m11:
     # TestM11 boots two labs for the previous release against this build,
     # then one lab for the six M11 modules, the terminal and file manager
-    # directly and through NPM, and the agent's footprint. The limit is the
-    # step's -timeout plus 20 minutes of setup.
+    # directly and through NPM, and the agent's footprint. Both limits are
+    # the first green run's longest duration plus 50 %: 41 minutes for the
+    # job and 40 for the test, on ubuntu-26.04.
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 62
     strategy:
       fail-fast: false
       matrix:
@@ -1027,11 +1028,11 @@ jobs:
           path: ~/.cache/darkpanel-harness
           key: harness-images-${{ matrix.os }}-${{ hashFiles('test/harness/images.json') }}
       - run: go vet -tags harness ./test/...
-      # Its own deadline is 90 minutes, and the extra 10 leave its VM cleanups
+      # Its own deadline is 50 minutes, and the extra 10 leave its VM cleanups
       # time to finish.
       - name: Run the M11 harness
         run: >-
-          go test -tags harness -timeout 100m -v -run '^TestM11$' ./test/harness/
+          go test -tags harness -timeout 60m -v -run '^TestM11$' ./test/harness/
           -args -os ${{ matrix.os }} -m11
           -bin "$GITHUB_WORKSPACE/bin/darkpanel-linux-amd64"
           -m2 "$GITHUB_WORKSPACE/bin/harness"
