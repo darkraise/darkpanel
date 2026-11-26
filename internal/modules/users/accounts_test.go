@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -58,6 +59,16 @@ bob:x:1001:
 /usr/bin/bash
 /bin/zsh
 `
+	// fxSshdConfig is sshd_config as Debian and Ubuntu ship it, in short.
+	fxSshdConfig = `# This is the sshd server system-wide configuration file.
+
+Include /etc/ssh/sshd_config.d/*.conf
+
+KbdInteractiveAuthentication no
+UsePAM yes
+X11Forwarding yes
+Subsystem sftp /usr/lib/openssh/sftp-server
+`
 	fxStatus = `root P 2024-10-01 0 99999 7 -1
 daemon L 2024-10-01 0 99999 7 -1
 svc L 2024-10-01 0 99999 7 -1
@@ -80,19 +91,24 @@ type rig struct {
 	events  []string
 	stdin   map[string]string
 	answers map[string]core.CmdResult
+	live    map[string]func() core.CmdResult // answers computed when the command runs, where answers has none
 	effects map[string]func()
 	files   map[string]string
 	keys    map[string]string // authorized_keys per user
 	homeErr map[string]error  // a HomeFiles refusal per user
 	clock   *coretest.FakeClock
+	sshd    string // the ActiveState of ssh.service
 }
 
 func newRig(t *testing.T) *rig {
 	r := &rig{
-		t: t, stdin: map[string]string{}, answers: map[string]core.CmdResult{}, effects: map[string]func(){},
-		files: map[string]string{passwdFile: fxPasswd, shadowFile: fxShadow, groupFile: fxGroup, shellsFile: fxShells},
-		keys:  map[string]string{}, homeErr: map[string]error{},
-		clock: coretest.NewFakeClock(today),
+		t: t, stdin: map[string]string{}, answers: map[string]core.CmdResult{}, live: map[string]func() core.CmdResult{},
+		effects: map[string]func(){},
+		files: map[string]string{
+			passwdFile: fxPasswd, shadowFile: fxShadow, groupFile: fxGroup, shellsFile: fxShells, sshdConfig: fxSshdConfig,
+		},
+		keys: map[string]string{}, homeErr: map[string]error{},
+		clock: coretest.NewFakeClock(today), sshd: "active",
 	}
 	r.answer(platform.PasswdPath, platform.PasswdStatusAll(), fxStatus)
 	r.answer(platform.SshdPath, platform.SshdEffective(), "port 22\nauthorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2\npubkeyauthentication yes\n")
@@ -122,18 +138,32 @@ func (r *rig) edit(file, old, repl string) {
 }
 
 func (r *rig) module() module {
-	return module{d: deps{readFile: func(name string) ([]byte, error) {
-		b, ok := r.files[name]
-		if !ok {
-			return nil, fs.ErrNotExist
-		}
-		return []byte(b), nil
-	}}}
+	return module{d: deps{
+		readFile: func(name string) ([]byte, error) {
+			b, ok := r.files[name]
+			if !ok {
+				return nil, fs.ErrNotExist
+			}
+			return []byte(b), nil
+		},
+		glob: func(pattern string) ([]string, error) {
+			var out []string
+			for name := range r.files {
+				if ok, err := path.Match(pattern, name); err != nil {
+					return nil, err
+				} else if ok {
+					out = append(out, name)
+				}
+			}
+			slices.Sort(out)
+			return out, nil
+		},
+	}}
 }
 
 func (r *rig) env(p core.Principal) core.Env {
 	return core.Env{HostID: "h1", Principal: p, Exec: runner{r}, Files: files{r: r}, Clock: r.clock, Home: homes{r},
-		Log: slog.New(slog.DiscardHandler)}
+		Units: units{r: r}, Log: slog.New(slog.DiscardHandler)}
 }
 
 // runner answers the commands the rig knows, refusing any vector the
@@ -157,6 +187,9 @@ func (x runner) Run(_ context.Context, cmd core.Cmd) (core.CmdResult, error) {
 		x.r.stdin[k] += string(cmd.Stdin)
 	}
 	res, ok := x.r.answers[k]
+	if live := x.r.live[k]; !ok && live != nil {
+		res, ok = live(), true
+	}
 	if !ok {
 		x.r.t.Errorf("unexpected command %q", k)
 		return core.CmdResult{ExitCode: 1}, nil
@@ -171,7 +204,26 @@ func (runner) Stream(context.Context, string, []string, func([]byte) error) erro
 	return fmt.Errorf("no streams")
 }
 
-// files is the rig's FileWriter: only the module's managed directory.
+// units is the rig's unit client: ssh.service alone.
+type units struct {
+	core.Units
+	r *rig
+}
+
+func (u units) State(_ context.Context, unit string) (core.UnitState, error) {
+	if unit != sshUnit {
+		return core.UnitState{}, fmt.Errorf("state of %s: not the module's unit", unit)
+	}
+	return core.UnitState{LoadState: "loaded", ActiveState: u.r.sshd}, nil
+}
+
+func (u units) ReloadUnit(_ context.Context, unit string) error {
+	u.r.events = append(u.r.events, "reload "+unit)
+	return nil
+}
+
+// files is the rig's FileWriter: the module's managed directory and its
+// sshd drop-in.
 type files struct {
 	core.FileWriter
 	r *rig
@@ -183,6 +235,24 @@ func (f files) WriteManaged(_ context.Context, module, dir, name string, data []
 	}
 	f.r.events = append(f.r.events, "write "+name+" "+string(data))
 	f.r.files[dir+"/"+name] = string(data)
+	return nil
+}
+
+func (f files) WriteFile(_ context.Context, module, name string, data []byte, mode fs.FileMode) error {
+	if module != ID || name != dropInFile || mode != 0o644 {
+		return fmt.Errorf("write %s %s %v: not the module's file", module, name, mode)
+	}
+	f.r.events = append(f.r.events, "write "+name)
+	f.r.files[name] = string(data)
+	return nil
+}
+
+func (f files) Remove(_ context.Context, module, name string) error {
+	if module != ID || name != dropInFile {
+		return fmt.Errorf("remove %s %s: not the module's file", module, name)
+	}
+	f.r.events = append(f.r.events, "remove "+name)
+	delete(f.r.files, name)
 	return nil
 }
 
@@ -458,6 +528,7 @@ func engine(t *testing.T, r *rig, logs *bytes.Buffer) (*lifecycle.Engine, *store
 	env := r.env(adminP)
 	eng, err := lifecycle.New(lifecycle.Config{
 		Side: core.SideAgent, Registry: reg, Validator: schema.NewValidator(), Journal: journal, Redact: schema.Redact,
+		ModuleUnits: func(string) core.Units { return env.Units },
 		Base: core.Env{HostID: "h1", DB: db, Exec: env.Exec, Files: env.Files, Home: env.Home, Sealer: coretest.Sealer{}, Clock: r.clock,
 			Log: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))},
 	})
@@ -620,6 +691,7 @@ func TestUIDCheckBeforeExec(t *testing.T) {
 		if err := c.plan(r.module(), r.env(adminP)); err != nil {
 			t.Fatalf("%s plan: %v", action, err)
 		}
+		r.events = nil // the plan's reads; the guard runs sshd -T and passwd -S
 		r.edit(passwdFile, "alice:x:1000:", "alice:x:999:")
 		wantCode(t, action+" apply after the UID changed", c.apply(r.module(), r.env(adminP)), errcode.InvalidInput)
 		if len(r.events) != 0 {

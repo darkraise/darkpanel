@@ -21534,6 +21534,42 @@
       "users.key.remove.v1.input": {
         "$ref": "#/components/schemas/users.key.remove.v1.input.KeyRemoveInput"
       },
+      "users.key.remove.v1.input.GuardContext": {
+        "additionalProperties": false,
+        "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/users.key.remove.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/users.key.remove.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
       "users.key.remove.v1.input.KeyRemoveInput": {
         "additionalProperties": false,
         "properties": {
@@ -21542,15 +21578,75 @@
             "pattern": "^SHA256:[A-Za-z0-9+/]{43}$",
             "type": "string"
           },
+          "guard": {
+            "$ref": "#/components/schemas/users.key.remove.v1.input.GuardContext"
+          },
           "name": {
             "description": "The account name.",
             "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
             "type": "string"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
           "name",
           "fingerprint"
+        ],
+        "type": "object"
+      },
+      "users.key.remove.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "users.key.remove.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
         ],
         "type": "object"
       },
@@ -21580,19 +21676,115 @@
         "type": "object"
       },
       "users.password.remove.v1.input": {
-        "$ref": "#/components/schemas/users.password.remove.v1.input.NameInput"
+        "$ref": "#/components/schemas/users.password.remove.v1.input.GuardedNameInput"
       },
-      "users.password.remove.v1.input.NameInput": {
+      "users.password.remove.v1.input.GuardContext": {
         "additionalProperties": false,
         "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/users.password.remove.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/users.password.remove.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "users.password.remove.v1.input.GuardedNameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "guard": {
+            "$ref": "#/components/schemas/users.password.remove.v1.input.GuardContext"
+          },
           "name": {
             "description": "The account name.",
             "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
             "type": "string"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "users.password.remove.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "users.password.remove.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
         ],
         "type": "object"
       },
@@ -21647,6 +21839,516 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "users.sshd.apply.v1.input": {
+        "$ref": "#/components/schemas/users.sshd.apply.v1.input.SshdInput"
+      },
+      "users.sshd.apply.v1.input.GuardContext": {
+        "additionalProperties": false,
+        "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/users.sshd.apply.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/users.sshd.apply.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "users.sshd.apply.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "users.sshd.apply.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ],
+        "type": "object"
+      },
+      "users.sshd.apply.v1.input.SshdInput": {
+        "additionalProperties": false,
+        "properties": {
+          "allowGroups": {
+            "description": "Group patterns; managed only when no other file under /etc/ssh sets an allow or deny list.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "allowUsers": {
+            "description": "User patterns, USER or USER@HOST; managed only when no other file under /etc/ssh sets an allow or deny list.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "clientAliveCountMax": {
+            "oneOf": [
+              {
+                "maximum": 10,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clientAliveInterval": {
+            "oneOf": [
+              {
+                "description": "Seconds.",
+                "maximum": 3600,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "guard": {
+            "$ref": "#/components/schemas/users.sshd.apply.v1.input.GuardContext"
+          },
+          "kbdInteractiveAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loginGraceTime": {
+            "oneOf": [
+              {
+                "description": "Seconds.",
+                "maximum": 600,
+                "minimum": 10,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxAuthTries": {
+            "oneOf": [
+              {
+                "maximum": 10,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "passwordAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permitRootLogin": {
+            "enum": [
+              "yes",
+              "prohibit-password",
+              "no"
+            ],
+            "type": "string"
+          },
+          "x11Forwarding": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "users.sshd.apply.v1.output": {
+        "$ref": "#/components/schemas/users.sshd.apply.v1.output.SshdApplied"
+      },
+      "users.sshd.apply.v1.output.SshdApplied": {
+        "properties": {
+          "reloaded": {
+            "description": "ssh.service was active and reloaded; under socket activation new connections read the file.",
+            "type": "boolean"
+          },
+          "set": {
+            "$ref": "#/components/schemas/users.sshd.apply.v1.output.SshdSettings"
+          }
+        },
+        "required": [
+          "set",
+          "reloaded"
+        ],
+        "type": "object"
+      },
+      "users.sshd.apply.v1.output.SshdSettings": {
+        "properties": {
+          "allowGroups": {
+            "description": "Group patterns; managed only when no other file under /etc/ssh sets an allow or deny list.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "allowUsers": {
+            "description": "User patterns, USER or USER@HOST; managed only when no other file under /etc/ssh sets an allow or deny list.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "clientAliveCountMax": {
+            "oneOf": [
+              {
+                "maximum": 10,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clientAliveInterval": {
+            "oneOf": [
+              {
+                "description": "Seconds.",
+                "maximum": 3600,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kbdInteractiveAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loginGraceTime": {
+            "oneOf": [
+              {
+                "description": "Seconds.",
+                "maximum": 600,
+                "minimum": 10,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxAuthTries": {
+            "oneOf": [
+              {
+                "maximum": 10,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "passwordAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permitRootLogin": {
+            "enum": [
+              "yes",
+              "prohibit-password",
+              "no"
+            ],
+            "type": "string"
+          },
+          "x11Forwarding": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "users.sshd.get.v1.input": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "users.sshd.get.v1.output": {
+        "$ref": "#/components/schemas/users.sshd.get.v1.output.SshdState"
+      },
+      "users.sshd.get.v1.output.SshdSettings": {
+        "properties": {
+          "allowGroups": {
+            "description": "Group patterns; managed only when no other file under /etc/ssh sets an allow or deny list.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "allowUsers": {
+            "description": "User patterns, USER or USER@HOST; managed only when no other file under /etc/ssh sets an allow or deny list.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "clientAliveCountMax": {
+            "oneOf": [
+              {
+                "maximum": 10,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clientAliveInterval": {
+            "oneOf": [
+              {
+                "description": "Seconds.",
+                "maximum": 3600,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kbdInteractiveAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loginGraceTime": {
+            "oneOf": [
+              {
+                "description": "Seconds.",
+                "maximum": 600,
+                "minimum": 10,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxAuthTries": {
+            "oneOf": [
+              {
+                "maximum": 10,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "passwordAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permitRootLogin": {
+            "enum": [
+              "yes",
+              "prohibit-password",
+              "no"
+            ],
+            "type": "string"
+          },
+          "x11Forwarding": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "users.sshd.get.v1.output.SshdState": {
+        "properties": {
+          "effective": {
+            "$ref": "#/components/schemas/users.sshd.get.v1.output.SshdSettings",
+            "description": "The values sshd -T reports."
+          },
+          "listsSetBy": {
+            "description": "The file under /etc/ssh that sets AllowUsers, AllowGroups, DenyUsers or DenyGroups.",
+            "type": "string"
+          },
+          "matchIn": {
+            "description": "A file holding a Match block, whose overrides sshd -T and the lockout guard do not see.",
+            "type": "string"
+          },
+          "readOnly": {
+            "description": "The fields Darkpanel leaves to another file: allowUsers and allowGroups when listsSetBy is set.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "set": {
+            "$ref": "#/components/schemas/users.sshd.get.v1.output.SshdSettings",
+            "description": "The values 00-darkpanel.conf holds; empty when the file is absent."
+          }
+        },
+        "required": [
+          "effective",
+          "set",
+          "readOnly"
+        ],
+        "type": "object"
+      },
+      "users.sshd.repair.v1.input": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "users.sshd.repair.v1.output": {
+        "$ref": "#/components/schemas/users.sshd.repair.v1.output.SshdRepaired"
+      },
+      "users.sshd.repair.v1.output.SshdRepaired": {
+        "properties": {
+          "from": {
+            "description": "The confirmed users.sshd.apply change the file was rewritten from; empty when none was confirmed and the file was removed.",
+            "type": "string"
+          },
+          "reloaded": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reloaded"
         ],
         "type": "object"
       },
@@ -21773,10 +22475,19 @@
       "users.user.delete.v1.input.DeleteInput": {
         "additionalProperties": false,
         "properties": {
+          "guard": {
+            "$ref": "#/components/schemas/users.user.delete.v1.input.GuardContext"
+          },
           "name": {
             "description": "The account name.",
             "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
             "type": "string"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "removeHome": {
             "description": "Delete the home directory and mail spool too.",
@@ -21785,6 +22496,93 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "users.user.delete.v1.input.GuardContext": {
+        "additionalProperties": false,
+        "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/users.user.delete.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/users.user.delete.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "users.user.delete.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "users.user.delete.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
         ],
         "type": "object"
       },
@@ -21875,19 +22673,115 @@
         "type": "object"
       },
       "users.user.lock.v1.input": {
-        "$ref": "#/components/schemas/users.user.lock.v1.input.NameInput"
+        "$ref": "#/components/schemas/users.user.lock.v1.input.GuardedNameInput"
       },
-      "users.user.lock.v1.input.NameInput": {
+      "users.user.lock.v1.input.GuardContext": {
         "additionalProperties": false,
         "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/users.user.lock.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/users.user.lock.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "users.user.lock.v1.input.GuardedNameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "guard": {
+            "$ref": "#/components/schemas/users.user.lock.v1.input.GuardContext"
+          },
           "name": {
             "description": "The account name.",
             "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
             "type": "string"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "users.user.lock.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "users.user.lock.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
         ],
         "type": "object"
       },
@@ -41415,6 +42309,286 @@
           }
         ],
         "summary": "Set an account's password; it is never logged or returned."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.sshd.apply/v1/apply": {
+      "post": {
+        "operationId": "users.sshd.apply.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Write sshd's settings to 00-darkpanel.conf and reload sshd; unconfirmed, the change reverts."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.sshd.apply/v1/plan": {
+      "post": {
+        "operationId": "users.sshd.apply.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.sshd.apply.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Write sshd's settings to 00-darkpanel.conf and reload sshd; unconfirmed, the change reverts."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.sshd.get/v1/read": {
+      "post": {
+        "operationId": "users.sshd.get.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.sshd.get.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/users.sshd.get.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read sshd's effective settings and those Darkpanel set."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.sshd.repair/v1/apply": {
+      "post": {
+        "operationId": "users.sshd.repair.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Rewrite 00-darkpanel.conf from the last confirmed settings, or remove it, and reload sshd."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.sshd.repair/v1/plan": {
+      "post": {
+        "operationId": "users.sshd.repair.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.sshd.repair.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Rewrite 00-darkpanel.conf from the last confirmed settings, or remove it, and reload sshd."
       }
     },
     "/api/v1/hosts/{host}/actions/users.sudo.add/v1/apply": {

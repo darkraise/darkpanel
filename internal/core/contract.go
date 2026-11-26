@@ -640,7 +640,7 @@ type Manifest struct {
 // ExternalUnit is a unit a module may drive without owning it.
 type ExternalUnit struct {
 	Name string   // "tailscaled.service"
-	Ops  []string // a subset of UnitOpState, UnitOpStart, UnitOpStop, UnitOpRestart
+	Ops  []string // a subset of UnitOpState, UnitOpStart, UnitOpStop, UnitOpRestart, UnitOpReload
 }
 
 // The operations of ExternalUnit.Ops.
@@ -649,6 +649,7 @@ const (
 	UnitOpStart   = "start"
 	UnitOpStop    = "stop"
 	UnitOpRestart = "restart"
+	UnitOpReload  = "reload" // through UnitReloader
 )
 
 // Module is a compiled-in module.

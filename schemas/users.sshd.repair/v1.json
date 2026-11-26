@@ -1,0 +1,34 @@
+{
+  "name": "users.sshd.repair",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {},
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SshdRepaired",
+    "$defs": {
+      "SshdRepaired": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "The confirmed users.sshd.apply change the file was rewritten from; empty when none was confirmed and the file was removed."
+          },
+          "reloaded": {
+            "type": "boolean"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reloaded"
+        ]
+      }
+    }
+  }
+}

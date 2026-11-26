@@ -70,6 +70,11 @@ func (u *scpUnits) Disable(_ context.Context, unitFiles ...string) error {
 
 func (u *scpUnits) Reload(context.Context) error { u.record("Reload"); return nil }
 
+func (u *scpUnits) ReloadUnit(_ context.Context, unit string) error {
+	u.record("ReloadUnit", unit)
+	return nil
+}
+
 func (u *scpUnits) State(_ context.Context, unit string) (core.UnitState, error) {
 	u.record("State", unit)
 	return core.UnitState{LoadState: "loaded", ActiveState: "active"}, nil
@@ -164,6 +169,27 @@ func TestScopeExternalUnits(t *testing.T) {
 		{"start", func(ctx context.Context, u core.Units) error { return u.Start(ctx, unit) }, ""},
 		{"kill", func(ctx context.Context, u core.Units) error { return u.Kill(ctx, unit, syscall.SIGTERM) }, ""},
 	}, func(c scpCall) string { return "platform: module derp may not " + methods[c.name] + " unit " + unit })
+}
+
+// TestScopeReloadUnit admits ReloadUnit on an external unit that declares
+// reload and refuses it on one that does not, and on every other unit.
+func TestScopeReloadUnit(t *testing.T) {
+	const unit, other = "ssh.service", "tailscaled.service"
+	m := scpDerp(false, core.ExternalUnit{Name: unit, Ops: []string{core.UnitOpState, core.UnitOpReload}},
+		core.ExternalUnit{Name: other, Ops: []string{core.UnitOpState, core.UnitOpRestart}})
+	reload := func(name string) func(context.Context, core.Units) error {
+		return func(ctx context.Context, u core.Units) error { return u.(core.UnitReloader).ReloadUnit(ctx, name) }
+	}
+	scpRun(t, m, []scpCall{
+		{"declared", reload(unit), "ReloadUnit " + unit},
+		{"undeclared op", reload(other), ""},
+		{"unknown unit", reload("nginx.service"), ""},
+	}, func(c scpCall) string {
+		return map[string]string{
+			"undeclared op": "platform: module derp may not ReloadUnit unit " + other,
+			"unknown unit":  "platform: module derp may not ReloadUnit unit nginx.service",
+		}[c.name]
+	})
 }
 
 func TestScopeRefusals(t *testing.T) {

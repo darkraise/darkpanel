@@ -245,7 +245,7 @@ func TestFail2banRule(t *testing.T) {
 			Fail2banBanTimes("recidive"), Fail2banTest(), Fail2banReload(),
 			Fail2banBan("sshd", "192.0.2.10"), Fail2banUnban("sshd", "2001:db8::1"),
 		},
-		SshdPath:           {SshdEffective()},
+		SshdPath:           {SshdEffective(), SshdTest()},
 		"/usr/bin/apt-get": {SystemAptRun("install", Fail2banPackages), SystemAptRun("remove", Fail2banPackages), SystemAptPlan("remove", Fail2banPackages), SystemAptResim("remove", Fail2banPackages)},
 	}
 	for path, vectors := range allowed {
@@ -273,7 +273,9 @@ func TestFail2banRule(t *testing.T) {
 			t.Errorf("%s: fail2ban-client %v allowed", name, v)
 		}
 	}
-	if _, err := r.match(SshdPath, []string{"-T", "-f", "/tmp/x"}); err == nil {
-		t.Error("sshd -T -f allowed")
+	for _, v := range [][]string{{"-T", "-f", "/tmp/x"}, {"-t", "-f", "/tmp/x"}, {"-t", "-o", "Port=1"}, {"-D"}} {
+		if _, err := r.match(SshdPath, v); err == nil {
+			t.Errorf("sshd %v allowed", v)
+		}
 	}
 }

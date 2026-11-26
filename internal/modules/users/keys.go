@@ -54,6 +54,7 @@ type KeyInput struct {
 
 // KeyRemoveInput is the input of users.key.remove.
 type KeyRemoveInput struct {
+	core.Guarded
 	Name        string `json:"name" jsonschema:"pattern=^[a-z_][a-z0-9_-]{0\\,31}$" jsonschema_description:"The account name."`
 	Fingerprint string `json:"fingerprint" jsonschema:"pattern=^SHA256:[A-Za-z0-9+/]{43}$" jsonschema_description:"The key's SHA256 fingerprint."`
 }
@@ -74,13 +75,15 @@ func (m module) keyActions() []core.ActionDef {
 	}
 	add := spec("add", "Authorize one SSH public key for an account.", "remove")
 	add.StepUp = true
+	remove := spec("remove", "Remove an authorized SSH key from an account.", "add")
+	remove.Guards = []core.GuardSpec{{ID: GuardNoWayIn, Overridable: true}}
 	return []core.ActionDef{
 		core.DefineRead[NameInput, KeyList](core.ActionSpec{
 			Name: ID + ".key.list", Version: 1, Class: core.ClassRead, Side: core.SideAgent, Available: keysAvailable,
 			Summary: "List an account's authorized SSH keys: type, bits, fingerprint, comment and options.",
 		}, keyLister{m: m}),
 		core.DefineMutating[KeyInput, KeyChanged](add, addHandler{keyHandler{m: m, add: true}}),
-		core.DefineMutating[KeyRemoveInput, KeyChanged](spec("remove", "Remove an authorized SSH key from an account.", "add"), removeHandler{keyHandler{m: m}}),
+		core.DefineMutating[KeyRemoveInput, KeyChanged](remove, removeHandler{keyHandler{m: m}}),
 	}
 }
 
@@ -287,13 +290,14 @@ func keysHash(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (h keyHandler) planOutcome(ctx context.Context, env core.Env, name, key, fingerprint string) (core.PlanOutcome, error) {
-	data, _, fp, err := h.plan(ctx, env, name, key, fingerprint)
+// planOutcome plans the change and returns the file it leaves.
+func (h keyHandler) planOutcome(ctx context.Context, env core.Env, name, key, fingerprint string) (core.PlanOutcome, []byte, error) {
+	data, want, fp, err := h.plan(ctx, env, name, key, fingerprint)
 	if err != nil {
-		return core.PlanOutcome{}, err
+		return core.PlanOutcome{}, nil, err
 	}
 	if h.add {
-		return core.PlanOutcome{Diff: []core.DiffLine{{Op: "+", Text: "Authorize the key " + fp + " for " + name}}, StateHash: keysHash(data)}, nil
+		return core.PlanOutcome{Diff: []core.DiffLine{{Op: "+", Text: "Authorize the key " + fp + " for " + name}}, StateHash: keysHash(data)}, want, nil
 	}
 	diff := []core.DiffLine{{Op: "-", Text: "Remove the key " + fp + " from " + name + ": " + removedLines(data, fp)[0]}}
 	// users.key.add takes no options, so it cannot put back a line that had
@@ -304,7 +308,7 @@ func (h keyHandler) planOutcome(ctx context.Context, env core.Env, name, key, fi
 				" go with it; users.key.add restores the key without them"})
 		}
 	}
-	return core.PlanOutcome{Diff: diff, StateHash: keysHash(data)}, nil
+	return core.PlanOutcome{Diff: diff, StateHash: keysHash(data)}, want, nil
 }
 
 func (h keyHandler) apply(ctx context.Context, env core.Env, name, key, fingerprint string) (KeyChanged, error) {
@@ -341,7 +345,8 @@ type (
 )
 
 func (h addHandler) Plan(ctx context.Context, env core.Env, in KeyInput) (core.PlanOutcome, error) {
-	return h.planOutcome(ctx, env, in.Name, in.Key, "")
+	out, _, err := h.planOutcome(ctx, env, in.Name, in.Key, "")
+	return out, err
 }
 
 func (h addHandler) Apply(ctx context.Context, env core.Env, in KeyInput) (KeyChanged, error) {
@@ -356,8 +361,18 @@ func (h addHandler) Verify(ctx context.Context, env core.Env, in KeyInput, _ Key
 	return h.verify(ctx, env, in.Name, ssh.FingerprintSHA256(pub))
 }
 
+// Plan judges users.no_way_in with the keys the file has left.
 func (h removeHandler) Plan(ctx context.Context, env core.Env, in KeyRemoveInput) (core.PlanOutcome, error) {
-	return h.planOutcome(ctx, env, in.Name, "", in.Fingerprint)
+	out, want, err := h.planOutcome(ctx, env, in.Name, "", in.Fingerprint)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	guard, err := h.m.accountGuard(ctx, env, in.Guarded, in.Name, func(c *candidate) bool { c.keys = countKeys(want); return true })
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	out.Guards = []core.Guard{guard}
+	return out, nil
 }
 
 func (h removeHandler) Apply(ctx context.Context, env core.Env, in KeyRemoveInput) (KeyChanged, error) {

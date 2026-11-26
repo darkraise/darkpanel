@@ -54,6 +54,7 @@ type PasswordInput struct {
 
 // DeleteInput is the input of users.user.delete.
 type DeleteInput struct {
+	core.Guarded
 	Name       string `json:"name" jsonschema:"pattern=^[a-z_][a-z0-9_-]{0\\,31}$" jsonschema_description:"The account name."`
 	RemoveHome bool   `json:"removeHome,omitempty" jsonschema_description:"Delete the home directory and mail spool too."`
 }
@@ -88,17 +89,23 @@ func (m module) accountActions() []core.ActionDef {
 	sudoAdd.StepUp = true
 	passwordSet := forward("password.set", "Set an account's password; it is never logged or returned.")
 	passwordSet.StepUp = true
+	guarded := func(s core.ActionSpec) core.ActionSpec {
+		s.Guards = []core.GuardSpec{{ID: GuardNoWayIn, Overridable: true}}
+		return s
+	}
+	lock := guarded(compensated("user.lock", "Lock an account: its expiry ends key and password sign-in.", "user.unlock"))
 	return []core.ActionDef{
 		core.DefineRead[struct{}, AccountList](core.ActionSpec{
 			Name: ID + ".user.list", Version: 1, Class: core.ClassRead, Side: core.SideAgent,
 			Summary: "List root and the login accounts with UIDs 1000-59999.",
 		}, lister{m: m}),
 		core.DefineMutating[CreateInput, Changed](create, createHandler{m: m}),
-		core.DefineMutating[NameInput, Changed](compensated("user.lock", "Lock an account: its expiry ends key and password sign-in.", "user.unlock"), lockHandler{m: m, lock: true}),
+		core.DefineMutating[GuardedNameInput, Changed](lock, nameGuarded{h: lockHandler{m: m, lock: true}, m: m, edit: lockEdit}),
 		core.DefineMutating[NameInput, Changed](compensated("user.unlock", "Unlock an account, restoring the expiry it had.", "user.lock"), lockHandler{m: m}),
-		core.DefineMutating[DeleteInput, Changed](spec("user.delete", "Delete an account, optionally with its home.", core.ClassIrreversible), deleteHandler{m: m}),
+		core.DefineMutating[DeleteInput, Changed](guarded(spec("user.delete", "Delete an account, optionally with its home.", core.ClassIrreversible)), deleteHandler{m: m}),
 		core.DefineMutating[PasswordInput, Changed](passwordSet, passwordHandler{m: m}),
-		core.DefineMutating[NameInput, Changed](forward("password.remove", "Remove an account's password: its hash becomes *."), noPasswordHandler{m: m}),
+		core.DefineMutating[GuardedNameInput, Changed](guarded(forward("password.remove", "Remove an account's password: its hash becomes *.")),
+			nameGuarded{h: noPasswordHandler{m: m}, m: m, edit: noPasswordEdit}),
 		core.DefineMutating[NameInput, Changed](sudoAdd, sudoHandler{m: m, add: true}),
 		core.DefineMutating[NameInput, Changed](compensated("sudo.remove", "Remove an account from the sudo group.", "sudo.add"), sudoHandler{m: m}),
 	}
@@ -398,8 +405,12 @@ func (h deleteHandler) check(name string) (*entry, error) {
 	return e, nil
 }
 
-func (h deleteHandler) Plan(_ context.Context, _ core.Env, in DeleteInput) (core.PlanOutcome, error) {
+func (h deleteHandler) Plan(ctx context.Context, env core.Env, in DeleteInput) (core.PlanOutcome, error) {
 	e, err := h.check(in.Name)
+	if err != nil {
+		return core.PlanOutcome{}, err
+	}
+	guard, err := h.m.accountGuard(ctx, env, in.Guarded, in.Name, deleteEdit)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -409,7 +420,7 @@ func (h deleteHandler) Plan(_ context.Context, _ core.Env, in DeleteInput) (core
 	} else {
 		diff = append(diff, core.DiffLine{Op: " ", Text: "Keep " + e.home})
 	}
-	return core.PlanOutcome{Diff: diff, StateHash: e.digest(fmt.Sprint(in.RemoveHome)), Confirmation: in.Name}, nil
+	return core.PlanOutcome{Diff: diff, Guards: []core.Guard{guard}, StateHash: e.digest(fmt.Sprint(in.RemoveHome)), Confirmation: in.Name}, nil
 }
 
 // userdelInUse is userdel's exit status for an account with a running

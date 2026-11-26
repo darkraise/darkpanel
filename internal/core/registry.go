@@ -349,7 +349,7 @@ func sysctlKeyProblem(key string) string {
 func checkExternalUnits(m Manifest) []error {
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
-	known := []string{UnitOpState, UnitOpStart, UnitOpStop, UnitOpRestart}
+	known := []string{UnitOpState, UnitOpStart, UnitOpStop, UnitOpRestart, UnitOpReload}
 	names := map[string]bool{}
 	for _, u := range m.ExternalUnits {
 		if !externalUnitPattern.MatchString(u.Name) {

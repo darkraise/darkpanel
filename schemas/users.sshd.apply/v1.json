@@ -1,0 +1,350 @@
+{
+  "name": "users.sshd.apply",
+  "version": 1,
+  "class": "revertible",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SshdInput",
+    "$defs": {
+      "GuardContext": {
+        "properties": {
+          "client": {
+            "$ref": "#/$defs/Peer"
+          },
+          "via": {
+            "$ref": "#/$defs/ProxyPath"
+          },
+          "panelListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "type": "string",
+              "format": "ip-address"
+            },
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "Peer": {
+        "properties": {
+          "addr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "addr",
+          "port"
+        ]
+      },
+      "ProxyPath": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "proxyAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "listenerAddr": {
+            "type": "string",
+            "format": "ip-address-port"
+          },
+          "public": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ]
+      },
+      "SshdInput": {
+        "properties": {
+          "guard": {
+            "$ref": "#/$defs/GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "passwordAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kbdInteractiveAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permitRootLogin": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "prohibit-password",
+              "no"
+            ]
+          },
+          "maxAuthTries": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 10,
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loginGraceTime": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 600,
+                "minimum": 10,
+                "description": "Seconds."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allowUsers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "description": "User patterns, USER or USER@HOST; managed only when no other file under /etc/ssh sets an allow or deny list."
+          },
+          "allowGroups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "description": "Group patterns; managed only when no other file under /etc/ssh sets an allow or deny list."
+          },
+          "clientAliveInterval": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 3600,
+                "minimum": 0,
+                "description": "Seconds."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clientAliveCountMax": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 10,
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "x11Forwarding": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SshdApplied",
+    "$defs": {
+      "SshdApplied": {
+        "properties": {
+          "set": {
+            "$ref": "#/$defs/SshdSettings"
+          },
+          "reloaded": {
+            "type": "boolean",
+            "description": "ssh.service was active and reloaded; under socket activation new connections read the file."
+          }
+        },
+        "type": "object",
+        "required": [
+          "set",
+          "reloaded"
+        ]
+      },
+      "SshdSettings": {
+        "properties": {
+          "passwordAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kbdInteractiveAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permitRootLogin": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "prohibit-password",
+              "no"
+            ]
+          },
+          "maxAuthTries": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 10,
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loginGraceTime": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 600,
+                "minimum": 10,
+                "description": "Seconds."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allowUsers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "description": "User patterns, USER or USER@HOST; managed only when no other file under /etc/ssh sets an allow or deny list."
+          },
+          "allowGroups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "description": "Group patterns; managed only when no other file under /etc/ssh sets an allow or deny list."
+          },
+          "clientAliveInterval": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 3600,
+                "minimum": 0,
+                "description": "Seconds."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clientAliveCountMax": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 10,
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "x11Forwarding": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      }
+    }
+  }
+}

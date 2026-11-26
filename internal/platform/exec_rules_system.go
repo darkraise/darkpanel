@@ -171,6 +171,7 @@ func systemRules() []ExecRule {
 		{Path: JournalctlPath, Match: execMatchJournalctl},
 		{Path: Fail2banClientPath, Match: execMatchFail2ban},
 		{Path: SshdPath, Match: exactly(SshdEffective())},
+		{Path: SshdPath, Match: exactly(SshdTest())},
 	}
 }
 
@@ -369,7 +370,8 @@ func journalLiteralPattern(p string) bool {
 	return !strings.Contains(strings.ReplaceAll(inner, `\E\\E\Q`, ""), `\E`)
 }
 
-// Fail2banClientPath and SshdPath are the programs of the fail2ban module.
+// Fail2banClientPath is the program of the fail2ban module; SshdPath that
+// of the fail2ban and users modules.
 const (
 	Fail2banClientPath = "/usr/bin/fail2ban-client"
 	SshdPath           = "/usr/sbin/sshd"
@@ -414,6 +416,10 @@ func Fail2banUnban(jail, addr string) []string { return []string{"set", jail, "u
 
 // SshdEffective prints the SSH daemon's effective configuration.
 func SshdEffective() []string { return []string{"-T"} }
+
+// SshdTest checks the SSH daemon's configuration files and exits non-zero
+// when sshd would refuse them.
+func SshdTest() []string { return []string{"-t"} }
 
 // execMatchFail2ban allows the fixed vectors and those naming one jail and,
 // for a ban, one address in its canonical form.

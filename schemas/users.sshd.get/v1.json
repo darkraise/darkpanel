@@ -1,0 +1,161 @@
+{
+  "name": "users.sshd.get",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {},
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SshdState",
+    "$defs": {
+      "SshdSettings": {
+        "properties": {
+          "passwordAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kbdInteractiveAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permitRootLogin": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "prohibit-password",
+              "no"
+            ]
+          },
+          "maxAuthTries": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 10,
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loginGraceTime": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 600,
+                "minimum": 10,
+                "description": "Seconds."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allowUsers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "description": "User patterns, USER or USER@HOST; managed only when no other file under /etc/ssh sets an allow or deny list."
+          },
+          "allowGroups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "description": "Group patterns; managed only when no other file under /etc/ssh sets an allow or deny list."
+          },
+          "clientAliveInterval": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 3600,
+                "minimum": 0,
+                "description": "Seconds."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clientAliveCountMax": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "maximum": 10,
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "x11Forwarding": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "SshdState": {
+        "properties": {
+          "effective": {
+            "$ref": "#/$defs/SshdSettings",
+            "description": "The values sshd -T reports."
+          },
+          "set": {
+            "$ref": "#/$defs/SshdSettings",
+            "description": "The values 00-darkpanel.conf holds; empty when the file is absent."
+          },
+          "readOnly": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "The fields Darkpanel leaves to another file: allowUsers and allowGroups when listsSetBy is set."
+          },
+          "listsSetBy": {
+            "type": "string",
+            "description": "The file under /etc/ssh that sets AllowUsers, AllowGroups, DenyUsers or DenyGroups."
+          },
+          "matchIn": {
+            "type": "string",
+            "description": "A file holding a Match block, whose overrides sshd -T and the lockout guard do not see."
+          }
+        },
+        "type": "object",
+        "required": [
+          "effective",
+          "set",
+          "readOnly"
+        ]
+      }
+    }
+  }
+}

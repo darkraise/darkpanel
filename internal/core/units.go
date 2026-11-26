@@ -61,6 +61,13 @@ type UnitStatus struct {
 	UnitState
 }
 
+// UnitReloader is implemented by a unit client that may ask a unit to
+// reload its configuration (systemctl reload); a module's scoped client
+// allows it on the external units that declare UnitOpReload.
+type UnitReloader interface {
+	ReloadUnit(ctx context.Context, unit string) error
+}
+
 // UnitAdmin is the unit client of the services module, the one module that
 // drives units it does not declare (ADR 0020): only .service, .socket and
 // .timer units that are not Darkpanel's own, and reads of every unit.

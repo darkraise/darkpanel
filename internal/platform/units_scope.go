@@ -26,9 +26,10 @@ type scopedUnits struct {
 
 // ScopeUnits returns u limited to module m (1.8): every method on the units
 // m declares as owned paths of kind unit, State on task units, the declared
-// ops on m's external units, and Reload when m declares a unit. Everything
-// else fails with an error naming the module, the method and the unit. The
-// services module gets adminUnits instead (ADR 0020).
+// ops on m's external units (ReloadUnit for UnitOpReload), and Reload when
+// m declares a unit. Everything else fails with an error naming the module,
+// the method and the unit. The services module gets adminUnits instead (ADR
+// 0020).
 func ScopeUnits(u core.Units, m core.Manifest) core.Units {
 	if m.ID == ServicesModule {
 		return adminUnits{u: u}
@@ -139,6 +140,19 @@ func (s *scopedUnits) Disable(ctx context.Context, unitFiles ...string) error {
 		return err
 	}
 	return s.u.Disable(ctx, unitFiles...)
+}
+
+// ReloadUnit asks an external unit that declares UnitOpReload to reload its
+// configuration.
+func (s *scopedUnits) ReloadUnit(ctx context.Context, unit string) error {
+	if err := s.allow("ReloadUnit", core.UnitOpReload, unit); err != nil {
+		return err
+	}
+	r, ok := s.u.(core.UnitReloader)
+	if !ok {
+		return fmt.Errorf("platform: the unit client of module %s cannot ReloadUnit", s.module)
+	}
+	return r.ReloadUnit(ctx, unit)
 }
 
 // Reload reloads every unit file, so only a module with unit files of its
