@@ -434,3 +434,7 @@ func TestE2EOutOfSync(t *testing.T) {
 		t.Errorf("repair diff %+v, want the differing user chain", out.Diff)
 	}
 }
+
+func (*e2eHost) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("e2eHost: Stream is not faked")
+}

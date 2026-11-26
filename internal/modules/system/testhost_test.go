@@ -797,3 +797,7 @@ func (p *shPurge) PurgeDir(path string) error {
 	p.purged = append(p.purged, path)
 	return nil
 }
+
+func (*sysHost) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("sysHost: Stream is not faked")
+}

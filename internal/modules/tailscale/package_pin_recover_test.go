@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -402,4 +403,8 @@ func TestRbInverseFailures(t *testing.T) {
 	if got, _, _ := loadPin(ctx, h.db.Read(), "c2"); got.Phase != "failed" {
 		t.Errorf("pin phase %q after a failed rollback, want failed", got.Phase)
 	}
+}
+
+func (rbRunner) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("rbRunner: Stream is not faked")
 }

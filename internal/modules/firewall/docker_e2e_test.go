@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/netip"
 	"reflect"
 	"slices"
@@ -1123,4 +1124,8 @@ func TestW11a07RevertOfADockerDisableWithoutRowsRunsNoReload(t *testing.T) {
 			}
 		})
 	}
+}
+
+func (w11a06Exec) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("w11a06Exec: Stream is not faked")
 }

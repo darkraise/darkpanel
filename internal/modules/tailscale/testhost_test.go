@@ -507,3 +507,7 @@ func (s *tsSession) answer(context.Context) (up, viaTailnet bool, err error) {
 	s.Calls++
 	return a.Up, a.ViaTailnet, a.Err
 }
+
+func (*tsHost) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("tsHost: Stream is not faked")
+}

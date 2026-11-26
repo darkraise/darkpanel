@@ -713,6 +713,9 @@ type CmdResult struct {
 // Runner runs allowlisted programs.
 type Runner interface {
 	Run(ctx context.Context, cmd Cmd) (CmdResult, error)
+	// Stream runs a program and hands each line of its stdout, at most
+	// 64 KiB, to onLine until it exits, onLine fails or ctx ends.
+	Stream(ctx context.Context, path string, args []string, onLine func(line []byte) error) error
 }
 
 // FileWriter writes manifest-declared files and marked blocks, and the other

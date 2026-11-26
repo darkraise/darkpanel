@@ -3,6 +3,7 @@ package tailscale
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"log/slog"
 	"reflect"
@@ -206,4 +207,8 @@ func TestUnRefusesAnOptionItDoesNotDeclare(t *testing.T) {
 			t.Errorf("options %v: ran %v, removed_at %q, want nothing changed", opts, h.ran, unRemovedAt(t, h))
 		}
 	}
+}
+
+func (unDeadlines) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("unDeadlines: Stream is not faked")
 }

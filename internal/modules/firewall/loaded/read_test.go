@@ -378,3 +378,7 @@ func TestW10SfToolVariantSkipsLeadingBlankLines(t *testing.T) {
 		})
 	}
 }
+
+func (*ldRunner) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("ldRunner: Stream is not faked")
+}

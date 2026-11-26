@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -368,4 +369,8 @@ func (j *ijTailnet) Join(_ context.Context, authKey string) error {
 	j.enrolled = append(j.enrolled, len(j.agent.tokens))
 	j.agent.mu.Unlock()
 	return j.err
+}
+
+func (*fakeRunner) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("fakeRunner: Stream is not faked")
 }

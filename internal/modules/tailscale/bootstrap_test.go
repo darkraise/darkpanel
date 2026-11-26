@@ -488,3 +488,7 @@ func TestJnProductionProvidersOverAFreshDatabase(t *testing.T) {
 		t.Error("the production runner ran a program outside the allowlist")
 	}
 }
+
+func (jnRunner) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("jnRunner: Stream is not faked")
+}

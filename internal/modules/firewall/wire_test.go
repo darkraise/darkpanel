@@ -123,3 +123,7 @@ func TestProductionLockout(t *testing.T) {
 		t.Errorf("lockout = %v, %q, %v; want false, no detail and %q", ok, detail, err, want)
 	}
 }
+
+func (ayRunner) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("ayRunner: Stream is not faked")
+}

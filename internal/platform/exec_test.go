@@ -333,3 +333,125 @@ func TestCappedBufferKeepTail(t *testing.T) {
 		t.Errorf("kept %q (over %v), want the last 8 bytes", got, c.over)
 	}
 }
+
+// streamLines runs Stream and collects every line it delivers.
+func streamLines(ctx context.Context, r *Runner, path string, args ...string) ([]string, error) {
+	var lines []string
+	err := r.Stream(ctx, path, args, func(line []byte) error {
+		lines = append(lines, string(line))
+		return nil
+	})
+	return lines, err
+}
+
+func TestStreamLines(t *testing.T) {
+	r := NewRunner(execAny("/usr/bin/printf"))
+	lines, err := streamLines(context.Background(), r, "/usr/bin/printf", `a\nb\n`)
+	if err != nil || !slices.Equal(lines, []string{"a", "b"}) {
+		t.Fatalf("Stream = %q, %v; want [a b], nil", lines, err)
+	}
+}
+
+func TestStreamLineCap(t *testing.T) {
+	r := NewRunner([]ExecRule{{Path: "/usr/bin/head", Match: func(args []string) error {
+		if slices.Equal(args, []string{"-c", "71680", "/dev/zero"}) {
+			return nil
+		}
+		return errors.New("not the test vector")
+	}}})
+	lines, err := streamLines(context.Background(), r, "/usr/bin/head", "-c", "71680", "/dev/zero")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || len(lines[0]) != 65536 || strings.Trim(lines[0], "\x00") != "" {
+		lens := make([]int, len(lines))
+		for i, l := range lines {
+			lens[i] = len(l)
+		}
+		t.Fatalf("delivered lines of %v bytes, want one of 65536 NUL bytes", lens)
+	}
+}
+
+func TestStreamStopsOnCallbackError(t *testing.T) {
+	r := NewRunner(execAny("/usr/bin/printf"))
+	stop := errors.New("enough")
+	var lines []string
+	err := r.Stream(context.Background(), "/usr/bin/printf", []string{`a\nb\nc\n`}, func(line []byte) error {
+		lines = append(lines, string(line))
+		return stop
+	})
+	if !errors.Is(err, stop) || !slices.Equal(lines, []string{"a"}) {
+		t.Fatalf("Stream = %q, %v; want [a], the callback's error", lines, err)
+	}
+}
+
+func TestStreamReportsExitCode(t *testing.T) {
+	r := NewRunner(execAny("/usr/bin/ls"))
+	_, err := streamLines(context.Background(), r, "/usr/bin/ls", "/nonexistent-darkpanel-path")
+	if err == nil || !strings.Contains(err.Error(), "exited with code 2") {
+		t.Fatalf("err = %v, want the exit code", err)
+	}
+}
+
+// childPID returns the PID of a child of this process running comm.
+func childPID(comm string) (int, bool) {
+	entries, _ := os.ReadDir("/proc")
+	self := strconv.Itoa(os.Getpid())
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		stat, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		s := string(stat)
+		open, end := strings.IndexByte(s, '('), strings.LastIndexByte(s, ')')
+		if open < 0 || end < open {
+			continue
+		}
+		fields := strings.Fields(s[end+1:])
+		if s[open+1:end] == comm && len(fields) > 1 && fields[1] == self {
+			return pid, true
+		}
+	}
+	return 0, false
+}
+
+func TestStreamCancelKills(t *testing.T) {
+	r := NewRunner(execAny("/usr/bin/sleep"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := streamLines(ctx, r, "/usr/bin/sleep", "30")
+		done <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	pid, ok := childPID("sleep")
+	if !ok {
+		t.Fatal("no sleep child found after 100 ms")
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("err = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stream did not return within 2 s of the cancel")
+	}
+	if !descendantGone(pid) {
+		t.Errorf("sleep %d still runs after Stream returned", pid)
+	}
+}
+
+func TestStreamAllowlist(t *testing.T) {
+	r := NewRunner(execAny("/usr/bin/printf"))
+	err := r.Stream(context.Background(), "/usr/bin/env", nil, func([]byte) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "is not in the exec allowlist") {
+		t.Fatalf("err = %v, want the allowlist refusal", err)
+	}
+}

@@ -454,3 +454,7 @@ func TestPiPackageInstallInverse(t *testing.T) {
 		}
 	})
 }
+
+func (piRunner) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("piRunner: Stream is not faked")
+}

@@ -431,3 +431,7 @@ var (
 	_ core.FileWriter    = (*fakeHost)(nil)
 	_ core.EffectJournal = (*fhJournal)(nil)
 )
+
+func (*fakeHost) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("fakeHost: Stream is not faked")
+}

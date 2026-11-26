@@ -193,3 +193,105 @@ func (r *Runner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) 
 	}
 	return res, fmt.Errorf("platform: run %s: %w", cmd.Path, err)
 }
+
+// maxStreamLine is the longest line Stream delivers; the rest of a longer
+// line is discarded.
+const maxStreamLine = 64 << 10
+
+// maxStreamStderr is how much of a streamed program's stderr is kept for the
+// error of a non-zero exit.
+const maxStreamStderr = 4 << 10
+
+// lineWriter splits a program's stdout into lines for onLine.
+type lineWriter struct {
+	onLine  func(line []byte) error
+	line    []byte
+	discard bool // the current line reached maxStreamLine and was delivered
+	err     error
+	cancel  context.CancelCauseFunc
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	for len(p) > 0 && w.err == nil {
+		i := bytes.IndexByte(p, '\n')
+		chunk := p
+		if i >= 0 {
+			chunk = p[:i]
+		}
+		if !w.discard {
+			room := maxStreamLine - len(w.line)
+			w.line = append(w.line, chunk[:min(room, len(chunk))]...)
+			if len(w.line) == maxStreamLine {
+				w.deliver()
+				w.discard = true
+			}
+		}
+		if i < 0 {
+			break
+		}
+		if !w.discard {
+			w.deliver()
+		}
+		w.discard = false
+		p = p[i+1:]
+	}
+	if w.err != nil {
+		return 0, w.err
+	}
+	return n, nil
+}
+
+func (w *lineWriter) deliver() {
+	if err := w.onLine(w.line); err != nil {
+		w.err = err
+		w.cancel(err)
+	}
+	w.line = w.line[:0]
+}
+
+// Stream runs an allowlisted program like Run and hands each line of its
+// stdout, without the newline, to onLine, which must not keep the slice. A
+// line longer than 64 KiB is cut there and the rest of it discarded. Stream
+// has no default timeout: it lasts until the program exits, onLine returns an
+// error, which Stream returns, or ctx ends, when the program's process group
+// is killed. A non-zero exit is an error carrying the code and stderr's tail.
+func (r *Runner) Stream(ctx context.Context, path string, args []string, onLine func(line []byte) error) error {
+	env, err := r.match(path, args)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
+	c := exec.CommandContext(ctx, path, args...) //nolint:gosec // G204: an allowlisted absolute path and an argument vector, never a shell
+	c.Env = env
+	c.Dir = "/"
+	stdout := &lineWriter{onLine: onLine, cancel: cancel}
+	stderr := &cappedBuffer{limit: maxStreamStderr, keepTail: true}
+	c.Stdout, c.Stderr = stdout, stderr
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	c.Cancel = func() error { return syscall.Kill(-c.Process.Pid, syscall.SIGKILL) }
+	c.WaitDelay = time.Second
+
+	err = c.Run()
+	var exitErr *exec.ExitError
+	switch {
+	case stdout.err != nil:
+		return stdout.err
+	case ctx.Err() != nil:
+		return fmt.Errorf("platform: %s: %w", path, context.Cause(ctx))
+	case err != nil && !errors.As(err, &exitErr):
+		return fmt.Errorf("platform: run %s: %w", path, err)
+	}
+	if len(stdout.line) > 0 && !stdout.discard {
+		stdout.deliver()
+		if stdout.err != nil {
+			return stdout.err
+		}
+	}
+	if exitErr != nil {
+		return fmt.Errorf("platform: %s exited with code %d: %s", path, exitErr.ExitCode(), bytes.TrimSpace(stderr.buf.Bytes()))
+	}
+	return nil
+}

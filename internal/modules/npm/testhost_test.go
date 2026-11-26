@@ -1346,3 +1346,7 @@ func (h *thHost) RenameIn(context.Context, string, string, string, string) error
 func (h *thHost) RemoveIn(context.Context, string, string, string) error         { return errTHUnused }
 func (h *thHost) RemoveServiceDir(context.Context, string, string) error         { return errTHUnused }
 func (h *thHost) Owns(context.Context, string, string) (bool, error)             { return false, errTHUnused }
+
+func (*thHost) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("thHost: Stream is not faked")
+}

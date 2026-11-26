@@ -1089,3 +1089,11 @@ func TestV1r06PinRollsBackAnEarlyFailureAfterTheForwardContextEnds(t *testing.T)
 		})
 	}
 }
+
+func (*pnApt) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("pnApt: Stream is not faked")
+}
+
+func (*w10tpExec) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("w10tpExec: Stream is not faked")
+}

@@ -2,6 +2,7 @@ package loaded
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"strings"
 	"testing"
@@ -60,4 +61,8 @@ func FuzzToolVariant(f *testing.F) {
 			}
 		}
 	})
+}
+
+func (fz7Runner) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("fz7Runner: Stream is not faked")
 }

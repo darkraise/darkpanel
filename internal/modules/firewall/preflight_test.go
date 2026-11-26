@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -182,4 +183,8 @@ func TestUpstreamAtLeast(t *testing.T) {
 			t.Errorf("upstreamAtLeast(%q) is no error", bad)
 		}
 	}
+}
+
+func (pfRunner) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("pfRunner: Stream is not faked")
 }

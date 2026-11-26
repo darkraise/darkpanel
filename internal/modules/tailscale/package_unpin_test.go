@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -424,4 +425,8 @@ func TestUpInverseFailures(t *testing.T) {
 	if p := upLoad(t, h, "p1"); p.UnpinnedBy != "c1" {
 		t.Errorf("pin unpinned by %q after a failed re-hold, want c1: the pin is active again only once the hold is back", p.UnpinnedBy)
 	}
+}
+
+func (upRunner) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("upRunner: Stream is not faked")
 }

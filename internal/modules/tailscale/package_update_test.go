@@ -272,3 +272,7 @@ func TestPuVerify(t *testing.T) {
 		t.Error("verify passed with the package gone, want an error")
 	}
 }
+
+func (puRunner) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("puRunner: Stream is not faked")
+}

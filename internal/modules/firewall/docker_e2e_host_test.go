@@ -514,3 +514,7 @@ func deeEngineWith(t *testing.T, h *deeHost, exec core.Runner) *lifecycle.Engine
 	t.Cleanup(eng.Close)
 	return eng
 }
+
+func (*deeHost) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("deeHost: Stream is not faked")
+}

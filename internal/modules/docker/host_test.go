@@ -3,6 +3,7 @@ package docker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -277,4 +278,8 @@ func (j *dkJournal) Secret(_ context.Context, seq int) ([]byte, error) {
 		return nil, fmt.Errorf("fake: no effect %d", seq)
 	}
 	return bytes.Clone(j.secrets[seq]), nil
+}
+
+func (*dkHost) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("dkHost: Stream is not faked")
 }

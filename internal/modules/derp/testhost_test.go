@@ -870,3 +870,7 @@ func (j *dpJournal) Secret(_ context.Context, seq int) ([]byte, error) {
 	}
 	return bytes.Clone(j.secrets[seq]), nil
 }
+
+func (*dpHost) Stream(context.Context, string, []string, func([]byte) error) error {
+	return errors.New("dpHost: Stream is not faked")
+}
