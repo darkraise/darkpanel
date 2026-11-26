@@ -24,7 +24,7 @@ func Module() core.Module { return module{d: deps{readFile: os.ReadFile}} }
 func (m module) Manifest() core.Manifest {
 	return core.Manifest{
 		ID: ID, Version: 1, DefaultEnabled: true,
-		Actions: m.accountActions(),
+		Actions: append(m.accountActions(), m.keyActions()...),
 		OwnedPaths: []core.OwnedPath{
 			{Path: stateDir, Kind: core.OwnedManagedDir, Pattern: `^expiry-[a-z_][a-z0-9_-]{0,31}$`},
 		},

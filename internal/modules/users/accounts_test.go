@@ -82,6 +82,8 @@ type rig struct {
 	answers map[string]core.CmdResult
 	effects map[string]func()
 	files   map[string]string
+	keys    map[string]string // authorized_keys per user
+	homeErr map[string]error  // a HomeFiles refusal per user
 	clock   *coretest.FakeClock
 }
 
@@ -89,9 +91,11 @@ func newRig(t *testing.T) *rig {
 	r := &rig{
 		t: t, stdin: map[string]string{}, answers: map[string]core.CmdResult{}, effects: map[string]func(){},
 		files: map[string]string{passwdFile: fxPasswd, shadowFile: fxShadow, groupFile: fxGroup, shellsFile: fxShells},
+		keys:  map[string]string{}, homeErr: map[string]error{},
 		clock: coretest.NewFakeClock(today),
 	}
 	r.answer(platform.PasswdPath, platform.PasswdStatusAll(), fxStatus)
+	r.answer(platform.SshdPath, platform.SshdEffective(), "port 22\nauthorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2\npubkeyauthentication yes\n")
 	return r
 }
 
@@ -128,7 +132,7 @@ func (r *rig) module() module {
 }
 
 func (r *rig) env(p core.Principal) core.Env {
-	return core.Env{HostID: "h1", Principal: p, Exec: runner{r}, Files: files{r: r}, Clock: r.clock,
+	return core.Env{HostID: "h1", Principal: p, Exec: runner{r}, Files: files{r: r}, Clock: r.clock, Home: homes{r},
 		Log: slog.New(slog.DiscardHandler)}
 }
 
@@ -188,6 +192,29 @@ func (f files) RemoveManaged(_ context.Context, module, dir, name string) error 
 	}
 	f.r.events = append(f.r.events, "remove "+name)
 	delete(f.r.files, dir+"/"+name)
+	return nil
+}
+
+// homes is the rig's HomeFiles.
+type homes struct{ r *rig }
+
+func (h homes) ReadAuthorizedKeys(_ context.Context, user string) ([]byte, error) {
+	if err := h.r.homeErr[user]; err != nil {
+		return nil, err
+	}
+	b, ok := h.r.keys[user]
+	if !ok {
+		return nil, nil
+	}
+	return []byte(b), nil
+}
+
+func (h homes) WriteAuthorizedKeys(_ context.Context, user string, data []byte) error {
+	if err := h.r.homeErr[user]; err != nil {
+		return err
+	}
+	h.r.events = append(h.r.events, "write keys "+user)
+	h.r.keys[user] = string(data)
 	return nil
 }
 
@@ -431,7 +458,7 @@ func engine(t *testing.T, r *rig, logs *bytes.Buffer) (*lifecycle.Engine, *store
 	env := r.env(adminP)
 	eng, err := lifecycle.New(lifecycle.Config{
 		Side: core.SideAgent, Registry: reg, Validator: schema.NewValidator(), Journal: journal, Redact: schema.Redact,
-		Base: core.Env{HostID: "h1", DB: db, Exec: env.Exec, Files: env.Files, Sealer: coretest.Sealer{}, Clock: r.clock,
+		Base: core.Env{HostID: "h1", DB: db, Exec: env.Exec, Files: env.Files, Home: env.Home, Sealer: coretest.Sealer{}, Clock: r.clock,
 			Log: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))},
 	})
 	if err != nil {

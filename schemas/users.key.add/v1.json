@@ -1,0 +1,54 @@
+{
+  "name": "users.key.add",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/KeyInput",
+    "$defs": {
+      "KeyInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "description": "The account name."
+          },
+          "key": {
+            "type": "string",
+            "maxLength": 16384,
+            "description": "One public key line without options: ed25519, ecdsa, sk-ed25519, sk-ecdsa or RSA of at least 3072 bits."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "key"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/KeyChanged",
+    "$defs": {
+      "KeyChanged": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "fingerprint"
+        ]
+      }
+    }
+  }
+}

@@ -303,14 +303,22 @@ func (r *Runtime) withProviders(module string, env core.Env) core.Env {
 	return ModuleProviders(r.cfg.ControllerAddress, r.cfg.Log)(module, env)
 }
 
+// homeModule is the one module whose Env carries the users' authorized
+// keys.
+const homeModule = "users"
+
 // ModuleProviders is the lifecycle ModuleEnv of an agent engine: it sets
 // Env.ControllerAddrs for the fail2ban module from controllerAddress, the
 // enrolled controller's host:port (nil or "" gives none), resolved on each
-// call. A name that does not resolve within 2 s gives none; log records why.
+// call, and Env.Home for the users module. A name that does not resolve
+// within 2 s gives none; log records why.
 func ModuleProviders(controllerAddress func() string, log *slog.Logger) func(module string, env core.Env) core.Env {
 	return func(module string, env core.Env) core.Env {
 		if module == controllerAddrsModule && controllerAddress != nil {
 			env.ControllerAddrs = resolveController(controllerAddress(), log)
+		}
+		if module == homeModule {
+			env.Home = platform.NewHomeFiles("/etc/passwd")
 		}
 		return env
 	}

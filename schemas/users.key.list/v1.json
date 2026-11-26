@@ -1,0 +1,76 @@
+{
+  "name": "users.key.list",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/NameInput",
+    "$defs": {
+      "NameInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "description": "The account name."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/KeyList",
+    "$defs": {
+      "Key": {
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "bits": {
+            "type": "integer"
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "SHA256:\u003cbase64\u003e, as ssh-keygen -l prints it."
+          },
+          "comment": {
+            "type": "string"
+          },
+          "options": {
+            "type": "string",
+            "description": "The line's options as text; empty when it has none."
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "bits",
+          "fingerprint",
+          "comment",
+          "options"
+        ]
+      },
+      "KeyList": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/$defs/Key"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "keys"
+        ]
+      }
+    }
+  }
+}

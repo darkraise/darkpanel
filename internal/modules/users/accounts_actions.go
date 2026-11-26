@@ -10,6 +10,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/platform"
@@ -37,10 +39,11 @@ type NameInput struct {
 
 // CreateInput is the input of users.user.create.
 type CreateInput struct {
-	Name     string `json:"name" jsonschema:"pattern=^[a-z_][a-z0-9_-]{0\\,31}$" jsonschema_description:"A new account name."`
-	Shell    string `json:"shell,omitempty" jsonschema_description:"A shell listed in /etc/shells; /bin/bash when omitted."`
-	Sudo     bool   `json:"sudo,omitempty" jsonschema_description:"Add the account to the sudo group."`
-	Password string `json:"password,omitempty" secret:"erase" jsonschema:"minLength=8,maxLength=256" jsonschema_description:"An optional password, 8-256 characters with no control character."`
+	Name     string   `json:"name" jsonschema:"pattern=^[a-z_][a-z0-9_-]{0\\,31}$" jsonschema_description:"A new account name."`
+	Shell    string   `json:"shell,omitempty" jsonschema_description:"A shell listed in /etc/shells; /bin/bash when omitted."`
+	Sudo     bool     `json:"sudo,omitempty" jsonschema_description:"Add the account to the sudo group."`
+	Password string   `json:"password,omitempty" secret:"erase" jsonschema:"minLength=8,maxLength=256" jsonschema_description:"An optional password, 8-256 characters with no control character."`
+	Keys     []string `json:"keys,omitempty" jsonschema:"maxItems=64" jsonschema_description:"SSH public key lines to authorize, as users.key.add takes them."`
 }
 
 // PasswordInput is the input of users.password.set.
@@ -130,7 +133,27 @@ func run(ctx context.Context, env core.Env, path string, args []string, stdin []
 
 type createHandler struct{ m module }
 
-func (h createHandler) check(in CreateInput) (string, error) {
+// keyLines validates create's keys and returns the authorized_keys file
+// they make.
+func (in CreateInput) keyLines() ([]byte, error) {
+	var out []byte
+	seen := map[string]bool{}
+	for i, k := range in.Keys {
+		pub, line, err := parseNewKey(fmt.Sprintf("/keys/%d", i), k)
+		if err != nil {
+			return nil, err
+		}
+		fp := ssh.FingerprintSHA256(pub)
+		if seen[fp] {
+			return nil, invalid(fmt.Sprintf("/keys/%d", i), "the key "+fp+" is listed twice")
+		}
+		seen[fp] = true
+		out = append(out, line+"\n"...)
+	}
+	return out, nil
+}
+
+func (h createHandler) check(ctx context.Context, env core.Env, in CreateInput) (string, error) {
 	switch {
 	case platform.SystemUser(in.Name):
 		return "", invalid("/name", in.Name+" is Darkpanel's own system user")
@@ -140,6 +163,14 @@ func (h createHandler) check(in CreateInput) (string, error) {
 	if in.Password != "" {
 		if err := checkPassword(in.Password); err != nil {
 			return "", err
+		}
+	}
+	if _, err := in.keyLines(); err != nil {
+		return "", err
+	}
+	if len(in.Keys) > 0 {
+		if err := keysAvailable(ctx, env); err != nil {
+			return "", invalid("/keys", err.Error())
 		}
 	}
 	db, err := h.m.readHost()
@@ -161,8 +192,8 @@ func (h createHandler) check(in CreateInput) (string, error) {
 	return shell, nil
 }
 
-func (h createHandler) Plan(_ context.Context, _ core.Env, in CreateInput) (core.PlanOutcome, error) {
-	shell, err := h.check(in)
+func (h createHandler) Plan(ctx context.Context, env core.Env, in CreateInput) (core.PlanOutcome, error) {
+	shell, err := h.check(ctx, env, in)
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
@@ -173,11 +204,18 @@ func (h createHandler) Plan(_ context.Context, _ core.Env, in CreateInput) (core
 	if in.Password != "" {
 		diff = append(diff, core.DiffLine{Op: "+", Text: "Set a password for " + in.Name})
 	}
+	if n := len(in.Keys); n > 0 {
+		diff = append(diff, core.DiffLine{Op: "+", Text: fmt.Sprintf("Authorize %d SSH key(s) for %s", n, in.Name)})
+	}
 	return core.PlanOutcome{Diff: diff, StateHash: "absent"}, nil
 }
 
 func (h createHandler) Apply(ctx context.Context, env core.Env, in CreateInput) (Changed, error) {
-	shell, err := h.check(in)
+	shell, err := h.check(ctx, env, in)
+	if err != nil {
+		return Changed{}, err
+	}
+	keys, err := in.keyLines()
 	if err != nil {
 		return Changed{}, err
 	}
@@ -197,6 +235,14 @@ func (h createHandler) Apply(ctx context.Context, env core.Env, in CreateInput) 
 			return Changed{}, err
 		}
 	}
+	if len(keys) > 0 {
+		if _, _, err := h.m.account(in.Name); err != nil {
+			return Changed{}, err
+		}
+		if err := env.Home.WriteAuthorizedKeys(ctx, in.Name, keys); err != nil {
+			return Changed{}, err
+		}
+	}
 	return changed(in.Name), nil
 }
 
@@ -207,6 +253,15 @@ func (h createHandler) Verify(ctx context.Context, env core.Env, in CreateInput,
 	}
 	if e.sudo() != in.Sudo {
 		return fmt.Errorf("users: %s is not in %s as asked", in.Name, platform.SudoGroup)
+	}
+	if len(in.Keys) > 0 {
+		data, err := h.m.readKeys(ctx, env, in.Name)
+		if err != nil {
+			return err
+		}
+		if n := countKeys(data); n != len(in.Keys) {
+			return fmt.Errorf("users: %s has %d authorized keys, want %d", in.Name, n, len(in.Keys))
+		}
 	}
 	if in.Password != "" {
 		return verifyPassword(ctx, env, in.Name, true)

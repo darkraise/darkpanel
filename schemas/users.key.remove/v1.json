@@ -1,0 +1,54 @@
+{
+  "name": "users.key.remove",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/KeyRemoveInput",
+    "$defs": {
+      "KeyRemoveInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "description": "The account name."
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^SHA256:[A-Za-z0-9+/]{43}$",
+            "description": "The key's SHA256 fingerprint."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "fingerprint"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/KeyChanged",
+    "$defs": {
+      "KeyChanged": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "fingerprint"
+        ]
+      }
+    }
+  }
+}

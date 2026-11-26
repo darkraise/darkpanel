@@ -21420,6 +21420,151 @@
         ],
         "type": "object"
       },
+      "users.key.add.v1.input": {
+        "$ref": "#/components/schemas/users.key.add.v1.input.KeyInput"
+      },
+      "users.key.add.v1.input.KeyInput": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "description": "One public key line without options: ed25519, ecdsa, sk-ed25519, sk-ecdsa or RSA of at least 3072 bits.",
+            "maxLength": 16384,
+            "type": "string"
+          },
+          "name": {
+            "description": "The account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "key"
+        ],
+        "type": "object"
+      },
+      "users.key.add.v1.output": {
+        "$ref": "#/components/schemas/users.key.add.v1.output.KeyChanged"
+      },
+      "users.key.add.v1.output.KeyChanged": {
+        "properties": {
+          "fingerprint": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
+      "users.key.list.v1.input": {
+        "$ref": "#/components/schemas/users.key.list.v1.input.NameInput"
+      },
+      "users.key.list.v1.input.NameInput": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "users.key.list.v1.output": {
+        "$ref": "#/components/schemas/users.key.list.v1.output.KeyList"
+      },
+      "users.key.list.v1.output.Key": {
+        "properties": {
+          "bits": {
+            "type": "integer"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "description": "SHA256:\u003cbase64\u003e, as ssh-keygen -l prints it.",
+            "type": "string"
+          },
+          "options": {
+            "description": "The line's options as text; empty when it has none.",
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "bits",
+          "fingerprint",
+          "comment",
+          "options"
+        ],
+        "type": "object"
+      },
+      "users.key.list.v1.output.KeyList": {
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/users.key.list.v1.output.Key"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "type": "object"
+      },
+      "users.key.remove.v1.input": {
+        "$ref": "#/components/schemas/users.key.remove.v1.input.KeyRemoveInput"
+      },
+      "users.key.remove.v1.input.KeyRemoveInput": {
+        "additionalProperties": false,
+        "properties": {
+          "fingerprint": {
+            "description": "The key's SHA256 fingerprint.",
+            "pattern": "^SHA256:[A-Za-z0-9+/]{43}$",
+            "type": "string"
+          },
+          "name": {
+            "description": "The account name.",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
+      "users.key.remove.v1.output": {
+        "$ref": "#/components/schemas/users.key.remove.v1.output.KeyChanged"
+      },
+      "users.key.remove.v1.output.KeyChanged": {
+        "properties": {
+          "fingerprint": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "fingerprint"
+        ],
+        "type": "object"
+      },
       "users.password.remove.v1.input": {
         "$ref": "#/components/schemas/users.password.remove.v1.input.NameInput"
       },
@@ -21559,6 +21704,14 @@
       "users.user.create.v1.input.CreateInput": {
         "additionalProperties": false,
         "properties": {
+          "keys": {
+            "description": "SSH public key lines to authorize, as users.key.add takes them.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
           "name": {
             "description": "A new account name.",
             "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
@@ -40754,6 +40907,286 @@
           }
         ],
         "summary": "Set the node's Tailscale preferences."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.key.add/v1/apply": {
+      "post": {
+        "operationId": "users.key.add.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Authorize one SSH public key for an account."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.key.add/v1/plan": {
+      "post": {
+        "operationId": "users.key.add.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.key.add.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Authorize one SSH public key for an account."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.key.list/v1/read": {
+      "post": {
+        "operationId": "users.key.list.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.key.list.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/users.key.list.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List an account's authorized SSH keys: type, bits, fingerprint, comment and options."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.key.remove/v1/apply": {
+      "post": {
+        "operationId": "users.key.remove.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove an authorized SSH key from an account."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/users.key.remove/v1/plan": {
+      "post": {
+        "operationId": "users.key.remove.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/users.key.remove.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove an authorized SSH key from an account."
       }
     },
     "/api/v1/hosts/{host}/actions/users.password.remove/v1/apply": {

@@ -2,6 +2,95 @@
 
 Back to the [API reference](README.md).
 
+## users.key.add v1
+
+Authorize one SSH public key for an account.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/users.key.add/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/users.key.add/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `key` | string | yes | One public key line without options: ed25519, ecdsa, sk-ed25519, sk-ecdsa or RSA of at least 3072 bits. |
+| `name` | string | yes | The account name. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `fingerprint` | string | yes |  |
+| `name` | string | yes |  |
+
+## users.key.list v1
+
+List an account's authorized SSH keys: type, bits, fingerprint, comment and options.
+
+| Operation | Request |
+|---|---|
+| read | `POST /api/v1/hosts/{host}/actions/users.key.list/v1/read` |
+
+Minimum scope: `read`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | The account name. |
+
+### Output
+
+Returned in the `output` field of the response.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `keys` | array of object | yes |  |
+| `keys[].bits` | integer | yes |  |
+| `keys[].comment` | string | yes |  |
+| `keys[].fingerprint` | string | yes | SHA256:\<base64\>, as ssh-keygen -l prints it. |
+| `keys[].options` | string | yes | The line's options as text; empty when it has none. |
+| `keys[].type` | string | yes |  |
+
+## users.key.remove v1
+
+Remove an authorized SSH key from an account.
+
+| Operation | Request |
+|---|---|
+| plan | `POST /api/v1/hosts/{host}/actions/users.key.remove/v1/plan` |
+| apply | `POST /api/v1/hosts/{host}/actions/users.key.remove/v1/apply` |
+
+Minimum scope: `admin`.
+
+### Input
+
+Sent in the `input` field of the request body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `fingerprint` | string | yes | The key's SHA256 fingerprint. |
+| `name` | string | yes | The account name. |
+
+### Output
+
+Returned in the `output` field of the change that apply returns.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `fingerprint` | string | yes |  |
+| `name` | string | yes |  |
+
 ## users.password.remove v1
 
 Remove an account's password: its hash becomes *.
@@ -128,6 +217,7 @@ Sent in the `input` field of the request body.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `keys` | array of string | no | SSH public key lines to authorize, as users.key.add takes them. |
 | `name` | string | yes | A new account name. |
 | `password` | string | no | An optional password, 8-256 characters with no control character. Secret. |
 | `shell` | string | no | A shell listed in /etc/shells; /bin/bash when omitted. |

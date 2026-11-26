@@ -233,6 +233,17 @@ func (l lister) Read(ctx context.Context, env core.Env, _ struct{}) (AccountList
 	}
 	now := env.Clock.Now()
 	out := AccountList{Accounts: []Account{}}
+	keys := func(name string) int {
+		if env.Home == nil {
+			return 0
+		}
+		data, err := env.Home.ReadAuthorizedKeys(ctx, name)
+		if err != nil {
+			env.Log.Warn("users: read authorized keys", "user", name, "error", err)
+			return 0
+		}
+		return countKeys(data)
+	}
 	for _, name := range h.order {
 		e := h.entries[name]
 		if !e.managed() {
@@ -240,7 +251,7 @@ func (l lister) Read(ctx context.Context, env core.Env, _ struct{}) (AccountList
 		}
 		out.Accounts = append(out.Accounts, Account{
 			Name: e.name, UID: e.uid, Home: e.home, Shell: e.shell, Groups: append([]string{}, e.groups...),
-			Sudo: e.sudo(), Locked: e.locked(now), PasswordSet: status[e.name] == "P",
+			Sudo: e.sudo(), Locked: e.locked(now), PasswordSet: status[e.name] == "P", Keys: keys(e.name),
 		})
 	}
 	return out, nil

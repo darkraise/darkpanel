@@ -160,6 +160,9 @@ func TestModuleProviders(t *testing.T) {
 	if got := providers("fail2ban", core.Env{}).ControllerAddrs; !slices.Equal(got, []string{"192.0.2.5"}) {
 		t.Errorf("an address literal resolves to %v", got)
 	}
+	if providers("users", core.Env{}).Home == nil || providers("services", core.Env{}).Home != nil {
+		t.Error("Env.Home is set for a module other than users, or not for users")
+	}
 	if got := providers("services", core.Env{}).ControllerAddrs; got != nil {
 		t.Errorf("another module gets %v", got)
 	}

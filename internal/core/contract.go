@@ -163,6 +163,15 @@ type Env struct {
 	// ControllerAddrs are the addresses the agent's configured controller
 	// endpoint resolves to, resolved per call; set for module fail2ban.
 	ControllerAddrs []string
+	// Home reads and writes the users' authorized keys; set for module users.
+	Home HomeFiles
+}
+
+// HomeFiles reads and writes ~user/.ssh/authorized_keys with sshd's
+// StrictModes checks (ADR 0020). A missing .ssh or file reads as nil.
+type HomeFiles interface {
+	ReadAuthorizedKeys(ctx context.Context, user string) ([]byte, error)
+	WriteAuthorizedKeys(ctx context.Context, user string, data []byte) error
 }
 
 // CallContext is why a change runs. It comes from the controller, never from

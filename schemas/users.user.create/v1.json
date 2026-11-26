@@ -30,6 +30,14 @@
             "description": "An optional password, 8-256 characters with no control character.",
             "writeOnly": true,
             "x-secret": true
+          },
+          "keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "description": "SSH public key lines to authorize, as users.key.add takes them."
           }
         },
         "additionalProperties": false,
