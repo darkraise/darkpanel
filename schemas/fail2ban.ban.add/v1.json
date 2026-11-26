@@ -1,0 +1,53 @@
+{
+  "name": "fail2ban.ban.add",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/BanInput",
+    "$defs": {
+      "BanInput": {
+        "properties": {
+          "jail": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$",
+            "description": "A running jail, such as sshd."
+          },
+          "address": {
+            "type": "string",
+            "description": "An IPv4 or IPv6 address."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "jail",
+          "address"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/BanChanged",
+    "$defs": {
+      "BanChanged": {
+        "properties": {
+          "jail": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "jail",
+          "address"
+        ]
+      }
+    }
+  }
+}

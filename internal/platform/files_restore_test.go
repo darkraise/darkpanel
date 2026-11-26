@@ -160,3 +160,47 @@ func rstDirectory(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 }
+
+func TestMakeDir(t *testing.T) {
+	root := t.TempDir()
+	etc, jail := filepath.Join(root, "fail2ban"), filepath.Join(root, "fail2ban", "jail.d")
+	f, own := fpFiles(t, FilesConfig{Owned: map[string][]core.OwnedPath{"mk": {
+		{Path: etc, Kind: core.OwnedDir}, {Path: jail, Kind: core.OwnedDir},
+	}}})
+	ctx := context.Background()
+	old := syscall.Umask(0o077)
+	defer syscall.Umask(old)
+	if err := f.MakeDir(ctx, "mk", jail); err == nil {
+		t.Error("MakeDir created a directory without its parent")
+	}
+	for _, d := range []string{etc, jail, jail} {
+		if err := f.MakeDir(ctx, "mk", d); err != nil {
+			t.Fatalf("MakeDir %s: %v", d, err)
+		}
+	}
+	info, err := os.Stat(jail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o755 || int(info.Sys().(*syscall.Stat_t).Uid) != os.Geteuid() {
+		t.Errorf("%s: mode %v, want a directory 0755 owned by the agent", jail, info.Mode())
+	}
+	if got, _ := own.List(ctx); len(got) != 0 {
+		t.Errorf("ownership = %+v, want nothing recorded", got)
+	}
+	if err := f.MakeDir(ctx, "mk", filepath.Join(root, "other")); err == nil {
+		t.Error("MakeDir created an undeclared directory")
+	}
+	if err := f.MakeDir(ctx, "other", etc); err == nil {
+		t.Error("MakeDir created another module's directory")
+	}
+	// A symlink in place of the directory is refused, not followed.
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Fatal(err)
+	}
+	f, _ = fpFiles(t, FilesConfig{Owned: map[string][]core.OwnedPath{"mk": {{Path: link, Kind: core.OwnedDir}}}})
+	if err := f.MakeDir(ctx, "mk", link); err == nil {
+		t.Error("MakeDir accepted a symlink")
+	}
+}

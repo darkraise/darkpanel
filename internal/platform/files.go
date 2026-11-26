@@ -51,7 +51,10 @@ type Files struct {
 	locks     map[string]*sync.Mutex // one per declared path; read-only after NewFiles
 }
 
-var _ core.FileWriter = (*Files)(nil)
+var (
+	_ core.FileWriter = (*Files)(nil)
+	_ core.DirMaker   = (*Files)(nil)
+)
 
 // NewFiles returns a writer for cfg.
 func NewFiles(cfg FilesConfig) *Files {

@@ -236,3 +236,44 @@ func TestJournalctlRule(t *testing.T) {
 		t.Error("journalctl allowed at another path")
 	}
 }
+
+func TestFail2banRule(t *testing.T) {
+	r := NewRunner(ProductionRules())
+	allowed := map[string][][]string{
+		Fail2banClientPath: {
+			Fail2banVersion(), Fail2banStatus(""), Fail2banStatus("sshd"), Fail2banStatus("nginx-http-auth"),
+			Fail2banBanTimes("recidive"), Fail2banTest(), Fail2banReload(),
+			Fail2banBan("sshd", "192.0.2.10"), Fail2banUnban("sshd", "2001:db8::1"),
+		},
+		SshdPath:           {SshdEffective()},
+		"/usr/bin/apt-get": {SystemAptRun("install", Fail2banPackages), SystemAptRun("remove", Fail2banPackages), SystemAptPlan("remove", Fail2banPackages), SystemAptResim("remove", Fail2banPackages)},
+	}
+	for path, vectors := range allowed {
+		for _, v := range vectors {
+			if _, err := r.match(path, v); err != nil {
+				t.Errorf("%s %v refused: %v", path, v, err)
+			}
+		}
+	}
+	refused := map[string][]string{
+		"a jail read as an option":   {"status", "-d"},
+		"a jail with a slash":        {"status", "../sshd"},
+		"two jails":                  {"status", "sshd", "recidive"},
+		"a non-canonical address":    {"set", "sshd", "banip", "192.0.2.010"},
+		"an address with a zone":     {"set", "sshd", "banip", "fe80::1%eth0"},
+		"a network":                  {"set", "sshd", "banip", "192.0.2.0/24"},
+		"a jail setting":             {"set", "sshd", "bantime", "1"},
+		"unban everything":           {"unban", "--all"},
+		"stop the server":            {"stop"},
+		"get without --with-time":    {"get", "sshd", "banip"},
+		"an option before a command": {"-c", "/tmp", "reload"},
+	}
+	for name, v := range refused {
+		if _, err := r.match(Fail2banClientPath, v); err == nil {
+			t.Errorf("%s: fail2ban-client %v allowed", name, v)
+		}
+	}
+	if _, err := r.match(SshdPath, []string{"-T", "-f", "/tmp/x"}); err == nil {
+		t.Error("sshd -T -f allowed")
+	}
+}

@@ -1,0 +1,74 @@
+{
+  "name": "fail2ban.ban.list",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/BanListInput",
+    "$defs": {
+      "BanListInput": {
+        "properties": {
+          "jail": {
+            "type": "string",
+            "description": "The jail whose bans to list; every running jail when empty."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/BanList",
+    "$defs": {
+      "Ban": {
+        "properties": {
+          "jail": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "jail",
+          "address",
+          "start"
+        ]
+      },
+      "BanList": {
+        "properties": {
+          "bans": {
+            "items": {
+              "$ref": "#/$defs/Ban"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bans"
+        ]
+      }
+    }
+  }
+}

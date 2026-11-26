@@ -1,0 +1,200 @@
+{
+  "name": "fail2ban.settings.apply",
+  "version": 1,
+  "class": "compensable",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/SettingsInput",
+    "$defs": {
+      "GuardContext": {
+        "properties": {
+          "client": {
+            "$ref": "#/$defs/Peer"
+          },
+          "via": {
+            "$ref": "#/$defs/ProxyPath"
+          },
+          "panelListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentListen": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "type": "string",
+              "format": "ip-address"
+            },
+            "type": "array"
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "Peer": {
+        "properties": {
+          "addr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "addr",
+          "port"
+        ]
+      },
+      "ProxyPath": {
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "proxyAddr": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "listenerAddr": {
+            "type": "string",
+            "format": "ip-address-port"
+          },
+          "public": {
+            "items": {
+              "type": "string",
+              "format": "ip-address-port"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ]
+      },
+      "SettingsInput": {
+        "properties": {
+          "guard": {
+            "$ref": "#/$defs/GuardContext"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "bantimeMinutes": {
+            "type": "integer",
+            "maximum": 43200,
+            "minimum": 1,
+            "description": "How long a ban lasts, 1 minute to 30 days."
+          },
+          "findtimeMinutes": {
+            "type": "integer",
+            "maximum": 1440,
+            "minimum": 1,
+            "description": "The window failures are counted in, 1 minute to 1 day."
+          },
+          "maxRetry": {
+            "type": "integer",
+            "maximum": 20,
+            "minimum": 1,
+            "description": "Failures within the window that ban an address."
+          },
+          "ignoreIp": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 80,
+            "description": "Addresses and networks never banned. Keep every fixed entry fail2ban.status.get lists; the rest are this host's own entries."
+          },
+          "recidive": {
+            "type": "boolean",
+            "description": "Ban for a week, on every port, an address banned again and again."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "bantimeMinutes",
+          "findtimeMinutes",
+          "maxRetry",
+          "ignoreIp",
+          "recidive"
+        ]
+      }
+    }
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Settings",
+    "$defs": {
+      "Settings": {
+        "properties": {
+          "bantimeMinutes": {
+            "type": "integer",
+            "maximum": 43200,
+            "minimum": 1,
+            "description": "How long a ban lasts, 1 minute to 30 days."
+          },
+          "findtimeMinutes": {
+            "type": "integer",
+            "maximum": 1440,
+            "minimum": 1,
+            "description": "The window failures are counted in, 1 minute to 1 day."
+          },
+          "maxRetry": {
+            "type": "integer",
+            "maximum": 20,
+            "minimum": 1,
+            "description": "Failures within the window that ban an address."
+          },
+          "ignoreIp": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 80,
+            "description": "Addresses and networks never banned. Keep every fixed entry fail2ban.status.get lists; the rest are this host's own entries."
+          },
+          "recidive": {
+            "type": "boolean",
+            "description": "Ban for a week, on every port, an address banned again and again."
+          }
+        },
+        "type": "object",
+        "required": [
+          "bantimeMinutes",
+          "findtimeMinutes",
+          "maxRetry",
+          "ignoreIp",
+          "recidive"
+        ]
+      }
+    }
+  }
+}

@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"net/netip"
 	"regexp"
 	"slices"
 	"strconv"
@@ -168,6 +169,8 @@ func systemRules() []ExecRule {
 		{Path: "/usr/bin/apt-config", Match: exactly(SystemAptConfigDump())},
 		{Path: "/usr/sbin/needrestart", Match: exactly(SystemNeedrestart())},
 		{Path: JournalctlPath, Match: execMatchJournalctl},
+		{Path: Fail2banClientPath, Match: execMatchFail2ban},
+		{Path: SshdPath, Match: exactly(SshdEffective())},
 	}
 }
 
@@ -364,4 +367,76 @@ func journalLiteralPattern(p string) bool {
 		return false
 	}
 	return !strings.Contains(strings.ReplaceAll(inner, `\E\\E\Q`, ""), `\E`)
+}
+
+// Fail2banClientPath and SshdPath are the programs of the fail2ban module.
+const (
+	Fail2banClientPath = "/usr/bin/fail2ban-client"
+	SshdPath           = "/usr/sbin/sshd"
+)
+
+// Fail2banPackages are the packages fail2ban.package.install installs and
+// fail2ban.package.remove removes; python3-systemd gives fail2ban its
+// journal backend.
+var Fail2banPackages = []string{"fail2ban", "python3-systemd"}
+
+// fail2banJail is a jail name: never an option, never a path.
+var fail2banJail = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$`)
+
+// Fail2banVersion prints the installed fail2ban's version without asking
+// the server.
+func Fail2banVersion() []string { return []string{"-V"} }
+
+// Fail2banStatus lists the jails, or with a jail its counters and banned
+// addresses.
+func Fail2banStatus(jail string) []string {
+	if jail == "" {
+		return []string{"status"}
+	}
+	return []string{"status", jail}
+}
+
+// Fail2banBanTimes lists a jail's banned addresses with each ban's start,
+// length and end.
+func Fail2banBanTimes(jail string) []string { return []string{"get", jail, "banip", "--with-time"} }
+
+// Fail2banTest checks the configuration without changing the server.
+func Fail2banTest() []string { return []string{"-t"} }
+
+// Fail2banReload makes the server read its configuration again.
+func Fail2banReload() []string { return []string{"reload"} }
+
+// Fail2banBan bans one address in a jail.
+func Fail2banBan(jail, addr string) []string { return []string{"set", jail, "banip", addr} }
+
+// Fail2banUnban unbans one address in a jail.
+func Fail2banUnban(jail, addr string) []string { return []string{"set", jail, "unbanip", addr} }
+
+// SshdEffective prints the SSH daemon's effective configuration.
+func SshdEffective() []string { return []string{"-T"} }
+
+// execMatchFail2ban allows the fixed vectors and those naming one jail and,
+// for a ban, one address in its canonical form.
+func execMatchFail2ban(args []string) error {
+	if execOneOf(args, Fail2banVersion(), Fail2banStatus(""), Fail2banTest(), Fail2banReload()) == nil {
+		return nil
+	}
+	if len(args) < 2 || !fail2banJail.MatchString(args[1]) {
+		return errExecVector
+	}
+	switch args[0] {
+	case "status":
+		return execOneOf(args, Fail2banStatus(args[1]))
+	case "get":
+		return execOneOf(args, Fail2banBanTimes(args[1]))
+	case "set":
+		if len(args) != 4 {
+			return errExecVector
+		}
+		if a, err := netip.ParseAddr(args[3]); err != nil || a.Zone() != "" || a.String() != args[3] {
+			return errExecVector
+		}
+		return execOneOf(args, Fail2banBan(args[1], args[3]), Fail2banUnban(args[1], args[3]))
+	}
+	return errExecVector
 }

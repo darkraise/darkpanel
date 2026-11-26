@@ -426,6 +426,13 @@ func newAgentTaskCmd() *cobra.Command {
 				Side: core.SideAgent, Registry: host.Registry, Validator: schema.NewValidator(),
 				Journal: lifecycle.NewAgentJournal(host.DB), Redact: schema.Redact,
 				ModuleUnits: platform.ModuleUnits(host.Systemd, host.Registry),
+				ModuleEnv: runtime.ModuleProviders(func() string {
+					c, err := daemon.LoadCredentials(p.AgentTLSDir)
+					if err != nil {
+						return ""
+					}
+					return c.Controller.Address
+				}, log),
 				Base: core.Env{
 					DB:   host.DB,
 					Exec: platform.NewRunner(platform.ProductionRules()),

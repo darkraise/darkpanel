@@ -11,6 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -58,6 +61,10 @@ type Config struct {
 	// agent is not enrolled, else whether a controller session is live. A
 	// nil function reports nil, as an agent without a transport does.
 	ControllerConnected func() *bool
+	// ControllerAddress is the host:port of the controller the agent is
+	// enrolled with, "" when it is not; nil means "". Env.ControllerAddrs
+	// resolves it per call.
+	ControllerAddress func() string
 }
 
 func (c Config) check() error {
@@ -140,6 +147,7 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	eng, err := lifecycle.New(lifecycle.Config{
 		Side: core.SideAgent, Registry: cfg.Registry, Validator: schema.NewValidator(), Journal: r.journal,
 		Redact: schema.Redact, Base: r.base, Units: cfg.Units, TaskBinary: cfg.TaskBinary, ModuleUnits: r.moduleUnits,
+		ModuleEnv: r.withProviders,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("runtime: %w", err)
@@ -280,7 +288,57 @@ func (r *Runtime) check(ctx context.Context, m core.Manifest) core.ModuleStatus 
 func (r *Runtime) moduleEnv(module string) core.Env {
 	env := r.base
 	env.Units = r.moduleUnits(module)
-	return env
+	return r.withProviders(module, env)
+}
+
+// controllerAddrsModule is the one module whose Env carries the
+// controller's addresses: fail2ban never bans them.
+const controllerAddrsModule = "fail2ban"
+
+// lookupHost resolves a controller host name; tests replace it.
+var lookupHost = net.DefaultResolver.LookupHost
+
+// withProviders adds module's own providers to env.
+func (r *Runtime) withProviders(module string, env core.Env) core.Env {
+	return ModuleProviders(r.cfg.ControllerAddress, r.cfg.Log)(module, env)
+}
+
+// ModuleProviders is the lifecycle ModuleEnv of an agent engine: it sets
+// Env.ControllerAddrs for the fail2ban module from controllerAddress, the
+// enrolled controller's host:port (nil or "" gives none), resolved on each
+// call. A name that does not resolve within 2 s gives none; log records why.
+func ModuleProviders(controllerAddress func() string, log *slog.Logger) func(module string, env core.Env) core.Env {
+	return func(module string, env core.Env) core.Env {
+		if module == controllerAddrsModule && controllerAddress != nil {
+			env.ControllerAddrs = resolveController(controllerAddress(), log)
+		}
+		return env
+	}
+}
+
+func resolveController(hostport string, log *slog.Logger) []string {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil || host == "" {
+		return nil
+	}
+	if a, err := netip.ParseAddr(host); err == nil {
+		return []string{a.Unmap().String()}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	names, err := lookupHost(ctx, host)
+	if err != nil {
+		log.Warn("runtime: resolve the controller address", "host", host, "error", err)
+		return nil
+	}
+	var out []string
+	for _, n := range names {
+		if a, err := netip.ParseAddr(n); err == nil && !slices.Contains(out, a.Unmap().String()) {
+			out = append(out, a.Unmap().String())
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func (r *Runtime) isBroken(moduleID string) bool {

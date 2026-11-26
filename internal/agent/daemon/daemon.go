@@ -191,6 +191,13 @@ func (d *daemon) open(ctx context.Context, id identity) error {
 		v := d.connected.Load() && !d.cfg.NeverConnected
 		return &v
 	}
+	rc.ControllerAddress = func() string {
+		c, err := LoadCredentials(d.cfg.Paths.AgentTLSDir)
+		if err != nil {
+			return ""
+		}
+		return c.Controller.Address
+	}
 	rt, err := runtime.Open(ctx, rc)
 	if err != nil {
 		return fmt.Errorf("daemon: %w", err)

@@ -62,6 +62,9 @@ type Config struct {
 	// ModuleUnits returns the Env.Units of a handler of module; nil leaves
 	// Env.Units nil.
 	ModuleUnits func(module string) core.Units
+	// ModuleEnv adds the providers a handler of module gets beyond Base and
+	// its unit client, such as Env.ControllerAddrs; nil adds none.
+	ModuleEnv func(module string, env core.Env) core.Env
 	// Suspended reports whether composite recovery, the composite runners,
 	// Wake and module recovery handlers must do nothing (spec 10, restore
 	// quarantine); an error counts as suspended. nil never suspends.
@@ -304,9 +307,12 @@ func (e *Engine) env(p core.Principal, def core.ActionDef) core.Env {
 	env := e.cfg.Base
 	env.Principal = p
 	env.Units = nil
+	module, _, _ := strings.Cut(def.Spec.Name, ".")
 	if e.cfg.ModuleUnits != nil {
-		module, _, _ := strings.Cut(def.Spec.Name, ".")
 		env.Units = e.cfg.ModuleUnits(module)
+	}
+	if e.cfg.ModuleEnv != nil {
+		env = e.cfg.ModuleEnv(module, env)
 	}
 	return env
 }

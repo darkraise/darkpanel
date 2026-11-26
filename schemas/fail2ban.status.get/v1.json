@@ -1,0 +1,130 @@
+{
+  "name": "fail2ban.status.get",
+  "version": 1,
+  "class": "read",
+  "side": "agent",
+  "breakGlass": false,
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {},
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/Status",
+    "$defs": {
+      "Jail": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "banned": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "failedTotal": {
+            "type": "integer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "banned",
+          "failed",
+          "failedTotal"
+        ]
+      },
+      "Settings": {
+        "properties": {
+          "bantimeMinutes": {
+            "type": "integer",
+            "maximum": 43200,
+            "minimum": 1,
+            "description": "How long a ban lasts, 1 minute to 30 days."
+          },
+          "findtimeMinutes": {
+            "type": "integer",
+            "maximum": 1440,
+            "minimum": 1,
+            "description": "The window failures are counted in, 1 minute to 1 day."
+          },
+          "maxRetry": {
+            "type": "integer",
+            "maximum": 20,
+            "minimum": 1,
+            "description": "Failures within the window that ban an address."
+          },
+          "ignoreIp": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 80,
+            "description": "Addresses and networks never banned. Keep every fixed entry fail2ban.status.get lists; the rest are this host's own entries."
+          },
+          "recidive": {
+            "type": "boolean",
+            "description": "Ban for a week, on every port, an address banned again and again."
+          }
+        },
+        "type": "object",
+        "required": [
+          "bantimeMinutes",
+          "findtimeMinutes",
+          "maxRetry",
+          "ignoreIp",
+          "recidive"
+        ]
+      },
+      "Status": {
+        "properties": {
+          "installed": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "jails": {
+            "items": {
+              "$ref": "#/$defs/Jail"
+            },
+            "type": "array"
+          },
+          "crowdsec": {
+            "type": "boolean"
+          },
+          "settings": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Settings"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ignoreFixed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "required": [
+          "installed",
+          "service",
+          "jails",
+          "crowdsec",
+          "ignoreFixed"
+        ]
+      }
+    }
+  }
+}

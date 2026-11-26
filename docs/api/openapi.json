@@ -8935,6 +8935,497 @@
         ],
         "type": "object"
       },
+      "fail2ban.ban.add.v1.input": {
+        "$ref": "#/components/schemas/fail2ban.ban.add.v1.input.BanInput"
+      },
+      "fail2ban.ban.add.v1.input.BanInput": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "description": "An IPv4 or IPv6 address.",
+            "type": "string"
+          },
+          "jail": {
+            "description": "A running jail, such as sshd.",
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jail",
+          "address"
+        ],
+        "type": "object"
+      },
+      "fail2ban.ban.add.v1.output": {
+        "$ref": "#/components/schemas/fail2ban.ban.add.v1.output.BanChanged"
+      },
+      "fail2ban.ban.add.v1.output.BanChanged": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "jail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jail",
+          "address"
+        ],
+        "type": "object"
+      },
+      "fail2ban.ban.list.v1.input": {
+        "$ref": "#/components/schemas/fail2ban.ban.list.v1.input.BanListInput"
+      },
+      "fail2ban.ban.list.v1.input.BanListInput": {
+        "additionalProperties": false,
+        "properties": {
+          "jail": {
+            "description": "The jail whose bans to list; every running jail when empty.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "fail2ban.ban.list.v1.output": {
+        "$ref": "#/components/schemas/fail2ban.ban.list.v1.output.BanList"
+      },
+      "fail2ban.ban.list.v1.output.Ban": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "end": {
+            "oneOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jail": {
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jail",
+          "address",
+          "start"
+        ],
+        "type": "object"
+      },
+      "fail2ban.ban.list.v1.output.BanList": {
+        "properties": {
+          "bans": {
+            "items": {
+              "$ref": "#/components/schemas/fail2ban.ban.list.v1.output.Ban"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "bans"
+        ],
+        "type": "object"
+      },
+      "fail2ban.ban.remove.v1.input": {
+        "$ref": "#/components/schemas/fail2ban.ban.remove.v1.input.BanInput"
+      },
+      "fail2ban.ban.remove.v1.input.BanInput": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "description": "An IPv4 or IPv6 address.",
+            "type": "string"
+          },
+          "jail": {
+            "description": "A running jail, such as sshd.",
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "jail",
+          "address"
+        ],
+        "type": "object"
+      },
+      "fail2ban.ban.remove.v1.output": {
+        "$ref": "#/components/schemas/fail2ban.ban.remove.v1.output.BanChanged"
+      },
+      "fail2ban.ban.remove.v1.output.BanChanged": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "jail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jail",
+          "address"
+        ],
+        "type": "object"
+      },
+      "fail2ban.package.install.v1.input": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "fail2ban.package.install.v1.output": {
+        "$ref": "#/components/schemas/fail2ban.package.install.v1.output.Packages"
+      },
+      "fail2ban.package.install.v1.output.Packages": {
+        "properties": {
+          "packages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "packages"
+        ],
+        "type": "object"
+      },
+      "fail2ban.package.remove.v1.input": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "fail2ban.package.remove.v1.output": {
+        "$ref": "#/components/schemas/fail2ban.package.remove.v1.output.Packages"
+      },
+      "fail2ban.package.remove.v1.output.Packages": {
+        "properties": {
+          "packages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "packages"
+        ],
+        "type": "object"
+      },
+      "fail2ban.settings.apply.v1.input": {
+        "$ref": "#/components/schemas/fail2ban.settings.apply.v1.input.SettingsInput"
+      },
+      "fail2ban.settings.apply.v1.input.GuardContext": {
+        "additionalProperties": false,
+        "properties": {
+          "agentListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "agentPeers": {
+            "items": {
+              "format": "ip-address",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/fail2ban.settings.apply.v1.input.Peer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "panelListen": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/components/schemas/fail2ban.settings.apply.v1.input.ProxyPath"
+          }
+        },
+        "type": "object"
+      },
+      "fail2ban.settings.apply.v1.input.Peer": {
+        "additionalProperties": false,
+        "properties": {
+          "addr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "addr",
+          "port"
+        ],
+        "type": "object"
+      },
+      "fail2ban.settings.apply.v1.input.ProxyPath": {
+        "additionalProperties": false,
+        "properties": {
+          "exposureId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "listenerAddr": {
+            "format": "ip-address-port",
+            "type": "string"
+          },
+          "proxyAddr": {
+            "format": "ip-address",
+            "type": "string"
+          },
+          "public": {
+            "items": {
+              "format": "ip-address-port",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "exposureId",
+          "kind",
+          "proxyAddr",
+          "listenerAddr",
+          "public"
+        ],
+        "type": "object"
+      },
+      "fail2ban.settings.apply.v1.input.SettingsInput": {
+        "additionalProperties": false,
+        "properties": {
+          "bantimeMinutes": {
+            "description": "How long a ban lasts, 1 minute to 30 days.",
+            "maximum": 43200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "findtimeMinutes": {
+            "description": "The window failures are counted in, 1 minute to 1 day.",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "guard": {
+            "$ref": "#/components/schemas/fail2ban.settings.apply.v1.input.GuardContext"
+          },
+          "ignoreIp": {
+            "description": "Addresses and networks never banned. Keep every fixed entry fail2ban.status.get lists; the rest are this host's own entries.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 80,
+            "type": "array"
+          },
+          "maxRetry": {
+            "description": "Failures within the window that ban an address.",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "overrides": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "recidive": {
+            "description": "Ban for a week, on every port, an address banned again and again.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bantimeMinutes",
+          "findtimeMinutes",
+          "maxRetry",
+          "ignoreIp",
+          "recidive"
+        ],
+        "type": "object"
+      },
+      "fail2ban.settings.apply.v1.output": {
+        "$ref": "#/components/schemas/fail2ban.settings.apply.v1.output.Settings"
+      },
+      "fail2ban.settings.apply.v1.output.Settings": {
+        "properties": {
+          "bantimeMinutes": {
+            "description": "How long a ban lasts, 1 minute to 30 days.",
+            "maximum": 43200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "findtimeMinutes": {
+            "description": "The window failures are counted in, 1 minute to 1 day.",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "ignoreIp": {
+            "description": "Addresses and networks never banned. Keep every fixed entry fail2ban.status.get lists; the rest are this host's own entries.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 80,
+            "type": "array"
+          },
+          "maxRetry": {
+            "description": "Failures within the window that ban an address.",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "recidive": {
+            "description": "Ban for a week, on every port, an address banned again and again.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bantimeMinutes",
+          "findtimeMinutes",
+          "maxRetry",
+          "ignoreIp",
+          "recidive"
+        ],
+        "type": "object"
+      },
+      "fail2ban.status.get.v1.input": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "fail2ban.status.get.v1.output": {
+        "$ref": "#/components/schemas/fail2ban.status.get.v1.output.Status"
+      },
+      "fail2ban.status.get.v1.output.Jail": {
+        "properties": {
+          "banned": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "failedTotal": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "banned",
+          "failed",
+          "failedTotal"
+        ],
+        "type": "object"
+      },
+      "fail2ban.status.get.v1.output.Settings": {
+        "properties": {
+          "bantimeMinutes": {
+            "description": "How long a ban lasts, 1 minute to 30 days.",
+            "maximum": 43200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "findtimeMinutes": {
+            "description": "The window failures are counted in, 1 minute to 1 day.",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "ignoreIp": {
+            "description": "Addresses and networks never banned. Keep every fixed entry fail2ban.status.get lists; the rest are this host's own entries.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 80,
+            "type": "array"
+          },
+          "maxRetry": {
+            "description": "Failures within the window that ban an address.",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "recidive": {
+            "description": "Ban for a week, on every port, an address banned again and again.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bantimeMinutes",
+          "findtimeMinutes",
+          "maxRetry",
+          "ignoreIp",
+          "recidive"
+        ],
+        "type": "object"
+      },
+      "fail2ban.status.get.v1.output.Status": {
+        "properties": {
+          "crowdsec": {
+            "type": "boolean"
+          },
+          "ignoreFixed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "jails": {
+            "items": {
+              "$ref": "#/components/schemas/fail2ban.status.get.v1.output.Jail"
+            },
+            "type": "array"
+          },
+          "service": {
+            "type": "string"
+          },
+          "settings": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/fail2ban.status.get.v1.output.Settings"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "installed",
+          "service",
+          "jails",
+          "crowdsec",
+          "ignoreFixed"
+        ],
+        "type": "object"
+      },
       "firewall.container.allow.v1.input": {
         "$ref": "#/components/schemas/firewall.container.allow.v1.input.ContainerAllowInput"
       },
@@ -32422,6 +32913,673 @@
           }
         ],
         "summary": "Remove a volume and the data in it."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.ban.add/v1/apply": {
+      "post": {
+        "operationId": "fail2ban.ban.add.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Ban an address in a jail."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.ban.add/v1/plan": {
+      "post": {
+        "operationId": "fail2ban.ban.add.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/fail2ban.ban.add.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Ban an address in a jail."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.ban.list/v1/read": {
+      "post": {
+        "operationId": "fail2ban.ban.list.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/fail2ban.ban.list.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/fail2ban.ban.list.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "List the addresses fail2ban bans, with each ban's start and end."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.ban.remove/v1/apply": {
+      "post": {
+        "operationId": "fail2ban.ban.remove.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Unban an address in a jail."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.ban.remove/v1/plan": {
+      "post": {
+        "operationId": "fail2ban.ban.remove.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/fail2ban.ban.remove.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Unban an address in a jail."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.package.install/v1/apply": {
+      "post": {
+        "operationId": "fail2ban.package.install.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install fail2ban and python3-systemd with Darkpanel's settings written first."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.package.install/v1/plan": {
+      "post": {
+        "operationId": "fail2ban.package.install.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/fail2ban.package.install.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Install fail2ban and python3-systemd with Darkpanel's settings written first."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.package.remove/v1/apply": {
+      "post": {
+        "operationId": "fail2ban.package.remove.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove fail2ban and python3-systemd; Darkpanel's settings file stays."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.package.remove/v1/plan": {
+      "post": {
+        "operationId": "fail2ban.package.remove.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/fail2ban.package.remove.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Remove fail2ban and python3-systemd; Darkpanel's settings file stays."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.settings.apply/v1/apply": {
+      "post": {
+        "operationId": "fail2ban.settings.apply.v1.apply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Change"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Write fail2ban's jail settings and reload it; undo puts the previous settings back."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.settings.apply/v1/plan": {
+      "post": {
+        "operationId": "fail2ban.settings.apply.v1.plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/fail2ban.settings.apply.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Write fail2ban's jail settings and reload it; undo puts the previous settings back."
+      }
+    },
+    "/api/v1/hosts/{host}/actions/fail2ban.status.get/v1/read": {
+      "post": {
+        "operationId": "fail2ban.status.get.v1.read",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "$ref": "#/components/schemas/fail2ban.status.get.v1.input"
+                  }
+                },
+                "required": [
+                  "input"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "output": {
+                      "$ref": "#/components/schemas/fail2ban.status.get.v1.output"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "token": []
+          }
+        ],
+        "summary": "Read fail2ban's version, service state, jails and settings, and whether CrowdSec is installed."
       }
     },
     "/api/v1/hosts/{host}/actions/firewall.container.allow/v1/apply": {

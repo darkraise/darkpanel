@@ -160,6 +160,9 @@ type Env struct {
 	Agents    HostDirectory
 	Units     Units     // the action's module's unit client; nil on the controller
 	Listeners Listeners // controller-side actions only; nil on the agent
+	// ControllerAddrs are the addresses the agent's configured controller
+	// endpoint resolves to, resolved per call; set for module fail2ban.
+	ControllerAddrs []string
 }
 
 // CallContext is why a change runs. It comes from the controller, never from
@@ -741,6 +744,13 @@ type FileWriter interface {
 	// module's, so a plan can refuse to take over a pre-existing file, unit
 	// file or directory.
 	Owns(ctx context.Context, module, path string) (bool, error)
+}
+
+// DirMaker is implemented by the agent's FileWriter. MakeDir creates a
+// directory the module declares as kind dir, root-owned with mode 0755,
+// when it is absent, and records nothing.
+type DirMaker interface {
+	MakeDir(ctx context.Context, module, dir string) error
 }
 
 // OwnedEntry is one path or block Darkpanel wrote.

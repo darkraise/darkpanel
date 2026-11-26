@@ -3,8 +3,11 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
+	"slices"
 	"sync"
 	"testing"
 
@@ -147,5 +150,36 @@ func TestRuntimeWithoutUnits(t *testing.T) {
 	want := map[string]string{"preflight": "nil", "resource": "nil", "apply": "nil", "core read": "nil"}
 	if got := uexRun(t, nil); !maps.Equal(got, want) {
 		t.Errorf("unit clients allowed %v, want %v", got, want)
+	}
+}
+
+func TestModuleProviders(t *testing.T) {
+	log := slog.New(slog.DiscardHandler)
+	addr := "192.0.2.5:8443"
+	providers := ModuleProviders(func() string { return addr }, log)
+	if got := providers("fail2ban", core.Env{}).ControllerAddrs; !slices.Equal(got, []string{"192.0.2.5"}) {
+		t.Errorf("an address literal resolves to %v", got)
+	}
+	if got := providers("services", core.Env{}).ControllerAddrs; got != nil {
+		t.Errorf("another module gets %v", got)
+	}
+	defer func(old func(context.Context, string) ([]string, error)) { lookupHost = old }(lookupHost)
+	lookupHost = func(_ context.Context, host string) ([]string, error) {
+		if host != "panel.example.net" {
+			return nil, errors.New("no such host")
+		}
+		return []string{"2001:db8::7", "::ffff:198.51.100.7", "198.51.100.7"}, nil
+	}
+	addr = "panel.example.net:443"
+	if got := providers("fail2ban", core.Env{}).ControllerAddrs; !slices.Equal(got, []string{"198.51.100.7", "2001:db8::7"}) {
+		t.Errorf("a name resolves to %v", got)
+	}
+	addr = "missing.example.net:443"
+	if got := providers("fail2ban", core.Env{}).ControllerAddrs; got != nil {
+		t.Errorf("a name that does not resolve gives %v", got)
+	}
+	addr = ""
+	if got := ModuleProviders(nil, log)("fail2ban", core.Env{}).ControllerAddrs; got != nil {
+		t.Errorf("an agent without a controller gets %v", got)
 	}
 }
