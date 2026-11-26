@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import type { Page, Route } from "@playwright/test"
 import type { AuditEntry, Change, Host, Plan, Rollout, RolloutHost, Session, Step, UpdateTransaction } from "../src/api/types"
 import type { ContainerDetail, DockerContainer, DockerNetwork } from "../src/modules/docker/types"
@@ -680,6 +681,11 @@ interface Applied {
   revoked: Set<string>
   deleted: Set<string>
   rollouts: Rollout[]
+  // The M11 users state: accounts users.user.create added, the keys of each,
+  // and whether the session stepped up.
+  accounts: m11.M11Account[]
+  keys: Map<string, typeof m11.keysDeploy.keys>
+  elevated: boolean
 }
 
 // m11Host gives web-1 the six M11 modules, console and jobs off as they ship.
@@ -699,8 +705,7 @@ const READS: Record<string, (worstCase: boolean, applied: Applied, sys: SystemCo
   // The M11 reads; worstCase answers each list's worst case.
   "services.unit.list": (worstCase) => ({ units: worstCase ? m11.unitsWorst : m11.unitsDefault }),
   "services.journal.query": (worstCase) => (worstCase ? m11.journalWorst : m11.journalDefault),
-  "users.user.list": (worstCase) => ({ accounts: worstCase ? m11.accountsWorst : m11.accountsDefault }),
-  "users.key.list": () => m11.keysDeploy,
+  "users.user.list": (worstCase, applied) => ({ accounts: [...(worstCase ? m11.accountsWorst : m11.accountsDefault), ...applied.accounts] }),
   "users.sshd.get": () => m11.sshdState,
   "fail2ban.status.get": () => m11.fail2banInstalled,
   "fail2ban.ban.list": (worstCase) => ({ bans: worstCase ? m11.bansWorst : m11.bansDefault }),
@@ -870,15 +875,38 @@ function applies(name: string, changes: Map<string, Change>, input: Record<strin
 
 const M11_CHANGE_ID = "01JE000000000000000000C011"
 
-// m11Plans plans the M11 unit operations: a protected unit asks its name.
-function m11Plans(name: string, input: Record<string, unknown>): Reply | null {
+// The users actions that need a step-up window (M11 spec section 0).
+const M11_STEP_UP = new Set(["users.user.create", "users.key.add", "users.password.set", "users.sudo.add"])
+
+// keyOf is the key row users.key.list answers for a key line.
+function keyOf(line: string): (typeof m11.keysDeploy.keys)[number] {
+  const [type = "", data = "", ...comment] = line.trim().split(/ +/)
+  const fingerprint = `SHA256:${createHash("sha256").update(Buffer.from(data, "base64")).digest("base64").replace(/=+$/, "")}`
+  return { type, bits: type === "ssh-ed25519" ? 256 : 0, fingerprint, comment: comment.join(" "), options: "" }
+}
+
+// m11Plans plans the M11 unit and account operations: a protected unit asks
+// its name, a step-up action outside the window is refused.
+function m11Plans(name: string, input: Record<string, unknown>, applied: Applied): Reply | null {
+  if (M11_STEP_UP.has(name) && !applied.elevated) return problem(403, "auth.step_up_required", "enter an authenticator code to continue")
+  if (name.startsWith("users.")) {
+    const who = typeof input.name === "string" ? input.name : ""
+    return { json: plan({ action: name, diff: [{ op: "+", text: `${who}: ${name.slice("users.".length)}` }], confirmation: name === "users.user.delete" ? who : null }) }
+  }
   if (!name.startsWith("services.unit.")) return null
   const unit = typeof input.unit === "string" ? input.unit : ""
   const confirmation = m11.protectedUnits.includes(unit) ? unit : null
   return { json: plan({ action: name, diff: [{ op: "+", text: `${unit}: ${name.slice("services.unit.".length)}` }], confirmation }) }
 }
 
-function m11Applies(name: string): Change | null {
+function m11Applies(name: string, input: Record<string, unknown>, applied: Applied): Change | null {
+  if (name === "users.user.create" && typeof input.name === "string") {
+    const keys = Array.isArray(input.keys) ? input.keys.filter((k): k is string => typeof k === "string").map(keyOf) : []
+    const uid = 1100 + applied.accounts.length
+    applied.accounts.push({ name: input.name, uid, home: `/home/${input.name}`, shell: "/bin/bash", groups: [input.name], sudo: input.sudo === true, locked: false, passwordSet: typeof input.password === "string", keys: keys.length })
+    applied.keys.set(input.name, keys)
+  }
+  if (name.startsWith("users.")) return change({ id: M11_CHANGE_ID, action: name, class: "compensable", state: "completed" })
   if (!name.startsWith("services.unit.")) return null
   return change({ id: M11_CHANGE_ID, action: name, class: "compensable", state: "completed" })
 }
@@ -904,7 +932,7 @@ export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?:
   const fixtures: Fixtures = { unhandled: [] }
   const changes = new Map<string, Change>()
   const planned = new Map<string, Record<string, unknown>>()
-  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [] }
+  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false }
   const worstCase = opts.worstCase ?? false
   const sys = systemContext(opts.systemState, worstCase)
   const steps = new Map<string, Step[]>()
@@ -955,7 +983,9 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
   if (path === "/api/v1/auth/login") return problem(401, "auth.invalid", "Login failed.")
   if (path === "/api/v1/auth/logout") return { status: 204 }
   if (path === "/api/v1/auth/step-up" && method === "POST") {
-    return bodyOf(route).code === "123456" ? { status: 204 } : problem(401, "auth.invalid_credentials", "wrong authenticator code")
+    if (bodyOf(route).code !== "123456") return problem(401, "auth.invalid_credentials", "wrong authenticator code")
+    applied.elevated = true
+    return { status: 204 }
   }
   // No OIDC provider and no Tailscale listener: the login page offers only the form.
   if (path === "/api/v1/auth/methods") return { json: { oidc: null, tailscale: false } }
@@ -969,6 +999,10 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
     const fleet = (worstCase ? worstHosts : hosts).map((h) => systemHost(h, sys))
     switch (action[3]) {
       case "read": {
+        if (name === "users.key.list") {
+          const who = bodyOf(route).input?.name
+          return { json: { output: who === "deploy" ? m11.keysDeploy : { keys: (typeof who === "string" && applied.keys.get(who)) || [] } } }
+        }
         if (name === "system.packages.search") {
           const term = bodyOf(route).input?.term
           return { json: { output: searchHits(typeof term === "string" ? term : "", sys) } }
@@ -979,13 +1013,13 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
       case "plan": {
         const input = bodyOf(route).input ?? {}
         planned.set(name, input)
-        const m11Plan = m11Plans(name, input)
+        const m11Plan = state.m11 ? m11Plans(name, input, applied) : null
         if (m11Plan !== null) return m11Plan
         return systemPlan(name, input, hostNamed(fleet, HOST_ID), sys, worstCase) ?? plans(name, input, fleet)
       }
       default: {
         const input = planned.get(name) ?? {}
-        const m11Change = m11Applies(name)
+        const m11Change = state.m11 ? m11Applies(name, input, applied) : null
         if (m11Change !== null) {
           changes.set(m11Change.id, m11Change)
           return { json: m11Change }

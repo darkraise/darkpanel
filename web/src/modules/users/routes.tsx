@@ -1,11 +1,14 @@
+import { Route, Routes } from "react-router"
 import { EmptyState } from "darkraise-ui/components/empty-state"
+import type { ModuleRouteProps } from "@/modules/types"
+import { UsersPage } from "./users-page"
 
-// The Users and SSH pages under /hosts/:hostId/users/, a placeholder until they are built.
-export default function UsersRoutes() {
+// The users module's pages under /hosts/:hostId/users/.
+export default function UsersRoutes({ hostId }: ModuleRouteProps) {
   return (
-    <>
-      <h2 className="sr-only">Users and SSH</h2>
-      <EmptyState title="Users and SSH" description="This page is not built yet." />
-    </>
+    <Routes>
+      <Route index element={<UsersPage hostId={hostId} />} />
+      <Route path="*" element={<EmptyState title="Page not found" description="The users module has no page at this address." />} />
+    </Routes>
   )
 }
