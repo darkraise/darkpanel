@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -267,8 +268,31 @@ func TestEraseOnEnd(t *testing.T) {
 		// A second purge finds nothing left to erase.
 		before, _ := x.input(t, id)
 		purgeLater(t, x)
-		if after, _ := x.input(t, id); len(after) != len(before) {
+		if after, _ := x.input(t, id); !reflect.DeepEqual(after, before) {
 			t.Errorf("second purge changed %v to %v", before, after)
+		}
+	})
+
+	// A change repaired from its stored input is repaired while its plan
+	// lives, and refused once the purge may have erased its secrets.
+	t.Run("agent/repair after the erase", func(t *testing.T) {
+		x := newEraEngine(t, store.SideAgent)
+		id := plan(t, x, "era.pass.set", "lost")
+		// The change an apply cut off by a crash leaves in needs_repair.
+		now := formatTime(x.clock.Now())
+		if _, err := x.db.Writer().Exec(`INSERT INTO core_changes (id, plan_id, host_id, action, version, class,
+			compensated_by, actor, state, input_json, created_at, updated_at)
+			VALUES ('C-LOST', ?, ?, 'era.pass.set', 1, 'compensable', '', 'user:alice', ?, '{}', ?, ?)`,
+			id, testHost, core.StateNeedsRepair, now, now); err != nil {
+			t.Fatal(err)
+		}
+		if res, err := x.eng.Repair(ctx, alice, "C-LOST", core.RepairRequest{}); err != nil || res.Plan == nil {
+			t.Fatalf("repair before the plan expired: %+v, %v", res, err)
+		}
+		purgeLater(t, x)
+		_, err := x.eng.Repair(ctx, alice, "C-LOST", core.RepairRequest{})
+		if err == nil || !strings.Contains(err.Error(), "secret inputs were erased") {
+			t.Errorf("repair after the erase: %v, want a refusal naming the erase", err)
 		}
 	})
 }

@@ -582,7 +582,8 @@ func (e *Engine) eraseExpired(ctx context.Context, tx *sql.Tx, now time.Time) er
 		}
 		sealed, err := e.cfg.Base.Sealer.Seal(planInputAD(p.id), kept)
 		if err != nil {
-			return fmt.Errorf("lifecycle: seal the input of plan %s: %w", p.id, err)
+			e.cfg.Base.Log.Error("lifecycle: reseal an expired plan's erased input", "plan", p.id, "error", err)
+			continue
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE core_plans SET input_ct = ? WHERE id = ?", sealed, p.id); err != nil {
 			return err

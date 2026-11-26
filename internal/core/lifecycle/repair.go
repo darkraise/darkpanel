@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
@@ -100,7 +101,7 @@ func (e *Engine) Repair(ctx context.Context, p core.Principal, changeID string, 
 		if err := noRepairInput(req); err != nil {
 			return core.RepairResult{}, err
 		}
-		input, err := e.storedRepairInput(ctx, q, f)
+		input, err := e.storedRepairInput(ctx, q, f, def)
 		if err != nil {
 			return core.RepairResult{}, err
 		}
@@ -188,11 +189,18 @@ func checkRepairedBy(cfg Config) error {
 }
 
 // storedRepairInput opens the input a change's plan was made with; it is
-// kept until the change is terminal (spec 1.2, Sealed input).
-func (e *Engine) storedRepairInput(ctx context.Context, q queryer, f changeFacts) (json.RawMessage, error) {
+// kept until the change is terminal (spec 1.2, Sealed input). An input with
+// secret:"erase" fields is refused once its plan has expired: the purge
+// erases those fields, and a repair must not run without them.
+func (e *Engine) storedRepairInput(ctx context.Context, q queryer, f changeFacts, def core.ActionDef) (json.RawMessage, error) {
 	var ct []byte
-	if err := q.QueryRowContext(ctx, "SELECT input_ct FROM core_plans WHERE id = ?", f.planID).Scan(&ct); err != nil {
+	var expires string
+	if err := q.QueryRowContext(ctx, "SELECT input_ct, expires_at FROM core_plans WHERE id = ?", f.planID).Scan(&ct, &expires); err != nil {
 		return nil, fmt.Errorf("lifecycle: read the input of change %s: %w", f.id, err)
+	}
+	if hasEraseField(def.InputType, map[reflect.Type]bool{}) && expires <= formatTime(e.cfg.Base.Clock.Now()) {
+		return nil, errcode.New(errcode.ChangeNotPending, fmt.Sprintf(
+			"change %s cannot be repaired from its stored input: its plan expired and its secret inputs were erased; release it and plan the change again", f.id))
 	}
 	if ct == nil {
 		return nil, fmt.Errorf("lifecycle: the sealed input of change %s is gone", f.id)

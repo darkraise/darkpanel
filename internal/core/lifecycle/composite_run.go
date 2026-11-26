@@ -1228,7 +1228,7 @@ func (e *Engine) isComposite(ctx context.Context, changeID string) (bool, error)
 }
 
 // compositeSecretType reports whether values of t carry a field tagged
-// secret:"true" at any depth.
+// secret:"true" or secret:"erase" at any depth.
 func compositeSecretType(t reflect.Type) bool {
 	return compositeSecretIn(t, map[reflect.Type]bool{})
 }
