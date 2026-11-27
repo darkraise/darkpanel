@@ -540,3 +540,144 @@ func TestA13_ShellHonouringSIGHUPEndsAtOnce(t *testing.T) {
 		t.Logf("exit code %d", code)
 	}
 }
+
+type homeRig struct {
+	h    *platform.HomeFiles
+	home string
+	uid  int
+}
+
+func newHome(t *testing.T) homeRig {
+	t.Helper()
+	if os.Getuid() != 0 {
+		t.Skip("needs root to chown")
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "home", "u")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(home, 4242, 4243); err != nil {
+		t.Fatal(err)
+	}
+	passwd := filepath.Join(root, "passwd")
+	line := fmt.Sprintf("root:x:0:0:root:/root:/bin/bash\nu:x:4242:4243::%s:/bin/bash\n", home)
+	if err := os.WriteFile(passwd, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return homeRig{h: platform.NewHomeFiles(passwd), home: home, uid: 4242}
+}
+
+func (r homeRig) mkssh(t *testing.T, content string) string {
+	t.Helper()
+	d := filepath.Join(r.home, ".ssh")
+	if err := os.MkdirAll(d, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(d, r.uid, 4243); err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(d, "authorized_keys")
+	if err := os.WriteFile(f, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(f, r.uid, 4243); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func TestA39_KeyFileAccessRefusals(t *testing.T) {
+	ctx := context.Background()
+	t.Run("a regular file is read and written", func(t *testing.T) {
+		r := newHome(t)
+		r.mkssh(t, "ssh-ed25519 AAAA one\n")
+		b, err := r.h.ReadAuthorizedKeys(ctx, "u")
+		if err != nil || string(b) != "ssh-ed25519 AAAA one\n" {
+			t.Fatalf("read %q, %v", b, err)
+		}
+		if err := r.h.WriteAuthorizedKeys(ctx, "u", []byte("ssh-ed25519 AAAA two\n")); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	})
+	t.Run(".ssh is a symlink", func(t *testing.T) {
+		r := newHome(t)
+		other := filepath.Join(filepath.Dir(r.home), "elsewhere")
+		_ = os.MkdirAll(other, 0o700)
+		_ = os.WriteFile(filepath.Join(other, "authorized_keys"), []byte("secret\n"), 0o600)
+		if err := os.Symlink(other, filepath.Join(r.home, ".ssh")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.h.ReadAuthorizedKeys(ctx, "u"); err == nil {
+			t.Error("read through a symlinked .ssh accepted")
+		}
+		if err := r.h.WriteAuthorizedKeys(ctx, "u", []byte("ssh-ed25519 AAAA x\n")); err == nil {
+			t.Error("write through a symlinked .ssh accepted")
+		}
+		if b, _ := os.ReadFile(filepath.Join(other, "authorized_keys")); string(b) != "secret\n" {
+			t.Errorf("the file behind the symlink changed: %q", b)
+		}
+	})
+	t.Run("authorized_keys is a symlink", func(t *testing.T) {
+		r := newHome(t)
+		f := r.mkssh(t, "x\n")
+		target := filepath.Join(r.home, "real")
+		_ = os.WriteFile(target, []byte("real\n"), 0o600)
+		_ = os.Remove(f)
+		if err := os.Symlink(target, f); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.h.WriteAuthorizedKeys(ctx, "u", []byte("ssh-ed25519 AAAA x\n")); err == nil {
+			t.Error("write over a symlinked authorized_keys accepted")
+		}
+		if _, err := r.h.ReadAuthorizedKeys(ctx, "u"); err == nil {
+			t.Error("read of a symlinked authorized_keys accepted")
+		}
+		if b, _ := os.ReadFile(target); string(b) != "real\n" {
+			t.Errorf("target changed: %q", b)
+		}
+	})
+	t.Run("authorized_keys is not a regular file", func(t *testing.T) {
+		r := newHome(t)
+		f := r.mkssh(t, "x\n")
+		_ = os.Remove(f)
+		if err := os.Mkdir(f, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.h.ReadAuthorizedKeys(ctx, "u"); err == nil {
+			t.Error("a directory as authorized_keys accepted")
+		}
+	})
+	t.Run("authorized_keys is over 1 MiB", func(t *testing.T) {
+		r := newHome(t)
+		r.mkssh(t, strings.Repeat("a", 1<<20+1))
+		if _, err := r.h.ReadAuthorizedKeys(ctx, "u"); err == nil {
+			t.Error("a 1 MiB + 1 byte authorized_keys accepted")
+		}
+	})
+	t.Run("authorized_keys owned by another user", func(t *testing.T) {
+		r := newHome(t)
+		f := r.mkssh(t, "x\n")
+		if err := os.Chown(f, 5555, 4243); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.h.ReadAuthorizedKeys(ctx, "u"); err == nil {
+			t.Error("authorized_keys owned by a third user accepted")
+		}
+	})
+	for _, mode := range []os.FileMode{0o775, 0o757} {
+		t.Run(fmt.Sprintf("home mode %o", mode), func(t *testing.T) {
+			r := newHome(t)
+			r.mkssh(t, "x\n")
+			if err := os.Chmod(r.home, mode); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.h.WriteAuthorizedKeys(ctx, "u", []byte("ssh-ed25519 AAAA x\n")); err == nil {
+				t.Error("write in a group- or other-writable home accepted")
+			}
+		})
+	}
+}
