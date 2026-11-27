@@ -4,7 +4,9 @@ import (
 	"crypto/tls"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,5 +182,85 @@ func TestA3_AMemberIsRefusedTheTerminalTicket(t *testing.T) {
 			t.Fatal(err)
 		}
 		wantProblem(t, "a member with the "+role+" role", r.postTicket(member, `{"code":"`+r.code(member)+`"}`), http.StatusForbidden, errcode.Forbidden)
+	}
+}
+
+type acceptFileOp struct {
+	op, method, query, body, ctype string
+	needsWindow                    bool
+}
+
+var acceptFileOps = []acceptFileOp{
+	{op: "list", method: "GET", query: "path=/srv"},
+	{op: "stat", method: "GET", query: "path=/srv/a"},
+	{op: "read", method: "GET", query: "path=/srv/a", needsWindow: true},
+	{op: "download", method: "GET", query: "path=/srv/a", needsWindow: true},
+	{op: "write", method: "POST", query: "path=/srv/a&sha256=ab", body: "text\n", ctype: "application/octet-stream", needsWindow: true},
+	{op: "upload", method: "POST", query: "path=/srv/b", body: "bytes", ctype: "application/octet-stream", needsWindow: true},
+	{op: "mkdir", method: "POST", body: `{"path":"/srv/d"}`, ctype: "application/json", needsWindow: true},
+	{op: "rename", method: "POST", body: `{"path":"/srv/d","to":"/srv/e"}`, ctype: "application/json", needsWindow: true},
+	{op: "delete", method: "POST", body: `{"path":"/srv/e","confirm":"/srv/e"}`, ctype: "application/json", needsWindow: true},
+	{op: "chmod", method: "POST", body: `{"path":"/srv/a","mode":"0600"}`, ctype: "application/json", needsWindow: true},
+	{op: "chown", method: "POST", body: `{"path":"/srv/a","uid":0}`, ctype: "application/json", needsWindow: true},
+}
+
+func (f acceptFileOp) req(host string) *http.Request {
+	target := "/api/v1/hosts/" + host + "/files/" + f.op
+	if f.query != "" {
+		target += "?" + f.query
+	}
+	r := httptest.NewRequest(f.method, target, strings.NewReader(f.body))
+	r.RemoteAddr = testRemote
+	if f.ctype != "" {
+		r.Header.Set("Content-Type", f.ctype)
+	}
+	return r
+}
+
+func TestA61_A4_FileListingNeedsNoCodeAndContentAndWritesNeedTheFifteenMinuteWindow(t *testing.T) {
+	h := newHarness(t)
+	fakeFiles(h)
+	session, csrf := h.login()
+	serve := func(f acceptFileOp) *httptest.ResponseRecorder {
+		return h.serve(withSession(f.req(testHostID), session, csrf))
+	}
+	for _, f := range acceptFileOps {
+		rec := serve(f)
+		if f.needsWindow {
+			wantProblem(t, f.op+" before step-up", rec, http.StatusForbidden, errcode.StepUpRequired)
+		} else if rec.Code != http.StatusOK {
+			t.Errorf("%s before step-up: %d %s; listing and stat need no code", f.op, rec.Code, rec.Body)
+		}
+	}
+	stepUp(t, h, h.code(), session, csrf)
+	for _, f := range acceptFileOps {
+		if rec := serve(f); rec.Code >= 400 {
+			t.Errorf("%s inside the window: %d %s", f.op, rec.Code, rec.Body)
+		}
+	}
+	h.clock.Advance(15*time.Minute + time.Second)
+	for _, f := range acceptFileOps {
+		rec := serve(f)
+		if f.needsWindow {
+			wantProblem(t, f.op+" after the window", rec, http.StatusForbidden, errcode.StepUpRequired)
+		} else if rec.Code != http.StatusOK {
+			t.Errorf("%s after the window: %d; listing and stat need no code", f.op, rec.Code)
+		}
+	}
+}
+
+func TestA3_AMemberIsRefusedEveryFileEndpointAndAnUnseenHostIsNotFound(t *testing.T) {
+	h := newHarness(t)
+	fakeFiles(h)
+	qaHosts(t, h, "g1", "x1")
+	qaGroupOf(t, h, "G", "g1")
+	for _, role := range []string{"viewer", "operator"} {
+		as, _ := qaGrantedUser(t, h, "m-"+role, "G="+role)
+		for _, f := range acceptFileOps {
+			wantProblem(t, role+" "+f.op, h.serve(as(f.req("g1"))), http.StatusForbidden, errcode.Forbidden)
+		}
+		for _, f := range acceptFileOps {
+			wantProblem(t, role+" "+f.op+" on a host outside the grants", h.serve(as(f.req("x1"))), http.StatusNotFound, errcode.NotFound)
+		}
 	}
 }
