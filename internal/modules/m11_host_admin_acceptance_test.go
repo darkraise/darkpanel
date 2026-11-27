@@ -45,7 +45,10 @@ func TestA1_ScopesOfSectionZero(t *testing.T) {
 	admin := []string{
 		"services.unit.enable", "services.unit.disable",
 		"users.user.create", "users.user.lock", "users.user.unlock", "users.user.delete",
-		"users.user.password.set", "users.user.password.remove", "users.user.sudo.add", "users.user.sudo.remove",
+		// The spec's users.user.password.* and users.user.sudo.* are
+		// registered as users.password.* and users.sudo.* (plan Header
+		// amendment A32: action names have three parts).
+		"users.password.set", "users.password.remove", "users.sudo.add", "users.sudo.remove",
 		"users.key.add", "users.key.remove", "users.sshd.apply", "users.sshd.repair",
 		"fail2ban.package.install", "fail2ban.package.remove", "fail2ban.settings.apply", "fail2ban.ban.add",
 		"tuning.sysctl.apply", "tuning.sysctl.repair", "tuning.swap.create", "tuning.swap.resize", "tuning.swap.remove",
@@ -101,7 +104,9 @@ func TestA3_EveryJobsActionIsAdminAndTheConsoleHasNoViewerReach(t *testing.T) {
 }
 
 func TestA101_RootGrantingUsersActionsNeedStepUp(t *testing.T) {
-	for _, n := range []string{"users.user.create", "users.key.add", "users.user.password.set", "users.user.sudo.add"} {
+	// users.password.set and users.sudo.add are the spec's
+	// users.user.password.set and users.user.sudo.add (plan amendment A32).
+	for _, n := range []string{"users.user.create", "users.key.add", "users.password.set", "users.sudo.add"} {
 		if !spec(t, n).StepUp {
 			t.Errorf("%s does not require step-up", n)
 		}
