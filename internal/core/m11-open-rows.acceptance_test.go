@@ -21,7 +21,7 @@ func (qaMutator) Plan(_ context.Context, _ core.Env, in qaIn) (core.PlanOutcome,
 	return core.PlanOutcome{Diff: []core.DiffLine{{Op: "+", Text: in.Name}}, StateHash: "h"}, nil
 }
 func (qaMutator) Apply(_ context.Context, _ core.Env, in qaIn) (qaOut, error) {
-	return qaOut{Name: in.Name}, nil
+	return qaOut(in), nil
 }
 func (qaMutator) Verify(context.Context, core.Env, qaIn, qaOut) error { return nil }
 

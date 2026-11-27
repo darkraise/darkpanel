@@ -72,7 +72,7 @@ func TestA15_SSHDirReplacedWhileItIsCreated(t *testing.T) {
 // shell's own gate.
 const a33Gate = shellGate
 
-func a33Run(t *testing.T, send func(w *os.File)) (marker bool, exit error, fd3 bool) {
+func a33Run(t *testing.T, send func(w *os.File)) (marker, fd3 bool, exit error) {
 	t.Helper()
 	dir := t.TempDir()
 	mark := filepath.Join(dir, "profile-ran")
@@ -105,11 +105,11 @@ func a33Run(t *testing.T, send func(w *os.File)) (marker bool, exit error, fd3 b
 	}
 	_, err = os.Stat(mark)
 	_, err3 := os.Stat(mark + ".fd3")
-	return err == nil, exit, err3 == nil
+	return err == nil, err3 == nil, exit
 }
 
 func TestA33_ShellGateRunsTheProfileOnlyAfterOk(t *testing.T) {
-	ran, exit, fd3 := a33Run(t, func(w *os.File) { _, _ = w.Write([]byte("ok\n")) })
+	ran, fd3, exit := a33Run(t, func(w *os.File) { _, _ = w.Write([]byte("ok\n")) })
 	if exit != nil || !ran {
 		t.Errorf("after ok: exit %v, profile ran %v; want exit 0 and the profile run", exit, ran)
 	}
@@ -124,7 +124,7 @@ func TestA33_ShellGateRunsTheProfileOnlyAfterOk(t *testing.T) {
 			_, _ = w.Write([]byte("ok"))
 		},
 	} {
-		ran, exit, _ := a33Run(t, send)
+		ran, _, exit := a33Run(t, send)
 		var ee *exec.ExitError
 		if !errors.As(exit, &ee) || ee.ExitCode() != 1 {
 			t.Errorf("%s: exit %v, want status 1", name, exit)

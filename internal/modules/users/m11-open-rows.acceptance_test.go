@@ -61,7 +61,7 @@ func TestA12_CreateWhosePasswordStepFailsNamesTheAccount(t *testing.T) {
 		r.files[groupFile] += "carol:x:1003:\n"
 	})
 	r.answers[key(platform.ChpasswdPath, platform.Chpasswd())] = core.CmdResult{ExitCode: 1, Stderr: []byte("chpasswd: PAM failure")}
-	_, err := createHandler{m: r.module()}.Apply(context.Background(), r.env(adminP), CreateInput{Name: "carol", Password: "Tr0ub4dor&3x"})
+	_, err := createHandler{m: r.module()}.Apply(context.Background(), r.env(adminP), CreateInput{Name: "carol", Password: "Tr0ub4dor&3x"}) //nolint:gosec // G101: a test password
 	if err == nil {
 		t.Fatal("create with a failing password step succeeded")
 	}
@@ -449,7 +449,7 @@ func TestA36_ErasedSecretsLeaveNoBytesInTheDatabaseOrItsWAL(t *testing.T) {
 	}
 	apply(pv)
 	purge()
-	if text := strings.ToLower(logs.String()); !strings.Contains(text, "checkpoint") || !(strings.Contains(text, "not complete") || strings.Contains(text, "incomplete")) {
+	if text := strings.ToLower(logs.String()); !strings.Contains(text, "checkpoint") || (!strings.Contains(text, "not complete") && !strings.Contains(text, "incomplete")) {
 		t.Errorf("the log %q does not say the checkpoint was incomplete", logs.String())
 	}
 	if err := tx.Rollback(); err != nil {

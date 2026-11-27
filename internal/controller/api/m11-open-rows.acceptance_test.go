@@ -21,7 +21,7 @@ import (
 	"github.com/darkraise/darkpanel/internal/modules/users"
 )
 
-func qaCode(t *testing.T, what string, rec interface{ Result() *http.Response }) (status int, code string) {
+func qaCode(t *testing.T, _ string, rec interface{ Result() *http.Response }) (status int, code string) {
 	t.Helper()
 	res := rec.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -187,7 +187,7 @@ func TestA6_ErrStepUpRequiredIsAnErrcodeError(t *testing.T) {
 	if got := reflect.TypeOf(auth.ErrStepUpRequired()); got != want {
 		t.Errorf("auth.ErrStepUpRequired() has type %v, want %v", got, want)
 	}
-	var e *errcode.Error = auth.ErrStepUpRequired()
+	var e *errcode.Error = auth.ErrStepUpRequired() //nolint:staticcheck // QF1011: the declared type is the A6 check
 	if e.Code != errcode.StepUpRequired {
 		t.Errorf("code %q, want %q", e.Code, errcode.StepUpRequired)
 	}

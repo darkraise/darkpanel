@@ -353,7 +353,7 @@ func TestA28_PreflightRacingAReloadThatAllowsJobsEndsAvailable(t *testing.T) {
 		t.Error("a console open waited for a held jobs check")
 	}
 	_ = b.Close()
-	<-opened
+	<-opened //nolint:errcheck // the channel ends with its connection closed; only its start mattered
 	close(gate.release)
 	if err := <-held; err != nil {
 		t.Error(err)

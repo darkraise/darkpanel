@@ -351,7 +351,8 @@ func TestShellWaitsForScope(t *testing.T) {
 		if !exists() {
 			t.Fatal("the login shell did not run after its scope held it")
 		}
-		if fd3, err := os.ReadFile(marker + ".fd3"); err != nil || string(fd3) != "closed\n" {
+		fd3, err := os.ReadFile(marker + ".fd3") //nolint:gosec // G304: the test's own marker file
+		if err != nil || string(fd3) != "closed\n" {
 			t.Errorf("the login shell %d saw fd 3 %q (%v), want the gate closed", pid, fd3, err)
 		}
 	})

@@ -257,7 +257,7 @@ func TestA24_ListSkipsAVanishedJobThroughTheRuntimesEnv(t *testing.T) {
 }
 
 // qaCalendarRunner runs systemd-analyze on the host for real.
-type qaCalendarRunner struct{ runner }
+type qaCalendarRunner struct{}
 
 func (qaCalendarRunner) Run(ctx context.Context, cmd core.Cmd) (core.CmdResult, error) {
 	out, err := exec.CommandContext(ctx, cmd.Path, cmd.Args...).CombinedOutput() //nolint:gosec // G204: the command the module asks the runner for
