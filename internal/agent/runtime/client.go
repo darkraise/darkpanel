@@ -45,13 +45,16 @@ func (r *Runtime) Preflight(ctx context.Context, moduleID string) (core.ModuleSt
 	}
 	// The check runs without a lock, so other modules never wait on it. A
 	// reload while it ran may have outdated its result, which is then
-	// dropped and the check run again.
+	// dropped and the check run again, until ctx ends.
 	var st core.ModuleStatus
 	for {
 		gen := r.policyGeneration()
 		var ok bool
 		if st, ok = r.setStatusAt(r.check(ctx, m), gen); ok {
 			break
+		}
+		if err := ctx.Err(); err != nil {
+			return core.ModuleStatus{}, err
 		}
 	}
 	if err := r.syncTasks(ctx, moduleID); err != nil {
