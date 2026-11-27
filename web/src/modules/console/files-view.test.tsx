@@ -106,8 +106,8 @@ describe("navigation and states", () => {
     render({ [`GET ${FILES}/list`]: listing({ "/srv/uploads": { path: "/srv/uploads", entries: [long, escaped] } }) }, "/srv/uploads")
     const longCell = (await screen.findByText(long.name)).closest("td")
     const escapedCell = screen.getByText(escaped.name).closest("td")
-    expect(longCell?.className).toContain("break-all")
-    expect(escapedCell?.className).toContain("break-all")
+    expect(longCell?.className).toContain("break-words")
+    expect(escapedCell?.className).toContain("break-words")
     expect(escaped.name).toContain("\\xff")
     await menuOf(escaped.name)
     for (const name of ["Download", "Edit", "Rename", "Permissions", "Delete"]) {
