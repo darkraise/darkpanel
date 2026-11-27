@@ -465,6 +465,9 @@ func TestJobsUnitGuard(t *testing.T) {
 	if err := f.rt.SetModuleEnabled(ctx, "jobs", true); err == nil {
 		t.Fatal("SetModuleEnabled(jobs, true) under a policy denying jobs succeeded")
 	}
+	if v, ok := f.enMeta("jobs"); !ok || v != "1" {
+		t.Fatalf("jobs flag %q (%v), want 1: the case below checks the policy alone", v, ok)
+	}
 	h.units.reset()
 	if err := u.Enable(ctx, guardTimer); !isJobsOff(err) {
 		t.Errorf("Enable with the flag 1 and jobs denied: %v, want jobs is off on this host", err)
