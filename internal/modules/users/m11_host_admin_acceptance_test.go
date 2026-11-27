@@ -192,16 +192,17 @@ func TestA36_APasswordWithCRorLFIsRefusedAndNeverEchoed(t *testing.T) {
 		}
 	}
 	for _, pw := range []string{"abcd1234\nroot:x", "abcd1234\rx", "abcd\x001234", "short", strings.Repeat("a", 257)} {
-		if _, err := plan(t, e, name, map[string]any{"name": "qa-user", "password": pw}); err == nil {
+		if _, err := plan(t, e, name, map[string]any{"name": "root", "password": pw}); err == nil {
 			t.Errorf("password %q was planned", pw)
 		}
 	}
 	pw := "correct horse battery"
-	out, err := plan(t, e, name, map[string]any{"name": "qa-user", "password": pw})
-	if err == nil {
-		blob, _ := json.Marshal(out)
-		if strings.Contains(string(blob), pw) {
-			t.Error("the plan output holds the password")
-		}
+	out, err := plan(t, e, name, map[string]any{"name": "root", "password": pw})
+	if err != nil {
+		t.Fatalf("the control password was refused: %v", err)
+	}
+	blob, _ := json.Marshal(out)
+	if strings.Contains(string(blob), pw) {
+		t.Error("the plan output holds the password")
 	}
 }
