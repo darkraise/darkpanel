@@ -142,7 +142,7 @@ function OtherTasks({ list }: { list: JobList }) {
           ))}
           {list.cron.map((c, i) => (
             <TableRow key={`${c.source}-${i}`}>
-              <TableCell className="max-w-[24rem] break-all font-mono text-xs">{c.command ?? "Cron entry"}</TableCell>
+              <TableCell className="max-w-[24rem] break-all whitespace-normal font-mono text-xs">{c.command ?? "Cron entry"}</TableCell>
               <TableCell className="font-mono text-xs">{c.schedule}</TableCell>
               <TableCell>{c.user}</TableCell>
               <TableCell className="break-all font-mono text-xs">{c.source}</TableCell>

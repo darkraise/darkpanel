@@ -153,7 +153,7 @@ function KeyRow({ k, admin, draft, onDraft }: { k: SysctlKey; admin: boolean; dr
   const later = k.laterFiles ?? []
   return (
     <TableRow>
-      <TableCell className="max-w-[24rem]">
+      <TableCell className="max-w-[24rem] whitespace-normal">
         <span className="break-all font-mono text-xs">{k.key}</span>
         {(k.help ?? "") !== "" && <span className="block text-xs text-muted-foreground">{k.help}</span>}
       </TableCell>
