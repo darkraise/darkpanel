@@ -401,3 +401,57 @@ func TestRepair(t *testing.T) {
 		t.Errorf("sshd.apply spec %+v", s)
 	}
 }
+
+// TestRevertKeepsAnEditedDropIn: a revert leaves a drop-in changed since the
+// apply as it is, with its effect unresolved as a conflict, and an effect in
+// doubt blocks the revert before it touches the file.
+func TestRevertKeepsAnEditedDropIn(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t)
+	r.liveSshd()
+	r.keys["alice"] = ed25519Line(t, "alice@laptop")
+	eng, _, _ := engine(t, r, &bytes.Buffer{})
+	pv := plan(t, eng, "users.sshd.apply", `{"maxAuthTries":3}`)
+	cv, err := eng.Apply(ctx, adminP, pv.PlanID, core.ApplyOptions{})
+	if err != nil || cv.State != core.StatePending {
+		t.Fatalf("apply: %+v, %v", cv, err)
+	}
+	const edited = "MaxAuthTries 3\nX11Forwarding no\n"
+	r.files[dropInFile] = edited
+	r.events = nil
+	if _, err := eng.Revert(ctx, adminP, cv.ID); err != nil {
+		t.Fatalf("revert: %v", err)
+	}
+	if r.files[dropInFile] != edited {
+		t.Errorf("the revert replaced the edited drop-in with %q", r.files[dropInFile])
+	}
+	if got := sideEffects(r.events); len(got) != 0 {
+		t.Errorf("the revert of an edited drop-in did %q, want nothing", got)
+	}
+	views, err := eng.Effects(ctx, cv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].State != core.EffectUnresolved || views[0].Reason != core.ReasonConflict {
+		t.Errorf("effects after the revert %+v, want one unresolved conflict", views)
+	}
+
+	env := r.env(adminP)
+	env.Effects = listedEffects{effects: []core.Effect{{Seq: 1, State: core.EffectIntended}}}
+	r.events = nil
+	_, err = sshdHandler{m: r.module()}.Revert(ctx, env, []byte("null"))
+	if err == nil || !strings.Contains(err.Error(), "repair the change") {
+		t.Errorf("revert with an effect in doubt = %v, want a refusal naming the repair", err)
+	}
+	if r.files[dropInFile] != edited || len(sideEffects(r.events)) != 0 {
+		t.Errorf("a revert blocked by an effect in doubt changed the host: %q", sideEffects(r.events))
+	}
+}
+
+// listedEffects is a journal that only lists its effects.
+type listedEffects struct {
+	core.EffectJournal
+	effects []core.Effect
+}
+
+func (l listedEffects) List(context.Context) ([]core.Effect, error) { return l.effects, nil }
