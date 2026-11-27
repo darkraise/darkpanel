@@ -173,3 +173,44 @@ func TestA49_A93_BanAddRefusesIgnoredAddressesAndTheCallersOwn(t *testing.T) {
 		}
 	}
 }
+
+type crowdUnits struct{ core.Units }
+
+func (crowdUnits) State(_ context.Context, name string) (core.UnitState, error) {
+	if name == "crowdsec.service" || name == "fail2ban.service" {
+		return core.UnitState{LoadState: "loaded", ActiveState: "active", SubState: "running"}, nil
+	}
+	return core.UnitState{LoadState: "not-found", ActiveState: "inactive"}, nil
+}
+
+func TestA50_WithCrowdSecThePageReportsItAndInstallIsRefused(t *testing.T) {
+	ev := &events{}
+	env := core.Env{HostID: "h1", Principal: admin, Exec: f2bRunner{ev: ev}, Files: files{ev: ev}, Units: crowdUnits{}}
+	m := fail2ban.Module().Manifest()
+	var install, status core.ActionDef
+	for _, a := range m.Actions {
+		switch a.Spec.Name {
+		case "fail2ban.package.install":
+			install = a
+		case "fail2ban.status.get":
+			status = a
+		}
+	}
+	if _, err := install.Handler.Plan(context.Background(), env, json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "CrowdSec") {
+		t.Errorf("install with CrowdSec present: %v; want a refusal naming CrowdSec", err)
+	}
+	out, err := status.Handler.Read(context.Background(), env, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	var st struct {
+		Installed bool `json:"installed"`
+		CrowdSec  bool `json:"crowdsec"`
+	}
+	if err := json.Unmarshal(out, &st); err != nil {
+		t.Fatal(err)
+	}
+	if !st.CrowdSec || !st.Installed {
+		t.Errorf("status %s; want crowdsec true and the existing fail2ban reported installed", out)
+	}
+}
