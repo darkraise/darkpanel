@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { renderWithProviders, stubFetch } from "@/test/utils"
-import { AGENT_TOO_OLD, closedFor, HOST_OFFLINE, type TerminalSurface } from "./terminal"
+import type { TerminalSurface } from "./terminal"
 import { STEP_UP_REASON, TerminalView } from "./terminal-view"
 
 const TICKET = "POST /api/v1/hosts/h1/channels/console/terminal/ticket"
@@ -149,17 +149,28 @@ describe("states and reasons", () => {
   })
 
   test.each([
-    ["idle", true],
-    ["expired", false],
-    ["console.limit", true],
-    ["agent restarted", true],
-  ])("a close with reason %s shows its text, Reconnect %s", async (reason, reconnect) => {
+    ["idle", "Closed after 30 minutes without input", "Closed: idle for 30 minutes", true],
+    ["expired", "Your sign-in session ended; sign in again to open a terminal", "Closed: session expired", false],
+    ["console.limit", "Too many open terminals; close one, then reconnect", "Closed: session limit", true],
+    ["agent restarted", "The agent restarted; open a new terminal", "Closed: agent restarted", true],
+    ["disconnected", "The agent restarted; open a new terminal", "Closed: agent restarted", true],
+    ["revoked", "Your access to this host was revoked", "Closed: access revoked", false],
+  ])("a close with reason %s shows %s, the state %s and Reconnect %s", async (reason, text, label, reconnect) => {
     render()
     await connect()
     act(() => socket().end(1000, reason))
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", closedFor(reason, null).text)
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", text)
     expect(screen.queryByRole("button", { name: "Reconnect" }) !== null).toBe(reconnect)
-    expect(screen.getByText("Closed")).toBeTruthy()
+    expect(screen.getByText(label)).toBeTruthy()
+  })
+
+  test("Reconnect while connected drops the terminal and asks a code for a new one", async () => {
+    render()
+    const user = await connect()
+    const first = socket()
+    await user.click(screen.getByRole("button", { name: "Reconnect" }))
+    expect(first.readyState).toBe(3)
+    expect(await screen.findByLabelText("Authenticator code")).toBeTruthy()
   })
 
   test("the shell's exit code is named when the shell ends", async () => {
@@ -172,14 +183,14 @@ describe("states and reasons", () => {
 
   test("a host offline shows its text and Reconnect without asking a code", async () => {
     render({ online: false })
-    expect((await screen.findByRole("alert")).textContent).toBe(HOST_OFFLINE.text)
+    expect((await screen.findByRole("alert")).textContent).toBe("The host is offline; reconnect once it is back")
     expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy()
     expect(screen.queryByText(STEP_UP_REASON)).toBeNull()
   })
 
   test("an agent too old shows Update the agent and no Reconnect", async () => {
     render({ reported: false })
-    expect((await screen.findByRole("alert")).textContent).toBe(AGENT_TOO_OLD.text)
+    expect((await screen.findByRole("alert")).textContent).toBe("Update the agent to use the terminal")
     expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull()
   })
 
@@ -215,14 +226,17 @@ describe("focus shortcut and key bar", () => {
     render()
     await connect()
     const toolbar = screen.getByRole("toolbar", { name: "Terminal" })
-    expect(toolbar.textContent).toContain("Ctrl+Shift+L leaves the terminal")
+    expect(toolbar.textContent).toContain("Ctrl+Shift+L moves focus here")
     const inner = document.createElement("textarea")
     screen.getByTestId("terminal-area").appendChild(inner)
     inner.focus()
-    fireEvent.keyDown(inner, { key: "L", ctrlKey: true, shiftKey: true })
+    // fireEvent answers false when a handler prevented the default.
+    expect(fireEvent.keyDown(inner, { key: "L", ctrlKey: true, shiftKey: true })).toBe(false)
     expect(document.activeElement).toBe(toolbar)
-    fireEvent.keyDown(inner, { key: "l", ctrlKey: true })
-    expect(socket().sent).toHaveLength(0)
+    inner.focus()
+    // A plain Ctrl+L is left to xterm, which sends it to the shell.
+    expect(fireEvent.keyDown(inner, { key: "l", ctrlKey: true })).toBe(true)
+    expect(document.activeElement).toBe(inner)
   })
 
   test("below 768 px a key bar with Esc, Tab, Ctrl and arrows sends their sequences", async () => {

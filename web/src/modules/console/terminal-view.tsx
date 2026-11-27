@@ -180,6 +180,14 @@ export function TerminalView({ hostId, hostName, online, reported, openSurface =
     closeSocket.current = close
   }, [attempt, hostId, online, reported, stepUp])
 
+  // reconnect drops the open terminal, if any, and opens a new one.
+  function reconnect() {
+    const ws = socket.current
+    socket.current = null
+    ws?.close(1000, "reconnecting")
+    setAttempt((n) => n + 1)
+  }
+
   function onKeyDownCapture(e: KeyboardEvent<HTMLDivElement>) {
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "l") {
       e.preventDefault()
@@ -196,7 +204,7 @@ export function TerminalView({ hostId, hostName, online, reported, openSurface =
     ) : phase.kind === "connected" ? (
       <StatusPill status="ok" label="Connected" />
     ) : (
-      <StatusPill status="off" label="Closed" />
+      <StatusPill status="off" label={phase.closed.label} />
     )
 
   return (
@@ -204,8 +212,8 @@ export function TerminalView({ hostId, hostName, online, reported, openSurface =
       <div ref={toolbar} role="toolbar" aria-label="Terminal" tabIndex={-1} className="flex flex-wrap items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <span className="font-mono text-sm">{hostName}</span>
         <span role="status">{state}</span>
-        {phase.kind === "closed" && phase.closed.reconnect && (
-          <Button size="sm" variant="outline" onClick={() => setAttempt((n) => n + 1)}>
+        {(phase.kind !== "closed" || phase.closed.reconnect) && (
+          <Button size="sm" variant="outline" onClick={reconnect}>
             <RotateCw aria-hidden="true" />
             Reconnect
           </Button>
@@ -216,7 +224,7 @@ export function TerminalView({ hostId, hostName, online, reported, openSurface =
             Close
           </Button>
         )}
-        <span className="ms-auto text-xs text-muted-foreground">{`${FOCUS_SHORTCUT} leaves the terminal`}</span>
+        <span className="ms-auto text-xs text-muted-foreground">{`${FOCUS_SHORTCUT} moves focus here`}</span>
       </div>
       {phase.kind === "closed" && (
         <p role="alert" className="text-sm">

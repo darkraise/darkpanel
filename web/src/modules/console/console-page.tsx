@@ -24,7 +24,8 @@ export function ConsolePage({ hostId, openSurface }: { hostId: string; openSurfa
           <TabsTrigger value="terminal">Terminal</TabsTrigger>
           <TabsTrigger value="files">Files</TabsTrigger>
         </TabsList>
-        <TabsContent value="terminal">
+        {/* Mounted while Files shows, so switching tabs keeps the shell. */}
+        <TabsContent value="terminal" forceMount>
           {host === undefined ? (
             <Spinner aria-label="Loading the host" />
           ) : (

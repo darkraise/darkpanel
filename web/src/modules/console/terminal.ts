@@ -18,40 +18,41 @@ export const MAX_MESSAGE = 32 * 1024
 
 export const FOCUS_SHORTCUT = "Ctrl+Shift+L"
 
-// Closed is why a terminal is not open: its text and whether Reconnect can
-// help.
+// Closed is why a terminal is not open: its text, the short label the
+// toolbar's state shows, and whether Reconnect can help.
 export interface Closed {
   text: string
+  label: string
   reconnect: boolean
 }
 
-export const HOST_OFFLINE: Closed = { text: "The host is offline; reconnect once it is back", reconnect: true }
-export const AGENT_TOO_OLD: Closed = { text: "Update the agent to use the terminal", reconnect: false }
-export const NOT_OPENED: Closed = { text: "The terminal was not opened", reconnect: true }
-export const COULD_NOT_OPEN: Closed = { text: "Couldn't open the terminal", reconnect: true }
-export const CLOSED_BY_YOU: Closed = { text: "You closed the terminal", reconnect: true }
+export const HOST_OFFLINE: Closed = { text: "The host is offline; reconnect once it is back", label: "Closed: host offline", reconnect: true }
+export const AGENT_TOO_OLD: Closed = { text: "Update the agent to use the terminal", label: "Closed: agent too old", reconnect: false }
+export const NOT_OPENED: Closed = { text: "The terminal was not opened", label: "Closed: not opened", reconnect: true }
+export const COULD_NOT_OPEN: Closed = { text: "Couldn't open the terminal", label: "Closed: couldn't open", reconnect: true }
+export const CLOSED_BY_YOU: Closed = { text: "You closed the terminal", label: "Closed by you", reconnect: true }
 
 // closedFor is what a close of the bridge with reason means; exit is the
 // shell's exit code when the bridge sent one.
 export function closedFor(reason: string, exit: number | null): Closed {
   switch (reason) {
     case "idle":
-      return { text: "Closed after 30 minutes without input", reconnect: true }
+      return { text: "Closed after 30 minutes without input", label: "Closed: idle for 30 minutes", reconnect: true }
     case "expired":
-      return { text: "Your sign-in session ended; sign in again to open a terminal", reconnect: false }
+      return { text: "Your sign-in session ended; sign in again to open a terminal", label: "Closed: session expired", reconnect: false }
     case "console.limit":
-      return { text: "Too many open terminals; close one, then reconnect", reconnect: true }
+      return { text: "Too many open terminals; close one, then reconnect", label: "Closed: session limit", reconnect: true }
     case "agent restarted":
     case "disconnected":
-      return { text: "The agent restarted; open a new terminal", reconnect: true }
+      return { text: "The agent restarted; open a new terminal", label: "Closed: agent restarted", reconnect: true }
     case "revoked":
-      return { text: "Your access to this host was revoked", reconnect: false }
+      return { text: "Your access to this host was revoked", label: "Closed: access revoked", reconnect: false }
     case "ended":
-      return { text: exit === null ? "The shell exited" : `The shell exited with code ${exit}`, reconnect: true }
+      return { text: exit === null ? "The shell exited" : `The shell exited with code ${exit}`, label: "Closed: shell exited", reconnect: true }
     case "":
-      return exit === null ? { text: "The connection was lost", reconnect: true } : closedFor("ended", exit)
+      return exit === null ? { text: "The connection was lost", label: "Closed: connection lost", reconnect: true } : closedFor("ended", exit)
     default:
-      return { text: `The terminal closed: ${reason}`, reconnect: true }
+      return { text: `The terminal closed: ${reason}`, label: "Closed", reconnect: true }
   }
 }
 
