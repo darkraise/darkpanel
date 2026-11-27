@@ -121,6 +121,29 @@ describe("states", () => {
     })
   })
 
+  test("an address typed but not added goes with the change; a bad one stops it, and a range error shows under its field", async () => {
+    const calls = render(fail2banInstalled, "admin", { [`${BASE}/fail2ban.settings.apply/v1/plan`]: { body: makePlan("fail2ban.settings.apply", { hostId: "h1" }) } })
+    const user = userEvent.setup()
+    const field = await screen.findByLabelText("Add an address or network")
+    await user.type(field, "example.com")
+    await user.click(screen.getByRole("button", { name: "Review change" }))
+    expect(screen.getByText("Enter an IPv4 or IPv6 address or network")).toBeTruthy()
+    const retries = screen.getByLabelText("Failures before a ban")
+    await user.clear(retries)
+    await user.type(retries, "99")
+    await user.clear(field)
+    await user.type(field, "192.0.2.9")
+    await user.click(screen.getByRole("button", { name: "Review change" }))
+    expect(retries.getAttribute("aria-invalid")).toBe("true")
+    expect(document.getElementById(retries.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Failures before a ban: enter a whole number from 1 to 20")
+    await user.clear(retries)
+    await user.type(retries, "5")
+    await user.click(screen.getByRole("button", { name: "Review change" }))
+    await screen.findByRole("button", { name: "Apply" })
+    const body = calls.find((c) => c.path.endsWith("fail2ban.settings.apply/v1/plan"))?.body as { input: { ignoreIp: string[] } }
+    expect(body.input.ignoreIp).toEqual([...fail2banInstalled.ignoreFixed, "198.51.100.0/24", "192.0.2.9"])
+  })
+
   test("loading, error with Retry, and 500 bans", async () => {
     let n = 0
     render(fail2banInstalled, "admin", {

@@ -18,6 +18,7 @@ import { formatTime } from "@/lib/format"
 import { applied } from "@/lib/users"
 import { useCanOnHost } from "@/session/can"
 import { focusableScroller } from "@/lib/table"
+import { FALLBACK_FOCUS, useFocusFallback } from "@/lib/return-focus"
 
 interface Jail {
   name: string
@@ -180,7 +181,8 @@ function BansTable({ hostId, operate, onUnban }: { hostId: string; operate: bool
     )
   return (
     <section aria-labelledby="bans-heading" className="flex flex-col gap-3">
-      <h3 id="bans-heading" className="text-base font-semibold">
+      {/* Takes focus when an unban removed the row whose button opened it. */}
+      <h3 id="bans-heading" tabIndex={-1} {...{ [FALLBACK_FOCUS]: "" }} className="text-base font-semibold outline-none">
         Banned addresses
       </h3>
       {body}
@@ -188,19 +190,21 @@ function BansTable({ hostId, operate, onUnban }: { hostId: string; operate: bool
   )
 }
 
-const NUMBERS: [keyof Settings, string, number, number][] = [
+type NumberField = "bantimeMinutes" | "findtimeMinutes" | "maxRetry"
+
+const NUMBERS: [NumberField, string, number, number][] = [
   ["bantimeMinutes", "Ban for (minutes)", 1, 43200],
   ["findtimeMinutes", "Count failures over (minutes)", 1, 1440],
   ["maxRetry", "Failures before a ban", 1, 20],
 ]
 
 function SettingsCard({ settings, fixed, onReview }: { settings: Settings; fixed: string[]; onReview: (p: Pending) => void }) {
-  const [numbers, setNumbers] = useState<Record<string, string>>(() => Object.fromEntries(NUMBERS.map(([f]) => [f, String(settings[f] as number)])))
+  const [numbers, setNumbers] = useState<Record<string, string>>(() => Object.fromEntries(NUMBERS.map(([f]) => [f, String(settings[f])])))
   const [own, setOwn] = useState(() => settings.ignoreIp.filter((ip) => !fixed.includes(ip)))
   const [recidive, setRecidive] = useState(settings.recidive)
   const [entry, setEntry] = useState("")
   const [entryError, setEntryError] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<{ field: NumberField; message: string } | null>(null)
 
   function add() {
     const text = entry.trim()
@@ -215,11 +219,22 @@ function SettingsCard({ settings, fixed, onReview }: { settings: Settings; fixed
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const out: Record<string, unknown> = { ignoreIp: [...fixed, ...own], recidive }
+    // An address typed but not yet added goes with the change, or stops it.
+    const typed = entry.trim()
+    if (typed !== "" && !ignoreOK(typed)) {
+      setEntryError(IGNORE_RULE)
+      return
+    }
+    const mine = typed === "" || own.includes(typed) || fixed.includes(typed) ? own : [...own, typed]
+    if (mine !== own) {
+      setOwn(mine)
+      setEntry("")
+    }
+    const out: Record<string, unknown> = { ignoreIp: [...fixed, ...mine], recidive }
     for (const [f, label, min, max] of NUMBERS) {
       const text = (numbers[f] ?? "").trim()
       if (!/^[0-9]+$/.test(text) || Number(text) < min || Number(text) > max) {
-        setError(`${label}: enter a whole number from ${min} to ${max}`)
+        setError({ field: f, message: `${label}: enter a whole number from ${min} to ${max}` })
         return
       }
       out[f] = Number(text)
@@ -241,7 +256,21 @@ function SettingsCard({ settings, fixed, onReview }: { settings: Settings; fixed
             {NUMBERS.map(([f, label, min, max]) => (
               <div key={f} className="flex flex-col gap-1">
                 <Label htmlFor={`f2b-${f}`}>{label}</Label>
-                <Input id={`f2b-${f}`} inputMode="numeric" min={min} max={max} value={numbers[f] ?? ""} onChange={(e) => setNumbers((n) => ({ ...n, [f]: e.target.value }))} />
+                <Input
+                  id={`f2b-${f}`}
+                  inputMode="numeric"
+                  min={min}
+                  max={max}
+                  value={numbers[f] ?? ""}
+                  aria-invalid={error?.field === f}
+                  aria-describedby={error?.field === f ? `f2b-${f}-error` : undefined}
+                  onChange={(e) => setNumbers((n) => ({ ...n, [f]: e.target.value }))}
+                />
+                {error?.field === f && (
+                  <p id={`f2b-${f}-error`} className="text-sm text-destructive-text">
+                    {error.message}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -304,11 +333,6 @@ function SettingsCard({ settings, fixed, onReview }: { settings: Settings; fixed
               </p>
             )}
           </div>
-          {error !== null && (
-            <Alert variant="destructive" role="alert">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
           <div>
             <Button type="submit">Review change</Button>
           </div>
@@ -327,6 +351,7 @@ export function Fail2banPage({ hostId }: { hostId: string }) {
   const key = ["resource", hostId, "fail2ban.status.get"]
   const status = useQuery({ queryKey: key, queryFn: () => readAction<Status>("fail2ban.status.get", 1, {}, hostId) })
   const [pending, setPending] = useState<Pending | null>(null)
+  useFocusFallback(pending !== null)
 
   let body
   if (status.isPending) body = <Loading />
