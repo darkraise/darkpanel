@@ -75,3 +75,21 @@ func (r *rig) paused() []string {
 	}
 	return out
 }
+
+// TestModuleOffStopsTheRest: a timer that fails to stop is still disabled,
+// the timers after it are still stopped, and off reports the failure.
+func TestModuleOffStopsTheRest(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t)
+	for _, slug := range []string{"backup", "clean"} {
+		r.apply("jobs.job.create", strings.Replace(backupInput, `"backup"`, `"`+slug+`"`, 1))
+	}
+	r.units.stopFails = map[string]bool{"darkpanel-job-backup.timer": true}
+	r.units.calls = nil
+	if err := r.m.OnEnabled(ctx, r.env(adminP), false); err == nil || !strings.Contains(err.Error(), "stop failed") {
+		t.Errorf("module off = %v, want the failed stop", err)
+	}
+	if want := []string{"Stop darkpanel-job-backup.timer", "Disable darkpanel-job-backup.timer", "Stop darkpanel-job-clean.timer", "Disable darkpanel-job-clean.timer"}; !slices.Equal(r.units.calls, want) {
+		t.Errorf("module off: calls %q, want %q", r.units.calls, want)
+	}
+}

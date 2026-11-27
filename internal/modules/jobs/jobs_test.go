@@ -38,6 +38,8 @@ type units struct {
 	active map[string]bool
 	timers []core.TimerInfo
 	runs   map[string]core.ServiceRun
+	// stopFails names the units whose Stop fails.
+	stopFails map[string]bool
 }
 
 func (u *units) record(call string) {
@@ -65,6 +67,9 @@ func (u *units) Start(_ context.Context, unit string) error {
 }
 func (u *units) Stop(_ context.Context, unit string) error {
 	u.record("Stop " + unit)
+	if u.stopFails[unit] {
+		return errors.New("stop failed")
+	}
 	u.set(unit, false)
 	return nil
 }
@@ -429,6 +434,16 @@ func TestUpdateUndo(t *testing.T) {
 	}
 	if def := findAction(t, r.m, "jobs.job.update"); def.Spec.Class != core.ClassCompensable || def.Spec.TypedConfirmation {
 		t.Errorf("update class %s, typed confirmation %t", def.Spec.Class, def.Spec.TypedConfirmation)
+	}
+	// A viewer reads a change's effects, and the command text is admin-only
+	// (spec section 0): the effect names each script by its digest.
+	views, err := r.engine.Effects(context.Background(), cv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(views)
+	if len(views) == 0 || strings.Contains(string(raw), "tar czf") || strings.Contains(string(raw), "rsync -a") {
+		t.Errorf("the update's effects show a command: %s", raw)
 	}
 	if v := r.undoChange(cv.ID); v.State != core.StateReverted {
 		t.Fatalf("undo: %+v", v)
