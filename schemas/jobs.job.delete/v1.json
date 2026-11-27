@@ -35,7 +35,7 @@
           },
           "note": {
             "type": "string",
-            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on."
+            "description": "Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on."
           }
         },
         "type": "object",
