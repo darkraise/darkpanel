@@ -46,10 +46,18 @@ func (chRead) Read(context.Context, core.Env, chItem) (chItem, error) { return c
 
 // chModule is a module named id with the channels "echoes", which echoes
 // each data frame until the peer closes, and "holder", which waits for its
-// context to end. ended gets each handler's return.
+// context to end. ended gets each handler's return, and started, when set,
+// a signal as each handler starts.
 type chModule struct {
-	id    string
-	ended chan error
+	id      string
+	ended   chan error
+	started chan struct{}
+}
+
+func (m chModule) start() {
+	if m.started != nil {
+		m.started <- struct{}{}
+	}
 }
 
 func (m chModule) Manifest() core.Manifest {
@@ -61,6 +69,7 @@ func (m chModule) Manifest() core.Manifest {
 func (m chModule) Channels() []core.ChannelDef {
 	return []core.ChannelDef{
 		core.DefineChannel("echoes", func(_ context.Context, _ core.Env, _ chParams, c core.ChannelConn) error {
+			m.start()
 			for {
 				t, p, err := c.ReadFrame()
 				if err != nil || t == wire.FrameClose {
@@ -74,6 +83,7 @@ func (m chModule) Channels() []core.ChannelDef {
 			}
 		}),
 		core.DefineChannel("holder", func(ctx context.Context, _ core.Env, _ chParams, _ core.ChannelConn) error {
+			m.start()
 			<-ctx.Done()
 			m.ended <- context.Cause(ctx)
 			return nil
@@ -87,12 +97,13 @@ type plainModule struct{ m chModule }
 func (p plainModule) Manifest() core.Manifest { return p.m.Manifest() }
 
 type chFixture struct {
-	t      *testing.T
-	rt     *runtime.Runtime
-	ended  chan error
-	client *api.Client
-	sess   *yamux.Session // the client's end
-	policy string
+	t       *testing.T
+	rt      *runtime.Runtime
+	ended   chan error
+	started chan struct{}
+	client  *api.Client
+	sess    *yamux.Session // the client's end
+	policy  string
 }
 
 var chUser = core.Principal{Actor: "user:alice", UserID: "alice", Scope: core.ScopeAdmin}
@@ -147,7 +158,10 @@ func newChFixture(t *testing.T, mod core.Module, ended chan error) *chFixture {
 func newEchoFixture(t *testing.T, id string) *chFixture {
 	t.Helper()
 	ended := make(chan error, 4)
-	return newChFixture(t, chModule{id: id, ended: ended}, ended)
+	started := make(chan struct{}, 4)
+	f := newChFixture(t, chModule{id: id, ended: ended, started: started}, ended)
+	f.started = started
+	return f
 }
 
 func (f *chFixture) open(name string, params url.Values) io.ReadWriteCloser {
@@ -159,6 +173,15 @@ func (f *chFixture) open(name string, params url.Values) io.ReadWriteCloser {
 		f.t.Fatalf("OpenChannel(%s): %v", name, err)
 	}
 	f.t.Cleanup(func() { _ = rw.Close() })
+	// The client's open returns once the agent answered the upgrade, which can
+	// be before its handler runs; a close in between skips the handler.
+	if f.started != nil {
+		select {
+		case <-f.started:
+		case <-time.After(2 * time.Second):
+			f.t.Fatalf("the %s handler did not start within 2s", name)
+		}
+	}
 	return rw
 }
 
