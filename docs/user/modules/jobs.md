@@ -72,9 +72,9 @@ jobs, while creating and changing them happen in the web UI.
 |---|---|---|---|
 | `jobs.job.list` | `darkpanel jobs job list` | Lists the Darkpanel jobs with their last start, result, exit status and next run, and the host's other timers and cron entries. | Nothing; it only reads. |
 | `jobs.schedule.check` | `darkpanel jobs schedule check` | Checks a calendar expression and shows its next three runs. | Nothing; it only reads. |
-| `jobs.job.create` | `darkpanel jobs job create` | Creates a job: its script, its service and its timer. | A step-up code. Undo with `change undo`, which deletes it and asks for a code too. |
-| `jobs.job.update` | `darkpanel jobs job update` | Changes a job's schedule, user, command or limits. | A step-up code. Undo with `change undo`, which puts the previous job back and asks for a code too. |
-| `jobs.job.delete` | `darkpanel jobs job delete` | Stops a job's timer and removes its files. | Nothing. Undo with `change undo`, which puts the job back and asks for a step-up code. |
+| `jobs.job.create` | `darkpanel jobs job create` | Creates a job: its script, its service and its timer. | A step-up code. Undo it from the web UI, which deletes it and asks for a code too; the CLI's API token cannot give one. |
+| `jobs.job.update` | `darkpanel jobs job update` | Changes a job's schedule, user, command or limits. | A step-up code. Undo it from the web UI, which puts the previous job back and asks for a code too; the CLI's API token cannot give one. |
+| `jobs.job.delete` | `darkpanel jobs job delete` | Stops a job's timer and removes its files. | Nothing. Undo it from the web UI, which puts the job back and asks for a step-up code; the CLI's API token cannot give one. |
 | `jobs.job.enable` | `darkpanel jobs job enable` | Starts a job's timer and starts it at boot. | Nothing. Undo with `change undo`. |
 | `jobs.job.disable` | `darkpanel jobs job disable` | Stops a job's timer and keeps it off at boot. | Nothing. Undo with `change undo`. |
 | `jobs.job.run` | `darkpanel jobs job run` | Runs a job now. | Nothing; a run cannot be undone. |

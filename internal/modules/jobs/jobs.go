@@ -107,7 +107,7 @@ type SlugInput struct {
 // Changed is the answer of the job actions.
 type Changed struct {
 	Slug string `json:"slug"`
-	Note string `json:"note,omitempty" jsonschema_description:"Set when jobs is off on this host: the job's timer starts when jobs is turned on."`
+	Note string `json:"note,omitempty" jsonschema_description:"Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on."`
 }
 
 func invalid(path, msg string) error {

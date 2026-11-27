@@ -17,8 +17,8 @@ releases with automatic rollback.
   over mutual TLS and open no listening port of their own.
 - **Safe changes.** Every change shows a plan before it applies, lands in an
   audit log, and where it can, comes with an undo. An undo that could grant
-  root, such as putting back a deleted job or a removed key, asks for a fresh
-  authenticator code. A firewall change reverts by
+  root, such as putting back a deleted job or a job's previous script, asks
+  for a fresh authenticator code. A firewall change reverts by
   itself unless you confirm it, and is refused when it would cut your own
   access.
 - **Modules.** [hostinfo](docs/user/modules/hostinfo.md), operating system

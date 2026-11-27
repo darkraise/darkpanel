@@ -167,9 +167,9 @@ func (f *Files) patternDirDecl(module, dir, name string) error {
 // declares as kind dir with a Pattern name matches, with data, mode's
 // permission bits and group gid (-1 keeps the agent's), owned by the agent's
 // user. The directory is recorded, then created with mode 0700, on the first
-// write, and a recorded directory with group or other bits is set to 0700;
-// an existing directory the ownership store does not record as module's is
-// refused. The file is recorded before it is written.
+// write, and a recorded directory readable or executable by group or other
+// is set to 0700; one writable by group or other is refused, as is an
+// existing directory the ownership store does not record as module's. The file is recorded before it is written.
 func (f *Files) WriteDirFile(ctx context.Context, module, dir, name string, data []byte, mode fs.FileMode, gid int) error {
 	if err := f.patternDirDecl(module, dir, name); err != nil {
 		return err

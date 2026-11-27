@@ -387,7 +387,8 @@ type ActionSpec struct {
 	BreakGlass    bool
 	LockKeys      []string
 	// StepUp makes the controller refuse the action to a session that has not
-	// given a fresh TOTP code in the last 15 minutes, and to every API token.
+	// given a fresh TOTP code in the last 15 minutes, and to every API token;
+	// the undo, revert and repair of a change of the action are refused alike.
 	StepUp bool
 	// UndoStepUp makes the controller refuse the undo of a change of this
 	// action as StepUp refuses the action itself; compensable only. An undo

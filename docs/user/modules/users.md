@@ -61,17 +61,17 @@ create. Each command below is the generated command of one action, and the
 | Action | Command | What it does | Asks you |
 |---|---|---|---|
 | `users.user.list` | `darkpanel users user list` | Lists root and the accounts with UID 1000 to 59999: name, UID, home, shell, groups, sudo, locked, password set and number of keys. | Nothing; it only reads. |
-| `users.user.create` | `darkpanel users user create` | Creates an account with its home and its own group, optionally in `sudo`, with a password and keys. | A step-up code. Undo with `change undo`, which deletes it. |
-| `users.user.lock` | `darkpanel users user lock` | Locks an account: its expiry ends key and password sign-in. | Nothing. Undo with `change undo`. |
-| `users.user.unlock` | `darkpanel users user unlock` | Unlocks an account, restoring the expiry it had. | Nothing. Undo with `change undo`. |
+| `users.user.create` | `darkpanel users user create` | Creates an account with its home and its own group, optionally in `sudo`, with a password and keys. | A step-up code. `change undo` cannot reverse it; delete the account with `users.user.delete`. |
+| `users.user.lock` | `darkpanel users user lock` | Locks an account: its expiry ends key and password sign-in. | Nothing. `change undo` cannot reverse it; unlock the account with `users.user.unlock`. |
+| `users.user.unlock` | `darkpanel users user unlock` | Unlocks an account, restoring the expiry it had. | Nothing. `change undo` cannot reverse it; lock the account with `users.user.lock`. |
 | `users.user.delete` | `darkpanel users user delete` | Deletes an account, with `--remove-home` its home and mail spool too. | The account name typed. It cannot be undone. |
 | `users.password.set` | `darkpanel users password set` | Sets an account's password. | A step-up code, and the password. |
 | `users.password.remove` | `darkpanel users password remove` | Removes an account's password: its hash becomes `*`. | Nothing. |
-| `users.sudo.add` | `darkpanel users sudo add` | Adds an account to the `sudo` group. | A step-up code. Undo with `change undo`. |
-| `users.sudo.remove` | `darkpanel users sudo remove` | Removes an account from the `sudo` group. | Nothing. Undo with `change undo`, which asks for a step-up code. |
+| `users.sudo.add` | `darkpanel users sudo add` | Adds an account to the `sudo` group. | A step-up code. `change undo` cannot reverse it; remove it with `users.sudo.remove`. |
+| `users.sudo.remove` | `darkpanel users sudo remove` | Removes an account from the `sudo` group. | Nothing. `change undo` cannot reverse it; add the account back with `users.sudo.add`, which asks for a step-up code. |
 | `users.key.list` | `darkpanel users key list` | Lists an account's keys: type, bits, SHA256 fingerprint, comment and options. | Nothing; it only reads. |
-| `users.key.add` | `darkpanel users key add` | Authorizes one public key for an account. | A step-up code. Undo with `change undo`. |
-| `users.key.remove` | `darkpanel users key remove` | Removes a key by its fingerprint. | Nothing. Undo with `change undo`, which asks for a step-up code. |
+| `users.key.add` | `darkpanel users key add` | Authorizes one public key for an account. | A step-up code. `change undo` cannot reverse it; remove the key with `users.key.remove`. |
+| `users.key.remove` | `darkpanel users key remove` | Removes a key by its fingerprint. | Nothing. `change undo` cannot reverse it; add the key back with `users.key.add`, which asks for a step-up code. |
 | `users.sshd.get` | `darkpanel users sshd get` | Reads sshd's effective settings from `sshd -T` and the ones Darkpanel set. | Nothing; it only reads. |
 | `users.sshd.apply` | `darkpanel users sshd apply` | Writes sshd's settings and reloads sshd. | Your confirmation before the deadline, or it reverts. |
 | `users.sshd.repair` | `darkpanel users sshd repair` | Rewrites Darkpanel's sshd file from the last confirmed settings, or removes it when none were confirmed, and reloads sshd. | Nothing. |

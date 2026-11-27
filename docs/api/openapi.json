@@ -13341,7 +13341,7 @@
       "jobs.job.create.v1.output.Changed": {
         "properties": {
           "note": {
-            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "description": "Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on.",
             "type": "string"
           },
           "slug": {
@@ -13376,7 +13376,7 @@
       "jobs.job.delete.v1.output.Changed": {
         "properties": {
           "note": {
-            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "description": "Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on.",
             "type": "string"
           },
           "slug": {
@@ -13411,7 +13411,7 @@
       "jobs.job.disable.v1.output.Changed": {
         "properties": {
           "note": {
-            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "description": "Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on.",
             "type": "string"
           },
           "slug": {
@@ -13446,7 +13446,7 @@
       "jobs.job.enable.v1.output.Changed": {
         "properties": {
           "note": {
-            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "description": "Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on.",
             "type": "string"
           },
           "slug": {
@@ -13631,7 +13631,7 @@
       "jobs.job.run.v1.output.Changed": {
         "properties": {
           "note": {
-            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "description": "Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on.",
             "type": "string"
           },
           "slug": {
@@ -13709,7 +13709,7 @@
       "jobs.job.update.v1.output.Changed": {
         "properties": {
           "note": {
-            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "description": "Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on.",
             "type": "string"
           },
           "slug": {

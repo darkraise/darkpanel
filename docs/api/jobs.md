@@ -34,7 +34,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `note` | string | no | Set when jobs is off on this host: the job's timer starts when jobs is turned on. |
+| `note` | string | no | Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on. |
 | `slug` | string | yes |  |
 
 ## jobs.job.delete v1
@@ -62,7 +62,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `note` | string | no | Set when jobs is off on this host: the job's timer starts when jobs is turned on. |
+| `note` | string | no | Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on. |
 | `slug` | string | yes |  |
 
 ## jobs.job.disable v1
@@ -90,7 +90,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `note` | string | no | Set when jobs is off on this host: the job's timer starts when jobs is turned on. |
+| `note` | string | no | Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on. |
 | `slug` | string | yes |  |
 
 ## jobs.job.enable v1
@@ -118,7 +118,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `note` | string | no | Set when jobs is off on this host: the job's timer starts when jobs is turned on. |
+| `note` | string | no | Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on. |
 | `slug` | string | yes |  |
 
 ## jobs.job.list v1
@@ -195,7 +195,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `note` | string | no | Set when jobs is off on this host: the job's timer starts when jobs is turned on. |
+| `note` | string | no | Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on. |
 | `slug` | string | yes |  |
 
 ## jobs.job.update v1
@@ -230,7 +230,7 @@ Returned in the `output` field of the change that apply returns.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `note` | string | no | Set when jobs is off on this host: the job's timer starts when jobs is turned on. |
+| `note` | string | no | Set by create, update and enable when jobs is off on this host: the job's timer starts when jobs is turned on. |
 | `slug` | string | yes |  |
 
 ## jobs.schedule.check v1
