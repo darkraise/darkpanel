@@ -148,11 +148,14 @@ func newRig(t *testing.T) *rig {
 	root := t.TempDir()
 	r := &rig{t: t, root: root, units: &units{active: map[string]bool{}, runs: map[string]core.ServiceRun{}}, files: map[string]string{}}
 	r.gid = os.Getegid()
+	// carol's group is one an unprivileged run can give a file, as alice's is.
+	carolGid := r.gid
 	if os.Geteuid() == 0 {
-		r.gid = 4242
+		r.gid, carolGid = 4242, 4243
 	}
 	r.files[passwdFile] = fmt.Sprintf("root:x:0:0:root:/root:/bin/bash\nalice:x:1000:%d:Alice:/home/alice:/bin/bash\n"+
-		"daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbob:x:1001:1001:Bob:/home/bob:/usr/sbin/nologin\n", r.gid)
+		"daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbob:x:1001:1001:Bob:/home/bob:/usr/sbin/nologin\n"+
+		"carol:x:1002:%d:Carol:/home/carol:/bin/bash\n", r.gid, carolGid)
 	r.files[shellsFile] = "/bin/sh\n/bin/bash\n"
 	unitDir := filepath.Join(root, "units")
 	if err := os.Mkdir(unitDir, 0o750); err != nil {
@@ -420,7 +423,7 @@ func TestUpdateUndo(t *testing.T) {
 	for _, p := range paths {
 		before = append(before, r.text(p))
 	}
-	updated := strings.NewReplacer(`*-*-* 03:00:00`, `daily`, `tar czf /tmp/x.tgz /etc`, `rsync -a /srv /backup`, `"alice"`, `"root"`).Replace(backupInput)
+	updated := strings.NewReplacer(`*-*-* 03:00:00`, `daily`, `tar czf /tmp/x.tgz /etc`, `rsync -a /srv /backup`, `"alice"`, `"carol"`).Replace(backupInput)
 	r.units.calls = nil
 	cv := r.apply("jobs.job.update", updated)
 	if want := []string{"Reload", "Restart darkpanel-job-backup.timer"}; !slices.Equal(r.units.calls, want) {
