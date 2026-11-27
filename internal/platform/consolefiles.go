@@ -391,8 +391,10 @@ func (f *ConsoleFiles) List(ctx context.Context, p, cursor string) (core.DirPage
 	o := f.readOwners()
 	for _, e := range all[start:end] {
 		var st unix.Stat_t
-		if err := unix.Fstatat(fd, e.name, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		if err := unix.Fstatat(fd, e.name, &st, unix.AT_SYMLINK_NOFOLLOW); errors.Is(err, unix.ENOENT) {
 			continue // removed since the directory was read
+		} else if err != nil {
+			return core.DirPage{}, fmt.Errorf("read %s: %w", path.Join(p, e.name), err)
 		}
 		page.Entries = append(page.Entries, f.info(fd, e.name, path.Join(p, e.name), st, o))
 	}
