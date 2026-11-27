@@ -53,13 +53,15 @@ export interface JobFormProps {
   hostName: string
   // job is the job being edited; none adds one.
   job?: Job
+  // hidden keeps the form, as typed, while its change is reviewed.
+  hidden?: boolean
   onCancel: () => void
   onReview: (input: JobInput) => void
 }
 
 // JobForm asks a job's fields (UI-7, UX-10); the schedule shows the agent's
 // next three runs, or its error, as it is typed.
-export function JobForm({ hostId, hostName, job, onCancel, onReview }: JobFormProps) {
+export function JobForm({ hostId, hostName, job, hidden = false, onCancel, onReview }: JobFormProps) {
   const [slug, setSlug] = useState(job?.slug ?? "")
   const [description, setDescription] = useState(job?.description ?? "")
   const [schedule, setSchedule] = useState(job?.schedule ?? "")
@@ -119,7 +121,7 @@ export function JobForm({ hostId, hostName, job, onCancel, onReview }: JobFormPr
   const delayError = show("delay", delay, String(job?.randomDelaySeconds ?? 0))
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+    <Dialog open={!hidden} onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <DialogHeader>

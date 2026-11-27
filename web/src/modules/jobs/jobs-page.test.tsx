@@ -121,12 +121,14 @@ describe("jobs flows", () => {
     expect(follow.searchParams.get("unit")).toBe("darkpanel-job-db-backup.service")
   })
 
-  test("a viewer sees the jobs without command text and no actions", async () => {
+  // The agent leaves the command text out of a viewer's list
+  // (internal/modules/jobs/list_test.go); the page shows what is left.
+  test("a viewer's list, sent without command text, shows each job, Cron entry for each cron line and no actions", async () => {
     const list = { ...jobsDefault, jobs: jobsDefault.jobs.map((j) => ({ ...j, command: undefined })), cron: jobsDefault.cron.map((c) => ({ ...c, command: undefined })) }
     render("read", {}, list)
     const table = await screen.findByRole("table", { name: "Darkpanel jobs" })
     expect(within(table).getByText("db-backup")).toBeTruthy()
-    expect(screen.queryByText("/usr/local/bin/pg-backup --all")).toBeNull()
+    expect(within(screen.getByRole("table", { name: "Other scheduled tasks" })).getAllByText("Cron entry")).toHaveLength(jobsDefault.cron.length)
     expect(screen.queryByRole("button", { name: /^Actions for/ })).toBeNull()
     expect(screen.queryByRole("button", { name: "Add job" })).toBeNull()
   })
