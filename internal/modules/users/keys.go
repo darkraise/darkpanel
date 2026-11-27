@@ -206,8 +206,11 @@ func (m module) readKeys(ctx context.Context, env core.Env, name string) ([]byte
 		return nil, err
 	}
 	data, err := env.Home.ReadAuthorizedKeys(ctx, name)
-	if err != nil {
+	switch {
+	case errors.Is(err, platform.ErrHomePolicy):
 		return nil, core.Definite(errcode.New(errcode.InvalidInput, err.Error()))
+	case err != nil:
+		return nil, fmt.Errorf("users: read the authorized keys of %s: %w", name, err)
 	}
 	return data, nil
 }

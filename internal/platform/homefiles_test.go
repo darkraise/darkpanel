@@ -3,6 +3,7 @@ package platform
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -157,5 +158,51 @@ func TestHomeFilesCreates(t *testing.T) {
 	entries, _ := os.ReadDir(r.path(".ssh"))
 	if len(entries) != 1 {
 		t.Errorf(".ssh holds %v, want authorized_keys alone", entries)
+	}
+}
+
+func TestSSHDirSwapped(t *testing.T) {
+	r := newHomeRig(t)
+	afterSSHMkdir = func() {
+		mustDo(t, os.Remove(r.path(".ssh")), os.Mkdir(r.path(".ssh"), 0o755), os.Chmod(r.path(".ssh"), 0o755)) //nolint:gosec // G301: the swapped-in directory under test
+	}
+	t.Cleanup(func() { afterSSHMkdir = nil })
+	err := r.h.WriteAuthorizedKeys(context.Background(), "u", []byte("ssh-ed25519 AAAA one\n"))
+	if err == nil || !strings.Contains(err.Error(), "changed while it was created") {
+		t.Errorf("write with .ssh swapped: %v, want an error saying it changed while it was created", err)
+	}
+	if _, err := os.Lstat(r.path(".ssh", "authorized_keys")); !os.IsNotExist(err) {
+		t.Errorf("the swapped-in .ssh holds authorized_keys (%v)", err)
+	}
+}
+
+func TestHomePolicyErrors(t *testing.T) {
+	ctx := context.Background()
+	keys := []byte("ssh-ed25519 AAAA one\n")
+	for name, setup := range map[string]func(t *testing.T, r homeRig){
+		"a symlinked authorized_keys": func(t *testing.T, r homeRig) {
+			target := filepath.Join(filepath.Dir(r.home), "keys")
+			mustDo(t, os.Mkdir(r.path(".ssh"), 0o700), os.WriteFile(target, keys, 0o600), os.Symlink(target, r.path(".ssh", "authorized_keys")))
+		},
+		"a group-writable home": func(t *testing.T, r homeRig) {
+			mustDo(t, os.Chmod(r.home, 0o775)) //nolint:gosec // G302: the group-writable home under test
+		},
+		".ssh as a regular file": func(t *testing.T, r homeRig) {
+			mustDo(t, os.WriteFile(r.path(".ssh"), keys, 0o600))
+		},
+	} {
+		r := newHomeRig(t)
+		setup(t, r)
+		if _, err := r.h.ReadAuthorizedKeys(ctx, "u"); !errors.Is(err, ErrHomePolicy) {
+			t.Errorf("read with %s: %v, want ErrHomePolicy", name, err)
+		}
+		if err := r.h.WriteAuthorizedKeys(ctx, "u", keys); !errors.Is(err, ErrHomePolicy) {
+			t.Errorf("write with %s: %v, want ErrHomePolicy", name, err)
+		}
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := newHomeRig(t).h.ReadAuthorizedKeys(cancelled, "u"); !errors.Is(err, context.Canceled) || errors.Is(err, ErrHomePolicy) {
+		t.Errorf("read with a cancelled context: %v, want context.Canceled and no ErrHomePolicy", err)
 	}
 }

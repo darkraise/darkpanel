@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -311,4 +312,16 @@ func TestRemoveUnrestorableKey(t *testing.T) {
 	if err != nil || len(plan.Diff) != 1 {
 		t.Errorf("remove an ed25519 key: %+v, %v; want the remove line alone", plan, err)
 	}
+}
+
+func TestKeyListErrorKinds(t *testing.T) {
+	r := newRig(t)
+	r.homeErr["alice"] = context.Canceled
+	_, err := keyLister{m: r.module()}.Read(context.Background(), r.env(adminP), NameInput{Name: "alice"})
+	if !errors.Is(err, context.Canceled) || errcode.From(err).Code == errcode.InvalidInput {
+		t.Errorf("key list with a cancelled read: %v, want context.Canceled and no invalid_input", err)
+	}
+	r.homeErr["alice"] = fmt.Errorf("platform: /home/alice/.ssh is a symbolic link: %w", platform.ErrHomePolicy)
+	_, err = keyLister{m: r.module()}.Read(context.Background(), r.env(adminP), NameInput{Name: "alice"})
+	wantCode(t, "key list with a policy refusal", err, errcode.InvalidInput)
 }

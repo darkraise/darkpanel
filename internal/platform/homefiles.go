@@ -23,6 +23,26 @@ const (
 	authorizedKeysName = "authorized_keys"
 )
 
+// ErrHomePolicy marks a refusal of HomeFiles under its file rules (a
+// symbolic link, an owner, a mode, a size, a file of the wrong type), as
+// opposed to an I/O error or a cancelled context.
+var ErrHomePolicy = errors.New("home file policy")
+
+// policyError is a refusal under the home file rules: its text alone, with
+// ErrHomePolicy beneath it for errors.Is.
+type policyError struct{ msg string }
+
+func (e *policyError) Error() string { return e.msg }
+func (e *policyError) Unwrap() error { return ErrHomePolicy }
+
+func policyRefusal(format string, args ...any) error {
+	return &policyError{msg: fmt.Sprintf(format, args...)}
+}
+
+// afterSSHMkdir, when set by a test, runs between the mkdir of .ssh and its
+// open, where a user who owns the home could swap the name.
+var afterSSHMkdir func()
+
 // HomeFiles is the core.HomeFiles of the agent: the one file it touches is
 // ~user/.ssh/authorized_keys, under sshd's StrictModes rules, never through a
 // symbolic link (ADR 0020).
@@ -74,9 +94,9 @@ func strictDir(fd int, path string, u homeUser) error {
 	}
 	switch {
 	case int(st.Uid) != u.uid && st.Uid != 0:
-		return fmt.Errorf("platform: %s is owned by uid %d, not by %s or root", path, st.Uid, u.name)
+		return policyRefusal("platform: %s is owned by uid %d, not by %s or root", path, st.Uid, u.name)
 	case st.Mode&0o022 != 0:
-		return fmt.Errorf("platform: %s is writable by group or others", path)
+		return policyRefusal("platform: %s is writable by group or others", path)
 	}
 	return nil
 }
@@ -89,7 +109,7 @@ func (h *HomeFiles) openHome(u homeUser, create bool) (homeFd, sshFd int, err er
 	})
 	switch {
 	case errors.Is(err, unix.ELOOP):
-		return -1, -1, fmt.Errorf("platform: the home %s has a symbolic link in its path", u.home)
+		return -1, -1, policyRefusal("platform: the home %s has a symbolic link in its path", u.home)
 	case err != nil:
 		return -1, -1, fmt.Errorf("platform: open the home %s: %w", u.home, err)
 	}
@@ -111,9 +131,9 @@ func (h *HomeFiles) openHome(u homeUser, create bool) (homeFd, sshFd int, err er
 	case errors.Is(err, unix.ENOENT):
 		return homeFd, -1, nil
 	case errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENOTDIR) && isSymlinkAt(homeFd, sshDirName):
-		return fail(fmt.Errorf("platform: %s is a symbolic link", sshPath))
+		return fail(policyRefusal("platform: %s is a symbolic link", sshPath))
 	case errors.Is(err, unix.ENOTDIR):
-		return fail(fmt.Errorf("platform: %s is not a directory", sshPath))
+		return fail(policyRefusal("platform: %s is not a directory", sshPath))
 	case err != nil:
 		return fail(fmt.Errorf("platform: open %s: %w", sshPath, err))
 	}
@@ -131,6 +151,9 @@ func makeSSHDir(homeFd int, sshPath string, u homeUser) (int, error) {
 	if err := unix.Mkdirat(homeFd, sshDirName, 0o700); err != nil {
 		return -1, fmt.Errorf("platform: create %s: %w", sshPath, err)
 	}
+	if afterSSHMkdir != nil {
+		afterSSHMkdir()
+	}
 	fd, err := openBeneath(homeFd, sshDirName, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return -1, fmt.Errorf("platform: open %s: %w", sshPath, err)
@@ -141,7 +164,7 @@ func makeSSHDir(homeFd int, sshPath string, u homeUser) (int, error) {
 	case err != nil:
 		err = fmt.Errorf("platform: stat %s: %w", sshPath, err)
 	case int(st.Uid) != unix.Geteuid() || st.Mode&0o777 != 0o700:
-		err = fmt.Errorf("platform: %s changed while it was created", sshPath)
+		err = policyRefusal("platform: %s changed while it was created", sshPath)
 	default:
 		if err = unix.Fchown(fd, u.uid, u.gid); err != nil {
 			err = fmt.Errorf("platform: chown %s: %w", sshPath, err)
@@ -166,13 +189,13 @@ func isSymlinkAt(dirfd int, name string) bool {
 func checkKeysFile(st unix.Stat_t, path string, u homeUser) error {
 	switch {
 	case st.Mode&unix.S_IFMT == unix.S_IFLNK:
-		return fmt.Errorf("platform: %s is a symbolic link", path)
+		return policyRefusal("platform: %s is a symbolic link", path)
 	case st.Mode&unix.S_IFMT != unix.S_IFREG:
-		return fmt.Errorf("platform: %s is not a regular file", path)
+		return policyRefusal("platform: %s is not a regular file", path)
 	case int(st.Uid) != u.uid && st.Uid != 0:
-		return fmt.Errorf("platform: %s is owned by uid %d, not by %s or root", path, st.Uid, u.name)
+		return policyRefusal("platform: %s is owned by uid %d, not by %s or root", path, st.Uid, u.name)
 	case st.Size > MaxAuthorizedKeys:
-		return fmt.Errorf("platform: %s is larger than 1 MiB", path)
+		return policyRefusal("platform: %s is larger than 1 MiB", path)
 	}
 	return nil
 }
@@ -203,7 +226,7 @@ func (h *HomeFiles) ReadAuthorizedKeys(ctx context.Context, user string) ([]byte
 	case errors.Is(err, unix.ENOENT):
 		return nil, nil
 	case errors.Is(err, unix.ELOOP):
-		return nil, fmt.Errorf("platform: %s is a symbolic link", path)
+		return nil, policyRefusal("platform: %s is a symbolic link", path)
 	case err != nil:
 		return nil, fmt.Errorf("platform: open %s: %w", path, err)
 	}
@@ -227,7 +250,7 @@ func (h *HomeFiles) WriteAuthorizedKeys(ctx context.Context, user string, data [
 		return err
 	}
 	if len(data) > MaxAuthorizedKeys {
-		return fmt.Errorf("platform: the authorized keys of %s would be larger than 1 MiB", user)
+		return policyRefusal("platform: the authorized keys of %s would be larger than 1 MiB", user)
 	}
 	u, err := h.lookup(user)
 	if err != nil {
