@@ -19,9 +19,9 @@ module:
   audit log. No terminal content is stored anywhere.
 
 On a host where the console is on, whoever controls the controller can reach
-root there. If that matters for a host, turn the console off on the host
-itself, as "Turn it off on the host" describes; the controller cannot turn it
-back on.
+root there. If that matters for a host, turn the console and jobs off on the
+host itself, as "Turn it off on the host" describes; the controller cannot
+turn them back on.
 
 ## Before you start
 
@@ -107,10 +107,10 @@ refused under `/proc`, `/sys`, `/dev`, `/run`, `/boot/efi`, `/etc/darkpanel`,
 `/var/lib/darkpanel` and the Darkpanel binary, and a rename or recursive
 delete of a folder that holds one of them, such as `/` or `/etc`, is refused
 too. Reads and downloads are refused under `/proc`, `/sys`, `/dev`,
-`/etc/darkpanel` and `/var/lib/darkpanel`. The check applies to the real
-target: a symlinked folder never leads into a protected path, and a write to a
-path whose last part is a symlink is refused, so you write the target's own
-path instead.
+`/etc/darkpanel` and `/var/lib/darkpanel`. The file manager follows no
+symbolic link: a path with a symlink in any part is refused, so a symlinked
+folder never leads into a protected path, and you open the link's target by
+its own path instead.
 
 A write goes to a temporary file `.darkpanel-tmp-<random>` in the same folder,
 then replaces the file in one step, keeping its mode and owner. A failed or
@@ -141,14 +141,15 @@ darkpanel audit list
 - `console.file.<op>`, such as `console.file.write` or `console.file.delete`,
   has an `intent` entry before the first byte is written and a `result` entry
   with the size and SHA-256, or the error, before the answer. A change cut off
-  by an agent crash gets the result `interrupted`.
+  by an agent crash gets the result `error`, with the error `interrupted`.
 
 ### Turn it off on the host
 
 The controller judges who may use the console and whether it is on, so a
 compromised controller could turn it on and use it. Root on the host can deny
-the console, and the jobs module, in a policy file the controller cannot
-change:
+the console and the jobs module in a policy file. Deny both: while jobs is
+allowed, a compromised controller can run a root job that rewrites the file.
+The file does not cover the users module, which can add a key to root:
 
 - `sudo darkpanel agent policy deny console` denies the console on this host;
   `sudo darkpanel agent policy allow console` stops denying it. Both take

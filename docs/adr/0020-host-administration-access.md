@@ -108,8 +108,10 @@ switch the controller cannot turn.
   socket. The agent reads it at start and on that command, reports a denied
   module unavailable with "Turned off on this host by its policy file", refuses
   to enable it whatever the controller pushes, and its shell, file provider
-  and job timers check it beside the flag. It is the bound an owner sets on a
-  host where a compromised controller must not gain root.
+  and job timers check it beside the flag. It takes away the two ways to run
+  any command as root, and only together: with jobs allowed, a root job can
+  rewrite the file. It does not stop a compromised controller adding a key
+  to root or a member to `sudo` through the `users` module.
 
 ## Alternatives considered
 

@@ -38,7 +38,7 @@ releases with automatic rollback.
   host's files in the browser with the [console](docs/user/modules/console.md).
   It is off until turned on per host, asks for an authenticator code, records
   every session and file change in the audit log, and root on the host can deny
-  it, and scheduled jobs, in a policy file the controller cannot change.
+  it and scheduled jobs together in a host policy file.
 - **Signed updates.** A host updates one at a time, the controller's own host
   first, from releases whose minisign signature it verifies. Each update takes a
   backup, keeps the previous binary, and rolls back within two minutes when the
