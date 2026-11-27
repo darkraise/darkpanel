@@ -1,10 +1,12 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useNavigate } from "react-router"
 import { Button } from "darkraise-ui/components/button"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import type { Scope } from "@/api/types"
 import { useStepUp } from "@/components/step-up-dialog"
-import { accountsDefault, journalEntries, keysDeploy, sshdState, swapDefault, swapUnsupported, sysctlDefault, unitsDefault } from "@/modules/m11-fixtures"
+import { FilesView } from "@/modules/console/files-view"
+import { accountsDefault, filesDefault, filesWorst, journalEntries, keysDeploy, sshdState, swapDefault, swapUnsupported, sysctlDefault, unitsDefault } from "@/modules/m11-fixtures"
 import { JournalPanel } from "@/modules/services/journal-panel"
 import { TuningPage } from "@/modules/tuning/tuning-page"
 import { EvtSource } from "@/test/evt-source"
@@ -253,5 +255,65 @@ describe("A71: the tuning page", () => {
   test("A71: a filesystem that cannot hold a swap file names itself", async () => {
     tuning(swapUnsupported)
     expect(await screen.findByText(/btrfs/)).toBeTruthy()
+  })
+})
+
+describe("A70: the file manager", () => {
+  const FILES = "/api/v1/hosts/h1/files"
+  const query = (path: string) => new URL(path, "http://localhost").searchParams
+
+  function Back() {
+    const navigate = useNavigate()
+    return (
+      <button type="button" onClick={() => void navigate(-1)}>
+        Browser back
+      </button>
+    )
+  }
+
+  function listing(dirs: Record<string, object>, more?: object) {
+    return (c: { path: string }) => {
+      const q = query(c.path)
+      if (q.has("cursor") && more !== undefined) return { body: more }
+      return { body: dirs[q.get("path") ?? ""] ?? { path: q.get("path"), entries: [] } }
+    }
+  }
+
+  test("A70: a deep link opens its directory, the path survives navigation and back restores the previous one", async () => {
+    const calls = stubFetch({ [`GET ${FILES}/list`]: listing({ "/etc": filesDefault }) })
+    renderWithProviders(
+      <>
+        <FilesView hostId="h1" />
+        <Back />
+      </>,
+      { path: "/?path=/etc" },
+    )
+    const user = userEvent.setup()
+    expect(await screen.findByRole("table", { name: "Files in /etc" })).toBeTruthy()
+    expect(calls.map((c) => query(c.path).get("path"))).toEqual(["/etc"])
+    await user.click(await screen.findByRole("button", { name: "nginx/" }))
+    expect(await screen.findByRole("table", { name: "Files in /etc/nginx" })).toBeTruthy()
+    await user.click(screen.getByRole("button", { name: "Browser back" }))
+    expect(await screen.findByRole("table", { name: "Files in /etc" })).toBeTruthy()
+  })
+
+  test("A70: 2000 entries show Show more and the next page loads by its cursor", async () => {
+    const more = { path: "/srv/uploads", entries: [{ ...filesDefault.entries[3], name: "zz-last.txt" }] }
+    stubFetch({ [`GET ${FILES}/list`]: listing({ "/srv/uploads": filesWorst }, more) })
+    renderWithProviders(<FilesView hostId="h1" />, { path: "/?path=/srv/uploads" })
+    const table = await screen.findByRole("table", { name: "Files in /srv/uploads" })
+    expect(within(table).getAllByRole("button", { name: /^Actions for / })).toHaveLength(2000)
+    await userEvent.setup().click(screen.getByRole("button", { name: "Show more" }))
+    expect(await screen.findByText("zz-last.txt")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull()
+  }, 30_000)
+
+  test("A70: a protected directory shows why and disables the write actions", async () => {
+    const reason = "Darkpanel never changes files under /etc/darkpanel"
+    stubFetch({ [`GET ${FILES}/list`]: listing({ "/etc/darkpanel": { path: "/etc/darkpanel", protected: reason, entries: [] } }) })
+    renderWithProviders(<FilesView hostId="h1" />, { path: "/?path=/etc/darkpanel" })
+    expect(await screen.findByText(reason)).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Upload" })).toHaveProperty("disabled", true)
+    expect(screen.getByRole("button", { name: "New folder" })).toHaveProperty("disabled", true)
   })
 })
