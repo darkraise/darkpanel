@@ -159,6 +159,31 @@ describe("hardening flow", () => {
     expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { x11Forwarding: false, passwordAuthentication: false } })
   })
 
+  test("an untouched field keeps what the file holds when an earlier file wins", async () => {
+    const state = {
+      ...sshdState,
+      effective: { ...sshdState.effective, permitRootLogin: "forced-commands-only", x11Forwarding: true },
+      set: { permitRootLogin: "no", x11Forwarding: false },
+    }
+    const calls = render({ [PLAN]: { body: makePlan("users.sshd.apply", { hostId: "h1" }) } }, state)
+    const user = await openForm()
+    await user.click(screen.getByRole("switch", { name: "Password login" }))
+    await user.click(screen.getByRole("button", { name: "Review change" }))
+    await screen.findByRole("button", { name: "Apply" })
+    expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { permitRootLogin: "no", x11Forwarding: false, passwordAuthentication: false } })
+  })
+
+  test("no effective Root login sends none until the operator picks one", async () => {
+    const effective: Record<string, unknown> = { ...sshdState.effective }
+    delete effective.permitRootLogin
+    const calls = render({ [PLAN]: { body: makePlan("users.sshd.apply", { hostId: "h1" }) } }, { ...sshdState, effective })
+    const user = await openForm()
+    await user.click(screen.getByRole("switch", { name: "Password login" }))
+    await user.click(screen.getByRole("button", { name: "Review change" }))
+    await screen.findByRole("button", { name: "Apply" })
+    expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { passwordAuthentication: false } })
+  })
+
   test("an edited number is checked even when it equals the effective value", async () => {
     const calls = render({}, { ...sshdState, effective: { ...sshdState.effective, maxAuthTries: 20 } })
     const user = await openForm()

@@ -77,7 +77,7 @@ function same(a: unknown, b: unknown): boolean {
 interface Draft {
   bools: Partial<Record<Field, boolean>>
   numbers: Partial<Record<Field, string>>
-  // The number fields the operator typed in; only those are checked and sent.
+  // The fields the operator changed; only those are checked and sent.
   edited: Partial<Record<Field, boolean>>
   permitRootLogin: string
   allowUsers: string
@@ -106,22 +106,23 @@ interface FieldProblem {
 }
 
 // settingsOf is what 00-darkpanel.conf holds after the change: the values
-// Darkpanel set already, plus every value the form changed from the
-// effective one; fields another file manages are left out. A number the
-// operator did not type in is neither checked nor sent: sshd may run with a
-// value outside the form's range that another file set.
+// Darkpanel set already, plus every field the operator changed; fields
+// another file manages are left out. A field the operator did not change
+// keeps what the file holds and is never checked: sshd may run with a value
+// another file set that the form cannot write, such as a MaxAuthTries above
+// its range or forced-commands-only.
 function settingsOf(d: Draft, s: SshdState): { settings: SshdSettings; error: FieldProblem | null } {
   const out: Record<string, unknown> = { ...s.set }
   // The daemon refuses a value this file sets where another file manages
   // the field, so the change drops it.
   for (const f of s.readOnly) delete out[f]
   const put = (f: Field, v: unknown) => {
-    if (s.readOnly.includes(f)) return
+    if (d.edited[f] !== true || s.readOnly.includes(f)) return
     if (!same(v, s.effective[f]) || f in s.set) out[f] = v
   }
   for (const [f] of SWITCHES) put(f, d.bools[f] === true)
   for (const [f, label, min, max] of NUMBERS) {
-    if (d.edited[f] !== true) continue
+    if (d.edited[f] !== true || s.readOnly.includes(f)) continue
     const text = (d.numbers[f] ?? "").trim()
     if (text === "" && s.effective[f] === undefined) continue
     const n = Number(text)
@@ -174,7 +175,7 @@ function HardeningForm({
         <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
           {SWITCHES.map(([f, label]) => (
             <div key={f} className="flex items-center gap-2">
-              <Switch id={`sshd-${f}`} checked={draft.bools[f] === true} onCheckedChange={(on) => setDraft((d) => ({ ...d, bools: { ...d.bools, [f]: on } }))} />
+              <Switch id={`sshd-${f}`} checked={draft.bools[f] === true} onCheckedChange={(on) => setDraft((d) => ({ ...d, bools: { ...d.bools, [f]: on }, edited: { ...d.edited, [f]: true } }))} />
               <Label htmlFor={`sshd-${f}`}>{label}</Label>
             </div>
           ))}
@@ -183,7 +184,7 @@ function HardeningForm({
             <select
               id="sshd-permitRootLogin"
               value={draft.permitRootLogin}
-              onChange={(e) => setDraft((d) => ({ ...d, permitRootLogin: e.target.value }))}
+              onChange={(e) => setDraft((d) => ({ ...d, permitRootLogin: e.target.value, edited: { ...d.edited, permitRootLogin: true } }))}
               className="h-9 rounded-md border border-input bg-background px-2 text-sm"
             >
               <option value="prohibit-password">Keys only</option>
@@ -222,7 +223,7 @@ function HardeningForm({
                 readOnly={listsElsewhere}
                 placeholder={f === "allowUsers" ? "Everyone" : "Every group"}
                 aria-describedby={`sshd-${f}-help`}
-                onChange={(e) => setDraft((d) => ({ ...d, [f]: e.target.value }))}
+                onChange={(e) => setDraft((d) => ({ ...d, [f]: e.target.value, edited: { ...d.edited, [f]: true } }))}
               />
               <span id={`sshd-${f}-help`} className="text-xs text-muted-foreground">
                 {listsElsewhere ? `Set in ${state.listsSetBy}; edit that file to change it` : "Names separated by spaces; empty allows everyone"}
