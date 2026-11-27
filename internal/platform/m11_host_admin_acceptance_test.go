@@ -27,17 +27,17 @@ func acceptRoot(t *testing.T, free int64) (string, *platform.ConsoleFiles) {
 	t.Helper()
 	root := t.TempDir()
 	for _, d := range []string{"proc", "sys", "dev", "run", "boot/efi", "etc/darkpanel", "var/lib/darkpanel", "usr/local/bin", "srv", "etc/ssh"} {
-		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(root, d, "x"), []byte("keep "+d), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, d, "x"), []byte("keep "+d), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(root, "usr/local/bin/darkpanel"), []byte("binary"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "usr/local/bin/darkpanel"), []byte("binary"), 0o755); err != nil { //nolint:gosec // G306: the binary is executable, as installed
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "srv/target.txt"), []byte("target"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "srv/target.txt"), []byte("target"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink("../etc/darkpanel", filepath.Join(root, "srv/link")); err != nil {
@@ -74,16 +74,16 @@ func tmpFiles(t *testing.T, root string) []string {
 func TestA19_ListsTwoThousandEntriesInOnePageThenTheNext(t *testing.T) {
 	root, f := acceptRoot(t, 1<<40)
 	dir := filepath.Join(root, "big")
-	if err := os.Mkdir(dir, 0o755); err != nil {
+	if err := os.Mkdir(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 1990; i++ {
-		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("a%04d", i)), nil, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("a%04d", i)), nil, 0o644); err != nil { //nolint:gosec // G306: a fixture file of the listing
 			t.Fatal(err)
 		}
 	}
 	for i := 0; i < 10; i++ {
-		if err := os.Mkdir(filepath.Join(dir, fmt.Sprintf("z%02d", i)), 0o755); err != nil {
+		if err := os.Mkdir(filepath.Join(dir, fmt.Sprintf("z%02d", i)), 0o755); err != nil { //nolint:gosec // G301: a fixture directory of the listing
 			t.Fatal(err)
 		}
 	}
@@ -100,7 +100,7 @@ func TestA19_ListsTwoThousandEntriesInOnePageThenTheNext(t *testing.T) {
 		}
 	}
 	for i := 0; i < 5; i++ {
-		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("b%04d", i)), nil, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("b%04d", i)), nil, 0o644); err != nil { //nolint:gosec // G306: a fixture file of the listing
 			t.Fatal(err)
 		}
 	}
@@ -136,7 +136,7 @@ func TestA20_TextRoundTripAndConflict(t *testing.T) {
 	if codeOf(err) != errcode.FilesConflict {
 		t.Fatalf("write with an outdated hash: %v; want files.conflict", err)
 	}
-	after, _ := os.ReadFile(filepath.Join(root, "srv/big.txt"))
+	after, _ := os.ReadFile(filepath.Join(root, "srv/big.txt")) //nolint:gosec // G304: a path below the test's temporary root
 	if !bytes.Equal(after, data) {
 		t.Fatal("a conflicting write changed the file")
 	}
@@ -156,7 +156,7 @@ func (p *patternReader) Read(b []byte) (int, error) {
 		n = p.left
 	}
 	for i := int64(0); i < n; i++ {
-		b[i] = byte((p.left - i) * 31)
+		b[i] = byte((p.left - i) * 31) //nolint:gosec // G115: wraps on purpose, a byte pattern
 	}
 	p.left -= n
 	return int(n), nil
@@ -184,7 +184,7 @@ func TestA21_UploadDownloadByteIdenticalAndFreeSpaceRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	dl := sha256.New()
 	if _, err := io.Copy(dl, rc); err != nil || n != size || !bytes.Equal(dl.Sum(nil), want.Sum(nil)) {
 		t.Fatalf("download: err %v, size %d, identical %v", err, n, bytes.Equal(dl.Sum(nil), want.Sum(nil)))
@@ -230,12 +230,12 @@ func TestA63_UploadLimitIs512MiB(t *testing.T) {
 func TestA22_ProtectedPathsRefuseWritesRenamesDeletesReads(t *testing.T) {
 	root, f := acceptRoot(t, 1<<40)
 	ctx := context.Background()
-	before := map[string]string{}
+	var before map[string]string
 	snap := func() map[string]string {
 		m := map[string]string{}
 		_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 			if err == nil && !d.IsDir() {
-				b, _ := os.ReadFile(p)
+				b, _ := os.ReadFile(p) //nolint:gosec // G304: a path below the test's temporary root
 				m[p] = string(b)
 			}
 			return nil
@@ -288,7 +288,7 @@ func TestA22_ProtectedPathsRefuseWritesRenamesDeletesReads(t *testing.T) {
 			t.Errorf("read of %s accepted", p)
 		}
 		if rc, _, err := f.Open(ctx, p); err == nil {
-			rc.Close()
+			_ = rc.Close()
 			t.Errorf("download of %s accepted", p)
 		}
 	}
@@ -309,7 +309,7 @@ func TestA23_SymlinksAreNeverWrittenThrough(t *testing.T) {
 	if _, err := f.WriteText(ctx, "/srv/file-link", []byte("changed"), sum([]byte("target"))); err == nil {
 		t.Error("write to a symlink accepted")
 	}
-	if b, _ := os.ReadFile(filepath.Join(root, "srv/target.txt")); string(b) != "target" {
+	if b, _ := os.ReadFile(filepath.Join(root, "srv/target.txt")); string(b) != "target" { //nolint:gosec // G304: a path below the test's temporary root
 		t.Errorf("target behind the symlink is %q", b)
 	}
 	if _, err := f.WriteText(ctx, "/srv/link/x", []byte("changed"), sum([]byte("keep etc/darkpanel"))); err == nil {
@@ -318,7 +318,7 @@ func TestA23_SymlinksAreNeverWrittenThrough(t *testing.T) {
 	if _, err := f.WriteText(ctx, "/srv/link/new", []byte("changed"), ""); err == nil {
 		t.Error("create through a symlinked directory accepted")
 	}
-	if b, _ := os.ReadFile(filepath.Join(root, "etc/darkpanel/x")); string(b) != "keep etc/darkpanel" {
+	if b, _ := os.ReadFile(filepath.Join(root, "etc/darkpanel/x")); string(b) != "keep etc/darkpanel" { //nolint:gosec // G304: a path below the test's temporary root
 		t.Errorf("file behind the symlinked directory is %q", b)
 	}
 	if _, err := os.Stat(filepath.Join(root, "etc/darkpanel/new")); err == nil {
@@ -332,10 +332,10 @@ func TestA24_OverwriteKeepsModeAndOwner(t *testing.T) {
 	}
 	root, f := acceptRoot(t, 1<<40)
 	p := filepath.Join(root, "srv/owned.txt")
-	if err := os.WriteFile(p, []byte("old"), 0o640); err != nil {
+	if err := os.WriteFile(p, []byte("old"), 0o640); err != nil { //nolint:gosec // G306: the mode the write must keep
 		t.Fatal(err)
 	}
-	if err := os.Chmod(p, 0o640); err != nil {
+	if err := os.Chmod(p, 0o640); err != nil { //nolint:gosec // G302: the mode the test checks is kept
 		t.Fatal(err)
 	}
 	if err := os.Chown(p, 4321, 4322); err != nil {
@@ -352,7 +352,7 @@ func TestA24_OverwriteKeepsModeAndOwner(t *testing.T) {
 	if st.Mode().Perm() != 0o640 || sys.Uid != 4321 || sys.Gid != 4322 {
 		t.Errorf("mode %v owner %d:%d; want 0640 4321:4322", st.Mode().Perm(), sys.Uid, sys.Gid)
 	}
-	if b, _ := os.ReadFile(p); string(b) != "new" {
+	if b, _ := os.ReadFile(p); string(b) != "new" { //nolint:gosec // G304: a path below the test's temporary root
 		t.Errorf("content %q", b)
 	}
 }
@@ -360,10 +360,10 @@ func TestA24_OverwriteKeepsModeAndOwner(t *testing.T) {
 func TestA25_DeleteDirectoryNeedsConfirm(t *testing.T) {
 	root, f := acceptRoot(t, 1<<40)
 	ctx := context.Background()
-	if err := os.MkdirAll(filepath.Join(root, "srv/d/sub"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "srv/d/sub"), 0o755); err != nil { //nolint:gosec // G301: a fixture directory
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "srv/d/sub/f"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "srv/d/sub/f"), []byte("x"), 0o644); err != nil { //nolint:gosec // G306: a fixture file
 		t.Fatal(err)
 	}
 	if err := f.Delete(ctx, "/srv/d", ""); err == nil {
@@ -472,7 +472,7 @@ func TestA12_TypedBytesReachTheShellAndResizeChangesTheSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	w := watch(s)
 	if _, err := s.Write([]byte("echo \"hel\"\"lo-$((6*7))\"; stty size\n")); err != nil {
 		t.Fatal(err)
@@ -557,7 +557,7 @@ func newHome(t *testing.T) homeRig {
 		t.Fatal(err)
 	}
 	home := filepath.Join(root, "home", "u")
-	if err := os.MkdirAll(home, 0o755); err != nil {
+	if err := os.MkdirAll(home, 0o755); err != nil { //nolint:gosec // G301: a home sshd's StrictModes accepts
 		t.Fatal(err)
 	}
 	if err := os.Chown(home, 4242, 4243); err != nil {
@@ -565,7 +565,7 @@ func newHome(t *testing.T) homeRig {
 	}
 	passwd := filepath.Join(root, "passwd")
 	line := fmt.Sprintf("root:x:0:0:root:/root:/bin/bash\nu:x:4242:4243::%s:/bin/bash\n", home)
-	if err := os.WriteFile(passwd, []byte(line), 0o644); err != nil {
+	if err := os.WriteFile(passwd, []byte(line), 0o644); err != nil { //nolint:gosec // G306: a fixture file
 		t.Fatal(err)
 	}
 	return homeRig{h: platform.NewHomeFiles(passwd), home: home, uid: 4242}
@@ -617,7 +617,7 @@ func TestA39_KeyFileAccessRefusals(t *testing.T) {
 		if err := r.h.WriteAuthorizedKeys(ctx, "u", []byte("ssh-ed25519 AAAA x\n")); err == nil {
 			t.Error("write through a symlinked .ssh accepted")
 		}
-		if b, _ := os.ReadFile(filepath.Join(other, "authorized_keys")); string(b) != "secret\n" {
+		if b, _ := os.ReadFile(filepath.Join(other, "authorized_keys")); string(b) != "secret\n" { //nolint:gosec // G304: a path below the test's temporary root
 			t.Errorf("the file behind the symlink changed: %q", b)
 		}
 	})
@@ -636,7 +636,7 @@ func TestA39_KeyFileAccessRefusals(t *testing.T) {
 		if _, err := r.h.ReadAuthorizedKeys(ctx, "u"); err == nil {
 			t.Error("read of a symlinked authorized_keys accepted")
 		}
-		if b, _ := os.ReadFile(target); string(b) != "real\n" {
+		if b, _ := os.ReadFile(target); string(b) != "real\n" { //nolint:gosec // G304: a path below the test's temporary root
 			t.Errorf("target changed: %q", b)
 		}
 	})

@@ -270,8 +270,7 @@ func TestA27_UnitListCoversTypesAndFilters(t *testing.T) {
 	read := func(in string) services.UnitList {
 		t.Helper()
 		env := core.Env{HostID: "h1", Principal: operator, DB: h.db, Units: h.u}
-		var a core.ActionDef
-		a = h.action("services.unit.list")
+		a := h.action("services.unit.list")
 		raw, err := a.Handler.Read(context.Background(), env, json.RawMessage(in))
 		if err != nil {
 			t.Fatal(err)
@@ -312,7 +311,7 @@ type jr struct {
 	args        []string
 }
 
-func (j *jr) Run(_ context.Context, c core.Cmd) (core.CmdResult, error) {
+func (j *jr) Run(_ context.Context, _ core.Cmd) (core.CmdResult, error) {
 	return core.CmdResult{Stderr: []byte(j.probeStderr)}, nil
 }
 
@@ -469,7 +468,8 @@ func TestA29_FollowEmitsEntriesAndEndsJournalctlWhenTheReaderGoesAway(t *testing
 		})
 	}()
 	select {
-	case <-done:
+	case err := <-done:
+		t.Logf("the follower ended: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("the follower kept running after its reader went away")
 	}

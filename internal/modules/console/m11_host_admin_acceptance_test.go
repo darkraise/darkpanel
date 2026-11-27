@@ -164,7 +164,7 @@ func newRig(t *testing.T) *rig {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "srv"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "srv"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	clk := coretest.NewFakeClock(time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC))
@@ -212,7 +212,8 @@ func TestA15_AFifthTerminalOnOneHostIsRefusedWithConsoleLimit(t *testing.T) {
 	waitFor(t, "four shells", func() bool { return r.shells.count() == 4 })
 	c5, done := r.open()
 	select {
-	case <-done:
+	case err := <-done:
+		t.Logf("the fifth terminal ended: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("the fifth terminal stayed open")
 	}
@@ -233,13 +234,14 @@ func TestA16_ATerminalWithoutInputForThirtyMinutesClosesIdle(t *testing.T) {
 	waitFor(t, "the shell", func() bool { return r.shells.count() == 1 && r.clock.Pending() > 0 })
 	r.clock.Advance(29 * time.Minute)
 	select {
-	case <-done:
-		t.Fatal("the terminal closed after 29 minutes")
+	case err := <-done:
+		t.Fatalf("the terminal closed after 29 minutes: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 	r.clock.Advance(time.Minute + time.Second)
 	select {
-	case <-done:
+	case err := <-done:
+		t.Logf("the idle terminal ended: %v", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("the terminal stayed open after 30 minutes")
 	}
@@ -334,7 +336,9 @@ func TestA17_AnOpenLeftByARestartGetsACloseWithReasonAgentRestarted(t *testing.T
 		t.Errorf("close reasons %v; want [agent restarted]", reasons)
 	}
 	_ = c.Close("test over")
-	<-done
+	if err := <-done; err != nil {
+		t.Logf("the terminal ended: %v", err)
+	}
 }
 
 func TestA26_EveryFileMutationIsJournaledBeforeItAnswers(t *testing.T) {

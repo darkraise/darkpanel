@@ -30,8 +30,7 @@ func (e *events) index(prefix string) int {
 }
 
 type runner struct {
-	ev       *events
-	crowdsec bool
+	ev *events
 }
 
 func (r runner) Run(_ context.Context, c core.Cmd) (core.CmdResult, error) {
@@ -64,7 +63,7 @@ type units struct {
 	ev *events
 }
 
-func (u units) State(_ context.Context, name string) (core.UnitState, error) {
+func (u units) State(_ context.Context, _ string) (core.UnitState, error) {
 	return core.UnitState{LoadState: "not-found", ActiveState: "inactive"}, nil
 }
 
