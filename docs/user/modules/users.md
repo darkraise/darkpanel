@@ -68,10 +68,10 @@ create. Each command below is the generated command of one action, and the
 | `users.password.set` | `darkpanel users password set` | Sets an account's password. | A step-up code, and the password. |
 | `users.password.remove` | `darkpanel users password remove` | Removes an account's password: its hash becomes `*`. | Nothing. |
 | `users.sudo.add` | `darkpanel users sudo add` | Adds an account to the `sudo` group. | A step-up code. Undo with `change undo`. |
-| `users.sudo.remove` | `darkpanel users sudo remove` | Removes an account from the `sudo` group. | Nothing. Undo with `change undo`. |
+| `users.sudo.remove` | `darkpanel users sudo remove` | Removes an account from the `sudo` group. | Nothing. Undo with `change undo`, which asks for a step-up code. |
 | `users.key.list` | `darkpanel users key list` | Lists an account's keys: type, bits, SHA256 fingerprint, comment and options. | Nothing; it only reads. |
 | `users.key.add` | `darkpanel users key add` | Authorizes one public key for an account. | A step-up code. Undo with `change undo`. |
-| `users.key.remove` | `darkpanel users key remove` | Removes a key by its fingerprint. | Nothing. Undo with `change undo`. |
+| `users.key.remove` | `darkpanel users key remove` | Removes a key by its fingerprint. | Nothing. Undo with `change undo`, which asks for a step-up code. |
 | `users.sshd.get` | `darkpanel users sshd get` | Reads sshd's effective settings from `sshd -T` and the ones Darkpanel set. | Nothing; it only reads. |
 | `users.sshd.apply` | `darkpanel users sshd apply` | Writes sshd's settings and reloads sshd. | Your confirmation before the deadline, or it reverts. |
 | `users.sshd.repair` | `darkpanel users sshd repair` | Rewrites Darkpanel's sshd file from the last confirmed settings, or removes it when none were confirmed, and reloads sshd. | Nothing. |

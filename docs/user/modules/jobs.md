@@ -72,9 +72,9 @@ jobs, while creating and changing them happen in the web UI.
 |---|---|---|---|
 | `jobs.job.list` | `darkpanel jobs job list` | Lists the Darkpanel jobs with their last start, result, exit status and next run, and the host's other timers and cron entries. | Nothing; it only reads. |
 | `jobs.schedule.check` | `darkpanel jobs schedule check` | Checks a calendar expression and shows its next three runs. | Nothing; it only reads. |
-| `jobs.job.create` | `darkpanel jobs job create` | Creates a job: its script, its service and its timer. | A step-up code. Undo with `change undo`, which deletes it. |
-| `jobs.job.update` | `darkpanel jobs job update` | Changes a job's schedule, user, command or limits. | A step-up code. Undo with `change undo`, which puts the previous job back. |
-| `jobs.job.delete` | `darkpanel jobs job delete` | Stops a job's timer and removes its files. | Nothing. Undo with `change undo`. |
+| `jobs.job.create` | `darkpanel jobs job create` | Creates a job: its script, its service and its timer. | A step-up code. Undo with `change undo`, which deletes it and asks for a code too. |
+| `jobs.job.update` | `darkpanel jobs job update` | Changes a job's schedule, user, command or limits. | A step-up code. Undo with `change undo`, which puts the previous job back and asks for a code too. |
+| `jobs.job.delete` | `darkpanel jobs job delete` | Stops a job's timer and removes its files. | Nothing. Undo with `change undo`, which puts the job back and asks for a step-up code. |
 | `jobs.job.enable` | `darkpanel jobs job enable` | Starts a job's timer and starts it at boot. | Nothing. Undo with `change undo`. |
 | `jobs.job.disable` | `darkpanel jobs job disable` | Stops a job's timer and keeps it off at boot. | Nothing. Undo with `change undo`. |
 | `jobs.job.run` | `darkpanel jobs job run` | Runs a job now. | Nothing; a run cannot be undone. |
@@ -108,17 +108,25 @@ remembers which were active; turning it on again starts those again, and an
 agent that starts with the module off stops them. Off on a host means no
 Darkpanel job runs there.
 
+A create, update or enable that reaches the host while the module is turning
+off, or after the host's policy file denied jobs, still saves the job but leaves
+its timer stopped, and so does undoing a delete while jobs is off. The change
+says "jobs is off on this host; the job starts when jobs is turned on", and
+turning jobs on starts the timer. A run that reaches the host then is refused.
+
 ## What it changes on the host
 
 For a job named `<slug>`:
 
 - `/etc/systemd/system/darkpanel-job-<slug>.service`: `Type=oneshot`, `User=`,
-  `TimeoutStartSec=` and `ExecStart=/bin/sh /var/lib/darkpanel/jobs/<slug>.sh`.
+  `TimeoutStartSec=`, `LoadCredential=script:/var/lib/darkpanel/jobs/<slug>.sh`
+  and `ExecStart=/bin/sh ${CREDENTIALS_DIRECTORY}/script`.
 - `/etc/systemd/system/darkpanel-job-<slug>.timer`: `OnCalendar=`,
   `Persistent=` (catch up) and `RandomizedDelaySec=`.
-- `/var/lib/darkpanel/jobs/<slug>.sh`, the command, mode 0750, owned by root
-  with the group of the user's primary group, in `/var/lib/darkpanel/jobs`,
-  which is root-owned with mode 0755 so a non-root user can open its script.
+- `/var/lib/darkpanel/jobs/<slug>.sh`, the command, mode 0700 and owned by
+  root, in `/var/lib/darkpanel/jobs`, which is root-owned with mode 0700. The
+  job's user can neither read nor change it: systemd hands the job a copy each
+  time it starts.
 
 Darkpanel records each unit file in the host's ownership store when it writes
 it, and removes the record when it deletes the file. `sudo darkpanel uninstall`

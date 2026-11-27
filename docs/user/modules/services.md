@@ -50,7 +50,7 @@ create. Each command below is the generated command of one action, and the
 | Action | Command | What it does | Asks you |
 |---|---|---|---|
 | `services.unit.list` | `darkpanel services unit list` | Lists the services, sockets, timers, mounts, paths and targets with their state; `--type` and `--state` filter. | Nothing; it only reads. |
-| `services.unit.get` | `darkpanel services unit get` | Shows one unit: state, memory, tasks, restarts, start time, unit file text up to 64 KiB and drop-in paths. | Nothing; it only reads. |
+| `services.unit.get` | `darkpanel services unit get` | Shows one unit: state, memory, tasks, restarts, start time, drop-in paths and, for an admin, the unit file text up to 64 KiB, since a unit can hold secrets. | Nothing; it only reads. |
 | `services.journal.query` | `darkpanel services journal query` | Reads a page of journal entries by unit, priority, time range and message text. | Nothing; it only reads. |
 | `services.journal-follow` | `darkpanel services journal-follow` | Follows the journal with the same filters, starting with the last `--lines` entries (100 by default, at most 500). | Nothing; it only reads. |
 | `services.unit.start` | `darkpanel services unit start` | Starts a service, socket or timer. | Nothing. Undo with `change undo`, which stops it. |

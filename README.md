@@ -16,7 +16,9 @@ releases with automatic rollback.
   agent run` runs the agent on every host. Agents connect out to the controller
   over mutual TLS and open no listening port of their own.
 - **Safe changes.** Every change shows a plan before it applies, lands in an
-  audit log, and where it can, comes with an undo. A firewall change reverts by
+  audit log, and where it can, comes with an undo. An undo that could grant
+  root, such as putting back a deleted job or a removed key, asks for a fresh
+  authenticator code. A firewall change reverts by
   itself unless you confirm it, and is refused when it would cut your own
   access.
 - **Modules.** [hostinfo](docs/user/modules/hostinfo.md), operating system
@@ -28,17 +30,20 @@ releases with automatic rollback.
   relays, and exposure through [Nginx Proxy Manager](docs/user/modules/npm.md)
   or [Cloudflare tunnels](docs/user/modules/cloudflare.md).
 - **Host administration.** Start, stop and enable systemd
-  [services](docs/user/modules/services.md) and read or follow their journal;
+  [services](docs/user/modules/services.md) and read or follow their journal,
+  with unit file text shown to admins only;
   manage login [users and SSH](docs/user/modules/users.md) keys and harden the
   SSH daemon behind a lockout guard and a revert timer; ban SSH attackers with
   [fail2ban](docs/user/modules/fail2ban.md); run [scheduled
-  jobs](docs/user/modules/jobs.md) as systemd timers; and set kernel parameters
+  jobs](docs/user/modules/jobs.md) as systemd timers, from root-only scripts
+  systemd hands to each job; and set kernel parameters
   and a swap file with [tuning](docs/user/modules/tuning.md).
 - **Console.** Admins can open a root terminal and a file manager for a
   host's files in the browser with the [console](docs/user/modules/console.md).
   It is off until turned on per host, asks for an authenticator code, records
   every session and file change in the audit log, and root on the host can deny
-  it and scheduled jobs together in a host policy file.
+  it and scheduled jobs together in a host policy file; the panel shows a
+  change to it within seconds.
 - **Signed updates.** A host updates one at a time, the controller's own host
   first, from releases whose minisign signature it verifies. Each update takes a
   backup, keeps the previous binary, and rolls back within two minutes when the

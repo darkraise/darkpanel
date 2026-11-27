@@ -156,7 +156,9 @@ The file does not cover the users module, which can add a key to root:
   `console`, `jobs` or both.
 - The command writes `/etc/darkpanel/agent-policy.json`, for example
   `{"denyModules":["console","jobs"]}`, and tells the running agent to read it
-  again; an agent that is not running reads it when it starts.
+  again; an agent that is not running reads it when it starts. When that turns
+  a module on or off, the panel shows it within seconds and the audit log
+  records `agent.policy.reload`.
 - A denied module is reported unavailable with
   "Turned off on this host by its policy file". The agent refuses to turn it on whatever the controller asks,
   and refuses every terminal and file request of it.
