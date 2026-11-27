@@ -303,11 +303,16 @@ export function FilesView({ hostId }: { hostId: string }) {
   const [uploading, setUploading] = useState<Uploading | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   const [shownPath, setShownPath] = useState(path)
+  const [dirty, setDirty] = useState(false)
+  // leaving: ?path= left the edited file's folder under unsaved text; the
+  // editor stays until its user discards the text or goes back.
+  const [leaving, setLeaving] = useState(false)
   if (shownPath !== path) {
     setShownPath(path)
-    setEditing(null)
+    if (editing === null || !dirty) setEditing(null)
+    else setLeaving(path !== parentPath(editing.path))
   }
-  useFocusFallback(pending !== null)
+  useFocusFallback(pending !== null || editing !== null)
 
   const list = useInfiniteQuery({
     queryKey: filesKey(hostId, path),
@@ -361,7 +366,31 @@ export function FilesView({ hostId }: { hostId: string }) {
   const protectedDir = pages[0]?.protected
 
   if (editing !== null) {
-    return <FileEditor key={editing.path} hostId={hostId} path={editing.path} size={editing.size} onClose={() => setEditing(null)} />
+    const home = parentPath(editing.path)
+    return (
+      <FileEditor
+        key={editing.path}
+        hostId={hostId}
+        path={editing.path}
+        size={editing.size}
+        onClose={() => setEditing(null)}
+        onDirtyChange={setDirty}
+        leaving={
+          leaving
+            ? {
+                onDiscard: () => {
+                  setLeaving(false)
+                  setEditing(null)
+                },
+                onStay: () => {
+                  setLeaving(false)
+                  go(home)
+                },
+              }
+            : null
+        }
+      />
+    )
   }
 
   return (

@@ -17,13 +17,18 @@ export interface FileEditorProps {
   // size is the listed size; a file over MAX_TEXT is never read.
   size: number
   onClose: () => void
+  // onDirtyChange hears whether the text differs from the file's.
+  onDirtyChange?: (dirty: boolean) => void
+  // leaving is a path change while the text was unsaved: the editor asks
+  // whether to discard it or stay.
+  leaving?: { onDiscard: () => void; onStay: () => void } | null
 }
 
 // FileEditor edits a text file of at most 1 MiB (UX-9). Opening it reads the
 // file, which asks for a code outside the step-up window; a save carries the
 // hash the editor opened, and a file changed since shows Reload and
 // Overwrite.
-export function FileEditor({ hostId, path, size, onClose }: FileEditorProps) {
+export function FileEditor({ hostId, path, size, onClose, onDirtyChange, leaving = null }: FileEditorProps) {
   const [load, setLoad] = useState<Load>(size > MAX_TEXT ? { kind: "not text" } : { kind: "loading" })
   const [text, setText] = useState("")
   const [saved, setSaved] = useState("")
@@ -33,6 +38,20 @@ export function FileEditor({ hostId, path, size, onClose }: FileEditorProps) {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [round, setRound] = useState(0)
   const area = useRef<HTMLTextAreaElement>(null)
+  // asking is an action that would drop unsaved text, waiting on a yes.
+  const [asking, setAsking] = useState<(() => void) | null>(null)
+  const dirty = load.kind === "ready" && text !== saved
+
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+    if (!dirty) return
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    window.addEventListener("beforeunload", warn)
+    return () => window.removeEventListener("beforeunload", warn)
+  }, [dirty, onDirtyChange])
+
+  // unlessDirty runs go at once, or after a yes when the text is unsaved.
+  const unlessDirty = (go: () => void) => () => (dirty ? setAsking(() => go) : go())
 
   // Reads asking for a code at once share one step-up dialog, so React's
   // second run of this effect in development asks no second code.
@@ -111,8 +130,39 @@ export function FileEditor({ hostId, path, size, onClose }: FileEditorProps) {
     }
   }
 
+  const discard = asking ?? leaving?.onDiscard
+  const confirm = discard !== undefined && (
+    <Alert variant="warning" role="alert">
+      <AlertTitle as="h3">{`Discard your changes to ${path}?`}</AlertTitle>
+      <AlertDescription className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          onClick={() => {
+            setAsking(null)
+            discard()
+          }}
+        >
+          Discard changes
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setAsking(null)
+            leaving?.onStay()
+          }}
+        >
+          Keep editing
+        </Button>
+      </AlertDescription>
+    </Alert>
+  )
+
   const close = (
-    <Button variant="outline" onClick={onClose}>
+    <Button variant="outline" onClick={unlessDirty(onClose)}>
       <X aria-hidden="true" />
       Close
     </Button>
@@ -181,7 +231,7 @@ export function FileEditor({ hostId, path, size, onClose }: FileEditorProps) {
             <Alert variant="warning" role="alert">
               <AlertTitle as="h3">{CONFLICT}</AlertTitle>
               <AlertDescription className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="outline" onClick={reload}>
+                <Button type="button" size="sm" variant="outline" onClick={unlessDirty(reload)}>
                   Reload
                 </Button>
                 <Button type="button" size="sm" variant="destructive" disabled={saving} onClick={() => void overwrite()}>
@@ -190,6 +240,7 @@ export function FileEditor({ hostId, path, size, onClose }: FileEditorProps) {
               </AlertDescription>
             </Alert>
           )}
+          {confirm}
           {saveError !== null && (
             <Alert variant="destructive" role="alert">
               <AlertTitle as="h3">{`Couldn't save ${path}`}</AlertTitle>

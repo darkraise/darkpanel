@@ -21,6 +21,15 @@ function Back() {
   )
 }
 
+function GoRoot() {
+  const navigate = useNavigate()
+  return (
+    <button type="button" onClick={() => void navigate("/?path=/")}>
+      Go to the root
+    </button>
+  )
+}
+
 // listing answers each path from dirs, and a second page for a cursor.
 function listing(dirs: Record<string, object>, more?: object): StubHandler {
   return (c) => {
@@ -36,6 +45,7 @@ function render(routes: Record<string, StubHandler>, path = "/etc") {
     <>
       <FilesView hostId="h1" />
       <Back />
+      <GoRoot />
     </>,
     { path: `/?path=${path}` },
   )
@@ -166,7 +176,7 @@ describe("navigation and states", () => {
     expect(screen.getByLabelText("/etc/hosts")).toHaveProperty("value", "127.0.0.1 localhost\n::1 x")
   })
 
-  test("Reload drops the edits and reads the file again", async () => {
+  test("Reload asks before it drops the edits, then reads the file again", async () => {
     let reads = 0
     render({
       [`GET ${FILES}/read`]: () => (reads++ === 0 ? text("old\n", "a") : text("new\n", "b")),
@@ -177,8 +187,29 @@ describe("navigation and states", () => {
     await user.type(await screen.findByLabelText("/etc/hosts"), "mine")
     await user.click(screen.getByRole("button", { name: "Save" }))
     await user.click(await screen.findByRole("button", { name: "Reload" }))
+    expect(screen.getByText("Discard your changes to /etc/hosts?")).toBeTruthy()
+    await user.click(screen.getByRole("button", { name: "Discard changes" }))
     await waitFor(() => expect(screen.getByLabelText("/etc/hosts")).toHaveProperty("value", "new\n"))
     expect(screen.queryByText(CONFLICT)).toBeNull()
+  })
+
+  test("Close and leaving the folder ask before unsaved text is dropped", async () => {
+    render({ [`GET ${FILES}/read`]: text("old\n", "a") })
+    const user = await menuOf("hosts")
+    await user.click(item("Edit"))
+    await user.type(await screen.findByLabelText("/etc/hosts"), "mine")
+    await user.click(screen.getByRole("button", { name: "Close" }))
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
+    expect(screen.getByLabelText("/etc/hosts")).toHaveProperty("value", "old\nmine")
+    // A link elsewhere leaves /etc while the text is unsaved.
+    await user.click(screen.getByRole("button", { name: "Go to the root" }))
+    expect(await screen.findByText("Discard your changes to /etc/hosts?")).toBeTruthy()
+    await user.click(screen.getByRole("button", { name: "Keep editing" }))
+    await waitFor(() => expect(screen.queryByText("Discard your changes to /etc/hosts?")).toBeNull())
+    expect(screen.getByLabelText("/etc/hosts")).toHaveProperty("value", "old\nmine")
+    await user.click(screen.getByRole("button", { name: "Close" }))
+    await user.click(screen.getByRole("button", { name: "Discard changes" }))
+    expect(await screen.findByRole("button", { name: "Actions for hosts" })).toBeTruthy()
   })
 
   test("deleting a directory asks its path; a file only a confirmation", async () => {
