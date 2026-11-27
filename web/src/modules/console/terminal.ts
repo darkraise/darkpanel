@@ -49,6 +49,10 @@ export function closedFor(reason: string, exit: number | null): Closed {
       return { text: "Your access to this host was revoked", label: "Closed: access revoked", reconnect: false }
     case "error":
       return { text: "The panel couldn't check your session", label: "Closed", reconnect: true }
+    case "bad frame":
+      return { text: "The terminal closed: a message from the browser was too large or malformed", label: "Closed", reconnect: true }
+    case "browser gone":
+      return { text: "The connection stopped answering", label: "Closed: connection lost", reconnect: true }
     case "ended":
       return { text: exit === null ? "The shell exited" : `The shell exited with code ${exit}`, label: "Closed: shell exited", reconnect: true }
     case "":
