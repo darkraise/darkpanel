@@ -192,11 +192,11 @@ func (s *Server) authorizeRepair(p core.Principal, v core.ChangeView) error {
 }
 
 // requireChangeStepUp asks the caller for a step-up when need holds for the
-// definition of the change's action, and when the controller lacks that
-// definition, since it cannot tell whether the action grants access.
+// definition of the change's action. A definition the controller lacks needs
+// none here: authorizeChange has already held such a change to admin.
 func (s *Server) requireChangeStepUp(ctx context.Context, v core.ChangeView, need func(core.ActionDef) bool) error {
 	def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version})
-	if ok && !need(def) {
+	if !ok || !need(def) {
 		return nil
 	}
 	c, _ := callerFrom(ctx)

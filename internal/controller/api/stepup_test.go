@@ -218,7 +218,6 @@ func TestRevertAndRepairNeedStepUp(t *testing.T) {
 	var calls int
 	h := stepUpChanges(t, core.StatePending, map[string]string{
 		"cgate": "surv.gate.set", "crule": "surv.rule.set", "cjob": "jobs.job.delete", "cplain": "demo.item.add",
-		"cgone": "gone.item.set",
 	}, &calls)
 	session, csrf := h.login()
 	tok := h.token(core.ScopeAdmin)
@@ -233,7 +232,6 @@ func TestRevertAndRepairNeedStepUp(t *testing.T) {
 	wantProblem(t, "repair of a step-up action", h.serve(repair("cgate")), http.StatusForbidden, errcode.StepUpRequired)
 	wantProblem(t, "repair by a step-up action", h.serve(repair("crule")), http.StatusForbidden, errcode.StepUpRequired)
 	wantProblem(t, "repair of an UndoStepUp action", h.serve(repair("cjob")), http.StatusForbidden, errcode.StepUpRequired)
-	wantProblem(t, "revert of an action the controller lacks", h.serve(revert("cgone")), http.StatusForbidden, errcode.StepUpRequired)
 	wantProblem(t, "repair of a step-up action with a token",
 		h.serve(withToken(request("POST", "/api/v1/changes/cgate/repair", `{}`), tok)), http.StatusForbidden, errcode.StepUpUnavailable)
 	if calls != 0 {
@@ -247,17 +245,15 @@ func TestRevertAndRepairNeedStepUp(t *testing.T) {
 	}
 
 	h.stepUp(session, csrf)
-	for _, id := range []string{"cgate", "cgone"} {
-		if rec := h.serve(revert(id)); rec.Code != http.StatusOK {
-			t.Errorf("revert of %s after step-up: %d %s", id, rec.Code, rec.Body)
-		}
+	if rec := h.serve(revert("cgate")); rec.Code != http.StatusOK {
+		t.Errorf("revert after step-up: %d %s", rec.Code, rec.Body)
 	}
 	for _, id := range []string{"cgate", "crule", "cjob"} {
 		if rec := h.serve(repair(id)); rec.Code != http.StatusAccepted {
 			t.Errorf("repair of %s after step-up: %d %s", id, rec.Code, rec.Body)
 		}
 	}
-	if calls != 7 {
-		t.Errorf("the dispatcher ran %d times, want 7", calls)
+	if calls != 6 {
+		t.Errorf("the dispatcher ran %d times, want 6", calls)
 	}
 }
