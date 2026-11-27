@@ -77,7 +77,10 @@ func (h banHandler) check(ctx context.Context, env core.Env, in BanInput) (netip
 		if caller, ok := callerAddr(env.Principal); ok && caller == addr {
 			return netip.Addr{}, nil, invalid("/address", "that is your own address")
 		}
-		ignore := fixedIgnore(env)
+		ignore, err := fixedIgnoreToWrite(env)
+		if err != nil {
+			return netip.Addr{}, nil, err
+		}
 		if s, err := h.m.currentSettings(env); err != nil {
 			return netip.Addr{}, nil, err
 		} else if s != nil {

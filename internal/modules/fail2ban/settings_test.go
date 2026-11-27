@@ -2,6 +2,7 @@ package fail2ban
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -18,6 +19,11 @@ func TestSettingsFile(t *testing.T) {
 	r.files[SettingsFile] = prev
 	h := settingsHandler{m: r.module()}
 	in := SettingsInput{Settings: settings()}
+	unresolved := r.env(adminP)
+	unresolved.ControllerAddrs, unresolved.ControllerAddrsErr = nil, errors.New("no such host")
+	if _, err := h.Plan(ctx, unresolved, in); err == nil || !strings.Contains(err.Error(), "controller's addresses") {
+		t.Errorf("plan with the controller unresolved = %v; want a refusal, not a list without it", err)
+	}
 	plan, err := h.Plan(ctx, r.env(adminP), in)
 	if err != nil {
 		t.Fatal(err)

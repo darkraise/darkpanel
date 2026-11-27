@@ -520,11 +520,11 @@ const homeModule = "users"
 // Env.ControllerAddrs for the fail2ban module from controllerAddress, the
 // enrolled controller's host:port (nil or "" gives none), resolved on each
 // call, and Env.Home for the users module. A name that does not resolve
-// within 2 s gives none; log records why.
+// within 2 s gives none and sets Env.ControllerAddrsErr; log records why.
 func ModuleProviders(controllerAddress func() string, log *slog.Logger) func(module string, env core.Env) core.Env {
 	return func(module string, env core.Env) core.Env {
 		if module == controllerAddrsModule && controllerAddress != nil {
-			env.ControllerAddrs = resolveController(controllerAddress(), log)
+			env.ControllerAddrs, env.ControllerAddrsErr = resolveController(controllerAddress(), log)
 		}
 		if module == homeModule {
 			env.Home = platform.NewHomeFiles("/etc/passwd")
@@ -533,20 +533,20 @@ func ModuleProviders(controllerAddress func() string, log *slog.Logger) func(mod
 	}
 }
 
-func resolveController(hostport string, log *slog.Logger) []string {
+func resolveController(hostport string, log *slog.Logger) ([]string, error) {
 	host, _, err := net.SplitHostPort(hostport)
 	if err != nil || host == "" {
-		return nil
+		return nil, nil
 	}
 	if a, err := netip.ParseAddr(host); err == nil {
-		return []string{a.Unmap().String()}
+		return []string{a.Unmap().String()}, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	names, err := lookupHost(ctx, host)
 	if err != nil {
 		log.Warn("runtime: resolve the controller address", "host", host, "error", err)
-		return nil
+		return nil, fmt.Errorf("resolve the controller address %s: %w", host, err)
 	}
 	var out []string
 	for _, n := range names {
@@ -555,7 +555,7 @@ func resolveController(hostport string, log *slog.Logger) []string {
 		}
 	}
 	slices.Sort(out)
-	return out
+	return out, nil
 }
 
 func (r *Runtime) isBroken(moduleID string) bool {

@@ -69,6 +69,16 @@ func fixedIgnore(env core.Env) []string {
 	return slices.Concat(loopbackIgnore, env.ControllerAddrs, tailscaleIgnore)
 }
 
+// fixedIgnoreToWrite is fixedIgnore for a list that is written or guards a
+// ban: it refuses when the controller's addresses are unknown, rather than
+// leave the controller out.
+func fixedIgnoreToWrite(env core.Env) ([]string, error) {
+	if env.ControllerAddrsErr != nil {
+		return nil, fmt.Errorf("fail2ban: the ignore list must hold the controller's addresses: %w", env.ControllerAddrsErr)
+	}
+	return fixedIgnore(env), nil
+}
+
 // ignorePrefix reads an ignore entry, an address or a network, in its
 // canonical form.
 func ignorePrefix(s string) (netip.Prefix, bool) {
@@ -104,7 +114,10 @@ func ignored(entries []string, addr netip.Addr) bool {
 // ignoreList checks the input's list against the fixed entries and returns
 // the whole list to write: the fixed entries, then the extra ones.
 func ignoreList(env core.Env, in []string) ([]string, error) {
-	fixed := fixedIgnore(env)
+	fixed, err := fixedIgnoreToWrite(env)
+	if err != nil {
+		return nil, err
+	}
 	for _, f := range fixed {
 		if !slices.Contains(in, f) {
 			return nil, invalid("/ignoreIp", "the fixed entry "+f+" cannot be removed")

@@ -130,7 +130,11 @@ func (h installHandler) writeDefaults(ctx context.Context, env core.Env) error {
 		}
 	}
 	s := defaultSettings
-	s.IgnoreIP = fixedIgnore(env)
+	fixed, err := fixedIgnoreToWrite(env)
+	if err != nil {
+		return err
+	}
+	s.IgnoreIP = fixed
 	data, _, err := settingsHandler(h).desired(ctx, env, s)
 	if err != nil {
 		return err

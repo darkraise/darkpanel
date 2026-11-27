@@ -163,6 +163,9 @@ type Env struct {
 	// ControllerAddrs are the addresses the agent's configured controller
 	// endpoint resolves to, resolved per call; set for module fail2ban.
 	ControllerAddrs []string
+	// ControllerAddrsErr is why the controller endpoint did not resolve;
+	// ControllerAddrs then lacks its addresses.
+	ControllerAddrsErr error
 	// Home reads and writes the users' authorized keys; set for module users.
 	Home HomeFiles
 	// Shell starts root's login shell on a new terminal; set for module

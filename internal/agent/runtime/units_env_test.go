@@ -178,8 +178,8 @@ func TestModuleProviders(t *testing.T) {
 		t.Errorf("a name resolves to %v", got)
 	}
 	addr = "missing.example.net:443"
-	if got := providers("fail2ban", core.Env{}).ControllerAddrs; got != nil {
-		t.Errorf("a name that does not resolve gives %v", got)
+	if env := providers("fail2ban", core.Env{}); env.ControllerAddrs != nil || env.ControllerAddrsErr == nil {
+		t.Errorf("a name that does not resolve gives %v, %v; want none and the error", env.ControllerAddrs, env.ControllerAddrsErr)
 	}
 	addr = ""
 	if got := ModuleProviders(nil, log)("fail2ban", core.Env{}).ControllerAddrs; got != nil {
