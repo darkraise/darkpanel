@@ -200,6 +200,40 @@ async function clipped(page: Page): Promise<string[]> {
   })
 }
 
+// Text that runs out of its table cell over the next one. clipped() leaves
+// table cells to this check, which measures each text node against its own
+// cell, scroller or not; text an element clips on purpose (an ellipsis, a
+// scroll box) is skipped.
+async function overprinted(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const out: string[] = []
+    for (const cell of document.querySelectorAll<HTMLElement>("main td")) {
+      if (getComputedStyle(cell).display !== "table-cell") continue
+      const outer = cell.getBoundingClientRect()
+      if (outer.width === 0) continue
+      const walk = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+      for (let node = walk.nextNode(); node !== null; node = walk.nextNode()) {
+        if ((node.textContent ?? "").trim() === "") continue
+        let clips = false
+        for (let up = node.parentElement; up !== null; up = up.parentElement) {
+          if (getComputedStyle(up).overflowX !== "visible") clips = true
+          if (up === cell) break
+        }
+        if (clips) continue
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        const inner = range.getBoundingClientRect()
+        if (inner.width === 0) continue
+        if (inner.left < outer.left - 1 || inner.right > outer.right + 1) {
+          out.push(`td: ${(node.textContent ?? "").trim().slice(0, 40)} (${Math.round(inner.right - outer.right)} px past its cell)`)
+          break
+        }
+      }
+    }
+    return out.slice(0, 6)
+  })
+}
+
 // WCAG 2.1 A and AA through axe, colour contrast included.
 async function axeScan(page: Page): Promise<string[]> {
   if (!(await page.evaluate(() => "axe" in window))) await page.addScriptTag({ path: axePath })
@@ -223,6 +257,9 @@ async function audit(page: Page, label: string) {
   const cut = await clipped(page)
   tally.overflowFindings.push(...cut.map((p) => `${label}: clipped ${p}`))
   expect.soft(cut, `${label}: text stays inside its cell`).toEqual([])
+  const over = await overprinted(page)
+  tally.overflowFindings.push(...over.map((p) => `${label}: overprinted ${p}`))
+  expect.soft(over, `${label}: no text runs over the next table cell`).toEqual([])
   tally.axeRuns++
   const found = await axeScan(page)
   tally.axeFindings.push(...found.map((f) => `${label}: ${f}`))
@@ -296,8 +333,6 @@ function rsaLine(bits: number): string {
   return `ssh-rsa ${Buffer.concat([field(Buffer.from("ssh-rsa")), field(Buffer.from([1, 0, 1])), field(modulus)]).toString("base64")} tester@laptop`
 }
 
-const NOW = Date.now()
-
 // withoutCommand is a job or cron row as the agent answers a viewer.
 function withoutCommand<T extends { command?: string }>(row: T): Omit<T, "command"> {
   const copy = { ...row }
@@ -328,7 +363,7 @@ const pendingChange = (action: string, deadlineSeconds: number) => ({
   actor: "user:admin",
   createdAt: "2026-11-27T09:00:00Z",
   updatedAt: "2026-11-27T09:00:00Z",
-  revertDeadline: new Date(NOW + deadlineSeconds * 1000).toISOString(),
+  revertDeadline: new Date(Date.now() + deadlineSeconds * 1000).toISOString(),
   output: null,
   error: null,
   compensatedBy: null,
@@ -903,6 +938,14 @@ for (const theme of THEMES) {
       await page.getByRole("button", { name: "Resize", exact: true }).click()
       await expect(page.getByText(/^Use 256 to \d+ MiB$/)).toBeVisible()
       await snap(page, here, "tuning", "swap-resize-refused")
+      // The agent's own memory guard refuses a resize as it refuses a remove.
+      const guard = "/darkpanel.swap holds 1500 MiB of swapped memory, more than the 1638 MiB available less 256 MiB; free memory first"
+      await page.route(planRoute("tuning.swap.resize"), (route) => route.fulfill(problem(422, "request.invalid_input", guard)))
+      await size.fill("2048")
+      await page.getByRole("button", { name: "Resize", exact: true }).click()
+      await expect(page.getByText(guard, { exact: false })).toBeVisible()
+      await snap(page, here, "tuning", "swap-resize-guard")
+      await page.keyboard.press("Escape")
     })
 
     // UX-12: Console and Jobs off on the host; admins can enable, members read the text.
@@ -996,7 +1039,7 @@ for (const theme of THEMES) {
       await page.keyboard.press("Escape")
       await expect(dialog).toBeHidden()
       const back = dialogOf(page, "Add a user on web-1")
-      await expect(back.getByLabel("Name"), "focus returns to the form that asked, its values kept").toBeFocused()
+      await expect(back.getByRole("button", { name: "Review change" }), "focus returns to the step-up's trigger in the kept form").toBeFocused()
       await expect(back.getByLabel("Name")).toHaveValue("dave")
     })
 
