@@ -400,7 +400,7 @@ func TestA99_AnIntentWithoutAResultGetsInterruptedAtTheNextStart(t *testing.T) {
 	ctx := context.Background()
 	if _, err := r.env.DB.Writer().Exec(`INSERT INTO console_file_ops (id, op, path, actor, source, started_at) VALUES ('crashed1', 'write', '/srv/x', 'user:ada', '198.51.100.7', ?)`,
 		time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-		t.Skipf("console_file_ops has another shape: %v", err)
+		t.Fatalf("console_file_ops has another shape: %v", err)
 	}
 	if err := console.Module().(core.EnablementHook).OnEnabled(ctx, r.env, true); err != nil {
 		t.Fatal(err)

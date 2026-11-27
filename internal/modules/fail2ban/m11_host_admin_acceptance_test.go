@@ -157,7 +157,7 @@ func banPlan(t *testing.T, addr string) error {
 
 func TestA49_A93_BanAddRefusesIgnoredAddressesAndTheCallersOwn(t *testing.T) {
 	if err := banPlan(t, "203.0.113.50"); err != nil {
-		t.Skipf("the control ban of an ordinary address was refused: %v", err)
+		t.Fatalf("the control ban of an ordinary address was refused: %v", err)
 	}
 	for name, addr := range map[string]string{
 		"loopback":                      "127.0.0.1",
