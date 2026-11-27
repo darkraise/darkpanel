@@ -695,15 +695,17 @@ interface Applied {
   files: Map<string, string>
   // The jobs jobs.job.create added.
   jobs: m11.M11Job[]
+  // Reshapes each host core.host.list answers, for the states a page must show.
+  editHost: (h: Host) => Host
 }
 
 // M11 is how mockApi gives web-1 the M11 modules: not at all, or with the
 // caller's scope on the host.
-type M11 = false | "admin" | "operate"
+type M11 = false | "admin" | "operate" | "read"
 
 // m11Host gives web-1 the six M11 modules, console and jobs off as they ship,
 // and the caller scope on it.
-function m11Host(h: Host, scope: "admin" | "operate", enabled: Set<string>): Host {
+function m11Host(h: Host, scope: "admin" | "operate" | "read", enabled: Set<string>): Host {
   if (h.id !== HOST_ID) return h
   const added = ["services", "users", "fail2ban", "console", "jobs", "tuning"].map((id) => moduleState(id, { enabled: (id !== "console" && id !== "jobs") || enabled.has(id) }))
   return { ...h, scope, modules: [...h.modules, ...added] }
@@ -714,7 +716,8 @@ const READS: Record<string, (worstCase: boolean, applied: Applied, sys: SystemCo
     hosts: (worstCase ? worstHosts : hosts)
       .filter((h) => !applied.deleted.has(h.id))
       .map((h) => systemHost(applied.revoked.has(h.id) ? { ...h, state: "revoked" } : h, sys))
-      .map((h) => (withM11 === false ? h : m11Host(h, withM11, applied.enabled))),
+      .map((h) => (withM11 === false ? h : m11Host(h, withM11, applied.enabled)))
+      .map((h) => applied.editHost(h)),
   }),
   // The M11 reads; worstCase answers each list's worst case.
   "services.unit.list": (worstCase) => ({ units: worstCase ? m11.unitsWorst : m11.unitsDefault }),
@@ -958,13 +961,14 @@ export interface Fixtures {
 // state (SYSTEM_STATES) for web-1. m11 gives web-1 the six M11 modules, console
 // and jobs off, whose reads answer from src/modules/m11-fixtures.ts, and the
 // caller admin on it ("operate" makes the caller an operator there); console
-// and jobs turn those modules on; the step-up endpoint accepts the code
-// 123456.
-export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean; systemState?: SystemState; m11?: boolean | "operate"; console?: boolean; jobs?: boolean }): Promise<Fixtures> {
+// and jobs turn those modules on; "read" makes the caller a viewer there;
+// editHost reshapes each host the list answers; the step-up endpoint accepts
+// the code 123456.
+export async function mockApi(page: Page, opts: { signedIn: boolean; worstCase?: boolean; systemState?: SystemState; m11?: boolean | "operate" | "read"; console?: boolean; jobs?: boolean; editHost?: (h: Host) => Host }): Promise<Fixtures> {
   const fixtures: Fixtures = { unhandled: [] }
   const changes = new Map<string, Change>()
   const planned = new Map<string, Record<string, unknown>>()
-  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false, unbanned: new Set(), enabled: new Set([...(opts.console === true ? ["console"] : []), ...(opts.jobs === true ? ["jobs"] : [])]), files: new Map(), jobs: [] }
+  const applied: Applied = { revoked: new Set(), deleted: new Set(), rollouts: [], accounts: [], keys: new Map(), elevated: false, unbanned: new Set(), enabled: new Set([...(opts.console === true ? ["console"] : []), ...(opts.jobs === true ? ["jobs"] : [])]), files: new Map(), jobs: [], editHost: opts.editHost ?? ((h) => h) }
   const worstCase = opts.worstCase ?? false
   const sys = systemContext(opts.systemState, worstCase)
   const steps = new Map<string, Step[]>()
@@ -1015,7 +1019,7 @@ function answer(method: string, path: string, route: Route, signedIn: boolean, s
   const { changes, planned, applied, worstCase, sys, steps } = state
   if (path === "/api/v1/auth/session") {
     // An operator on web-1 is a member whose access to other hosts the host list gives.
-    const who = state.m11 === "operate" ? { ...session, user: { ...session.user, role: "member" as const, allHosts: "" as const } } : session
+    const who = state.m11 === "operate" || state.m11 === "read" ? { ...session, user: { ...session.user, role: "member" as const, allHosts: "" as const } } : session
     return signedIn ? { json: who } : problem(401, "auth.required", "Sign in to continue.")
   }
   if (path === "/api/v1/auth/login") return problem(401, "auth.invalid", "Login failed.")
