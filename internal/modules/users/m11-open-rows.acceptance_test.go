@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +21,9 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
+	"github.com/darkraise/darkpanel/internal/core/lifecycle"
+	"github.com/darkraise/darkpanel/internal/core/schema"
+	"github.com/darkraise/darkpanel/internal/core/store"
 	"github.com/darkraise/darkpanel/internal/platform"
 )
 
@@ -302,5 +307,156 @@ func TestA20_SshdGetAnswersValuesOutsideTheInputRange(t *testing.T) {
 	}
 	if err := sch.Validate(inst); err != nil {
 		t.Errorf("the answer %s is not admitted by the published schema: %v", answer, err)
+	}
+}
+
+// qaLog is a log sink safe for the engine's goroutines.
+type qaLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *qaLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *qaLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+func TestA36_ErasedSecretsLeaveNoBytesInTheDatabaseOrItsWAL(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t)
+	path := filepath.Join(t.TempDir(), "agent.db")
+	db, err := store.Open(ctx, path, store.WithBusyTimeout(100*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	set, err := store.CoreMigrations(store.SideAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Migrate(ctx, db, store.MigrateOptions{Side: store.SideAgent, BinaryVersion: "test",
+		BackupRoot: filepath.Join(t.TempDir(), "backups"), Keep: 5, Now: time.Now()}, set, nil); err != nil {
+		t.Fatal(err)
+	}
+	var secure int
+	if err := db.Writer().QueryRowContext(ctx, "PRAGMA secure_delete").Scan(&secure); err != nil || secure != 1 {
+		t.Errorf("the writer connection reports secure_delete %d (%v), want 1", secure, err)
+	}
+
+	reg, err := core.NewRegistry(r.module())
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := r.env(adminP)
+	logs := &qaLog{}
+	eng, err := lifecycle.New(lifecycle.Config{
+		Side: core.SideAgent, Registry: reg, Validator: schema.NewValidator(), Journal: &coretest.MemJournal{}, Redact: schema.Redact,
+		ModuleUnits: func(string) core.Units { return env.Units },
+		Base: core.Env{HostID: "h1", DB: db, Exec: env.Exec, Files: env.Files, Home: env.Home, Sealer: coretest.Sealer{}, Clock: r.clock,
+			Log: slog.New(slog.NewTextHandler(logs, nil))},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(eng.Close)
+	r.answer(platform.ChpasswdPath, platform.Chpasswd(), "", func() {
+		r.answers[key(platform.PasswdPath, platform.PasswdStatusAll())] = core.CmdResult{
+			Stdout: []byte(strings.Replace(fxStatus, "alice L", "alice P", 1))}
+	})
+
+	// sealed plans users.password.set with pw and returns the plan and the
+	// ciphertext of its sealed input.
+	sealed := func(pw string) (core.PlanView, []byte) {
+		t.Helper()
+		pv, err := eng.Plan(ctx, adminP, core.ActionRef{Name: "users.password.set", Version: 1},
+			json.RawMessage(`{"name":"alice","password":"`+pw+`"}`), core.PlanOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ct []byte
+		if err := db.Read().QueryRowContext(ctx, "SELECT input_ct FROM core_plans WHERE id = ?", pv.PlanID).Scan(&ct); err != nil || len(ct) == 0 {
+			t.Fatalf("the plan's sealed input: %d bytes, %v", len(ct), err)
+		}
+		return pv, ct
+	}
+	onDisk := func(b []byte) []string {
+		t.Helper()
+		var in []string
+		for _, p := range []string{path, path + "-wal"} {
+			data, err := os.ReadFile(p) //nolint:gosec // G304: the test's database
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			if bytes.Contains(data, b) {
+				in = append(in, filepath.Base(p))
+			}
+		}
+		return in
+	}
+	purge := func() {
+		t.Helper()
+		if err := eng.Purge(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	apply := func(pv core.PlanView) {
+		t.Helper()
+		cv, err := eng.Apply(ctx, adminP, pv.PlanID, core.ApplyOptions{})
+		if err != nil || cv.State != core.StateCompleted {
+			t.Fatalf("apply: %+v, %v", cv, err)
+		}
+	}
+
+	// A change that ends, then one purge pass.
+	pv, ct := sealed("Qm4!pelican-first")
+	if len(onDisk(ct)) == 0 { // positive control: the search can find it
+		t.Fatal("the sealed input is in neither the database nor its WAL while its change is open: the search finds nothing")
+	}
+	apply(pv)
+	purge()
+	if in := onDisk(ct); len(in) > 0 {
+		t.Errorf("after the password.set change ended and a purge pass the sealed input is still in %v", in)
+	}
+
+	// A purge that erased a sealed input: a plan that expired unapplied.
+	_, ct = sealed("Qm4!pelican-second")
+	purge() // copies the page into the database file
+	r.clock.Advance(lifecycle.PlanTTL + time.Second)
+	purge()
+	if in := onDisk(ct); len(in) > 0 {
+		t.Errorf("after the purge erased an expired plan's sealed input it is still in %v", in)
+	}
+
+	// A reader open during the pass keeps the checkpoint from completing.
+	pv, ct = sealed("Qm4!pelican-third")
+	if len(onDisk(ct)) == 0 {
+		t.Fatal("positive control: the third sealed input is in neither file")
+	}
+	tx, err := db.Read().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM core_plans").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	apply(pv)
+	purge()
+	if text := strings.ToLower(logs.String()); !strings.Contains(text, "checkpoint") || !(strings.Contains(text, "not complete") || strings.Contains(text, "incomplete")) {
+		t.Errorf("the log %q does not say the checkpoint was incomplete", logs.String())
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	purge()
+	if in := onDisk(ct); len(in) > 0 {
+		t.Errorf("after the next pass with no reader the sealed input is still in %v", in)
 	}
 }
