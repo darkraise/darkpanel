@@ -307,6 +307,9 @@ func TestDependencyDemands(t *testing.T) {
 			u.Requires = []string{"docker.service"}
 			u.Wants = []string{"nftables.service"}
 		}),
+		unit("darkpanel-job-backup.service"),
+		unit("pulls-job.service", func(u *core.UnitInfo) { u.Wants = []string{"darkpanel-job-backup.service"} }),
+		unit("stops-job.service", func(u *core.UnitInfo) { u.RequiredBy = []string{"darkpanel-job-backup.service"} }),
 	)
 	r.onTailnet = true
 	refused := func(o op, name, detail string) {
@@ -352,6 +355,21 @@ func TestDependencyDemands(t *testing.T) {
 	}
 	if out, err := r.plan(opStop, operatorP, "qux.service"); err != nil || len(out.Guards) != 0 {
 		t.Errorf("stop qux.service as an operator: %+v, %v; want a plan with no guard", out, err)
+	}
+
+	// A unit that pulls one of Darkpanel's own is refused even to an admin.
+	for _, c := range []struct {
+		o      op
+		name   string
+		detail string
+	}{
+		{opStart, "pulls-job.service", "starting pulls-job.service also starts darkpanel-job-backup.service; Darkpanel manages its own units"},
+		{opStop, "stops-job.service", "stopping stops-job.service also stops darkpanel-job-backup.service; Darkpanel manages its own units"},
+	} {
+		_, err := r.plan(c.o, adminP, c.name)
+		if e := errcode.From(err); err == nil || e.Code != errcode.ServicesProtected || e.Detail != c.detail {
+			t.Errorf("%s %s as an admin: %v; want %s %q", c.o, c.name, err, errcode.ServicesProtected, c.detail)
+		}
 	}
 
 	// Every module a pulled unit belongs to is checked, not only the first.

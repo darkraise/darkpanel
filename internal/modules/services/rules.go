@@ -248,9 +248,18 @@ func pulledNamed(pulled []pulledUnit, set []string, ops ...op) (pulledUnit, stri
 	return pulledUnit{}, "", false
 }
 
-// pulledRefusal is the services.protected error for a pulled unit the agent
-// cannot lose, or nil.
+// pulledRefusal is the services.protected error for a pulled unit that is
+// Darkpanel's own or that the agent cannot lose, or nil. A job's units are
+// started only through the jobs module, whose guard keeps them off while
+// jobs is off.
 func pulledRefusal(pulled []pulledUnit) error {
+	for _, p := range pulled {
+		for _, n := range unitNames(p.u) {
+			if strings.HasPrefix(n, "darkpanel") {
+				return protected(fmt.Sprintf("%s; Darkpanel manages its own units", p.text))
+			}
+		}
+	}
 	if p, n, ok := pulledNamed(pulled, dbusUnits, opStop, opRestart); ok {
 		return protected(fmt.Sprintf("%s; the agent talks to systemd through %s", p.text, n))
 	}
