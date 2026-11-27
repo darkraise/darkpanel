@@ -28,8 +28,14 @@ export interface SshdSettings {
   x11Forwarding?: boolean
 }
 
+// SshdEffective mirrors users.sshd.get's effective values, what sshd -T
+// reports: another file can set a value the form does not write.
+export interface SshdEffective extends Omit<SshdSettings, "permitRootLogin"> {
+  permitRootLogin?: "yes" | "prohibit-password" | "forced-commands-only" | "no"
+}
+
 export interface SshdState {
-  effective: SshdSettings
+  effective: SshdEffective
   set: SshdSettings
   readOnly: string[]
   listsSetBy?: string

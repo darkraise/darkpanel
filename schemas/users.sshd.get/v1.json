@@ -14,6 +14,104 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$ref": "#/$defs/SshdState",
     "$defs": {
+      "SshdEffective": {
+        "properties": {
+          "passwordAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kbdInteractiveAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permitRootLogin": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "prohibit-password",
+              "forced-commands-only",
+              "no"
+            ]
+          },
+          "maxAuthTries": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loginGraceTime": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "Seconds; 0 is no limit."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allowUsers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "allowGroups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "clientAliveInterval": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "Seconds."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clientAliveCountMax": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "x11Forwarding": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
       "SshdSettings": {
         "properties": {
           "passwordAuthentication": {
@@ -126,7 +224,7 @@
       "SshdState": {
         "properties": {
           "effective": {
-            "$ref": "#/$defs/SshdSettings",
+            "$ref": "#/$defs/SshdEffective",
             "description": "The values sshd -T reports."
           },
           "set": {

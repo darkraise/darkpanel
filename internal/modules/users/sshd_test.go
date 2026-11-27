@@ -13,7 +13,9 @@ import (
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
+	"github.com/darkraise/darkpanel/internal/core/schema"
 	"github.com/darkraise/darkpanel/internal/platform"
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // fakeSshdDefaults are what the fake sshd -T prints for a keyword no file
@@ -455,3 +457,41 @@ type listedEffects struct {
 }
 
 func (l listedEffects) List(context.Context) ([]core.Effect, error) { return l.effects, nil }
+
+func TestEffectiveOutsideInputRange(t *testing.T) {
+	r := newRig(t)
+	r.answer(platform.SshdPath, platform.SshdEffective(),
+		"maxauthtries 20\npermitrootlogin forced-commands-only\nlogingracetime 0\nauthorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2\n")
+	st, err := sshdGetter{m: r.module()}.Read(context.Background(), r.env(adminP), struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := st.Effective
+	if e.MaxAuthTries == nil || *e.MaxAuthTries != 20 || e.LoginGraceTime == nil || *e.LoginGraceTime != 0 || e.PermitRootLogin != "forced-commands-only" {
+		t.Errorf("effective = %+v, want maxAuthTries 20, loginGraceTime 0, permitRootLogin forced-commands-only", e)
+	}
+	raw, err := schema.Output(reflect.TypeOf(st))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := jsonschema.NewCompiler()
+	if err := c.AddResource("urn:test:sshd.get", doc); err != nil {
+		t.Fatal(err)
+	}
+	sch, err := c.Compile("urn:test:sshd.get")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(st)
+	v, err := jsonschema.UnmarshalJSON(bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sch.Validate(v); err != nil {
+		t.Errorf("users.sshd.get's answer %s does not match its output schema: %v", out, err)
+	}
+}

@@ -23207,6 +23207,104 @@
       "users.sshd.get.v1.output": {
         "$ref": "#/components/schemas/users.sshd.get.v1.output.SshdState"
       },
+      "users.sshd.get.v1.output.SshdEffective": {
+        "properties": {
+          "allowGroups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "allowUsers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "clientAliveCountMax": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clientAliveInterval": {
+            "oneOf": [
+              {
+                "description": "Seconds.",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kbdInteractiveAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loginGraceTime": {
+            "oneOf": [
+              {
+                "description": "Seconds; 0 is no limit.",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxAuthTries": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "passwordAuthentication": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permitRootLogin": {
+            "enum": [
+              "yes",
+              "prohibit-password",
+              "forced-commands-only",
+              "no"
+            ],
+            "type": "string"
+          },
+          "x11Forwarding": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
       "users.sshd.get.v1.output.SshdSettings": {
         "properties": {
           "allowGroups": {
@@ -23319,7 +23417,7 @@
       "users.sshd.get.v1.output.SshdState": {
         "properties": {
           "effective": {
-            "$ref": "#/components/schemas/users.sshd.get.v1.output.SshdSettings",
+            "$ref": "#/components/schemas/users.sshd.get.v1.output.SshdEffective",
             "description": "The values sshd -T reports."
           },
           "listsSetBy": {

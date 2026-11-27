@@ -61,13 +61,29 @@ type SshdSettings struct {
 	X11Forwarding                *bool    `json:"x11Forwarding,omitempty" jsonschema:"nullable"`
 }
 
+// SshdEffective is what sshd -T reports for the fields of SshdSettings:
+// another file can set a value outside the bounds Darkpanel writes, so it
+// has none.
+type SshdEffective struct {
+	PasswordAuthentication       *bool    `json:"passwordAuthentication,omitempty" jsonschema:"nullable"`
+	KbdInteractiveAuthentication *bool    `json:"kbdInteractiveAuthentication,omitempty" jsonschema:"nullable"`
+	PermitRootLogin              string   `json:"permitRootLogin,omitempty" jsonschema:"enum=yes,enum=prohibit-password,enum=forced-commands-only,enum=no"`
+	MaxAuthTries                 *int     `json:"maxAuthTries,omitempty" jsonschema:"nullable"`
+	LoginGraceTime               *int     `json:"loginGraceTime,omitempty" jsonschema:"nullable" jsonschema_description:"Seconds; 0 is no limit."`
+	AllowUsers                   []string `json:"allowUsers,omitempty"`
+	AllowGroups                  []string `json:"allowGroups,omitempty"`
+	ClientAliveInterval          *int     `json:"clientAliveInterval,omitempty" jsonschema:"nullable" jsonschema_description:"Seconds."`
+	ClientAliveCountMax          *int     `json:"clientAliveCountMax,omitempty" jsonschema:"nullable"`
+	X11Forwarding                *bool    `json:"x11Forwarding,omitempty" jsonschema:"nullable"`
+}
+
 // SshdState is the answer of users.sshd.get.
 type SshdState struct {
-	Effective  SshdSettings `json:"effective" jsonschema_description:"The values sshd -T reports."`
-	Set        SshdSettings `json:"set" jsonschema_description:"The values 00-darkpanel.conf holds; empty when the file is absent."`
-	ReadOnly   []string     `json:"readOnly" jsonschema_description:"The fields Darkpanel leaves to another file: allowUsers and allowGroups when listsSetBy is set."`
-	ListsSetBy string       `json:"listsSetBy,omitempty" jsonschema_description:"The file under /etc/ssh that sets AllowUsers, AllowGroups, DenyUsers or DenyGroups."`
-	MatchIn    string       `json:"matchIn,omitempty" jsonschema_description:"A file holding a Match block, whose overrides sshd -T and the lockout guard do not see."`
+	Effective  SshdEffective `json:"effective" jsonschema_description:"The values sshd -T reports."`
+	Set        SshdSettings  `json:"set" jsonschema_description:"The values 00-darkpanel.conf holds; empty when the file is absent."`
+	ReadOnly   []string      `json:"readOnly" jsonschema_description:"The fields Darkpanel leaves to another file: allowUsers and allowGroups when listsSetBy is set."`
+	ListsSetBy string        `json:"listsSetBy,omitempty" jsonschema_description:"The file under /etc/ssh that sets AllowUsers, AllowGroups, DenyUsers or DenyGroups."`
+	MatchIn    string        `json:"matchIn,omitempty" jsonschema_description:"A file holding a Match block, whose overrides sshd -T and the lockout guard do not see."`
 }
 
 // SshdInput is the input of users.sshd.apply: the whole of what
@@ -365,7 +381,7 @@ func readSshdT(ctx context.Context, env core.Env) (sshdT, []byte, error) {
 }
 
 // effective reads the settings of sshdFields from sshd -T.
-func (t sshdT) effective() SshdSettings {
+func (t sshdT) effective() SshdEffective {
 	var s SshdSettings
 	for _, f := range sshdFields {
 		for _, v := range t[strings.ToLower(f.keyword)] {
@@ -377,7 +393,7 @@ func (t sshdT) effective() SshdSettings {
 			}
 		}
 	}
-	return s
+	return SshdEffective(s)
 }
 
 func (m module) sshdAvailable(context.Context, core.Env) error {
@@ -673,7 +689,7 @@ func verifySettings(ctx context.Context, env core.Env, m module, want SshdSettin
 	if err != nil {
 		return err
 	}
-	got := t.effective()
+	got := SshdSettings(t.effective())
 	for _, f := range sshdFields {
 		w, ok := f.text(&want)
 		if !ok {

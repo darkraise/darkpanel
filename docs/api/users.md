@@ -263,15 +263,15 @@ Returned in the `output` field of the response.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `effective` | object | yes | The values sshd -T reports. |
-| `effective.allowGroups` | array of string | no | Group patterns; managed only when no other file under /etc/ssh sets an allow or deny list. |
-| `effective.allowUsers` | array of string | no | User patterns, USER or USER@HOST; managed only when no other file under /etc/ssh sets an allow or deny list. |
+| `effective.allowGroups` | array of string | no |  |
+| `effective.allowUsers` | array of string | no |  |
 | `effective.clientAliveCountMax` | integer or null | no |  |
 | `effective.clientAliveInterval` | integer or null | no |  |
 | `effective.kbdInteractiveAuthentication` | boolean or null | no |  |
 | `effective.loginGraceTime` | integer or null | no |  |
 | `effective.maxAuthTries` | integer or null | no |  |
 | `effective.passwordAuthentication` | boolean or null | no |  |
-| `effective.permitRootLogin` | string | no | Values: yes, prohibit-password, no. |
+| `effective.permitRootLogin` | string | no | Values: yes, prohibit-password, forced-commands-only, no. |
 | `effective.x11Forwarding` | boolean or null | no |  |
 | `listsSetBy` | string | no | The file under /etc/ssh that sets AllowUsers, AllowGroups, DenyUsers or DenyGroups. |
 | `matchIn` | string | no | A file holding a Match block, whose overrides sshd -T and the lockout guard do not see. |
