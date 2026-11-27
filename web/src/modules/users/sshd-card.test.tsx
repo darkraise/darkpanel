@@ -145,6 +145,31 @@ describe("hardening flow", () => {
     )
   })
 
+  test("reviews only edited fields", async () => {
+    const state = { ...sshdState, effective: { ...sshdState.effective, maxAuthTries: 20, permitRootLogin: "forced-commands-only" }, set: { x11Forwarding: false } }
+    const calls = render({ [PLAN]: { body: makePlan("users.sshd.apply", { hostId: "h1" }) } }, state)
+    expect(await screen.findByText("Forced commands only")).toBeTruthy()
+    const user = await openForm()
+    const root = screen.getByLabelText("Root login") as HTMLSelectElement
+    expect(root.value).toBe("forced-commands-only")
+    expect(root.selectedOptions[0]?.textContent).toBe("Forced commands only")
+    await user.click(screen.getByRole("switch", { name: "Password login" }))
+    await user.click(screen.getByRole("button", { name: "Review change" }))
+    await screen.findByRole("button", { name: "Apply" })
+    expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { x11Forwarding: false, passwordAuthentication: false } })
+  })
+
+  test("an edited number is checked even when it equals the effective value", async () => {
+    const calls = render({}, { ...sshdState, effective: { ...sshdState.effective, maxAuthTries: 20 } })
+    const user = await openForm()
+    await user.clear(screen.getByLabelText("Login attempts"))
+    await user.type(screen.getByLabelText("Login attempts"), "20")
+    await user.click(screen.getByRole("button", { name: "Review change" }))
+    expect(screen.getByLabelText("Login attempts").getAttribute("aria-invalid")).toBe("true")
+    expect(screen.getByText("Login attempts: enter a whole number from 1 to 10")).toBeTruthy()
+    expect(calls.some((c) => c.path.endsWith("/plan"))).toBe(false)
+  })
+
   test("the form names the host, and a refused plan returns to it as typed", async () => {
     render({ [PLAN]: { status: 422, body: { type: "about:blank", title: "Invalid", status: 422, detail: "refused", code: "invalid_input" } } })
     const user = await openForm()

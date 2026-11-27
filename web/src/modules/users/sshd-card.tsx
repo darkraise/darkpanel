@@ -45,7 +45,7 @@ export interface SshdState {
 export const OPEN_A_SESSION = "Open a new SSH session before you confirm"
 
 type Field = keyof SshdSettings
-const ROOT_LOGIN: Record<string, string> = { yes: "Allowed", "prohibit-password": "Keys only", no: "Refused" }
+const ROOT_LOGIN: Record<string, string> = { yes: "Allowed", "prohibit-password": "Keys only", no: "Refused", "forced-commands-only": "Forced commands only" }
 const NUMBERS: [Field, string, number, number, string][] = [
   ["maxAuthTries", "Login attempts", 1, 10, ""],
   ["loginGraceTime", "Login grace time (seconds)", 10, 600, ""],
@@ -77,6 +77,8 @@ function same(a: unknown, b: unknown): boolean {
 interface Draft {
   bools: Partial<Record<Field, boolean>>
   numbers: Partial<Record<Field, string>>
+  // The number fields the operator typed in; only those are checked and sent.
+  edited: Partial<Record<Field, boolean>>
   permitRootLogin: string
   allowUsers: string
   allowGroups: string
@@ -87,7 +89,7 @@ function draftOf(e: SshdSettings): Draft {
   for (const [f] of SWITCHES) bools[f] = e[f] === true
   const numbers: Draft["numbers"] = {}
   for (const [f] of NUMBERS) numbers[f] = e[f] === undefined ? "" : String(e[f] as number)
-  return { bools, numbers, permitRootLogin: e.permitRootLogin ?? "prohibit-password", allowUsers: list(e.allowUsers, ""), allowGroups: list(e.allowGroups, "") }
+  return { bools, numbers, edited: {}, permitRootLogin: e.permitRootLogin ?? "prohibit-password", allowUsers: list(e.allowUsers, ""), allowGroups: list(e.allowGroups, "") }
 }
 
 function FieldError({ id, children }: { id: string; children: string }) {
@@ -105,20 +107,21 @@ interface FieldProblem {
 
 // settingsOf is what 00-darkpanel.conf holds after the change: the values
 // Darkpanel set already, plus every value the form changed from the
-// effective one; fields another file manages are left out.
+// effective one; fields another file manages are left out. A number the
+// operator did not type in is neither checked nor sent: sshd may run with a
+// value outside the form's range that another file set.
 function settingsOf(d: Draft, s: SshdState): { settings: SshdSettings; error: FieldProblem | null } {
   const out: Record<string, unknown> = { ...s.set }
+  // The daemon refuses a value this file sets where another file manages
+  // the field, so the change drops it.
+  for (const f of s.readOnly) delete out[f]
   const put = (f: Field, v: unknown) => {
-    // The daemon refuses a value this file sets where another file manages
-    // the field, so the change drops it.
-    if (s.readOnly.includes(f)) {
-      delete out[f]
-      return
-    }
+    if (s.readOnly.includes(f)) return
     if (!same(v, s.effective[f]) || f in s.set) out[f] = v
   }
   for (const [f] of SWITCHES) put(f, d.bools[f] === true)
   for (const [f, label, min, max] of NUMBERS) {
+    if (d.edited[f] !== true) continue
     const text = (d.numbers[f] ?? "").trim()
     if (text === "" && s.effective[f] === undefined) continue
     const n = Number(text)
@@ -186,6 +189,7 @@ function HardeningForm({
               <option value="prohibit-password">Keys only</option>
               <option value="no">Refused</option>
               <option value="yes">Allowed</option>
+              {state.effective.permitRootLogin === "forced-commands-only" && <option value="forced-commands-only">Forced commands only</option>}
             </select>
           </div>
           {NUMBERS.map(([f, label, min, max, help]) => (
@@ -199,7 +203,7 @@ function HardeningForm({
                 value={draft.numbers[f] ?? ""}
                 aria-invalid={error?.field === f}
                 aria-describedby={[error?.field === f ? `sshd-${f}-error` : "", help === "" ? "" : `sshd-${f}-help`].filter((id) => id !== "").join(" ") || undefined}
-                onChange={(e) => setDraft((d) => ({ ...d, numbers: { ...d.numbers, [f]: e.target.value } }))}
+                onChange={(e) => setDraft((d) => ({ ...d, numbers: { ...d.numbers, [f]: e.target.value }, edited: { ...d.edited, [f]: true } }))}
               />
               {error?.field === f && <FieldError id={`sshd-${f}-error`}>{error.message}</FieldError>}
               {help !== "" && (

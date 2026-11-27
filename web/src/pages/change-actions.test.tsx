@@ -53,6 +53,43 @@ test("undo asks first and stores the answered change", async () => {
   expect(screen.queryByRole("dialog")).toBeNull()
 })
 
+const STEP_UP_REQUIRED = problem(403, "auth.step_up_required", "enter an authenticator code to continue")
+
+test("undo asks for step-up", async () => {
+  const deleted = cacChange({ action: "jobs.job.delete" })
+  const undoing = cacChange({ action: "jobs.job.delete", state: "undoing", owner: "undo" })
+  let undos = 0
+  const { calls, client } = cacRender(deleted, {
+    "POST /api/v1/changes/c1/undo": () => (++undos === 1 ? STEP_UP_REQUIRED : { status: 202, body: undoing }),
+    "POST /api/v1/auth/step-up": { status: 204 },
+  })
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "Undo" }))
+  await user.click(within(screen.getByRole("dialog", { name: "Undo this change?" })).getByRole("button", { name: "Undo" }))
+  const stepUp = await screen.findByRole("dialog", { name: "Enter your authenticator code" })
+  expect(within(stepUp).getByText("This action needs your authenticator code")).toBeTruthy()
+  await user.type(within(stepUp).getByLabelText("Authenticator code"), "123456")
+  await user.click(within(stepUp).getByRole("button", { name: "Verify" }))
+  await waitFor(() => expect(client.getQueryData(changeQueryKey("c1"))).toEqual(undoing))
+  expect(calls.filter((c) => c.path === "/api/v1/changes/c1/undo").length).toBe(2)
+})
+
+test("an undo whose step-up is cancelled sends no retry", async () => {
+  const { calls, client } = cacRender(cacChange({ action: "jobs.job.delete" }), {
+    "POST /api/v1/changes/c1/undo": STEP_UP_REQUIRED,
+    "POST /api/v1/auth/step-up": { status: 204 },
+  })
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("button", { name: "Undo" }))
+  await user.click(within(screen.getByRole("dialog", { name: "Undo this change?" })).getByRole("button", { name: "Undo" }))
+  await screen.findByRole("dialog", { name: "Enter your authenticator code" })
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Enter your authenticator code" })).toBeNull())
+  expect(calls.filter((c) => c.path === "/api/v1/changes/c1/undo").length).toBe(1)
+  expect(calls.some((c) => c.path === "/api/v1/auth/step-up")).toBe(false)
+  expect(client.getQueryData(changeQueryKey("c1"))).toBeUndefined()
+})
+
 test("a refused undo stays open with the reason", async () => {
   cacRender(cacChange(), { "POST /api/v1/changes/c1/undo": problem(409, "core.undo_conflict", "lock firewall was taken by a later change") })
   const user = userEvent.setup()

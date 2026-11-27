@@ -47,6 +47,8 @@ export function closedFor(reason: string, exit: number | null): Closed {
       return { text: "The agent restarted; open a new terminal", label: "Closed: agent restarted", reconnect: true }
     case "revoked":
       return { text: "Your access to this host was revoked", label: "Closed: access revoked", reconnect: false }
+    case "error":
+      return { text: "The panel couldn't check your session", label: "Closed", reconnect: true }
     case "ended":
       return { text: exit === null ? "The shell exited" : `The shell exited with code ${exit}`, label: "Closed: shell exited", reconnect: true }
     case "":
