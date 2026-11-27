@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, globSync, readFileSync } from "node:fs"
+import { existsSync, globSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { render } from "@testing-library/react"
 import { Server } from "lucide-react"
 import { describe, expect, test } from "vitest"
@@ -21,6 +23,14 @@ import { expectNoAxeViolations } from "@/test/a11y"
 // Acceptance tests of the ui-revamp-server-management spec, web unit layer.
 
 // A1 ---------------------------------------------------------------------
+
+// distState lists every path under web/dist with its mtime, the directory
+// itself first; an absent dist lists nothing.
+function distState(): string[] {
+  if (!existsSync("dist")) return []
+  const paths = ["dist", ...globSync("dist/**/*")].sort()
+  return paths.map((p) => `${p} ${statSync(p).mtimeMs}`)
+}
 
 describe("A1: darkraise-ui 7.2.3", () => {
   test("A1: the lockfile resolves darkraise-ui to 7.2.3 and nothing else", () => {
@@ -59,7 +69,20 @@ describe("A1: darkraise-ui 7.2.3", () => {
   })
 
   test("A1: pnpm -C web build succeeds", { timeout: 600_000 }, () => {
-    execFileSync("pnpm", ["run", "build"], { cwd: process.cwd(), stdio: "pipe", timeout: 580_000, env: process.env })
+    // web/dist is the bundle the Go binary embeds; a build from the test
+    // run writes there in test mode, so this build goes to a directory of
+    // its own, as production.
+    const before = distState()
+    const out = mkdtempSync(join(tmpdir(), "darkpanel-a1-"))
+    try {
+      const opts = { cwd: process.cwd(), stdio: "pipe", timeout: 290_000, env: { ...process.env, NODE_ENV: "production" } } as const
+      execFileSync("pnpm", ["run", "typecheck"], opts)
+      execFileSync("pnpm", ["exec", "vite", "build", "--outDir", out, "--emptyOutDir"], opts)
+      expect(existsSync(join(out, "index.html"))).toBe(true)
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+    expect(distState()).toEqual(before)
   })
 })
 
