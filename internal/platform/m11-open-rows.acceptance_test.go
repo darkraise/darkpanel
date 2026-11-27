@@ -3,7 +3,6 @@ package platform
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,8 +69,8 @@ func TestA15_SSHDirReplacedWhileItIsCreated(t *testing.T) {
 
 // A33 (second half): the login shell waits on fd 3 for "ok" and runs the
 // profile only after it; a gate closed without it exits. The script is the
-// one the spec gives.
-const a33Gate = `IFS= read -r go <&3 && [ "$go" = ok ] || exit 1; exec "$0" -l 3<&-`
+// shell's own gate.
+const a33Gate = shellGate
 
 func a33Run(t *testing.T, send func(w *os.File)) (marker bool, exit error, fd3 bool) {
 	t.Helper()
@@ -154,7 +153,9 @@ func TestA33_ShellStartRunsTheProfileInsideTheScope(t *testing.T) {
 	dir := t.TempDir()
 	mark := filepath.Join(dir, "profile-ran")
 	login := filepath.Join(dir, "login")
-	if err := os.WriteFile(login, []byte("#!/bin/sh\necho ran > "+mark+"\nexec cat\n"), 0o700); err != nil { //nolint:gosec // G306: the test's login shell
+	// fd 3 is checked by the script itself, before cat, which may open its
+	// own fd 3 (uutils cat opens a splice pipe there).
+	if err := os.WriteFile(login, []byte("#!/bin/sh\nif [ -e /proc/$$/fd/3 ]; then echo open > "+mark+".fd3; fi\necho ran > "+mark+"\nexec cat\n"), 0o700); err != nil { //nolint:gosec // G306: the test's login shell
 		t.Fatal(err)
 	}
 	passwd := filepath.Join(dir, "passwd")
@@ -222,8 +223,8 @@ func TestA33_ShellStartRunsTheProfileInsideTheScope(t *testing.T) {
 			if !exists() {
 				t.Error("the profile did not run once the shell was in its scope")
 			}
-			if _, err := os.Lstat(fmt.Sprintf("/proc/%d/fd/3", pid)); !errors.Is(err, os.ErrNotExist) {
-				t.Errorf("session %d has fd 3 open (%v)", pid, err)
+			if _, err := os.Stat(mark + ".fd3"); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("session %d had fd 3 open when its profile ran (%v)", pid, err)
 			}
 		})
 	}

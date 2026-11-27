@@ -299,7 +299,9 @@ func TestShellWaitsForScope(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "marker")
 	login := filepath.Join(dir, "login")
-	script := "#!/bin/sh\necho started > " + marker + "\nexec cat\n"
+	// The script reports fd 3 itself, before it runs anything: a program it
+	// starts may open fd 3 of its own (uutils cat opens a splice pipe there).
+	script := "#!/bin/sh\nif [ -e /proc/$$/fd/3 ]; then echo open; else echo closed; fi > " + marker + ".fd3\necho started > " + marker + "\nexec cat\n"
 	if err := os.WriteFile(login, []byte(script), 0o700); err != nil { //nolint:gosec // G306: the test's login shell
 		t.Fatal(err)
 	}
@@ -349,8 +351,8 @@ func TestShellWaitsForScope(t *testing.T) {
 		if !exists() {
 			t.Fatal("the login shell did not run after its scope held it")
 		}
-		if _, err := os.Lstat(fmt.Sprintf("/proc/%d/fd/3", pid)); !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("the shell %d has fd 3 open (%v), want the gate closed", pid, err)
+		if fd3, err := os.ReadFile(marker + ".fd3"); err != nil || string(fd3) != "closed\n" {
+			t.Errorf("the login shell %d saw fd 3 %q (%v), want the gate closed", pid, fd3, err)
 		}
 	})
 	t.Run("move failed", func(t *testing.T) {
