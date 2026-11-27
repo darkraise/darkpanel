@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func openTemp(t *testing.T) *DB {
@@ -47,6 +48,29 @@ func TestOpenSetsPragmasAndMode(t *testing.T) {
 		if mode := info.Mode().Perm(); mode != 0o600 {
 			t.Errorf("%s mode = %o, want 600", filepath.Base(path), mode)
 		}
+	}
+}
+
+func TestBusyTimeoutOption(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		opts []Option
+		want int
+	}{
+		{nil, 5000},
+		{[]Option{WithBusyTimeout(100 * time.Millisecond)}, 100},
+	} {
+		db, err := Open(ctx, filepath.Join(t.TempDir(), "test.db"), c.opts...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, conn := range map[string]*sql.DB{"writer": db.Writer(), "reader": db.Read()} {
+			var got int
+			if err := conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&got); err != nil || got != c.want {
+				t.Errorf("%s PRAGMA busy_timeout = %d, %v; want %d", name, got, err, c.want)
+			}
+		}
+		_ = db.Close()
 	}
 }
 

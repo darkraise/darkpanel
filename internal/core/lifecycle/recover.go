@@ -502,8 +502,32 @@ func (e *Engine) verifyStored(ctx context.Context, changeID string) string {
 // 1.2, 1.3); a step whose composite is terminal is cleared by AckPrivate's
 // final acknowledgement instead. It runs every 10 minutes, more often than
 // the hourly purge the spec requires. A plan with a change is kept, so a
-// repeated apply still returns that change (spec section 3).
+// repeated apply still returns that change (spec section 3). Whatever the
+// pass's outcome, it then checkpoints the WAL into the database file and
+// truncates it, so the pages that held what this pass and the changes'
+// ends deleted leave the disk.
 func (e *Engine) Purge(ctx context.Context) error {
+	err := e.purge(ctx)
+	e.checkpoint(ctx)
+	return err
+}
+
+// checkpoint runs a truncating WAL checkpoint and logs a warning when a
+// reader or a writer kept it from completing; the next purge tries again.
+func (e *Engine) checkpoint(ctx context.Context) {
+	var busy, log, done int
+	err := e.cfg.Base.DB.Writer().QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &done)
+	switch {
+	case err != nil:
+		e.cfg.Base.Log.Warn("lifecycle: the WAL checkpoint after a purge failed; deleted secrets may stay in the WAL until the next purge",
+			"error", err)
+	case busy != 0 || log != done:
+		e.cfg.Base.Log.Warn("lifecycle: the WAL checkpoint after a purge did not complete; deleted secrets may stay in the WAL until the next purge",
+			"busy", busy, "walFrames", log, "checkpointed", done)
+	}
+}
+
+func (e *Engine) purge(ctx context.Context) error {
 	// An apply that loaded a plan before it expired inserts its change later;
 	// deleting the plan in between would fail that insert's foreign key.
 	e.applyMu.Lock()

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"time"
 
 	// Registers the pure-Go "sqlite" driver (ADR 0005: no CGO).
 	_ "modernc.org/sqlite"
@@ -23,13 +24,28 @@ const (
 )
 
 // writerParams make every commit durable before the host is touched
-// (synchronous FULL, ADR 0004) and make a write transaction wait for the lock
-// instead of failing (immediate transactions plus a busy timeout).
+// (synchronous FULL, ADR 0004), make a write transaction wait for the lock
+// instead of failing (immediate transactions plus the busy timeout, which
+// Open appends), and zero what a write deletes, so an erased secret leaves
+// no bytes in the file's free space once a checkpoint copies the page back.
 const writerParams = "_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)" +
-	"&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_txlock=immediate"
+	"&_pragma=foreign_keys(1)&_pragma=secure_delete(ON)&_txlock=immediate"
 
 const readerParams = "_pragma=synchronous(FULL)&_pragma=foreign_keys(1)" +
-	"&_pragma=busy_timeout(5000)&_pragma=query_only(1)"
+	"&_pragma=query_only(1)"
+
+// DefaultBusyTimeout is how long a statement waits for a lock unless
+// WithBusyTimeout sets another.
+const DefaultBusyTimeout = 5 * time.Second
+
+// Option configures Open.
+type Option func(*options)
+
+type options struct{ busyTimeout time.Duration }
+
+// WithBusyTimeout sets how long a statement waits for a lock before it
+// fails with SQLITE_BUSY, on the writer and the readers.
+func WithBusyTimeout(d time.Duration) Option { return func(o *options) { o.busyTimeout = d } }
 
 // DB is one role's database: a single writer connection and a reader pool.
 type DB struct {
@@ -42,7 +58,12 @@ type DB struct {
 // 0600, and an existing database and its -wal and -shm files are set to 0600,
 // before SQLite opens it, so the database and its WAL files are private. A
 // failure to set a mode fails Open.
-func Open(ctx context.Context, path string) (*DB, error) {
+func Open(ctx context.Context, path string, opts ...Option) (*DB, error) {
+	o := options{busyTimeout: DefaultBusyTimeout}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	busy := fmt.Sprintf("&_pragma=busy_timeout(%d)", o.busyTimeout.Milliseconds())
 	if strings.ContainsAny(path, "?#%") {
 		return nil, fmt.Errorf("store: database path %q must not contain ?, # or %%", path)
 	}
@@ -64,7 +85,7 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		}
 	}
 
-	w, err := sql.Open("sqlite", "file:"+path+"?"+writerParams)
+	w, err := sql.Open("sqlite", "file:"+path+"?"+writerParams+busy)
 	if err != nil {
 		return nil, fmt.Errorf("store: open writer: %w", err)
 	}
@@ -73,7 +94,7 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		_ = w.Close()
 		return nil, fmt.Errorf("store: open writer %s: %w", path, err)
 	}
-	r, err := sql.Open("sqlite", "file:"+path+"?"+readerParams)
+	r, err := sql.Open("sqlite", "file:"+path+"?"+readerParams+busy)
 	if err != nil {
 		_ = w.Close()
 		return nil, fmt.Errorf("store: open reader: %w", err)

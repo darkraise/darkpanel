@@ -1,12 +1,16 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -75,15 +79,20 @@ type eraEngine struct {
 
 func newEraEngine(t *testing.T, side string) eraEngine {
 	t.Helper()
+	return newEraEngineOn(t, side, openDB(t, side), slog.New(slog.DiscardHandler))
+}
+
+// newEraEngineOn is newEraEngine on db, logging to log.
+func newEraEngineOn(t *testing.T, side string, db *store.DB, log *slog.Logger) eraEngine {
+	t.Helper()
 	reg, err := core.NewRegistry(eraModule{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	db := openDB(t, side)
 	clock := coretest.NewFakeClock(time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC))
 	cfg := Config{
 		Side: core.Side(side), Registry: reg, Validator: coretest.Validator{}, Redact: schema.Redact,
-		Base: core.Env{DB: db, Sealer: coretest.Sealer{}, Clock: clock, Log: slog.New(slog.DiscardHandler)},
+		Base: core.Env{DB: db, Sealer: coretest.Sealer{}, Clock: clock, Log: log},
 	}
 	if side == store.SideAgent {
 		cfg.Base.HostID, cfg.Journal = testHost, NewAgentJournal(db)
@@ -295,4 +304,179 @@ func TestEraseOnEnd(t *testing.T) {
 			t.Errorf("repair after the erase: %v, want a refusal naming the erase", err)
 		}
 	})
+}
+
+// lockedLog is a log sink safe for the engine's goroutines.
+type lockedLog struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *lockedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *lockedLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+// TestEraseLeavesNoBytes: a sealed input the store deleted or replaced
+// leaves no bytes in the database file or its WAL once a purge ran, and a
+// reader that keeps the purge's checkpoint from completing is logged.
+func TestEraseLeavesNoBytes(t *testing.T) {
+	ctx := context.Background()
+	alice := core.Principal{Actor: "user:alice", UserID: "alice", Scope: core.ScopeAdmin, Source: "test"}
+	path := filepath.Join(t.TempDir(), "agent.db")
+	db, err := store.Open(ctx, path, store.WithBusyTimeout(100*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	set, err := store.CoreMigrations(store.SideAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mopts := store.MigrateOptions{Side: store.SideAgent, BinaryVersion: "test", BackupRoot: filepath.Join(filepath.Dir(path), "backups"),
+		Keep: 5, Now: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)}
+	if _, err := store.Migrate(ctx, db, mopts, set, nil); err != nil {
+		t.Fatal(err)
+	}
+	var secure int
+	if err := db.Writer().QueryRowContext(ctx, "PRAGMA secure_delete").Scan(&secure); err != nil || secure != 1 {
+		t.Errorf("writer PRAGMA secure_delete = %d, %v; want 1", secure, err)
+	}
+	logs := &lockedLog{}
+	x := newEraEngineOn(t, store.SideAgent, db, slog.New(slog.NewTextHandler(logs, nil)))
+
+	// sealed applies an era.pass.apply change, which stays pending, and
+	// returns it with its plan's sealed input.
+	sealed := func(t *testing.T, name string) (change, plan string, ct []byte) {
+		t.Helper()
+		v, err := x.eng.Plan(ctx, alice, core.ActionRef{Name: "era.pass.apply", Version: 1},
+			json.RawMessage(strings.Replace(eraInput, "%s", name, 1)), core.PlanOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := x.eng.Apply(ctx, alice, v.PlanID, core.ApplyOptions{})
+		if err != nil || c.State != core.StatePending {
+			t.Fatalf("apply: %+v, %v", c, err)
+		}
+		if err := db.Read().QueryRowContext(ctx, "SELECT input_ct FROM core_plans WHERE id = ?", v.PlanID).Scan(&ct); err != nil || len(ct) == 0 {
+			t.Fatalf("the plan's sealed input: %d bytes, %v", len(ct), err)
+		}
+		return c.ID, v.PlanID, ct
+	}
+	// onDisk reports which of the database and WAL files hold b.
+	onDisk := func(t *testing.T, b []byte) []string {
+		t.Helper()
+		var in []string
+		for _, p := range []string{path, path + "-wal"} {
+			data, err := os.ReadFile(p) //nolint:gosec // G304: the test's database
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			if bytes.Contains(data, b) {
+				in = append(in, filepath.Base(p))
+			}
+		}
+		return in
+	}
+	purge := func(t *testing.T) {
+		t.Helper()
+		if err := x.eng.Purge(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	end := func(t *testing.T, change string) {
+		t.Helper()
+		if v, err := x.eng.Revert(ctx, alice, change); err != nil || v.State != core.StateReverted {
+			t.Fatalf("revert: %+v, %v", v, err)
+		}
+	}
+
+	// An unapplied plan's expiry deletes its row. The checkpoint first
+	// copies the row's page into the database file; only secure_delete
+	// zeroes the cell the delete frees there.
+	v, err := x.eng.Plan(ctx, alice, core.ActionRef{Name: "era.pass.apply", Version: 1},
+		json.RawMessage(strings.Replace(eraInput, "%s", "unapplied", 1)), core.PlanOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unappliedCT []byte
+	if err := db.Read().QueryRowContext(ctx, "SELECT input_ct FROM core_plans WHERE id = ?", v.PlanID).Scan(&unappliedCT); err != nil {
+		t.Fatal(err)
+	}
+	purge(t)
+	if in := onDisk(t, unappliedCT); len(in) != 1 || in[0] != "agent.db" {
+		t.Fatalf("the unapplied plan's sealed input is in %v after a checkpoint, want agent.db only", in)
+	}
+	x.clock.Advance(PlanTTL + time.Second)
+	purge(t)
+	if in := onDisk(t, unappliedCT); len(in) > 0 {
+		t.Errorf("an expired plan's sealed input is still in %v after the purge deleted it", in)
+	}
+
+	// A change's end deletes its sealed input.
+	ended, _, endedCT := sealed(t, "ended")
+	if len(onDisk(t, endedCT)) == 0 {
+		t.Fatal("the open change's sealed input is in neither file: the search finds nothing")
+	}
+	// The purge's checkpoint copies the page holding it into the database
+	// file, where its end frees the cell: only secure_delete zeroes it.
+	purge(t)
+	if in := onDisk(t, endedCT); len(in) != 1 || in[0] != "agent.db" {
+		t.Fatalf("the open change's sealed input is in %v after a checkpoint, want agent.db only", in)
+	}
+	end(t, ended)
+	purge(t)
+	if in := onDisk(t, endedCT); len(in) > 0 {
+		t.Errorf("an ended change's sealed input is still in %v after a purge", in)
+	}
+
+	// A reader keeps the checkpoint from completing; the next purge
+	// without one finishes it.
+	held, _, heldCT := sealed(t, "held")
+	tx, err := db.Read().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM core_plans").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	end(t, held)
+	purge(t)
+	if !strings.Contains(logs.String(), "checkpoint") {
+		t.Errorf("log = %q, want a warning that the checkpoint did not complete", logs.String())
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	purge(t)
+	if in := onDisk(t, heldCT); len(in) > 0 {
+		t.Errorf("an ended change's sealed input is still in %v after a purge with no reader", in)
+	}
+
+	// A change waiting for its repair keeps its input past the plan's
+	// expiry; the purge reseals it without its erase fields.
+	waiting, waitingPlan, waitingCT := sealed(t, "waiting")
+	if _, err := db.Writer().ExecContext(ctx, "UPDATE core_changes SET state = ?, recovery_owner = '' WHERE id = ?",
+		core.StateNeedsRepair, waiting); err != nil {
+		t.Fatal(err)
+	}
+	if len(onDisk(t, waitingCT)) == 0 {
+		t.Fatal("the waiting change's sealed input is in neither file before the purge")
+	}
+	x.clock.Advance(PlanTTL + time.Second)
+	purge(t)
+	if in, _ := x.input(t, waitingPlan); in == nil || in["password"] != nil {
+		t.Fatalf("the waiting change's input after the purge = %v, want it resealed without the password", in)
+	}
+	if in := onDisk(t, waitingCT); len(in) > 0 {
+		t.Errorf("the sealed input the purge replaced is still in %v", in)
+	}
 }
