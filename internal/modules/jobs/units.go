@@ -95,7 +95,10 @@ func render(j job, enabled bool) *jobFiles {
 	svc.WriteString("Description=" + escapeUnit(desc) + "\n\n[Service]\nType=oneshot\n")
 	svc.WriteString("User=" + j.User + "\n")
 	svc.WriteString("TimeoutStartSec=" + strconv.Itoa(j.TimeoutSeconds) + "\n")
-	svc.WriteString("ExecStart=/bin/sh " + filepath.Join(scriptDir, scriptName(j.Slug)) + "\n")
+	// The script is root-only on disk; systemd hands the job a copy it can
+	// read, so another member of the user's group cannot read the command.
+	svc.WriteString("LoadCredential=script:" + filepath.Join(scriptDir, scriptName(j.Slug)) + "\n")
+	svc.WriteString("ExecStart=/bin/sh ${CREDENTIALS_DIRECTORY}/script\n")
 	var tmr strings.Builder
 	tmr.WriteString("# Written by Darkpanel; change the job in Darkpanel.\n[Unit]\n")
 	tmr.WriteString("Description=" + escapeUnit("Schedule of Darkpanel job "+j.Slug) + "\n\n[Timer]\n")
@@ -201,11 +204,7 @@ func (m module) setJob(ctx context.Context, env core.Env, slug string, now, want
 		}
 		return env.Units.Reload(ctx)
 	}
-	gid, err := m.primaryGID(want.User)
-	if err != nil {
-		return err
-	}
-	if err := w.WriteDirFile(ctx, ID, m.scriptDir, scriptName(slug), []byte(want.Script), scriptMode, gid); err != nil {
+	if err := w.WriteDirFile(ctx, ID, m.scriptDir, scriptName(slug), []byte(want.Script), scriptMode, -1); err != nil {
 		return err
 	}
 	for name, text := range map[string]string{serviceName(slug): want.Service, timer: want.Timer} {

@@ -165,10 +165,11 @@ func (f *Files) patternDirDecl(module, dir, name string) error {
 
 // WriteDirFile writes the regular file name directly inside dir, which module
 // declares as kind dir with a Pattern name matches, with data, mode's
-// permission bits and group gid, owned by the agent's user. The directory is
-// recorded, then created with mode 0755, on the first write; an existing
-// directory the ownership store does not record as module's is refused. The
-// file is recorded before it is written.
+// permission bits and group gid (-1 keeps the agent's), owned by the agent's
+// user. The directory is recorded, then created with mode 0700, on the first
+// write, and a recorded directory with group or other bits is set to 0700;
+// an existing directory the ownership store does not record as module's is
+// refused. The file is recorded before it is written.
 func (f *Files) WriteDirFile(ctx context.Context, module, dir, name string, data []byte, mode fs.FileMode, gid int) error {
 	if err := f.patternDirDecl(module, dir, name); err != nil {
 		return err
@@ -182,6 +183,15 @@ func (f *Files) WriteDirFile(ctx context.Context, module, dir, name string, data
 		return err
 	}
 	defer func() { _ = unix.Close(fd) }()
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return fmt.Errorf("platform: stat directory %s: %w", dir, err)
+	}
+	if st.Mode&0o077 != 0 {
+		if err := unix.Fchmod(fd, patternDir.mode); err != nil {
+			return fmt.Errorf("platform: chmod directory %s: %w", dir, err)
+		}
+	}
 	path := filepath.Join(dir, name)
 	entry := core.OwnedEntry{Path: path, Module: module, Kind: core.OwnedFile, CreatedAt: f.cfg.Clock.Now().UTC()}
 	if err := f.cfg.Ownership.Record(ctx, entry); err != nil {

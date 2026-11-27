@@ -117,9 +117,11 @@ type recordedDir struct {
 
 var (
 	managedDir = recordedDir{kind: core.OwnedManagedDir, mode: managedDirMode, deny: 0o077}
-	// patternDir is a dir with a Pattern: its files may run as another user,
-	// so others may open it, but only its owner writes it.
-	patternDir = recordedDir{kind: core.OwnedDir, mode: 0o755, deny: 0o022}
+	// patternDir is a dir with a Pattern: only its owner opens it, as
+	// systemd reads its files for another user. A recorded directory an
+	// older agent made 0755 is tightened on the next write; one others may
+	// write is refused.
+	patternDir = recordedDir{kind: core.OwnedDir, mode: 0o700, deny: 0o022}
 )
 
 // openManaged opens dir, through its parent opened as openDir opens one, and

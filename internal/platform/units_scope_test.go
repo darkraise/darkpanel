@@ -425,7 +425,7 @@ func TestUnitSetOwnership(t *testing.T) {
 }
 
 // TestDirPattern is a dir declaration with a file-name Pattern: its files
-// are written root-owned in a 0755 directory and recorded one by one.
+// are written root-owned in a 0700 directory and recorded one by one.
 func TestDirPattern(t *testing.T) {
 	ctx := context.Background()
 	f, own, root := usFiles(t)
@@ -441,8 +441,8 @@ func TestDirPattern(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.IsDir() || info.Mode().Perm() != 0o755 || int(info.Sys().(*syscall.Stat_t).Uid) != os.Geteuid() {
-		t.Errorf("directory %v, want a 0755 directory owned by %d", info.Mode(), os.Geteuid())
+	if !info.IsDir() || info.Mode().Perm() != 0o700 || int(info.Sys().(*syscall.Stat_t).Uid) != os.Geteuid() {
+		t.Errorf("directory %v, want a 0700 directory owned by %d", info.Mode(), os.Geteuid())
 	}
 	script := filepath.Join(dir, "backup.sh")
 	sinfo, err := os.Lstat(script)

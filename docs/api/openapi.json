@@ -38215,7 +38215,7 @@
             "token": []
           }
         ],
-        "summary": "Create a job: a script, a service that runs it and a timer that starts it."
+        "summary": "Create a job: a root-only script, a service that systemd hands it to and a timer that starts it."
       }
     },
     "/api/v1/hosts/{host}/actions/jobs.job.create/v1/plan": {
@@ -38273,7 +38273,7 @@
             "token": []
           }
         ],
-        "summary": "Create a job: a script, a service that runs it and a timer that starts it."
+        "summary": "Create a job: a root-only script, a service that systemd hands it to and a timer that starts it."
       }
     },
     "/api/v1/hosts/{host}/actions/jobs.job.delete/v1/apply": {

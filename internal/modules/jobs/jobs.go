@@ -34,7 +34,7 @@ const (
 	UnitPattern   = `^darkpanel-job-[a-z0-9][a-z0-9-]{0,39}\.(service|timer)$`
 	scriptDir     = "/var/lib/darkpanel/jobs"
 	scriptPattern = `^[a-z0-9][a-z0-9-]{0,39}\.sh$`
-	scriptMode    = 0o750
+	scriptMode    = 0o700
 	passwdFile    = "/etc/passwd"
 	shellsFile    = "/etc/shells"
 	maxCommand    = 16 << 10
@@ -120,7 +120,7 @@ func (m module) actions() []core.ActionDef {
 			LockKeys: []string{lockKey}, MinScope: core.ScopeAdmin, ApplyTimeout: 45 * time.Second,
 		}
 	}
-	create := spec("create", "Create a job: a script, a service that runs it and a timer that starts it.", core.ClassCompensable)
+	create := spec("create", "Create a job: a root-only script, a service that systemd hands it to and a timer that starts it.", core.ClassCompensable)
 	create.StepUp = true
 	update := spec("update", "Change a job's schedule, user, command or limits.", core.ClassCompensable)
 	update.StepUp = true
@@ -174,17 +174,6 @@ func (m module) lookup(name string) (account, bool, error) {
 		return account{uid: uid, gid: gid, shell: f[6]}, true, nil
 	}
 	return account{}, false, sc.Err()
-}
-
-func (m module) primaryGID(name string) (int, error) {
-	a, ok, err := m.lookup(name)
-	if err != nil {
-		return 0, err
-	}
-	if !ok {
-		return 0, fmt.Errorf("jobs: no account %s", name)
-	}
-	return a.gid, nil
 }
 
 // checkUser admits root and login users: a UID from 1000 to 59999 with a
@@ -343,7 +332,7 @@ func (h writeHandler) Plan(ctx context.Context, env core.Env, in JobInput) (core
 		{Op: op, Text: fmt.Sprintf("%s job %s: %s, as %s", verb, c.slug, in.Schedule, in.User)},
 		{Op: op, Text: filepath.Join(h.m.unitDir, serviceName(c.slug))},
 		{Op: op, Text: filepath.Join(h.m.unitDir, timerName(c.slug))},
-		{Op: op, Text: filepath.Join(scriptDir, scriptName(c.slug)) + " (mode 0750, group of " + in.User + ")"},
+		{Op: op, Text: filepath.Join(scriptDir, scriptName(c.slug)) + " (mode 0700, root only; systemd hands it to the job)"},
 	}
 	return core.PlanOutcome{Diff: diff, StateHash: digest(string(jobDoc(c.now).State), string(jobDoc(c.want).State))}, nil
 }

@@ -289,7 +289,8 @@ const backupInput = `{"slug":"backup","description":"Nightly 100% backup","sched
 	`"command":"tar czf /tmp/x.tgz /etc","timeoutSeconds":3600,"catchUp":true,"randomDelaySeconds":300}`
 
 // TestCreateUnits is M11 spec section 6's job: a oneshot service, its timer
-// and a 0750 script in a 0755 directory, group the run-as user's.
+// and a root-only 0700 script in a 0700 directory, which systemd hands to the
+// job through LoadCredential=.
 func TestCreateUnits(t *testing.T) {
 	r := newRig(t)
 	r.apply("jobs.job.create", backupInput)
@@ -307,11 +308,11 @@ func TestCreateUnits(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := info.Sys().(*syscall.Stat_t)
-	if info.Mode().Perm() != 0o750 || int(st.Gid) != r.gid || int(st.Uid) != os.Geteuid() {
-		t.Errorf("script mode %o owner %d:%d, want 750 %d:%d", info.Mode().Perm(), st.Uid, st.Gid, os.Geteuid(), r.gid)
+	if info.Mode().Perm() != 0o700 || int(st.Gid) != os.Getegid() || int(st.Uid) != os.Geteuid() {
+		t.Errorf("script mode %o owner %d:%d, want 700 %d:%d", info.Mode().Perm(), st.Uid, st.Gid, os.Geteuid(), os.Getegid())
 	}
-	if dir, err := os.Stat(filepath.Join(r.root, "jobs")); err != nil || dir.Mode().Perm() != 0o755 {
-		t.Errorf("jobs directory %v, %v; want mode 0755", dir, err)
+	if dir, err := os.Stat(filepath.Join(r.root, "jobs")); err != nil || dir.Mode().Perm() != 0o700 {
+		t.Errorf("jobs directory %v, %v; want mode 0700", dir, err)
 	}
 	if want := []string{"Reload", "Enable darkpanel-job-backup.timer", "Start darkpanel-job-backup.timer"}; !slices.Equal(r.units.calls, want) {
 		t.Errorf("unit calls %q, want %q", r.units.calls, want)
@@ -460,8 +461,8 @@ func TestUpdateUndo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if int(info.Sys().(*syscall.Stat_t).Gid) != r.gid {
-		t.Errorf("the undone script's group is %d, want alice's %d", info.Sys().(*syscall.Stat_t).Gid, r.gid)
+	if int(info.Sys().(*syscall.Stat_t).Gid) != os.Getegid() || info.Mode().Perm() != 0o700 {
+		t.Errorf("the undone script's group is %d mode %o, want the agent's %d and 700", info.Sys().(*syscall.Stat_t).Gid, info.Mode().Perm(), os.Getegid())
 	}
 
 	r.units.calls = nil
@@ -494,5 +495,36 @@ func TestUpdateUndo(t *testing.T) {
 	}
 	if !r.units.active["darkpanel-job-backup.timer"] {
 		t.Error("undoing the delete left the timer stopped")
+	}
+}
+
+func TestScriptDelivery(t *testing.T) {
+	r := newRig(t)
+	pv, err := r.engine.Plan(context.Background(), adminP, core.ActionRef{Name: "jobs.job.create", Version: 1}, json.RawMessage(backupInput), core.PlanOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(pv.Diff, func(l core.DiffLine) bool {
+		return strings.HasSuffix(l.Text, "/var/lib/darkpanel/jobs/backup.sh (mode 0700, root only; systemd hands it to the job)")
+	}) {
+		t.Errorf("create plan %+v; want the script line saying it is root only", pv.Diff)
+	}
+	r.apply("jobs.job.create", backupInput)
+	svc := r.text(r.path("units", "darkpanel-job-backup.service"))
+	for _, line := range []string{"LoadCredential=script:/var/lib/darkpanel/jobs/backup.sh\n", "ExecStart=/bin/sh ${CREDENTIALS_DIRECTORY}/script\n"} {
+		if !strings.Contains(svc, line) {
+			t.Errorf("service text\n%s\nholds no %q", svc, line)
+		}
+	}
+	info, err := os.Stat(r.path("jobs", "backup.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := info.Sys().(*syscall.Stat_t)
+	if info.Mode().Perm() != 0o700 || int(st.Gid) != os.Getegid() {
+		t.Errorf("script mode %o group %d, want 700 and the agent's group %d", info.Mode().Perm(), st.Gid, os.Getegid())
+	}
+	if dir, err := os.Stat(filepath.Join(r.root, "jobs")); err != nil || dir.Mode().Perm() != 0o700 {
+		t.Errorf("jobs directory %v, %v; want mode 0700", dir, err)
 	}
 }

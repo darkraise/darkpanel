@@ -4,7 +4,7 @@ Back to the [API reference](README.md).
 
 ## jobs.job.create v1
 
-Create a job: a script, a service that runs it and a timer that starts it.
+Create a job: a root-only script, a service that systemd hands it to and a timer that starts it.
 
 | Operation | Request |
 |---|---|

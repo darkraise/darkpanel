@@ -6,4 +6,5 @@ Description=Darkpanel job backup: Nightly 100%% backup
 Type=oneshot
 User=alice
 TimeoutStartSec=3600
-ExecStart=/bin/sh /var/lib/darkpanel/jobs/backup.sh
+LoadCredential=script:/var/lib/darkpanel/jobs/backup.sh
+ExecStart=/bin/sh ${CREDENTIALS_DIRECTORY}/script

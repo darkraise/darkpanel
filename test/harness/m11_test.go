@@ -656,6 +656,7 @@ func (r *m11Run) jobs(t *testing.T) {
 	if who := r.state(t, f.agent, "cat "+m11JobOut); who != m11User {
 		t.Errorf("the job ran as %q, want %s", who, m11User)
 	}
+	r.jobScripts(t)
 	timer := "darkpanel-job-" + m11JobSlug + ".timer"
 	off := coreactions.ModuleInput{HostID: f.agentID, ModuleID: "jobs"}
 	if _, err := f.api.Apply(r.ctx, "", "core.module.disable/v1", off, nil); err != nil {
@@ -673,6 +674,80 @@ func (r *m11Run) jobs(t *testing.T) {
 	r.enable(t, "jobs")
 	if _, err := f.api.Apply(r.ctx, f.agentID, "jobs.job.delete/v1", jobs.SlugInput{Slug: m11JobSlug}, nil); err != nil {
 		t.Error(err)
+	}
+}
+
+// m11Peer shares m11User's primary group; it must not read a job's script.
+const m11Peer = "m11peer"
+
+// jobScripts checks that a job's script is root-only and that systemd hands
+// it to the job: the file and its directory are 0700 root:root, a member of
+// the run-as user's group reads neither the file nor the copy the running
+// job sees under $CREDENTIALS_DIRECTORY, and standard input is empty.
+func (r *m11Run) jobScripts(t *testing.T) {
+	f := r.f
+	script := "/var/lib/darkpanel/jobs/" + m11JobSlug + ".sh"
+	if got := r.state(t, f.agent, "sudo stat -c '%a %U:%G' "+script+" /var/lib/darkpanel/jobs"); got != "700 root:root\n700 root:root" {
+		t.Errorf("the script and its directory are %q, want 700 root:root both", got)
+	}
+	m3Run(r.ctx, t, f.agent, "sudo useradd -M -N -g \"$(id -gn "+m11User+")\" -s /bin/sh "+m11Peer)
+	defer func() { _, _ = f.agent.Run(r.ctx, "sudo userdel "+m11Peer) }()
+	denied := func(path string) {
+		t.Helper()
+		out := r.state(t, f.agent, "sudo runuser -u "+m11Peer+" -- cat "+path+" 2>&1; echo rc=$?")
+		if strings.HasSuffix(out, "rc=0") || !strings.Contains(out, "Permission denied") {
+			t.Errorf("%s reading %s: %q, want Permission denied", m11Peer, path, out)
+		}
+	}
+	denied(script)
+
+	journal := func(slug string, want ...string) []string {
+		t.Helper()
+		unit := "darkpanel-job-" + slug + ".service"
+		var lines []string
+		err := eventually(r.ctx, 2*time.Minute, func(ctx context.Context) error {
+			out, err := f.agent.Run(ctx, "sudo journalctl -u "+unit+" -o cat --no-pager")
+			if err != nil {
+				return err
+			}
+			lines = strings.Split(strings.TrimSpace(out), "\n")
+			for _, w := range want {
+				if !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, w) }) {
+					return fmt.Errorf("harness: the journal of %s has no line starting %q yet:\n%s", unit, w, out)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return lines
+	}
+	run := func(slug, command string) {
+		t.Helper()
+		in := jobs.JobInput{Slug: slug, Schedule: "*-01-01 00:00:00", User: m11User, Command: command, TimeoutSeconds: 120}
+		if _, err := f.api.Apply(r.ctx, f.agentID, "jobs.job.create/v1", in, nil); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = f.api.Apply(r.ctx, f.agentID, "jobs.job.delete/v1", jobs.SlugInput{Slug: slug}, nil) })
+		if _, err := f.api.Apply(r.ctx, f.agentID, "jobs.job.run/v1", jobs.SlugInput{Slug: slug}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run("m11-creds", `id -un; echo "creds:$CREDENTIALS_DIRECTORY"; sleep 30`)
+	creds := ""
+	for _, l := range journal("m11-creds", m11User, "creds:/") {
+		if c, ok := strings.CutPrefix(l, "creds:"); ok {
+			creds = c
+		}
+	}
+	denied(creds + "/script")
+
+	run("m11-stdin", "read x; echo \"x=$x\"\necho done")
+	lines := journal("m11-stdin", "done")
+	if !slices.Contains(lines, "x=") {
+		t.Errorf("the stdin job printed %q, want x= then done", lines)
 	}
 }
 
