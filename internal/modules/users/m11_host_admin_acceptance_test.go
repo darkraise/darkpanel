@@ -65,7 +65,7 @@ func env(t *testing.T, h *home) core.Env {
 
 func action(t *testing.T, name string) core.ActionDef {
 	t.Helper()
-	for _, a := range users.Module().Manifest().Actions {
+	for _, a := range users.FixtureModule(t).Manifest().Actions {
 		if a.Spec.Name == name {
 			return a
 		}
