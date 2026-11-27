@@ -162,6 +162,7 @@ const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8",
 const countAssertions = (text: string) => (text.match(/\bexpect(?:\.\w+)?\s*\(|\.(?:get|find)(?:All)?By\w+\(|\bassert\w*\(/g) ?? []).length
 
 describe("A39: no assertion about behaviour is removed from the existing suites", () => {
+  // It runs git over every commit since BASE, so its time grows with the branch.
   test("A39: every Vitest and Playwright file that existed at the base keeps at least four fifths of its assertions", () => {
     const changed = git("diff", "--name-status", "-M", `${BASE}..HEAD`, "--", ".")
       .split("\n")
@@ -181,5 +182,5 @@ describe("A39: no assertion about behaviour is removed from the existing suites"
       if (after < before * 0.8) lost.push(`${to ?? from}: ${before} -> ${after} assertions`)
     }
     expect(lost).toEqual([])
-  })
+  }, 30_000)
 })
