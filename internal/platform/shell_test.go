@@ -277,3 +277,94 @@ func TestWaitInCgroup(t *testing.T) {
 		}
 	})
 }
+
+// gateScopes is a ScopeStarter that blocks until release is closed, then
+// answers err.
+type gateScopes struct {
+	entered chan int
+	release chan struct{}
+	err     error
+}
+
+func (g *gateScopes) StartScope(_ context.Context, _ string, pid int) error {
+	g.entered <- pid
+	<-g.release
+	return g.err
+}
+
+// TestShellWaitsForScope: the login shell, whose start writes a marker as a
+// profile would, runs only once its scope holds it, and never when the move
+// failed; fd 3, the gate, is closed in the shell it starts.
+func TestShellWaitsForScope(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "marker")
+	login := filepath.Join(dir, "login")
+	script := "#!/bin/sh\necho started > " + marker + "\nexec cat\n"
+	if err := os.WriteFile(login, []byte(script), 0o700); err != nil { //nolint:gosec // G306: the test's login shell
+		t.Fatal(err)
+	}
+	passwd := filepath.Join(dir, "passwd")
+	if err := os.WriteFile(passwd, []byte("root:x:0:0:root:/root:"+login+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exists := func() bool {
+		_, err := os.Stat(marker)
+		return err == nil
+	}
+	start := func(t *testing.T, scopeErr error) (int, chan struct{}, chan error, *core.ShellSession) {
+		t.Helper()
+		_ = os.Remove(marker)
+		g := &gateScopes{entered: make(chan int, 1), release: make(chan struct{}), err: scopeErr}
+		sh := &Shell{scopes: g, passwd: passwd, locale: filepath.Join(dir, "none"), home: dir, killAfter: time.Second}
+		var sess core.ShellSession
+		done := make(chan error, 1)
+		go func() {
+			s, err := sh.Start(context.Background(), 80, 24)
+			sess = s
+			done <- err
+		}()
+		var pid int
+		select {
+		case pid = <-g.entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Start never asked for the scope")
+		}
+		return pid, g.release, done, &sess
+	}
+
+	t.Run("moved", func(t *testing.T) {
+		pid, release, done, sess := start(t, nil)
+		time.Sleep(300 * time.Millisecond)
+		if exists() {
+			t.Error("the login shell ran before its scope held it")
+		}
+		close(release)
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = (*sess).Close() }()
+		for deadline := time.Now().Add(5 * time.Second); !exists() && time.Now().Before(deadline); {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !exists() {
+			t.Fatal("the login shell did not run after its scope held it")
+		}
+		if _, err := os.Lstat(fmt.Sprintf("/proc/%d/fd/3", pid)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the shell %d has fd 3 open (%v), want the gate closed", pid, err)
+		}
+	})
+	t.Run("move failed", func(t *testing.T) {
+		pid, release, done, _ := start(t, errors.New("scope refused"))
+		close(release)
+		if err := <-done; err == nil || !strings.Contains(err.Error(), "scope refused") {
+			t.Fatalf("Start = %v, want the scope's error", err)
+		}
+		if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+			t.Errorf("the shell %d still runs after its move failed (kill 0: %v)", pid, err)
+		}
+		time.Sleep(200 * time.Millisecond)
+		if exists() {
+			t.Error("the login shell ran although its move failed")
+		}
+	})
+}

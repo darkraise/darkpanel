@@ -474,6 +474,7 @@ func (r *m11Run) console(t *testing.T) {
 	}) {
 		return
 	}
+	t.Run("scope", r.consoleScope)
 	var x *API
 	t.Run("npm", func(t *testing.T) { x = r.npm(t) })
 
@@ -517,6 +518,37 @@ func (r *m11Run) console(t *testing.T) {
 	}
 	t.Run("policy", r.policy)
 	t.Run("audit", r.consoleAudit)
+}
+
+// consoleScope checks that a process a login profile starts runs in the
+// terminal's scope, not in the agent's cgroup, whose stop would kill it.
+func (r *m11Run) consoleScope(t *testing.T) {
+	f := r.f
+	const profile = "/etc/profile.d/darkpanel-m11-scope.sh"
+	const find = "pgrep -o -f '^sleep 600$'"
+	m3Run(r.ctx, t, f.agent, "sudo pkill -f '^sleep 600$'; printf 'sleep 600 &\\n' | sudo tee "+profile+" >/dev/null")
+	defer m3Run(r.ctx, t, f.agent, "sudo rm -f "+profile+"; sudo pkill -f '^sleep 600$'; true")
+	tm, err := m11OpenTerm(r.ctx, t, f, f.api, f.agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tm.close()
+	if _, err := tm.expect(r.ctx, "echo m11", m11EchoLine); err != nil {
+		t.Fatal(err)
+	}
+	err = eventually(r.ctx, 30*time.Second, func(context.Context) error {
+		cgroup := r.state(t, f.agent, "cat /proc/$("+find+")/cgroup")
+		switch {
+		case strings.Contains(cgroup, "/"+update.AgentUnit):
+			return fmt.Errorf("harness: the profile's sleep runs in %s's cgroup: %q", update.AgentUnit, cgroup)
+		case !strings.Contains(cgroup, "/darkpanel-console-") || !strings.HasSuffix(cgroup, ".scope"):
+			return fmt.Errorf("harness: the profile's sleep is in cgroup %q, want the terminal's darkpanel-console-<id>.scope", cgroup)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Error(err)
+	}
 }
 
 // npm deploys NPM on the controller's host and exposes the panel through

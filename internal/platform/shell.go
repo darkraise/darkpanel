@@ -107,8 +107,15 @@ func NewShell(scopes ScopeStarter) *Shell {
 	return &Shell{scopes: scopes, passwd: "/etc/passwd", locale: "/etc/default/locale", home: "/root", killAfter: 5 * time.Second}
 }
 
-// Start starts root's login shell with -l on a terminal of cols by rows. A
-// shell that cannot be moved into its scope is killed.
+// shellGate is the script the shell starts as: it waits for "ok" on fd 3,
+// which the agent writes once the process is in its scope, then closes fd
+// 3 and execs the login shell, $0, with -l. Anything the login shell's
+// profile starts is in the scope too; a gate closed without "ok" exits.
+const shellGate = `IFS= read -r go <&3 && [ "$go" = ok ] || exit 1; exec "$0" -l 3<&-`
+
+// Start starts root's login shell with -l on a terminal of cols by rows,
+// once its process is in a scope of its own. A shell that cannot be moved
+// into its scope is killed before the login shell runs.
 func (s *Shell) Start(ctx context.Context, cols, rows uint16) (core.ShellSession, error) {
 	program := loginShell(s.passwd)
 	master, tty, err := openPTY()
@@ -119,16 +126,23 @@ func (s *Shell) Start(ctx context.Context, cols, rows uint16) (core.ShellSession
 		_, _ = master.Close(), tty.Close()
 		return nil, err
 	}
-	cmd := exec.Command(program, "-l") //nolint:gosec // G204: root's login shell (ADR 0020)
+	gate, open, err := os.Pipe()
+	if err != nil {
+		_, _ = master.Close(), tty.Close()
+		return nil, fmt.Errorf("platform: start the shell %s: %w", program, err)
+	}
+	defer func() { _ = open.Close() }()
+	cmd := exec.Command("/bin/sh", "-c", shellGate, program) //nolint:gosec // G204: root's login shell (ADR 0020)
 	cmd.Env = s.environ(program)
 	cmd.Dir = "/"
 	if st, err := os.Stat(s.home); err == nil && st.IsDir() {
 		cmd.Dir = s.home
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
+	cmd.ExtraFiles = []*os.File{gate}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	err = cmd.Start()
-	_ = tty.Close()
+	_, _ = tty.Close(), gate.Close()
 	if err != nil {
 		_ = master.Close()
 		return nil, fmt.Errorf("platform: start the shell %s: %w", program, err)
@@ -142,6 +156,10 @@ func (s *Shell) Start(ctx context.Context, cols, rows uint16) (core.ShellSession
 	if err != nil {
 		sess.kill()
 		return nil, fmt.Errorf("platform: move the shell into its scope: %w", err)
+	}
+	if _, err := open.Write([]byte("ok\n")); err != nil {
+		sess.kill()
+		return nil, fmt.Errorf("platform: start the shell %s in its scope: %w", program, err)
 	}
 	return sess, nil
 }
