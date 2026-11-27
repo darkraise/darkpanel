@@ -33,8 +33,10 @@ afterEach(() => {
 })
 
 describe("follow behaviour", () => {
-  test("follows the unit's journal", () => {
+  test("follows the unit's journal, loading until the stream answers", () => {
     render()
+    expect(screen.getByRole("status", { name: "Connecting to the journal" })).toBeTruthy()
+    expect(screen.queryByRole("log")).toBeNull()
     const url = new URL(latest().url, "http://localhost")
     expect(url.pathname).toBe("/api/v1/hosts/h1/streams/services/journal-follow")
     expect(url.searchParams.get("unit")).toBe("nginx.service")
@@ -47,11 +49,14 @@ describe("follow behaviour", () => {
       for (const e of journalEntries(20)) latest().emit("data", e)
     })
     const log = screen.getByRole("log", { name: "Journal entries" })
+    expect(screen.getByText("Following")).toBeTruthy()
+    expect(screen.getByText("The last 2000 lines stay in view.")).toBeTruthy()
     Object.defineProperty(log, "scrollHeight", { configurable: true, value: 1000 })
     Object.defineProperty(log, "clientHeight", { configurable: true, value: 200 })
     log.scrollTop = 100
     fireEvent.scroll(log)
     expect(screen.getByText("Following paused")).toBeTruthy()
+    expect(screen.queryByText("Following")).toBeNull()
     await userEvent.setup().click(screen.getByRole("button", { name: "Jump to latest" }))
     expect(screen.queryByText("Following paused")).toBeNull()
   })

@@ -133,13 +133,14 @@ function Lines({ entries, follow, onPaused }: { entries: JournalEntry[]; follow:
     >
       <ol>
         {entries.map((e, i) => (
-          <li key={`${e.time}-${i}`} className="grid grid-cols-[9ch_8ch_minmax(0,16ch)_1fr] gap-2">
+          <li key={`${e.time}-${i}`} className="grid grid-cols-[9ch_8ch_minmax(0,1fr)] gap-x-2 sm:grid-cols-[9ch_8ch_minmax(0,16ch)_1fr]">
             <span>{time(e.time)}</span>
             <span>{e.priority === null ? "" : (PRIORITIES[e.priority] ?? String(e.priority))}</span>
             <span className="truncate" title={e.unit}>
               {e.unit ?? ""}
             </span>
-            <span className="break-all whitespace-pre-wrap">{e.truncated ? `${e.message}… (truncated)` : e.message}</span>
+            {/* Below 640 px the message takes its own line, full width. */}
+            <span className="col-span-3 break-all whitespace-pre-wrap sm:col-span-1">{e.truncated ? `${e.message}… (truncated)` : e.message}</span>
           </li>
         ))}
       </ol>
@@ -179,7 +180,7 @@ export function JournalPanel({ hostId, unit, onUnitChange }: { hostId: string; u
           <select id="journal-priority" value={priority} onChange={(e) => setPriority(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
             <option value="">Every priority</option>
             {PRIORITIES.map((p, i) => (
-              <option key={p} value={String(i)}>{`${p} and more urgent`}</option>
+              <option key={p} value={String(i)}>{`${p.charAt(0).toUpperCase()}${p.slice(1)} and more urgent`}</option>
             ))}
           </select>
         </div>
@@ -205,6 +206,7 @@ export function JournalPanel({ hostId, unit, onUnitChange }: { hostId: string; u
           <Label htmlFor="journal-follow">Follow</Label>
         </div>
       </div>
+      {follow && followed.status === "following" && !paused && <StatusPill status="ok" label="Following" />}
       {follow && followed.status === "reconnecting" && <StatusPill status="warn" label="Reconnecting…" live />}
       {follow && followed.status === "ended" && <StatusPill status="off" label="The journal stream ended" />}
       {follow && paused && (
@@ -239,10 +241,18 @@ export function JournalPanel({ hostId, unit, onUnitChange }: { hostId: string; u
             </Button>
           </AlertDescription>
         </Alert>
-      ) : entries.length === 0 && (!follow || followed.status !== "connecting") ? (
+      ) : entries.length === 0 && follow && followed.status === "connecting" ? (
+        <div className="flex flex-col gap-2" role="status" aria-label="Connecting to the journal">
+          <Skeleton className="h-5 w-full" />
+          <Skeleton className="h-5 w-full" />
+        </div>
+      ) : entries.length === 0 ? (
         <EmptyState title="No journal entries match" description="Widen the priority or the time range." />
       ) : (
-        <Lines key={jump} entries={entries} follow={follow} onPaused={setPaused} />
+        <>
+          <Lines key={jump} entries={entries} follow={follow} onPaused={setPaused} />
+          {follow && <p className="text-xs text-muted-foreground">{`The last ${MAX_LINES} lines stay in view.`}</p>}
+        </>
       )}
     </section>
   )
