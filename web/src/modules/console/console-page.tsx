@@ -14,19 +14,28 @@ import { TerminalView } from "./terminal-view"
 export function ConsolePage({ hostId, openSurface }: { hostId: string; openSurface?: OpenSurface }) {
   const [params] = useSearchParams()
   const [tab, setTab] = useState(params.has("path") ? "files" : "terminal")
+  // The terminal mounts only once its tab shows, as mounting asks the code
+  // and opens a shell; from then on it stays mounted while Files shows, so
+  // switching tabs keeps the shell.
+  const [terminalShown, setTerminalShown] = useState(tab === "terminal")
   const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
   const host = hosts.data?.hosts.find((h) => h.id === hostId)
   return (
     <div className="flex flex-col gap-4">
       <h2 className="sr-only">Console</h2>
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => {
+          setTab(v)
+          if (v === "terminal") setTerminalShown(true)
+        }}
+      >
         <TabsList aria-label="Console">
           <TabsTrigger value="terminal">Terminal</TabsTrigger>
           <TabsTrigger value="files">Files</TabsTrigger>
         </TabsList>
-        {/* Mounted while Files shows, so switching tabs keeps the shell. */}
         <TabsContent value="terminal" forceMount>
-          {host === undefined ? (
+          {!terminalShown ? null : host === undefined ? (
             <Spinner aria-label="Loading the host" />
           ) : (
             <TerminalView
