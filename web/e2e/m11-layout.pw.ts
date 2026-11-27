@@ -234,6 +234,37 @@ async function overprinted(page: Page): Promise<string[]> {
   })
 }
 
+// Text a table squeezed into a column too narrow to read: a text of 12 or
+// more characters that averages fewer than 12 characters per line. Text an
+// element clips on purpose is skipped, as in overprinted().
+async function squeezed(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const out: string[] = []
+    for (const cell of document.querySelectorAll<HTMLElement>("main td")) {
+      if (getComputedStyle(cell).display !== "table-cell") continue
+      const walk = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+      for (let node = walk.nextNode(); node !== null; node = walk.nextNode()) {
+        const text = (node.textContent ?? "").trim()
+        if (text.length < 12) continue
+        let clips = false
+        for (let up = node.parentElement; up !== null; up = up.parentElement) {
+          if (getComputedStyle(up).overflowX !== "visible") clips = true
+          if (up === cell) break
+        }
+        if (clips) continue
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        const lines = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top))).size
+        if (lines > 1 && text.length / lines < 12) {
+          out.push(`td: ${text.slice(0, 40)} (${lines} lines, ${Math.round(text.length / lines)} characters each)`)
+          break
+        }
+      }
+    }
+    return out.slice(0, 6)
+  })
+}
+
 // WCAG 2.1 A and AA through axe, colour contrast included.
 async function axeScan(page: Page): Promise<string[]> {
   if (!(await page.evaluate(() => "axe" in window))) await page.addScriptTag({ path: axePath })
@@ -260,6 +291,9 @@ async function audit(page: Page, label: string) {
   const over = await overprinted(page)
   tally.overflowFindings.push(...over.map((p) => `${label}: overprinted ${p}`))
   expect.soft(over, `${label}: no text runs over the next table cell`).toEqual([])
+  const narrow = await squeezed(page)
+  tally.overflowFindings.push(...narrow.map((p) => `${label}: squeezed ${p}`))
+  expect.soft(narrow, `${label}: no table column is squeezed below 12 characters a line`).toEqual([])
   tally.axeRuns++
   const found = await axeScan(page)
   tally.axeFindings.push(...found.map((f) => `${label}: ${f}`))
