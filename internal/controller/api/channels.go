@@ -397,13 +397,16 @@ func (b *bridge) pumpAgent(ctx context.Context) {
 			var exit struct {
 				Code int `json:"code"`
 			}
-			if json.Unmarshal(p, &exit) == nil {
-				msg, _ := json.Marshal(struct {
-					Type string `json:"type"`
-					Code int    `json:"code"`
-				}{"exit", exit.Code})
-				err = b.toBrowser(ctx, websocket.MessageText, msg)
+			if jerr := json.Unmarshal(p, &exit); jerr != nil {
+				// The browser then says the shell exited without a code.
+				b.s.log.Warn("api: an exit frame from the agent does not decode", "error", jerr)
+				break
 			}
+			msg, _ := json.Marshal(struct {
+				Type string `json:"type"`
+				Code int    `json:"code"`
+			}{"exit", exit.Code})
+			err = b.toBrowser(ctx, websocket.MessageText, msg)
 		case wire.FrameClose:
 			var cl struct {
 				Reason string `json:"reason"`
