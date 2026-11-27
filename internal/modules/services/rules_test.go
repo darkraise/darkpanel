@@ -114,6 +114,7 @@ func TestGuardedUnits(t *testing.T) {
 			"ufw.service": "firewall", "docker.service": "docker", "tailscaled.service": "tailscale", "ssh.service": "users",
 			"ssh.socket": "users", "sshd.service": "users", "fail2ban.service": "fail2ban", "nftables.service": "firewall",
 			"netfilter-persistent.service": "firewall", "firewalld.service": "firewall",
+			"docker.socket": "docker", "containerd.service": "docker",
 		}
 		for name, module := range managers {
 			r := newRig(t, unit(name))
@@ -282,5 +283,70 @@ func TestRefusalListMatchesHosts(t *testing.T) {
 				t.Errorf("%s: unknown label", what)
 			}
 		}
+	}
+}
+
+func TestDependencyDemands(t *testing.T) {
+	r := newRig(t,
+		unit("docker.service"), unit("nftables.service"), unit("systemd-networkd.service"), unit("tailscaled.service"),
+		unit("foo.service", func(u *core.UnitInfo) { u.Requires = []string{"docker.service", "sysinit.target"} }),
+		unit("bar.service", func(u *core.UnitInfo) { u.Wants = []string{"nftables.service", "missing.service"} }),
+		unit("docker.socket", func(u *core.UnitInfo) { u.RequiredBy = []string{"docker.service"} }),
+		unit("baz.service", func(u *core.UnitInfo) { u.RequiredBy = []string{"docker.service"} }),
+		unit("net.service", func(u *core.UnitInfo) { u.RequiredBy = []string{"systemd-networkd.service"} }),
+		unit("tsdep.service", func(u *core.UnitInfo) { u.BoundBy = []string{"tailscaled.service"} }),
+		unit("part.service", func(u *core.UnitInfo) { u.ConsistsOf = []string{"docker.service"} }),
+		unit("bus.service", func(u *core.UnitInfo) { u.RequiredBy = []string{"dbus.service"} }),
+		unit("busy.service", func(u *core.UnitInfo) {
+			u.Requires = []string{"dbus.service"}
+			u.Wants = []string{"tailscaled.service"}
+		}),
+		unit("dbus.service"),
+		unit("qux.service"),
+	)
+	r.onTailnet = true
+	refused := func(o op, name, detail string) {
+		t.Helper()
+		_, err := r.plan(o, operatorP, name)
+		if e := errcode.From(err); err == nil || e.Code != errcode.Forbidden || e.Detail != detail {
+			t.Errorf("%s %s as an operator: %v; want %s %q", o, name, err, errcode.Forbidden, detail)
+		}
+	}
+	refused(opStart, "foo.service", "starting foo.service also starts docker.service, which needs admin")
+	refused(opStart, "bar.service", "starting bar.service also starts nftables.service, which needs admin")
+	refused(opStop, "docker.socket", "this request needs the admin scope")
+	refused(opRestart, "baz.service", "restarting baz.service also restarts docker.service, which needs admin")
+	refused(opStop, "part.service", "stopping part.service also stops docker.service, which needs admin")
+
+	out, err := r.plan(opStart, adminP, "foo.service")
+	if err != nil || !slices.ContainsFunc(out.Diff, func(l core.DiffLine) bool {
+		return l.Text == "starting foo.service also starts docker.service"
+	}) {
+		t.Errorf("start foo.service as an admin: %+v, %v; want the line naming docker.service", out, err)
+	}
+	if g, ok := guard(out, GuardModuleChange); !ok || !g.OK || out.Confirmation != "foo.service" {
+		t.Errorf("start foo.service as an admin: %+v; want %s passing and the typed phrase", out, GuardModuleChange)
+	}
+
+	out, err = r.plan(opStop, adminP, "net.service")
+	if g, ok := guard(out, GuardNetworkStack); err != nil || !ok || g.OK || !strings.Contains(g.Message, "systemd-networkd.service") {
+		t.Errorf("stop net.service as an admin: %+v, %v; want %s failing, naming systemd-networkd.service", out, err, GuardNetworkStack)
+	}
+	out, err = r.plan(opStop, adminP, "tsdep.service")
+	if g, ok := guard(out, GuardTailnetLink); err != nil || !ok || g.OK {
+		t.Errorf("stop tsdep.service as an admin: %+v, %v; want %s failing", out, err, GuardTailnetLink)
+	}
+	_, err = r.plan(opStop, adminP, "bus.service")
+	if e := errcode.From(err); err == nil || e.Code != errcode.ServicesProtected || !strings.Contains(e.Detail, "dbus.service") {
+		t.Errorf("stop bus.service as an admin: %v; want %s naming dbus.service", err, errcode.ServicesProtected)
+	}
+
+	// Restarting a unit starts what it needs; it restarts only what needs it.
+	out, err = r.plan(opRestart, adminP, "busy.service")
+	if _, ok := guard(out, GuardTailnetLink); err != nil || ok {
+		t.Errorf("restart busy.service as an admin: %+v, %v; want a plan with no tailnet guard", out, err)
+	}
+	if out, err := r.plan(opStop, operatorP, "qux.service"); err != nil || len(out.Guards) != 0 {
+		t.Errorf("stop qux.service as an operator: %+v, %v; want a plan with no guard", out, err)
 	}
 }

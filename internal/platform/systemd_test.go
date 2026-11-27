@@ -651,3 +651,30 @@ func TestSystemdTimers(t *testing.T) {
 		t.Error("systemd's none stamps are not zero times")
 	}
 }
+
+func TestUnitInfoDependencies(t *testing.T) {
+	path := dbus.ObjectPath("/org/freedesktop/systemd1/unit/app_2etarget")
+	list := func(s ...string) dbus.Variant { return dbus.MakeVariant(s) }
+	bus := &fakeBus{reply: func(c busCall) ([]any, error) {
+		switch {
+		case c.method == "org.freedesktop.systemd1.Manager.LoadUnit":
+			return []any{path}, nil
+		case c.method == "org.freedesktop.DBus.Properties.GetAll" && c.args[0] == unitInterface:
+			return []any{map[string]dbus.Variant{
+				"Id": dbus.MakeVariant("app.target"), "LoadState": dbus.MakeVariant("loaded"),
+				"Requires": list("a.service"), "Wants": list("b.service"), "BindsTo": list("c.service"),
+				"RequiredBy": list("d.service", "e.service"), "BoundBy": list("f.service"), "ConsistsOf": list("g.service"),
+			}}, nil
+		}
+		return nil, fmt.Errorf("unexpected %s %v on %s", c.method, c.args, c.path)
+	}}
+	got, err := newSystemd(bus).Inspect(context.Background(), "app.target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.Requires, []string{"a.service"}) || !slices.Equal(got.Wants, []string{"b.service"}) ||
+		!slices.Equal(got.BindsTo, []string{"c.service"}) || !slices.Equal(got.RequiredBy, []string{"d.service", "e.service"}) ||
+		!slices.Equal(got.BoundBy, []string{"f.service"}) || !slices.Equal(got.ConsistsOf, []string{"g.service"}) {
+		t.Errorf("Inspect = %+v; want every dependency list", got)
+	}
+}

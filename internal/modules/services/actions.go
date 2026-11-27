@@ -89,9 +89,28 @@ func (h unitHandler) check(ctx context.Context, env core.Env, in UnitInput) (cor
 			}
 		}
 	}
+	admin, err := unitAdmin(env)
+	if err != nil {
+		return core.UnitInfo{}, demands{}, err
+	}
+	if d.pulled, err = pulledUnits(ctx, admin, u, h.op); err != nil {
+		return core.UnitInfo{}, demands{}, err
+	}
+	if err := pulledRefusal(d.pulled); err != nil {
+		return core.UnitInfo{}, demands{}, err
+	}
 	if d.admin {
 		if err := core.RequireScope(env, core.ScopeAdmin); err != nil {
 			return core.UnitInfo{}, demands{}, core.Definite(err)
+		}
+	}
+	for _, p := range d.pulled {
+		if p.need.admin && core.RequireScope(env, core.ScopeAdmin) != nil {
+			return core.UnitInfo{}, demands{}, core.Definite(errcode.New(errcode.Forbidden, p.text+", which needs admin"))
+		}
+		d.admin, d.phrase = d.admin || p.need.admin, d.phrase || p.need.phrase
+		if d.module == "" {
+			d.module = p.need.module
 		}
 	}
 	if (h.op == opEnable || h.op == opDisable) && u.UnitFileState != "enabled" && u.UnitFileState != "disabled" {
@@ -133,7 +152,13 @@ func (h unitHandler) Plan(ctx context.Context, env core.Env, in UnitInput) (core
 	if err != nil {
 		return core.PlanOutcome{}, err
 	}
-	diff := append([]core.DiffLine{h.line(u)}, notes...)
+	diff := []core.DiffLine{h.line(u)}
+	for _, p := range d.pulled {
+		if p.need.admin {
+			diff = append(diff, core.DiffLine{Op: " ", Text: p.text})
+		}
+	}
+	diff = append(diff, notes...)
 	sum := sha256.Sum256([]byte(strings.Join([]string{string(h.op), u.ID, u.LoadState, u.ActiveState, u.UnitFileState}, "\n")))
 	out := core.PlanOutcome{Diff: diff, Guards: guards, StateHash: hex.EncodeToString(sum[:])}
 	if d.phrase {

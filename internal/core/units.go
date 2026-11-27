@@ -124,7 +124,10 @@ type UnitInfo struct {
 	MainPID                          uint32
 	Names                            []string // every name of the unit, ID included
 	Requires, Wants, Triggers        []string
-	RefuseManualStart, AllowIsolate  bool
+	// BindsTo is beside Requires and Wants; RequiredBy, BoundBy and
+	// ConsistsOf name the units that stop when this unit stops.
+	BindsTo, RequiredBy, BoundBy, ConsistsOf []string
+	RefuseManualStart, AllowIsolate          bool
 	// The action properties: "none" or what systemd does when the unit
 	// succeeds, fails, times out on a job or hits its start limit.
 	SuccessAction, FailureAction, JobTimeoutAction, StartLimitAction string

@@ -58,15 +58,18 @@ var networkUnits = []string{"networking.service", "systemd-networkd.service", "N
 // module; the firewall module owns the firewall loaders.
 var managedUnits = map[string]string{
 	"ssh.service": "users", "ssh.socket": "users", "sshd.service": "users",
-	"tailscaled.service": "tailscale", "docker.service": "docker", "ufw.service": "firewall",
-	"fail2ban.service": "fail2ban", "nftables.service": "firewall", "netfilter-persistent.service": "firewall",
-	"firewalld.service": "firewall",
+	"tailscaled.service": "tailscale", "docker.service": "docker", "docker.socket": "docker",
+	"containerd.service": "docker", "ufw.service": "firewall", "fail2ban.service": "fail2ban",
+	"nftables.service": "firewall", "netfilter-persistent.service": "firewall", "firewalld.service": "firewall",
 }
 
 const (
 	journaldUnit   = "systemd-journald.service"
 	tailscaledUnit = "tailscaled.service"
 )
+
+// dbusUnits carry the agent's connection to systemd.
+var dbusUnits = []string{"dbus.service", "dbus.socket"}
 
 // mutableTypes are the unit types the mutating actions change.
 var mutableTypes = []string{"service", "socket", "timer"}
@@ -136,7 +139,7 @@ func refusal(ctx context.Context, u core.UnitInfo, o op, inspect func(context.Co
 			return protected("Darkpanel manages its own units: jobs through the Jobs tab, the agent and controller through updates")
 		}
 	}
-	if n, ok := named(u, []string{"dbus.service", "dbus.socket"}); ok && (o == opStop || o == opRestart || o == opDisable) {
+	if n, ok := named(u, dbusUnits); ok && (o == opStop || o == opRestart || o == opDisable) {
 		return protected(fmt.Sprintf("The agent talks to systemd through %s, so it cannot %s it", n, o))
 	}
 	if o.starts() {
@@ -169,6 +172,89 @@ type demands struct {
 	admin  bool   // the caller needs admin on the host
 	phrase bool   // apply repeats the unit name
 	module string // the module whose pending changes refuse the action
+	pulled []pulledUnit
+}
+
+// pulledUnit is a unit that an op on the target also changes, one level
+// deep, with what the op does to it.
+type pulledUnit struct {
+	u    core.UnitInfo
+	op   op
+	need demands // what op on the unit asks of the caller
+	text string  // "starting foo.service also starts docker.service"
+}
+
+var (
+	gerunds = map[op]string{opStart: "starting", opStop: "stopping", opRestart: "restarting"}
+	verbs   = map[op]string{opStart: "starts", opStop: "stops", opRestart: "restarts"}
+)
+
+// pulledNames are the units o on u also changes, with what o does to them.
+// Starting u starts the units it requires, binds to or wants; stopping it
+// stops the units that require it, are bound to it or are part of it.
+// Restarting it restarts the second and starts the first: systemd
+// propagates a restart only to the units that depend on u. A unit in both
+// lists comes first as restarted.
+func pulledNames(u core.UnitInfo, o op) [][2]string {
+	var out [][2]string
+	add := func(o op, lists ...[]string) {
+		for _, l := range lists {
+			for _, n := range l {
+				out = append(out, [2]string{n, string(o)})
+			}
+		}
+	}
+	if o == opStop || o == opRestart {
+		add(o, u.RequiredBy, u.BoundBy, u.ConsistsOf)
+	}
+	if o.starts() {
+		add(opStart, u.Requires, u.BindsTo, u.Wants)
+	}
+	return out
+}
+
+// pulledUnits reads the units o on u also changes, skipping u itself, a unit
+// named twice and a unit systemd does not know.
+func pulledUnits(ctx context.Context, admin core.UnitAdmin, u core.UnitInfo, o op) ([]pulledUnit, error) {
+	seen := map[string]bool{u.ID: true}
+	var out []pulledUnit
+	for _, p := range pulledNames(u, o) {
+		if seen[p[0]] {
+			continue
+		}
+		seen[p[0]] = true
+		info, err := admin.Inspect(ctx, p[0])
+		if err != nil {
+			return nil, err
+		}
+		if info.LoadState == "not-found" || seen[info.ID] && info.ID != p[0] {
+			continue
+		}
+		seen[info.ID] = true
+		po := op(p[1])
+		out = append(out, pulledUnit{u: info, op: po, need: demandsOf(info, po),
+			text: fmt.Sprintf("%s %s also %s %s", gerunds[o], u.ID, verbs[po], info.ID)})
+	}
+	return out, nil
+}
+
+// pulledNamed returns the first pulled unit o changes that has a name in set.
+func pulledNamed(pulled []pulledUnit, set []string, ops ...op) (pulledUnit, string, bool) {
+	for _, p := range pulled {
+		if n, ok := named(p.u, set); ok && slices.Contains(ops, p.op) {
+			return p, n, true
+		}
+	}
+	return pulledUnit{}, "", false
+}
+
+// pulledRefusal is the services.protected error for a pulled unit the agent
+// cannot lose, or nil.
+func pulledRefusal(pulled []pulledUnit) error {
+	if p, n, ok := pulledNamed(pulled, dbusUnits, opStop, opRestart); ok {
+		return protected(fmt.Sprintf("%s; the agent talks to systemd through %s", p.text, n))
+	}
+	return nil
 }
 
 func demandsOf(u core.UnitInfo, o op) demands {
@@ -215,6 +301,9 @@ func (m module) guards(ctx context.Context, env core.Env, u core.UnitInfo, o op,
 	if n, ok := named(u, networkUnits); ok && (o == opStop || o == opDisable) {
 		guards = append(guards, core.Guard{ID: GuardNetworkStack, Message: fmt.Sprintf(
 			"The agent reaches the controller through the network stack; %s stays running", n)})
+	} else if p, n, ok := pulledNamed(d.pulled, networkUnits, opStop); ok {
+		guards = append(guards, core.Guard{ID: GuardNetworkStack, Message: fmt.Sprintf(
+			"The agent reaches the controller through the network stack; %s stays running, and %s", n, p.text)})
 	}
 	if d.module != "" {
 		busy, err := moduleBusy(ctx, env, d.module)
@@ -227,15 +316,20 @@ func (m module) guards(ctx context.Context, env core.Env, u core.UnitInfo, o op,
 		}
 		guards = append(guards, g)
 	}
-	if _, ok := named(u, []string{tailscaledUnit}); ok && (o == opStop || o == opRestart || o == opDisable) {
+	_, target := named(u, []string{tailscaledUnit})
+	p, _, viaPulled := pulledNamed(d.pulled, []string{tailscaledUnit}, opStop, opRestart)
+	if (target && (o == opStop || o == opRestart || o == opDisable)) || (!target && viaPulled) {
 		on, err := m.agentOnTailnet(ctx)
 		if err != nil {
 			return nil, nil, err
 		}
 		switch {
-		case o == opDisable && on:
+		case target && o == opDisable && on:
 			notes = append(notes, core.DiffLine{Op: " ", Text: "The agent reaches the controller over Tailscale; disabling tailscaled takes effect at the next boot"})
-		case o == opDisable:
+		case target && o == opDisable:
+		case on && !target:
+			guards = append(guards, core.Guard{ID: GuardTailnetLink,
+				Message: fmt.Sprintf("The agent reaches the controller over Tailscale, and %s, which would cut it off", p.text)})
 		case on:
 			guards = append(guards, core.Guard{ID: GuardTailnetLink,
 				Message: "The agent reaches the controller over Tailscale, so stopping tailscaled would cut it off"})
