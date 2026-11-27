@@ -475,9 +475,9 @@ export function FilesView({ hostId }: { hostId: string }) {
               )}
               {entries.map((e) => (
                 <TableRow key={e.raw ?? e.name}>
-                  <TableCell className="max-w-[28rem] break-all whitespace-normal font-mono text-xs">
+                  <TableCell className="max-w-[28rem] min-w-[12rem] break-words whitespace-normal font-mono text-xs">
                     {e.type === "dir" && e.escaped !== true ? (
-                      <Button variant="link" size="sm" className="h-auto whitespace-normal break-all p-0 text-start font-mono text-xs" onClick={() => go(childPath(path, e.name))}>
+                      <Button variant="link" size="sm" className="h-auto whitespace-normal break-words p-0 text-start font-mono text-xs" onClick={() => go(childPath(path, e.name))}>
                         {shownName(e)}
                       </Button>
                     ) : (
