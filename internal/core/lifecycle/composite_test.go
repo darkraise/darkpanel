@@ -8,9 +8,14 @@ import (
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
-var refCsuAdd = core.ActionRef{Name: "csu.item.add", Version: 1}
+var (
+	refCsuAdd = core.ActionRef{Name: "csu.item.add", Version: 1}
+	refCsuDel = core.ActionRef{Name: "csu.item.del", Version: 1}
+)
 
-// csuModule declares one StepUp action, which no composite may take as a step.
+// csuModule declares a StepUp action and an UndoStepUp action, which no
+// composite may take as a step: a composite's undo runs its steps' undos
+// without the operator's step-up.
 type csuModule struct{}
 
 func (csuModule) Manifest() core.Manifest {
@@ -19,15 +24,24 @@ func (csuModule) Manifest() core.Manifest {
 			Name: refCsuAdd.Name, Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
 			LockKeys: []string{"csu"}, ForwardOnly: true, Converges: true, StepUp: true,
 		}, cstDel(cstModule{newCstHost()})),
+		core.DefineMutating(core.ActionSpec{
+			Name: refCsuDel.Name, Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
+			LockKeys: []string{"csu"}, ForwardOnly: true, Converges: true, UndoStepUp: true,
+		}, cstDel(cstModule{newCstHost()})),
 	}}
 }
 
 func TestCompositeRefusesStepUpStep(t *testing.T) {
-	f := newCfxFixture(t, csuModule{})
-	f.bad.set(cstStep("a", refCsuAdd, `{"name":"x"}`))
-	_, err := f.planC(refCfxBad, `{"name":"x"}`)
-	if got := errcode.From(err).Code; err == nil || got != errcode.Internal ||
-		!strings.Contains(err.Error(), refCsuAdd.String()) || !strings.Contains(err.Error(), "StepUp") {
-		t.Fatalf("Plan = %v (code %s), want an internal error naming %s and StepUp", err, got, refCsuAdd)
+	for _, c := range []struct {
+		ref  core.ActionRef
+		flag string
+	}{{refCsuAdd, "StepUp"}, {refCsuDel, "UndoStepUp"}} {
+		f := newCfxFixture(t, csuModule{})
+		f.bad.set(cstStep("a", c.ref, `{"name":"x"}`))
+		_, err := f.planC(refCfxBad, `{"name":"x"}`)
+		if got := errcode.From(err).Code; err == nil || got != errcode.Internal ||
+			!strings.Contains(err.Error(), c.ref.String()) || !strings.Contains(err.Error(), c.flag) {
+			t.Errorf("Plan with a step of %s = %v (code %s), want an internal error naming it and %s", c.ref, err, got, c.flag)
+		}
 	}
 }
