@@ -258,10 +258,14 @@ type change struct {
 // apply records the effect, moves the job and marks the effect made.
 func (m module) apply(ctx context.Context, env core.Env, c change) error {
 	after := jobDoc(c.want)
+	var before []byte
+	if c.now != nil {
+		before = []byte(c.now.Script)
+	}
 	seq, err := env.Effects.Intend(ctx, core.Effect{
 		Kind: core.EffectModify, Resource: effectResource(c.slug), Local: true, InverseLocal: true,
 		Before: jobDoc(c.now), After: &after,
-	}, nil)
+	}, before)
 	if err != nil {
 		return err
 	}
@@ -286,7 +290,7 @@ func (u undo) Observe(ctx context.Context, env core.Env, e core.Effect) (core.Ob
 
 func (u undo) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.InverseResult, error) {
 	slug := strings.TrimPrefix(e.Resource, effectPrefix)
-	want, err := docFiles(e.Before)
+	want, err := docFiles(e.Before, func() ([]byte, error) { return env.Effects.Secret(ctx, e.Seq) })
 	if err != nil {
 		return core.InverseResult{}, core.Definite(fmt.Errorf("jobs: read the effect's prior state: %w", err))
 	}

@@ -29,28 +29,55 @@ type job struct {
 
 // jobFiles is the state of one job on the host: the bytes of its three
 // files, the run-as user that names the script's group, and whether its
-// timer runs. It is the state document of the job's effect.
+// timer runs.
 type jobFiles struct {
-	Service string `json:"service"`
-	Timer   string `json:"timer"`
-	Script  string `json:"script"`
-	User    string `json:"user"`
-	Enabled bool   `json:"enabled"`
+	Service string
+	Timer   string
+	Script  string
+	User    string
+	Enabled bool
+}
+
+// jobState is the state document of a job's effect. A viewer can read
+// effects and a script can hold secrets, so the script is named by its
+// SHA-256; the script an undo restores is the effect's sealed secret.
+type jobState struct {
+	Service      string `json:"service"`
+	Timer        string `json:"timer"`
+	ScriptSHA256 string `json:"scriptSha256"`
+	User         string `json:"user"`
+	Enabled      bool   `json:"enabled"`
 }
 
 func jobDoc(f *jobFiles) core.StateDoc {
 	if f == nil {
 		return core.StateDoc{State: json.RawMessage("null")}
 	}
-	b, _ := json.Marshal(f)
+	b, _ := json.Marshal(jobState{Service: f.Service, Timer: f.Timer, ScriptSHA256: digest(f.Script), User: f.User, Enabled: f.Enabled})
 	return core.StateDoc{State: b}
 }
 
-func docFiles(d core.StateDoc) (*jobFiles, error) {
-	var f *jobFiles
-	if err := json.Unmarshal(d.State, &f); err != nil {
+// docFiles is the job a state document names, its script given.
+func docFiles(d core.StateDoc, script func() ([]byte, error)) (*jobFiles, error) {
+	var st *jobState
+	if err := json.Unmarshal(d.State, &st); err != nil {
 		return nil, err
 	}
+	if st == nil {
+		return nil, nil
+	}
+	f := &jobFiles{Service: st.Service, Timer: st.Timer, User: st.User, Enabled: st.Enabled}
+	if st.ScriptSHA256 == digest("") {
+		return f, nil
+	}
+	b, err := script()
+	if err != nil {
+		return nil, err
+	}
+	if digest(string(b)) != st.ScriptSHA256 {
+		return nil, errors.New("the sealed script does not match the state's digest")
+	}
+	f.Script = string(b)
 	return f, nil
 }
 
