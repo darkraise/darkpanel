@@ -17,16 +17,16 @@ import (
 const m11CredsDeadline = 12 * time.Minute
 
 const (
-	m11CredsScript = "/var/lib/darkpanel-probe/s.sh"
-	m11CredsUnit   = "darkpanel-probe.service"
+	m11ProbeScript = "/var/lib/darkpanel-probe/s.sh"
+	m11ProbeUnit   = "darkpanel-probe.service"
 )
 
-// m11CredsUnitFile is the unit shape the jobs module writes: the script is
+// m11ProbeUnitFile is the unit shape the jobs module writes: the script is
 // root-only on disk and systemd hands the job a copy through LoadCredential=.
-const m11CredsUnitFile = `[Service]
+const m11ProbeUnitFile = `[Service]
 Type=simple
 User=probea
-LoadCredential=script:` + m11CredsScript + `
+LoadCredential=script:` + m11ProbeScript + `
 StandardInput=data
 StandardInputData=aGkK
 ExecStart=/bin/sh ${CREDENTIALS_DIRECTORY}/script
@@ -68,13 +68,13 @@ func TestM11CredsProbe(t *testing.T) {
 	root("groupadd probeg && useradd -M -g probeg -s /bin/sh probea && useradd -M -g probeg -s /bin/sh probeb")
 	root("mkdir -p /var/lib/darkpanel-probe && printf %s " +
 		m3Quote(`id -un; read x; echo "after:$x"; echo "creds:$CREDENTIALS_DIRECTORY"; sleep 30`+"\n") +
-		" > " + m11CredsScript + " && chown 0:0 " + m11CredsScript + " && chmod 0700 " + m11CredsScript)
-	root("printf %s " + m3Quote(m11CredsUnitFile) + " > /etc/systemd/system/" + m11CredsUnit +
-		" && systemctl daemon-reload && systemctl start " + m11CredsUnit)
+		" > " + m11ProbeScript + " && chown 0:0 " + m11ProbeScript + " && chmod 0700 " + m11ProbeScript)
+	root("printf %s " + m3Quote(m11ProbeUnitFile) + " > /etc/systemd/system/" + m11ProbeUnit +
+		" && systemctl daemon-reload && systemctl start " + m11ProbeUnit)
 
 	var lines []string
 	if err := eventually(ctx, time.Minute, func(ctx context.Context) error {
-		out, err := h.Run(ctx, "sudo journalctl -u "+m11CredsUnit+" -o cat --no-pager")
+		out, err := h.Run(ctx, "sudo journalctl -u "+m11ProbeUnit+" -o cat --no-pager")
 		if err != nil {
 			return err
 		}
@@ -87,7 +87,7 @@ func TestM11CredsProbe(t *testing.T) {
 		return fmt.Errorf("no creds: line yet:\n%s", out)
 	}); err != nil {
 		t.Fatalf("the probe unit printed no credentials directory: %v\n%s", err,
-			root("systemctl status --no-pager "+m11CredsUnit+" || true"))
+			root("systemctl status --no-pager "+m11ProbeUnit+" || true"))
 	}
 	creds := ""
 	want := []string{"probea", "after:hi", "creds:"}
@@ -101,14 +101,14 @@ func TestM11CredsProbe(t *testing.T) {
 		}
 	}
 	if next < len(want) || creds == "" {
-		t.Fatalf("journal of %s: want lines starting %q in order, got:\n%s", m11CredsUnit, want, strings.Join(lines, "\n"))
+		t.Fatalf("journal of %s: want lines starting %q in order, got:\n%s", m11ProbeUnit, want, strings.Join(lines, "\n"))
 	}
 	t.Logf("credentials directory: %s", creds)
 
-	if s := root("systemctl is-active " + m11CredsUnit + " || true"); strings.TrimSpace(s) != "active" {
-		t.Fatalf("%s is %q, want active while the denials are checked", m11CredsUnit, strings.TrimSpace(s))
+	if s := root("systemctl is-active " + m11ProbeUnit + " || true"); strings.TrimSpace(s) != "active" {
+		t.Fatalf("%s is %q, want active while the denials are checked", m11ProbeUnit, strings.TrimSpace(s))
 	}
-	for _, path := range []string{creds + "/script", m11CredsScript} {
+	for _, path := range []string{creds + "/script", m11ProbeScript} {
 		out := root("runuser -u probeb -- cat " + m3Quote(path) + " 2>&1; echo rc=$?")
 		if strings.HasSuffix(strings.TrimSpace(out), "rc=0") || !strings.Contains(out, "Permission denied") {
 			t.Fatalf("probeb reading %s: want Permission denied, got:\n%s", path, out)
