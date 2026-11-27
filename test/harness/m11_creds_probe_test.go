@@ -27,7 +27,8 @@ const m11CredsUnitFile = `[Service]
 Type=simple
 User=probea
 LoadCredential=script:` + m11CredsScript + `
-StandardInput=data:aGkK
+StandardInput=data
+StandardInputData=aGkK
 ExecStart=/bin/sh ${CREDENTIALS_DIRECTORY}/script
 `
 
