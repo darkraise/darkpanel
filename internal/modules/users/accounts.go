@@ -163,8 +163,12 @@ func (e *entry) managed() bool {
 // locked reports whether the account expired on or before now's day.
 func (e *entry) locked(now time.Time) bool {
 	days, err := strconv.ParseInt(e.expiry, 10, 64)
-	return err == nil && days <= now.Unix()/86400
+	return err == nil && expiredBy(days, now)
 }
+
+// expiredBy is the lock rule: an expiry of days since the epoch has passed
+// when it falls on or before now's day.
+func expiredBy(days int64, now time.Time) bool { return days <= now.Unix()/86400 }
 
 func (e *entry) sudo() bool { return slices.Contains(e.groups, platform.SudoGroup) }
 

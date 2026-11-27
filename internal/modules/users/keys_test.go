@@ -296,3 +296,19 @@ func TestListCountsKeys(t *testing.T) {
 		t.Errorf("key counts %v of %d accounts, want alice 2, bob 0, root 0", keys, len(got.Accounts))
 	}
 }
+
+func TestRemoveUnrestorableKey(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t)
+	weak, good := rsaLine(t, 2048), ed25519Line(t, "good@host")
+	r.keys["alice"] = weak + "\n" + good + "\n"
+	remove := removeHandler{keyHandler{m: r.module()}}
+	plan, err := remove.Plan(ctx, r.env(adminP), KeyRemoveInput{Name: "alice", Fingerprint: fingerprint(t, weak)})
+	if err != nil || !slices.Contains(diffText(plan.Diff), "- users.key.add cannot put this key back: RSA keys need at least 3072 bits") {
+		t.Errorf("remove an RSA-2048 key: %+v, %v; want the line saying add cannot restore it", plan, err)
+	}
+	plan, err = remove.Plan(ctx, r.env(adminP), KeyRemoveInput{Name: "alice", Fingerprint: fingerprint(t, good)})
+	if err != nil || len(plan.Diff) != 1 {
+		t.Errorf("remove an ed25519 key: %+v, %v; want the remove line alone", plan, err)
+	}
+}

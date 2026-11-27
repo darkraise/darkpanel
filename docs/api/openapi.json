@@ -22475,7 +22475,7 @@
             "type": "string"
           },
           "removed": {
-            "description": "The removed key lines without their options, as users.key.add takes them.",
+            "description": "The removed key lines without their options; users.key.add takes them back only for the key types and sizes it accepts.",
             "items": {
               "type": "string"
             },
@@ -22682,7 +22682,7 @@
             "type": "string"
           },
           "removed": {
-            "description": "The removed key lines without their options, as users.key.add takes them.",
+            "description": "The removed key lines without their options; users.key.add takes them back only for the key types and sizes it accepts.",
             "items": {
               "type": "string"
             },

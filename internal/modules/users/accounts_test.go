@@ -427,6 +427,9 @@ func TestPasswordRules(t *testing.T) {
 	for why, pw := range bad {
 		_, err := passwordHandler{m: r.module()}.Plan(ctx, r.env(adminP), PasswordInput{Name: "alice", Password: pw})
 		wantCode(t, "password.set with "+why, err, errcode.InvalidInput)
+		if err != nil && strings.Contains(err.Error(), pw) {
+			t.Errorf("the password.set refusal %q repeats the password", err)
+		}
 		_, err = createHandler{m: r.module()}.Plan(ctx, r.env(adminP), CreateInput{Name: "carol", Password: pw})
 		wantCode(t, "create with a password with "+why, err, errcode.InvalidInput)
 		if err != nil && strings.Contains(err.Error(), pw) {
@@ -633,6 +636,60 @@ func TestLockUnlock(t *testing.T) {
 	for _, name := range []string{"svc", "darkpanel", "nobody", "zed"} {
 		_, err = lock.Plan(ctx, r.env(adminP), NameInput{Name: name})
 		wantCode(t, "lock "+name, err, errcode.InvalidInput)
+	}
+}
+
+func TestUnlockPastExpiry(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		now  time.Time
+		want string
+	}{
+		{time.Date(2026, 12, 5, 9, 0, 0, 0, time.UTC), "+ Unlock alice; its recorded expiry 2026-12-01 has passed, so the account stays expired"},
+		{time.Date(2026, 12, 1, 9, 0, 0, 0, time.UTC), "+ Unlock alice; its recorded expiry 2026-12-01 has passed, so the account stays expired"},
+		{time.Date(2026, 11, 30, 9, 0, 0, 0, time.UTC), "+ Unlock alice; it expires on 2026-12-01"},
+	} {
+		r := newRig(t)
+		r.clock = coretest.NewFakeClock(c.now)
+		r.edit(shadowFile, "alice:!:20000:0:99999:7:::", "alice:!:20000:0:99999:7::1:")
+		r.files[stateDir+"/"+recordName("alice")] = "2026-12-01\n"
+		plan, err := lockHandler{m: r.module()}.Plan(ctx, r.env(adminP), NameInput{Name: "alice"})
+		if err != nil || len(plan.Diff) != 1 || diffText(plan.Diff)[0] != c.want {
+			t.Errorf("unlock plan on %s: %+v, %v; want %q", c.now.Format(time.DateOnly), plan, err, c.want)
+		}
+	}
+}
+
+func TestCreateHalfMade(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		step string
+		in   CreateInput
+		fail func(r *rig)
+	}{
+		{"password", CreateInput{Name: "carol", Password: "abcdefgh1"}, func(r *rig) {
+			r.answers[key(platform.ChpasswdPath, platform.Chpasswd())] = core.CmdResult{ExitCode: 1, Stderr: []byte("chpasswd: PAM failure")}
+		}},
+		{"sudo", CreateInput{Name: "carol", Sudo: true}, func(r *rig) {
+			r.answers[key(platform.GpasswdPath, platform.GpasswdSudo("carol", true))] = core.CmdResult{ExitCode: 3, Stderr: []byte("gpasswd: no group")}
+		}},
+	} {
+		r := newRig(t)
+		r.answer(platform.UseraddPath, platform.LoginUseradd("carol", "/bin/bash"), "", func() {
+			r.files[passwdFile] += "carol:x:1003:1003::/home/carol:/bin/bash\n"
+			r.files[shadowFile] += "carol:!:20418:0:99999:7:::\n"
+		})
+		c.fail(r)
+		_, err := createHandler{m: r.module()}.Apply(ctx, r.env(adminP), c.in)
+		e := errcode.From(err)
+		if err == nil || e.Code == errcode.Internal ||
+			!strings.Contains(e.Detail, "carol was created, but setting its "+c.step+" failed") ||
+			!strings.Contains(e.Detail, "Finish it from the user's page, or delete it") {
+			t.Errorf("create with a failing %s step: %v; want a visible detail saying carol was created", c.step, err)
+		}
+		if strings.Contains(err.Error(), "abcdefgh1") {
+			t.Errorf("the error %q repeats the password", err)
+		}
 	}
 }
 

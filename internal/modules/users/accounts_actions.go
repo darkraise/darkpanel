@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -234,26 +235,40 @@ func (h createHandler) Apply(ctx context.Context, env core.Env, in CreateInput) 
 	}
 	if in.Sudo {
 		if _, _, err := h.m.account(in.Name); err != nil {
-			return Changed{}, err
+			return Changed{}, halfMade(in.Name, "sudo", err)
 		}
 		if _, err := run(ctx, env, platform.GpasswdPath, platform.GpasswdSudo(in.Name, true), nil); err != nil {
-			return Changed{}, err
+			return Changed{}, halfMade(in.Name, "sudo", err)
 		}
 	}
 	if in.Password != "" {
 		if err := setPassword(ctx, env, h.m, in.Name, in.Password); err != nil {
-			return Changed{}, err
+			return Changed{}, halfMade(in.Name, "password", err)
 		}
 	}
 	if len(keys) > 0 {
 		if _, _, err := h.m.account(in.Name); err != nil {
-			return Changed{}, err
+			return Changed{}, halfMade(in.Name, "keys", err)
 		}
 		if err := env.Home.WriteAuthorizedKeys(ctx, in.Name, keys); err != nil {
-			return Changed{}, err
+			return Changed{}, halfMade(in.Name, "keys", err)
 		}
 	}
 	return changed(in.Name), nil
+}
+
+// halfMade is the error of a create whose step failed after useradd made
+// the account. It is not rolled back, so the detail tells the operator what
+// is left; the change error shows the detail, which an internal error's
+// would not, so a plain cause takes code unavailable.
+func halfMade(name, step string, err error) error {
+	code, cause := errcode.Unavailable, err.Error()
+	var e *errcode.Error
+	if errors.As(err, &e) && e.Code != errcode.Internal {
+		code, cause = e.Code, e.Detail
+	}
+	return errcode.Wrap(code, err, fmt.Sprintf("%s was created, but setting its %s failed: %s. Finish it from the user's page, or delete it",
+		name, step, cause))
 }
 
 func (h createHandler) Verify(ctx context.Context, env core.Env, in CreateInput, _ Changed) error {
@@ -354,6 +369,9 @@ func (h lockHandler) Plan(_ context.Context, env core.Env, in NameInput) (core.P
 		until := "it never expires"
 		if restore != "" {
 			until = "it expires on " + restore
+			if d, err := time.Parse(time.DateOnly, restore); err == nil && expiredBy(d.Unix()/86400, env.Clock.Now()) {
+				until = "its recorded expiry " + restore + " has passed, so the account stays expired"
+			}
 		}
 		line = core.DiffLine{Op: "+", Text: "Unlock " + in.Name + "; " + until}
 	}

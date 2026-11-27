@@ -63,7 +63,7 @@ type KeyRemoveInput struct {
 type KeyChanged struct {
 	Name        string   `json:"name"`
 	Fingerprint string   `json:"fingerprint"`
-	Removed     []string `json:"removed,omitempty" jsonschema_description:"The removed key lines without their options, as users.key.add takes them."`
+	Removed     []string `json:"removed,omitempty" jsonschema_description:"The removed key lines without their options; users.key.add takes them back only for the key types and sizes it accepts."`
 }
 
 func (m module) keyActions() []core.ActionDef {
@@ -300,7 +300,13 @@ func (h keyHandler) planOutcome(ctx context.Context, env core.Env, name, key, fi
 	if h.add {
 		return core.PlanOutcome{Diff: []core.DiffLine{{Op: "+", Text: "Authorize the key " + fp + " for " + name}}, StateHash: keysHash(data)}, want, nil
 	}
-	diff := []core.DiffLine{{Op: "-", Text: "Remove the key " + fp + " from " + name + ": " + removedLines(data, fp)[0]}}
+	removed := removedLines(data, fp)
+	diff := []core.DiffLine{{Op: "-", Text: "Remove the key " + fp + " from " + name + ": " + removed[0]}}
+	for _, l := range removed {
+		if _, _, err := parseNewKey("/key", l); err != nil {
+			diff = append(diff, core.DiffLine{Op: "-", Text: "users.key.add cannot put this key back: " + errcode.From(err).Detail})
+		}
+	}
 	// users.key.add takes no options, so it cannot put back a line that had
 	// some; the plan says so before the line goes.
 	for _, kl := range parseKeys(data) {
