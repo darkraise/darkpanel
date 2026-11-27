@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,10 @@ const PolicyReason = "Turned off on this host by its policy file"
 
 // PolicyModules are the only modules the policy file may deny.
 var PolicyModules = []string{"console", "jobs"}
+
+// PolicyReloadAction is the journal action of a policy reload that changed
+// the availability of some modules.
+const PolicyReloadAction = "agent.policy.reload"
 
 // maxPolicySize bounds the policy file; a valid one is far smaller.
 const maxPolicySize = 64 << 10
@@ -197,10 +202,12 @@ func (r *Runtime) ReloadPolicy(ctx context.Context) error {
 	// The policy is in force now, so a failure on one module must not keep
 	// the others from following it.
 	var errs []error
+	var changed []string
 	for _, m := range r.modules() {
 		if old.Denied(m.ID) == p.Denied(m.ID) {
 			continue
 		}
+		changed = append(changed, m.ID)
 		r.setStatus(r.check(ctx, m))
 		enabled, err := r.moduleEnabled(ctx, m.ID)
 		if err != nil {
@@ -216,8 +223,38 @@ func (r *Runtime) ReloadPolicy(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
+	if len(changed) > 0 {
+		if err := r.journalReload(ctx, changed); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("runtime: the policy is in force, but: %w", err)
+	}
+	return nil
+}
+
+// journalReload journals the reload that changed the availability of
+// modules, so the controller's audit records it and the controller checks
+// those modules again when it ingests the entry.
+func (r *Runtime) journalReload(ctx context.Context, modules []string) error {
+	slices.Sort(modules)
+	input, err := json.Marshal(struct {
+		Modules []string `json:"modules"`
+	}{modules})
+	if err != nil {
+		return err
+	}
+	// Only root's agent socket command reloads the policy, and the
+	// controller's audit admits a closed list of phases: apply is one, and
+	// an entry with no change id raises no change notification.
+	e := core.JournalEntry{
+		At: r.cfg.Clock.Now(), Actor: "local:root@" + r.cfg.HostID, Action: PolicyReloadAction, Version: 1,
+		Phase: "apply", Input: input, Result: "ok",
+	}
+	err = r.cfg.DB.Write(ctx, func(tx *sql.Tx) error { return r.journal.Append(ctx, tx, e) })
+	if err != nil {
+		return fmt.Errorf("runtime: journal the policy reload: %w", err)
 	}
 	return nil
 }

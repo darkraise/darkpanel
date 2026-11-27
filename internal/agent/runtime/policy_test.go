@@ -321,6 +321,54 @@ func TestPolicyReloadDenies(t *testing.T) {
 	}
 }
 
+// TestReloadJournals checks that a reload journals the modules whose
+// availability it changed, and that a reload changing nothing journals
+// nothing.
+func TestReloadJournals(t *testing.T) {
+	ctx := context.Background()
+	f, _, _ := policyFixture(t, "")
+	reloads := func() []core.JournalEntry {
+		t.Helper()
+		es, err := f.rt.Journal(ctx, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []core.JournalEntry
+		for _, e := range es {
+			if e.Action == "agent.policy.reload" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	writePolicy(t, f.dir, `{"denyModules":["jobs","console"]}`, 0o644)
+	if err := f.rt.ReloadPolicy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	es := reloads()
+	if len(es) != 1 {
+		t.Fatalf("reload entries after denying console and jobs = %+v, want one", es)
+	}
+	e := es[0]
+	if string(e.Input) != `{"modules":["console","jobs"]}` || e.Phase != "apply" || e.Result != "ok" ||
+		e.Actor != "local:root@"+f.rt.cfg.HostID || e.Version != 1 || !e.At.Equal(t0) || e.ChangeID != "" {
+		t.Errorf("reload entry = %+v, want input {\"modules\":[\"console\",\"jobs\"]}, phase apply, result ok, actor local:root@<host>, at the runtime's clock", e)
+	}
+	if err := f.rt.ReloadPolicy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if es := reloads(); len(es) != 1 {
+		t.Errorf("reload entries after a reload that changed nothing = %d, want 1", len(es))
+	}
+	writePolicy(t, f.dir, `{"denyModules":["console"]}`, 0o644)
+	if err := f.rt.ReloadPolicy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if es := reloads(); len(es) != 2 || string(es[1].Input) != `{"modules":["jobs"]}` {
+		t.Errorf("reload entries after allowing jobs = %+v, want a second naming jobs only", es)
+	}
+}
+
 // TestPolicyReloadDuringPreflight denies jobs while a preflight check of jobs
 // that began under the old policy still runs: the check's result must not
 // store jobs as available.
