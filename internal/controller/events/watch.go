@@ -2,10 +2,12 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"sync"
 	"time"
 
+	agentruntime "github.com/darkraise/darkpanel/internal/agent/runtime"
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/store"
 )
@@ -75,11 +77,15 @@ const (
 
 func afterFunc(d time.Duration, f func()) { time.AfterFunc(d, f) }
 
-// retryingRechecker retries a failed recheck in the background.
+// retryingRechecker retries a failed recheck in the background. A retry
+// whose ctx (nil means context.Background()) is done makes no call; onSpent,
+// when set, runs once the retries are spent.
 type retryingRechecker struct {
-	next  Rechecker
-	after func(time.Duration, func())
-	log   *slog.Logger
+	next    Rechecker
+	after   func(time.Duration, func())
+	log     *slog.Logger
+	ctx     context.Context
+	onSpent func(host string, modules []string)
 }
 
 func (r retryingRechecker) RecheckModules(ctx context.Context, host string, modules []string) error {
@@ -93,16 +99,78 @@ func (r retryingRechecker) RecheckModules(ctx context.Context, host string, modu
 func (r retryingRechecker) retry(host string, modules []string, attempt int) {
 	if attempt > recheckRetries {
 		r.log.Warn("events: recheck modules: retries spent; the host's next hello rechecks them", "host", host, "modules", modules)
+		if r.onSpent != nil {
+			r.onSpent(host, modules)
+		}
 		return
 	}
 	r.after(recheckRetryEvery, func() {
-		ctx, cancel := context.WithTimeout(context.Background(), agentReadTimeout)
+		base := r.ctx
+		if base == nil {
+			base = context.Background()
+		}
+		if base.Err() != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(base, agentReadTimeout)
 		defer cancel()
 		if err := r.next.RecheckModules(ctx, host, modules); err != nil {
 			r.log.Warn("events: recheck modules: retry failed", "host", host, "modules", modules, "attempt", attempt, "err", err)
 			r.retry(host, modules, attempt+1)
 		}
 	})
+}
+
+// PolicyReloads is an audit OnEntries piece: for each agent.policy.reload
+// entry it rechecks the modules the entry names on its host, on a goroutine
+// off the ingestion lock, retrying as a change's recheck does until ctx
+// ends. When the retries are spent it calls repush(host), so the host's
+// next reach says Hello and rewrites every module row. Without a
+// WithRechecker option it does nothing.
+func PolicyReloads(ctx context.Context, repush func(hostID string), log *slog.Logger, opts ...Option) func(hostID string, entries []core.JournalEntry) {
+	return policyReloads(ctx, repush, afterFunc, log, opts)
+}
+
+func policyReloads(ctx context.Context, repush func(hostID string), after func(time.Duration, func()), log *slog.Logger,
+	opts []Option) func(hostID string, entries []core.JournalEntry) {
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+	// newOptions would wrap the rechecker in a retryingRechecker of its own.
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	if o.rechecker == nil {
+		return func(string, []core.JournalEntry) {}
+	}
+	rc := retryingRechecker{next: o.rechecker, after: after, log: log, ctx: ctx,
+		onSpent: func(host string, _ []string) { repush(host) }}
+	return func(hostID string, entries []core.JournalEntry) {
+		for _, e := range entries {
+			if e.Action != agentruntime.PolicyReloadAction {
+				continue
+			}
+			var in struct {
+				Modules []string `json:"modules"`
+			}
+			if err := json.Unmarshal(e.Input, &in); err != nil || len(in.Modules) == 0 {
+				log.Warn("events: an "+agentruntime.PolicyReloadAction+" entry names no modules; nothing is rechecked",
+					"host", hostID, "seq", e.Seq, "input", string(e.Input), "err", err)
+				continue
+			}
+			go func() {
+				if ctx.Err() != nil {
+					return
+				}
+				rctx, cancel := context.WithTimeout(ctx, agentReadTimeout)
+				defer cancel()
+				if err := rc.RecheckModules(rctx, hostID, in.Modules); err != nil {
+					log.Warn("events: recheck modules after a policy reload", "host", hostID, "modules", in.Modules, "err", err)
+				}
+			}()
+		}
+	}
 }
 
 // recheckStates are the change states after which the modules an action

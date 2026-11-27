@@ -579,15 +579,24 @@ func (r *m11Run) transfer(t *testing.T) {
 	}
 }
 
-// policy denies the console in the agent's policy file: the terminal is
-// refused with the policy's reason. Allowing it again makes it usable.
+// policy denies console and jobs in the agent's policy file: the controller
+// lists both unavailable with the policy's reason within 15 s and refuses
+// the terminal with it. Allowing them lists both available within 15 s, and
+// the agent never restarted.
 func (r *m11Run) policy(t *testing.T) {
 	f := r.f
-	m3Run(r.ctx, t, f.agent, "sudo darkpanel agent policy deny console")
+	pid, err := fpMainPID(r.ctx, f.agent, update.AgentUnit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m3Run(r.ctx, t, f.agent, "sudo darkpanel agent policy deny console jobs")
 	defer func() {
-		m3Run(r.ctx, t, f.agent, "sudo darkpanel agent policy allow console")
+		m3Run(r.ctx, t, f.agent, "sudo darkpanel agent policy allow console jobs")
 		r.waitUsable(t, "console")
 	}()
+	if err := r.policyListed(true); err != nil {
+		t.Error(err)
+	}
 	tm, err := m11OpenTerm(r.ctx, t, f, f.api, f.agentID)
 	if err == nil {
 		tm.close()
@@ -595,11 +604,42 @@ func (r *m11Run) policy(t *testing.T) {
 	if err := m11xRefusedWith(err, string(errcode.ModuleUnavailable), agentruntime.PolicyReason); err != nil {
 		t.Errorf("a terminal with the console denied: %v", err)
 	}
-	if hosts, err := f.api.Hosts(r.ctx); err == nil {
-		if m, err := m11xModule(hosts, f.agentID, "console"); err == nil {
-			t.Logf("the controller lists console available %t, reason %v", m.Available, m.Reason)
-		}
+	m3Run(r.ctx, t, f.agent, "sudo darkpanel agent policy allow console jobs")
+	if err := r.policyListed(false); err != nil {
+		t.Error(err)
 	}
+	if got, err := fpMainPID(r.ctx, f.agent, update.AgentUnit); err != nil || got != pid {
+		t.Errorf("the agent's main pid is %d (%v) after the reloads, want %d: the controller must learn of them without a restart", got, err, pid)
+	}
+}
+
+// policyListed waits up to 15 s, the audit ingestion and the recheck it
+// starts, until the controller lists console and jobs unavailable with the
+// policy's reason when denied is set, or both available when it is not.
+func (r *m11Run) policyListed(denied bool) error {
+	return eventually(r.ctx, 15*time.Second, func(ctx context.Context) error {
+		hosts, err := r.f.api.Hosts(ctx)
+		if err != nil {
+			return err
+		}
+		for _, id := range []string{"console", "jobs"} {
+			m, err := m11xModule(hosts, r.f.agentID, id)
+			if err != nil {
+				return err
+			}
+			reason := ""
+			if m.Reason != nil {
+				reason = *m.Reason
+			}
+			if denied && (m.Available || reason != agentruntime.PolicyReason) {
+				return fmt.Errorf("harness: %s is listed available %t (%s) after the deny, want unavailable: %s", id, m.Available, reason, agentruntime.PolicyReason)
+			}
+			if !denied && !m.Available {
+				return fmt.Errorf("harness: %s is listed unavailable (%s) after the allow", id, reason)
+			}
+		}
+		return nil
+	})
 }
 
 // consoleAudit waits until the controller's audit log holds the agent's

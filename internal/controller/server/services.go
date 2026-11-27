@@ -289,14 +289,19 @@ func (s *Server) refuseQuarantined(ctx context.Context) error {
 }
 
 // ingestedEntries is the audit ingester's OnEntries: it wakes the
-// composites following the stored entries' changes and publishes those
-// changes, read through change, as change events.
+// composites following the stored entries' changes, publishes those
+// changes, read through change, as change events, and rechecks the modules
+// a host's policy reload changed until the server shuts down.
 func (s *Server) ingestedEntries(wake func(changeIDs ...string),
 	change func(ctx context.Context, hostID, changeID string) (core.ChangeView, error), opts ...events.Option) func(hostID string, entries []core.JournalEntry) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.onShutdown("policy rechecks", func(context.Context) error { cancel(); return nil })
 	wakeFn, publish := wakeComposites(wake), events.AgentChanges(s.events, change, s.networkVisible, s.log, opts...)
+	reloads := events.PolicyReloads(ctx, s.hosts.RepushEnablement, s.log, opts...)
 	return func(hostID string, entries []core.JournalEntry) {
 		wakeFn(hostID, entries)
 		publish(hostID, entries)
+		reloads(hostID, entries)
 	}
 }
 

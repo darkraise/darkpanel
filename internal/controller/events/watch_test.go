@@ -268,3 +268,191 @@ func TestAgentChanges(t *testing.T) {
 	}, hideSecret, nil)
 	publish("h1", []core.JournalEntry{{Phase: "plan"}})
 }
+
+// syncBuffer is a log sink safe for the goroutines that write to it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// fakeAfter records the callbacks a retryingRechecker schedules, for the
+// test to run.
+type fakeAfter struct {
+	mu      sync.Mutex
+	pending []func()
+	added   chan struct{}
+}
+
+func newFakeAfter() *fakeAfter { return &fakeAfter{added: make(chan struct{}, 100)} }
+
+func (a *fakeAfter) after(_ time.Duration, f func()) {
+	a.mu.Lock()
+	a.pending = append(a.pending, f)
+	a.mu.Unlock()
+	a.added <- struct{}{}
+}
+
+// wait waits until a callback is scheduled.
+func (a *fakeAfter) wait(t *testing.T) {
+	t.Helper()
+	select {
+	case <-a.added:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no retry was scheduled")
+	}
+}
+
+// run runs the oldest scheduled callback.
+func (a *fakeAfter) run(t *testing.T) {
+	t.Helper()
+	a.mu.Lock()
+	if len(a.pending) == 0 {
+		a.mu.Unlock()
+		t.Fatal("no retry is scheduled")
+	}
+	f := a.pending[0]
+	a.pending = a.pending[1:]
+	a.mu.Unlock()
+	f()
+}
+
+func (a *fakeAfter) count() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.pending)
+}
+
+// funcRechecker is a Rechecker calling f.
+type funcRechecker func(ctx context.Context, host string, modules []string) error
+
+func (f funcRechecker) RecheckModules(ctx context.Context, host string, modules []string) error {
+	return f(ctx, host, modules)
+}
+
+func TestPolicyReloadRechecks(t *testing.T) {
+	reload := []core.JournalEntry{{Action: "agent.policy.reload", Phase: "apply", Result: "ok",
+		Input: []byte(`{"modules":["console","jobs"]}`)}}
+	t.Run("off the ingestion lock", func(t *testing.T) {
+		entered, release, saw := make(chan struct{}), make(chan struct{}), make(chan string, 1)
+		rc := funcRechecker(func(_ context.Context, host string, modules []string) error {
+			close(entered)
+			<-release
+			saw <- host + ":" + strings.Join(modules, ",")
+			return nil
+		})
+		on := policyReloads(t.Context(), func(string) { t.Error("repush after a recheck that passed") },
+			newFakeAfter().after, nil, []Option{WithRechecker(rc)})
+		on("h1", reload)
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the rechecker was not called")
+		}
+		close(release)
+		select {
+		case got := <-saw:
+			if got != "h1:console,jobs" {
+				t.Errorf("recheck = %s, want h1:console,jobs", got)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the recheck did not end")
+		}
+	})
+	t.Run("retries spent", func(t *testing.T) {
+		var mu sync.Mutex
+		calls, repushed := 0, []string{}
+		rc := funcRechecker(func(context.Context, string, []string) error {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+			return context.DeadlineExceeded
+		})
+		var logs syncBuffer
+		a := newFakeAfter()
+		on := policyReloads(t.Context(), func(h string) {
+			mu.Lock()
+			defer mu.Unlock()
+			repushed = append(repushed, h)
+		}, a.after, slog.New(slog.NewTextHandler(&logs, nil)), []Option{WithRechecker(rc)})
+		on("h1", reload)
+		a.wait(t)
+		for range recheckRetries {
+			a.run(t)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if calls != 1+recheckRetries {
+			t.Errorf("calls = %d, want 1 + %d retries", calls, recheckRetries)
+		}
+		if len(repushed) != 1 || repushed[0] != "h1" {
+			t.Errorf("repushed %v, want h1 once", repushed)
+		}
+		if n := a.count(); n != 0 {
+			t.Errorf("%d retries scheduled after the retries were spent, want none", n)
+		}
+		var spent []string
+		for line := range strings.Lines(logs.String()) {
+			if strings.Contains(line, "retries spent") {
+				spent = append(spent, line)
+			}
+		}
+		if len(spent) != 1 || !strings.Contains(spent[0], "host=h1") || !strings.Contains(spent[0], "modules=\"[console jobs]\"") {
+			t.Errorf("retries spent warnings = %q, want one naming h1 and [console jobs]", spent)
+		}
+	})
+	t.Run("cancelled", func(t *testing.T) {
+		var mu sync.Mutex
+		calls := 0
+		rc := funcRechecker(func(context.Context, string, []string) error {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+			return context.DeadlineExceeded
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		a := newFakeAfter()
+		on := policyReloads(ctx, func(string) { t.Error("repush after the context ended") }, a.after, nil,
+			[]Option{WithRechecker(rc)})
+		on("h1", reload)
+		a.wait(t)
+		cancel()
+		a.run(t)
+		mu.Lock()
+		defer mu.Unlock()
+		if calls != 1 {
+			t.Errorf("calls = %d, want only the first: a retry after the context ended made a call", calls)
+		}
+		if n := a.count(); n != 0 {
+			t.Errorf("%d retries scheduled after the context ended, want none", n)
+		}
+	})
+	t.Run("other entries", func(t *testing.T) {
+		rc := funcRechecker(func(context.Context, string, []string) error {
+			t.Error("an entry that is no policy reload rechecked modules")
+			return nil
+		})
+		var logs syncBuffer
+		on := policyReloads(t.Context(), func(string) { t.Error("repush for an entry that is no policy reload") },
+			newFakeAfter().after, slog.New(slog.NewTextHandler(&logs, nil)), []Option{WithRechecker(rc)})
+		on("h1", []core.JournalEntry{
+			{Action: "console.terminal.open", Phase: "open", Input: []byte(`{"modules":["console"]}`)},
+			{Action: "agent.policy.reload", Phase: "apply", Input: []byte(`{"modules":`)},
+		})
+		time.Sleep(50 * time.Millisecond)
+		if !strings.Contains(logs.String(), "agent.policy.reload") {
+			t.Errorf("log = %q, want the unreadable reload entry logged", logs.String())
+		}
+	})
+}
