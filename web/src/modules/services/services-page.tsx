@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { MoreHorizontal, Search } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
@@ -16,6 +16,7 @@ import { ChangeDialog } from "@/components/change-dialog"
 import { StatusPill } from "@/components/visual/status-pill"
 import type { Status } from "@/components/visual/status"
 import { applied } from "@/lib/users"
+import { useFocusFallback, useMenuDialogFocus } from "@/lib/return-focus"
 import { useCanOnHost } from "@/session/can"
 import { JournalPanel } from "./journal-panel"
 import { focusableScroller } from "@/lib/table"
@@ -65,23 +66,42 @@ const DONE: Record<Op, string> = { start: "started", stop: "stopped", restart: "
 function UnitMenu({ unit, admin, onOp, onLogs }: { unit: Unit; admin: boolean; onOp: (op: Op) => void; onLogs: () => void }) {
   const own = unit.name.startsWith("darkpanel-")
   const ops: Op[] = admin ? ["start", "stop", "restart", "reload", "enable", "disable"] : ["start", "stop", "restart", "reload"]
+  const { trigger, pick, onCloseAutoFocus } = useMenuDialogFocus(onOp)
+  // logs: View logs was picked, so the closing menu leaves focus to the
+  // journal's unit field instead of taking it back to its button.
+  const logs = useRef(false)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={`Actions for ${unit.name}`}>
+        <Button ref={trigger} variant="ghost" size="icon" aria-label={`Actions for ${unit.name}`}>
           <MoreHorizontal aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent
+        align="end"
+        onCloseAutoFocus={(e) => {
+          if (!logs.current) return onCloseAutoFocus(e)
+          logs.current = false
+          e.preventDefault()
+          document.getElementById("journal-unit")?.focus()
+        }}
+      >
         {ops.map((op) => (
-          <DropdownMenuItem key={op} disabled={own} onSelect={() => onOp(op)}>
+          <DropdownMenuItem key={op} disabled={own} onSelect={() => pick(op)}>
             <span className="flex flex-col">
               {OP_LABEL[op]}
               {own && <span className="text-xs text-muted-foreground">{OWN_UNITS_REASON}</span>}
             </span>
           </DropdownMenuItem>
         ))}
-        <DropdownMenuItem onSelect={onLogs}>View logs</DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            logs.current = true
+            onLogs()
+          }}
+        >
+          View logs
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -110,10 +130,7 @@ export function ServicesPage({ hostId }: { hostId: string }) {
   const [change, setChange] = useState<{ unit: Unit; op: Op } | null>(null)
   const [logsUnit, setLogsUnit] = useState("")
 
-  function showLogs(name: string) {
-    setLogsUnit(name)
-    document.getElementById("journal-unit")?.focus()
-  }
+  useFocusFallback(change !== null)
 
   let body
   if (units.isPending) body = <Loading />
@@ -185,7 +202,7 @@ export function ServicesPage({ hostId }: { hostId: string }) {
                   <TableCell>{atBoot(u.enabled)}</TableCell>
                   {operate && (
                     <TableCell>
-                      <UnitMenu unit={u} admin={admin} onOp={(op) => setChange({ unit: u, op })} onLogs={() => showLogs(u.name)} />
+                      <UnitMenu unit={u} admin={admin} onOp={(op) => setChange({ unit: u, op })} onLogs={() => setLogsUnit(u.name)} />
                     </TableCell>
                   )}
                 </TableRow>

@@ -111,12 +111,16 @@ describe("menus by unit and role", () => {
     expect(items).toEqual(["Start", "Stop", "Restart", "Reload", "View logs"])
   })
 
-  test("View logs opens the journal filtered to the unit", async () => {
+  test("View logs opens the journal filtered to the unit, with focus on its unit field", async () => {
     render({ body: { output: { units: unitsDefault } } })
     const user = userEvent.setup()
     await screen.findByText("nginx.service")
     await user.click(screen.getByRole("button", { name: "Actions for nginx.service" }))
     await user.click(await screen.findByRole("menuitem", { name: "View logs" }))
     await waitFor(() => expect((screen.getByLabelText("Unit") as HTMLInputElement).value).toBe("nginx.service"))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Unit")))
+    // The closing menu does not take focus back after its exit animation.
+    await new Promise((r) => setTimeout(r, 300))
+    expect(document.activeElement).toBe(screen.getByLabelText("Unit"))
   })
 })
