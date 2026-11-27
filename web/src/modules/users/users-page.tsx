@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { useRef, useState, type FormEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { MoreHorizontal, UserPlus } from "lucide-react"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
@@ -13,7 +13,7 @@ import { Skeleton } from "darkraise-ui/components/skeleton"
 import { toast } from "darkraise-ui/components/sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "darkraise-ui/components/table"
 import { Textarea } from "darkraise-ui/components/textarea"
-import { readAction } from "@/api/client"
+import { HOSTS_QUERY_KEY, listHosts, readAction } from "@/api/client"
 import type { Change } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { FALLBACK_FOCUS, useFocusFallback, useMenuDialogFocus } from "@/lib/return-focus"
@@ -84,7 +84,16 @@ function PasswordFields({ password, confirm, onPassword, onConfirm, submitted }:
 
 // AddUserDialog collects users.user.create's input; it unmounts when it
 // closes, so the password it held is gone.
-function AddUserDialog({ taken, onCancel, onReview }: { taken: string[]; onCancel: () => void; onReview: (p: Pending) => void }) {
+// A form stays mounted, hidden, while its change is reviewed, so a refused
+// plan returns to it with every value as typed.
+interface FormProps {
+  hostName: string
+  hidden: boolean
+  onCancel: () => void
+  onReview: (p: Pending) => void
+}
+
+function AddUserDialog({ taken, hostName, hidden, onCancel, onReview }: FormProps & { taken: string[] }) {
   const [name, setName] = useState("")
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
@@ -107,10 +116,10 @@ function AddUserDialog({ taken, onCancel, onReview }: { taken: string[]; onCance
   }
 
   return (
-    <Dialog open onOpenChange={(open) => (open ? undefined : onCancel())}>
+    <Dialog open={!hidden} onOpenChange={(open) => (open ? undefined : onCancel())}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add a user</DialogTitle>
+          <DialogTitle>{`Add a user on ${hostName}`}</DialogTitle>
           <DialogDescription>A login account with its home and group.</DialogDescription>
         </DialogHeader>
         <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
@@ -159,7 +168,7 @@ function AddUserDialog({ taken, onCancel, onReview }: { taken: string[]; onCance
   )
 }
 
-function SetPasswordDialog({ name, onCancel, onReview }: { name: string; onCancel: () => void; onReview: (p: Pending) => void }) {
+function SetPasswordDialog({ name, hidden, onCancel, onReview }: Omit<FormProps, "hostName"> & { name: string }) {
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
   const [submitted, setSubmitted] = useState(false)
@@ -173,7 +182,7 @@ function SetPasswordDialog({ name, onCancel, onReview }: { name: string; onCance
   }
 
   return (
-    <Dialog open onOpenChange={(open) => (open ? undefined : onCancel())}>
+    <Dialog open={!hidden} onOpenChange={(open) => (open ? undefined : onCancel())}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{`Set the password of ${name}`}</DialogTitle>
@@ -265,10 +274,22 @@ export function UsersPage({ hostId }: { hostId: string }) {
     else setPending(p)
   }
 
+  const hosts = useQuery({ queryKey: HOSTS_QUERY_KEY, queryFn: listHosts })
+  const hostName = hosts.data?.hosts.find((h) => h.id === hostId)?.name ?? hostId
+  // Whether the reviewed change applied: only then does its form close.
+  const done = useRef(false)
+
   function review(p: Pending) {
-    setAdding(false)
-    setPasswordFor(null)
+    done.current = false
     setPending(p)
+  }
+
+  function endReview() {
+    setPending(null)
+    if (done.current) {
+      setAdding(false)
+      setPasswordFor(null)
+    }
   }
 
   let body
@@ -339,20 +360,31 @@ export function UsersPage({ hostId }: { hostId: string }) {
         </div>
       )}
       <div className="overflow-x-auto">{body}</div>
-      <SshdCard hostId={hostId} admin={admin} />
-      {adding && <AddUserDialog taken={accounts.data?.accounts.map((a) => a.name) ?? []} onCancel={() => setAdding(false)} onReview={review} />}
-      {passwordFor !== null && <SetPasswordDialog name={passwordFor} onCancel={() => setPasswordFor(null)} onReview={review} />}
+      <SshdCard hostId={hostId} hostName={hostName} admin={admin} />
+      {adding && (
+        <AddUserDialog
+          taken={accounts.data?.accounts.map((a) => a.name) ?? []}
+          hostName={hostName}
+          hidden={pending !== null}
+          onCancel={() => setAdding(false)}
+          onReview={review}
+        />
+      )}
+      {passwordFor !== null && <SetPasswordDialog name={passwordFor} hidden={pending !== null} onCancel={() => setPasswordFor(null)} onReview={review} />}
       {sheetAccount !== undefined && <UserSheet hostId={hostId} account={sheetAccount} admin={admin} onClose={() => setSheet(null)} />}
       {pending !== null && (
         <ChangeDialog
           open
-          onOpenChange={(open) => (open ? undefined : setPending(null))}
+          onOpenChange={(open) => (open ? undefined : endReview())}
           title={pending.title}
           target={{ name: pending.action, version: 1, hostId, module: "users" }}
           input={pending.input}
           onApplied={(c: Change) => {
             void client.invalidateQueries({ queryKey: key })
-            if (applied(c)) toast(pending.done)
+            if (applied(c)) {
+              done.current = true
+              toast(pending.done)
+            }
           }}
         />
       )}

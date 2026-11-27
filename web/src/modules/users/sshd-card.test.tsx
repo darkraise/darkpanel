@@ -19,7 +19,7 @@ function render(extra: Record<string, StubHandler> = {}, state: unknown = sshdSt
     [AVAILABILITY]: { body: { module: "users", available: true, reason: null, actions: [] } },
     ...extra,
   })
-  renderWithProviders(<SshdCard hostId="h1" admin />, { hostScope: "admin" })
+  renderWithProviders(<SshdCard hostId="h1" hostName="web-1" admin />, { hostScope: "admin" })
   return calls
 }
 
@@ -113,12 +113,47 @@ describe("hardening flow", () => {
     expect(calls.find((c) => c.path.endsWith("/plan"))?.body).toEqual({ input: { maxAuthTries: 3 } })
   })
 
-  test("a value out of range is refused before review", async () => {
+  test("lists Darkpanel set before another file took them over are dropped from the change", async () => {
+    const state = {
+      ...sshdState,
+      set: { ...sshdState.set, allowUsers: ["deploy"] },
+      effective: { ...sshdState.effective, allowUsers: ["deploy"] },
+      readOnly: ["allowUsers", "allowGroups"],
+      listsSetBy: ELSEWHERE,
+    }
+    const calls = render({ [PLAN]: { body: makePlan("users.sshd.apply", { hostId: "h1" }) } }, state)
+    const user = await openForm()
+    await user.clear(screen.getByLabelText("Login attempts"))
+    await user.type(screen.getByLabelText("Login attempts"), "3")
+    await user.click(screen.getByRole("button", { name: "Review change" }))
+    await screen.findByRole("button", { name: "Apply" })
+    const input = (calls.find((c) => c.path.endsWith("/plan"))?.body as { input: Record<string, unknown> }).input
+    expect(input).not.toHaveProperty("allowUsers")
+    expect(input.maxAuthTries).toBe(3)
+  })
+
+  test("a value out of range is refused under its field before review", async () => {
     render()
     const user = await openForm()
     await user.clear(screen.getByLabelText("Login attempts"))
     await user.type(screen.getByLabelText("Login attempts"), "40")
     await user.click(screen.getByRole("button", { name: "Review change" }))
-    expect(screen.getByText("Login attempts: enter a whole number from 1 to 10")).toBeTruthy()
+    const field = screen.getByLabelText("Login attempts")
+    expect(field.getAttribute("aria-invalid")).toBe("true")
+    expect(document.getElementById(field.getAttribute("aria-describedby")?.split(" ")[0] ?? "")?.textContent).toBe(
+      "Login attempts: enter a whole number from 1 to 10",
+    )
+  })
+
+  test("the form names the host, and a refused plan returns to it as typed", async () => {
+    render({ [PLAN]: { status: 422, body: { type: "about:blank", title: "Invalid", status: 422, detail: "refused", code: "invalid_input" } } })
+    const user = await openForm()
+    expect(screen.getByRole("dialog", { name: "Edit SSH hardening on web-1" })).toBeTruthy()
+    await user.clear(screen.getByLabelText("Login attempts"))
+    await user.type(screen.getByLabelText("Login attempts"), "4")
+    await user.click(screen.getByRole("button", { name: "Review change" }))
+    await screen.findByText("refused")
+    await user.click(within(screen.getByRole("dialog", { name: "Apply SSH hardening" })).getAllByRole("button", { name: "Close" })[0] as HTMLElement)
+    expect(((await screen.findByLabelText("Login attempts")) as HTMLInputElement).value).toBe("4")
   })
 })

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { useRef, useState, type FormEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, AlertDescription } from "darkraise-ui/components/alert"
 import { Button } from "darkraise-ui/components/button"
@@ -9,7 +9,9 @@ import { Label } from "darkraise-ui/components/label"
 import { Skeleton } from "darkraise-ui/components/skeleton"
 import { Switch } from "darkraise-ui/components/switch"
 import { errorMessage, readAction } from "@/api/client"
+import type { Change } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
+import { applied } from "@/lib/users"
 
 // SshdSettings mirrors users.sshd.get's effective and set values.
 export interface SshdSettings {
@@ -84,10 +86,28 @@ function draftOf(e: SshdSettings): Draft {
 // settingsOf is what 00-darkpanel.conf holds after the change: the values
 // Darkpanel set already, plus every value the form changed from the
 // effective one; fields another file manages are left out.
-function settingsOf(d: Draft, s: SshdState): { settings: SshdSettings; error: string | null } {
+function FieldError({ id, children }: { id: string; children: string }) {
+  return (
+    <p id={id} className="text-sm text-destructive-text">
+      {children}
+    </p>
+  )
+}
+
+interface FieldProblem {
+  field: Field
+  message: string
+}
+
+function settingsOf(d: Draft, s: SshdState): { settings: SshdSettings; error: FieldProblem | null } {
   const out: Record<string, unknown> = { ...s.set }
   const put = (f: Field, v: unknown) => {
-    if (s.readOnly.includes(f)) return
+    // The daemon refuses a value this file sets where another file manages
+    // the field, so the change drops it.
+    if (s.readOnly.includes(f)) {
+      delete out[f]
+      return
+    }
     if (!same(v, s.effective[f]) || f in s.set) out[f] = v
   }
   for (const [f] of SWITCHES) put(f, d.bools[f] === true)
@@ -95,7 +115,7 @@ function settingsOf(d: Draft, s: SshdState): { settings: SshdSettings; error: st
     const text = (d.numbers[f] ?? "").trim()
     if (text === "" && s.effective[f] === undefined) continue
     const n = Number(text)
-    if (!/^[0-9]+$/.test(text) || n < min || n > max) return { settings: {}, error: `${label}: enter a whole number from ${min} to ${max}` }
+    if (!/^[0-9]+$/.test(text) || n < min || n > max) return { settings: {}, error: { field: f, message: `${label}: enter a whole number from ${min} to ${max}` } }
     put(f, n)
   }
   put("permitRootLogin", d.permitRootLogin)
@@ -107,9 +127,23 @@ function settingsOf(d: Draft, s: SshdState): { settings: SshdSettings; error: st
   return { settings: out as SshdSettings, error: null }
 }
 
-function HardeningForm({ state, onCancel, onReview }: { state: SshdState; onCancel: () => void; onReview: (s: SshdSettings) => void }) {
+// HardeningForm stays mounted, hidden, while its change is reviewed, so a
+// refused plan returns to it as typed.
+function HardeningForm({
+  state,
+  hostName,
+  hidden,
+  onCancel,
+  onReview,
+}: {
+  state: SshdState
+  hostName: string
+  hidden: boolean
+  onCancel: () => void
+  onReview: (s: SshdSettings) => void
+}) {
   const [draft, setDraft] = useState(() => draftOf(state.effective))
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<FieldProblem | null>(null)
   const listsElsewhere = state.listsSetBy !== undefined && state.listsSetBy !== ""
 
   function submit(e: FormEvent<HTMLFormElement>) {
@@ -120,10 +154,10 @@ function HardeningForm({ state, onCancel, onReview }: { state: SshdState; onCanc
   }
 
   return (
-    <Dialog open onOpenChange={(open) => (open ? undefined : onCancel())}>
+    <Dialog open={!hidden} onOpenChange={(open) => (open ? undefined : onCancel())}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit SSH hardening</DialogTitle>
+          <DialogTitle>{`Edit SSH hardening on ${hostName}`}</DialogTitle>
           <DialogDescription>Starts from the values sshd runs with now.</DialogDescription>
         </DialogHeader>
         <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
@@ -155,9 +189,11 @@ function HardeningForm({ state, onCancel, onReview }: { state: SshdState; onCanc
                 min={min}
                 max={max}
                 value={draft.numbers[f] ?? ""}
-                aria-describedby={help === "" ? undefined : `sshd-${f}-help`}
+                aria-invalid={error?.field === f}
+                aria-describedby={[error?.field === f ? `sshd-${f}-error` : "", help === "" ? "" : `sshd-${f}-help`].filter((id) => id !== "").join(" ") || undefined}
                 onChange={(e) => setDraft((d) => ({ ...d, numbers: { ...d.numbers, [f]: e.target.value } }))}
               />
+              {error?.field === f && <FieldError id={`sshd-${f}-error`}>{error.message}</FieldError>}
               {help !== "" && (
                 <span id={`sshd-${f}-help`} className="text-xs text-muted-foreground">
                   {help}
@@ -181,11 +217,6 @@ function HardeningForm({ state, onCancel, onReview }: { state: SshdState; onCanc
               </span>
             </div>
           ))}
-          {error !== null && (
-            <Alert variant="destructive" role="alert">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
@@ -200,12 +231,14 @@ function HardeningForm({ state, onCancel, onReview }: { state: SshdState; onCanc
 
 // SshdCard lists sshd's effective values and, for admins, edits the
 // hardening Darkpanel manages (UI-3, UX-5).
-export function SshdCard({ hostId, admin }: { hostId: string; admin: boolean }) {
+export function SshdCard({ hostId, hostName, admin }: { hostId: string; hostName: string; admin: boolean }) {
   const client = useQueryClient()
   const key = ["resource", hostId, "users.sshd.get"]
   const sshd = useQuery({ queryKey: key, queryFn: () => readAction<SshdState>("users.sshd.get", 1, {}, hostId) })
   const [editing, setEditing] = useState(false)
   const [review, setReview] = useState<SshdSettings | null>(null)
+  // Whether the reviewed change applied: only then does the form close.
+  const done = useRef(false)
 
   let body
   if (sshd.isPending) {
@@ -276,9 +309,11 @@ export function SshdCard({ hostId, admin }: { hostId: string; admin: boolean }) 
       {editing && sshd.data !== undefined && (
         <HardeningForm
           state={sshd.data}
+          hostName={hostName}
+          hidden={review !== null}
           onCancel={() => setEditing(false)}
           onReview={(settings) => {
-            setEditing(false)
+            done.current = false
             setReview(settings)
           }}
         />
@@ -286,12 +321,19 @@ export function SshdCard({ hostId, admin }: { hostId: string; admin: boolean }) 
       {review !== null && (
         <ChangeDialog
           open
-          onOpenChange={(open) => (open ? undefined : setReview(null))}
+          onOpenChange={(open) => {
+            if (open) return
+            setReview(null)
+            if (done.current) setEditing(false)
+          }}
           title="Apply SSH hardening"
           note={OPEN_A_SESSION}
           target={{ name: "users.sshd.apply", version: 1, hostId, module: "users", revertible: true }}
           input={{ ...review }}
-          onApplied={() => void client.invalidateQueries({ queryKey: key })}
+          onApplied={(c: Change) => {
+            void client.invalidateQueries({ queryKey: key })
+            if (applied(c)) done.current = true
+          }}
         />
       )}
     </Card>
