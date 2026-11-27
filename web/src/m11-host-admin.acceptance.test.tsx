@@ -1,0 +1,196 @@
+import { screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { Button } from "darkraise-ui/components/button"
+import { afterEach, describe, expect, test, vi } from "vitest"
+import type { Scope } from "@/api/types"
+import { useStepUp } from "@/components/step-up-dialog"
+import { accountsDefault, keysDeploy, sshdState, unitsDefault } from "@/modules/m11-fixtures"
+import { ServicesPage } from "@/modules/services/services-page"
+import { UsersPage } from "@/modules/users/users-page"
+import { expectNoAxeViolations, focusedName } from "@/test/a11y"
+import { renderWithProviders, stubFetch, type StubHandler, type StubResponse } from "@/test/utils"
+
+afterEach(() => {
+  delete document.body.dataset.outcome
+  vi.unstubAllGlobals()
+})
+
+const SERVICES = "POST /api/v1/hosts/h1/actions/services.unit.list/v1/read"
+const SERVICES_UP = "GET /api/v1/hosts/h1/modules/services/availability"
+
+function services(hostScope: Scope, extra: Record<string, StubHandler> = {}) {
+  stubFetch({
+    [SERVICES]: { body: { output: { units: unitsDefault } } },
+    [SERVICES_UP]: { body: { module: "services", available: true, reason: null, actions: [] } },
+    ...extra,
+  })
+  return renderWithProviders(<ServicesPage hostId="h1" />, { hostScope })
+}
+
+describe("A64: roles hide what a role cannot use", () => {
+  test("A64: a viewer sees every unit and no action menu", async () => {
+    services("read")
+    await screen.findByText("nginx.service")
+    expect(screen.queryByRole("button", { name: /^Actions for/ })).toBeNull()
+  })
+
+  test("A64: an operator's menu has Start, Stop, Restart, Reload and no Enable or Disable", async () => {
+    services("operate")
+    const user = userEvent.setup()
+    await screen.findByText("nginx.service")
+    await user.click(screen.getByRole("button", { name: "Actions for nginx.service" }))
+    const names = (await screen.findAllByRole("menuitem")).map((i) => i.textContent ?? "")
+    for (const wanted of ["Start", "Stop", "Restart", "Reload"]) expect(names.some((n) => n.startsWith(wanted))).toBe(true)
+    expect(names.some((n) => /Enable|Disable/.test(n))).toBe(false)
+  })
+
+  test("A64: an admin's menu adds Enable and Disable", async () => {
+    services("admin")
+    const user = userEvent.setup()
+    await screen.findByText("nginx.service")
+    await user.click(screen.getByRole("button", { name: "Actions for nginx.service" }))
+    const names = (await screen.findAllByRole("menuitem")).map((i) => i.textContent ?? "")
+    expect(names.some((n) => /Enable|Disable/.test(n))).toBe(true)
+  })
+
+  test("A64: a viewer sees the users page without Add user", async () => {
+    stubFetch({
+      "POST /api/v1/hosts/h1/actions/users.user.list/v1/read": { body: { output: { accounts: accountsDefault } } },
+      "POST /api/v1/hosts/h1/actions/users.key.list/v1/read": { body: { output: keysDeploy } },
+      "POST /api/v1/hosts/h1/actions/users.sshd.get/v1/read": { body: { output: sshdState } },
+      "GET /api/v1/hosts/h1/modules/users/availability": { body: { module: "users", available: true, reason: null, actions: [] } },
+    })
+    renderWithProviders(<UsersPage hostId="h1" />, { hostScope: "read" })
+    await screen.findByText(accountsDefault[0]?.name ?? "")
+    expect(screen.queryByRole("button", { name: "Add user" })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Edit hardening/ })).toBeNull()
+  })
+})
+
+describe("A65: services flow", () => {
+  test("A65: stopping ssh.service asks for the unit name as the typed phrase", async () => {
+    services("admin", {
+      "POST /api/v1/hosts/h1/actions/services.unit.stop/v1/plan": {
+        body: {
+          planId: "p1", hostId: "h1", action: "services.unit.stop", version: 1, actor: "user:admin", diff: [], guards: [],
+          stateHash: "h", confirmation: "ssh.service", createdAt: "2026-11-26T09:40:00Z", expiresAt: "2026-11-26T09:50:00Z",
+        },
+      },
+    })
+    const user = userEvent.setup()
+    await screen.findByText("ssh.service")
+    await user.click(screen.getByRole("button", { name: "Actions for ssh.service" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Stop" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(await within(dialog).findByLabelText(/ssh\.service/)).toBeTruthy()
+  })
+
+  test("A65: Darkpanel's own unit shows its mutating items disabled", async () => {
+    services("admin")
+    const user = userEvent.setup()
+    await screen.findByText("darkpanel-agent.service")
+    await user.click(screen.getByRole("button", { name: "Actions for darkpanel-agent.service" }))
+    const items = await screen.findAllByRole("menuitem")
+    const mutating = items.filter((i) => /^(Start|Stop|Restart|Reload|Enable|Disable)/.test(i.textContent ?? ""))
+    expect(mutating.length).toBeGreaterThan(0)
+    for (const item of mutating) {
+      expect(item.getAttribute("aria-disabled") ?? item.getAttribute("data-disabled")).not.toBeNull()
+    }
+  })
+
+  test("A65: View logs filters the journal to the unit", async () => {
+    services("admin")
+    const user = userEvent.setup()
+    await screen.findByText("nginx.service")
+    await user.click(screen.getByRole("button", { name: "Actions for nginx.service" }))
+    await user.click(await screen.findByRole("menuitem", { name: "View logs" }))
+    await waitFor(() => expect((screen.getByLabelText("Unit") as HTMLInputElement).value).toBe("nginx.service"))
+  })
+})
+
+function problem(status: number, code: string, detail: string, headers: Record<string, string> = {}): StubResponse {
+  return { status, body: { type: "about:blank", title: "", status, detail, code }, headers }
+}
+
+function Trigger() {
+  const { stepUp } = useStepUp()
+  return (
+    <Button
+      onClick={() => {
+        void stepUp("Opening a terminal needs your authenticator code").then((ok) => {
+          document.body.dataset.outcome = ok ? "verified" : "cancelled"
+        })
+      }}
+    >
+      Open terminal
+    </Button>
+  )
+}
+
+async function openStepUp() {
+  const user = userEvent.setup()
+  renderWithProviders(<Trigger />)
+  await user.click(screen.getByRole("button", { name: "Open terminal" }))
+  const dialog = await screen.findByRole("dialog")
+  return { user, dialog }
+}
+
+describe("A68: the step-up dialog", () => {
+  test("A68: focus starts in the code field and Enter submits the six digits", async () => {
+    const calls = stubFetch({ "POST /api/v1/auth/step-up": { status: 204 } })
+    const { user } = await openStepUp()
+    await waitFor(() => expect(focusedName()).toMatch(/code/i))
+    await user.keyboard("246810{Enter}")
+    await waitFor(() => expect(document.body.dataset.outcome).toBe("verified"))
+    expect(calls.filter((c) => c.path === "/api/v1/auth/step-up").map((c) => c.body)).toEqual([{ code: "246810" }])
+  })
+
+  test.each([
+    ["a wrong code", problem(401, "auth.invalid_credentials", "wrong"), "That code didn't work"],
+    ["a code of the step already used", problem(409, "auth.step_up_wait", "wait"), "Wait for the next code"],
+    ["the rate limit", problem(429, "auth.rate_limited", "slow down", { "Retry-After": "17" }), "Too many attempts; try again in 17 s"],
+  ])("A68: %s shows its text and keeps focus in the field", async (_n, answer, text) => {
+    stubFetch({ "POST /api/v1/auth/step-up": answer })
+    const { user, dialog } = await openStepUp()
+    await user.keyboard("135790{Enter}")
+    expect(await within(dialog).findByText(text)).toBeTruthy()
+    expect(focusedName()).toMatch(/code/i)
+  })
+
+  test("A68: a user without an authenticator sees the setup text instead of the field", async () => {
+    stubFetch({ "POST /api/v1/auth/step-up": problem(403, "auth.step_up_unavailable", "x") })
+    const { user, dialog } = await openStepUp()
+    await user.keyboard("135790{Enter}")
+    expect(await within(dialog).findByText("Set up an authenticator to use the console and jobs")).toBeTruthy()
+  })
+
+  test("A68: Escape cancels, sends nothing and returns focus to the trigger", async () => {
+    const calls = stubFetch({})
+    const { user } = await openStepUp()
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await waitFor(() => expect(focusedName()).toBe("Open terminal"))
+    expect(document.body.dataset.outcome).toBe("cancelled")
+    expect(calls).toEqual([])
+  })
+})
+
+describe("A73: no axe violations", () => {
+  test("A73: the services page for an admin", async () => {
+    const { container } = services("admin")
+    await screen.findByText("nginx.service")
+    await expectNoAxeViolations(container)
+  })
+
+  test("A73: the open step-up dialog", async () => {
+    stubFetch({})
+    const { dialog } = await openStepUp()
+    await expectNoAxeViolations(dialog)
+  })
+
+  test("A73: the services page shows its states as text, not colour alone", async () => {
+    services("admin")
+    await screen.findByText("nginx.service")
+    expect(screen.getAllByText("Failed").length).toBeGreaterThan(0)
+  })
+})
