@@ -169,76 +169,140 @@ func (m module) readJob(ctx context.Context, env core.Env, slug string) (*jobFil
 	if err != nil {
 		return nil, err
 	}
-	f.Enabled = st.ActiveState == "active"
+	// A timer that jobs being off paused counts as enabled: the on hook
+	// starts it.
+	paused, err := remembered(ctx, env, timerName(slug))
+	if err != nil {
+		return nil, err
+	}
+	f.Enabled = st.ActiveState == "active" || paused
 	return f, nil
 }
 
 // setJob takes the job slug from now to want: nil removes its timer, unit
 // files and script; otherwise the files are written and the timer is
-// started and enabled, or stopped and disabled, as want says.
-func (m module) setJob(ctx context.Context, env core.Env, slug string, now, want *jobFiles) error {
+// started and enabled, or stopped and disabled, as want says. It reports
+// paused when jobs is off on this host: the files are written and the
+// timer is stopped, disabled and remembered for the on hook to start.
+func (m module) setJob(ctx context.Context, env core.Env, slug string, now, want *jobFiles) (paused bool, err error) {
 	w, ok := env.Files.(core.UnitSetWriter)
 	if !ok {
-		return fmt.Errorf("jobs: the file writer cannot write unit sets")
+		return false, fmt.Errorf("jobs: the file writer cannot write unit sets")
 	}
 	timer := timerName(slug)
 	if now != nil && now.Enabled && (want == nil || !want.Enabled) {
 		if err := env.Units.Stop(ctx, timer); err != nil {
-			return err
+			return false, err
 		}
 		if err := m.waitTimer(ctx, env, timer, false); err != nil {
-			return err
+			return false, err
 		}
 		if err := env.Units.Disable(ctx, timer); err != nil {
-			return err
+			return false, err
+		}
+		// A job turned off while paused must not start at the next on.
+		if err := forget(ctx, env, timer); err != nil {
+			return false, err
 		}
 	}
 	if want == nil {
 		for _, name := range []string{timer, serviceName(slug)} {
 			if err := w.RemoveUnitInSet(ctx, ID, name); err != nil {
-				return err
+				return false, err
 			}
 		}
 		if err := w.RemoveDirFile(ctx, ID, m.scriptDir, scriptName(slug)); err != nil {
-			return err
+			return false, err
 		}
-		return env.Units.Reload(ctx)
+		if err := forget(ctx, env, timer); err != nil {
+			return false, err
+		}
+		return false, env.Units.Reload(ctx)
 	}
 	if err := w.WriteDirFile(ctx, ID, m.scriptDir, scriptName(slug), []byte(want.Script), scriptMode, -1); err != nil {
-		return err
+		return false, err
 	}
 	for name, text := range map[string]string{serviceName(slug): want.Service, timer: want.Timer} {
 		if err := w.WriteUnitInSet(ctx, ID, name, []byte(text)); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if err := env.Units.Reload(ctx); err != nil {
-		return err
+		return false, err
 	}
 	switch {
 	case want.Enabled && (now == nil || !now.Enabled):
-		if err := env.Units.Enable(ctx, timer); err != nil {
-			return err
-		}
-		if err := env.Units.Start(ctx, timer); err != nil {
-			return err
-		}
-		return m.waitTimer(ctx, env, timer, true)
+		return m.startTimer(ctx, env, timer, func() error {
+			if err := env.Units.Enable(ctx, timer); err != nil {
+				return err
+			}
+			return env.Units.Start(ctx, timer)
+		})
 	case want.Enabled && now.Timer != want.Timer:
 		// A running timer keeps the schedule it started with.
-		if err := env.Units.Restart(ctx, timer); err != nil {
-			return err
-		}
-		return m.waitTimer(ctx, env, timer, true)
+		return m.startTimer(ctx, env, timer, func() error { return env.Units.Restart(ctx, timer) })
 	}
-	return nil
+	return false, nil
+}
+
+// startTimer runs start, which starts or restarts timer, and waits until
+// the timer is active. When jobs is off on this host, the runtime's guard
+// refuses start, or the off hook remembers the timer during the wait; then
+// the timer is remembered, Enable and Start are tried once more through the
+// guard, and if they are refused as well the timer is left stopped and
+// disabled for the on hook, and paused is true. If they pass, jobs came
+// back on and the start goes on as usual.
+func (m module) startTimer(ctx context.Context, env core.Env, timer string, start func() error) (paused bool, err error) {
+	err = start()
+	if err == nil {
+		err = m.waitTimer(ctx, env, timer, true)
+	}
+	if err == nil || (!jobsOff(err) && !errors.Is(err, errPaused)) {
+		return false, err
+	}
+	if err := remember(ctx, env, timer); err != nil {
+		return false, err
+	}
+	err = env.Units.Enable(ctx, timer)
+	if err == nil {
+		err = env.Units.Start(ctx, timer)
+	}
+	switch {
+	case err == nil:
+		if err := forget(ctx, env, timer); err != nil {
+			return false, err
+		}
+		err = m.waitTimer(ctx, env, timer, true)
+		if errors.Is(err, errPaused) {
+			// Off again: the off hook remembered and stopped the timer.
+			return true, nil
+		}
+		return false, err
+	case !jobsOff(err):
+		return false, err
+	}
+	if err := errors.Join(env.Units.Stop(ctx, timer), env.Units.Disable(ctx, timer)); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // waitTimer waits until the timer is active, or not, as systemd runs the
-// queued job; unit jobs return before they finish.
+// queued job; unit jobs return before they finish. A wait for an active
+// timer ends with errPaused as soon as the timer has a jobs_paused row: the
+// off hook stopped it, so it will not become active.
 func (m module) waitTimer(ctx context.Context, env core.Env, timer string, active bool) error {
 	deadline := time.Now().Add(m.wait)
 	for {
+		if active {
+			paused, err := remembered(ctx, env, timer)
+			if err != nil {
+				return err
+			}
+			if paused {
+				return errPaused
+			}
+		}
 		st, err := env.Units.State(ctx, timer)
 		if err != nil {
 			return err

@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +41,31 @@ type units struct {
 	runs   map[string]core.ServiceRun
 	// stopFails names the units whose Stop fails.
 	stopFails map[string]bool
+	// off makes Start, Restart and Enable of a job unit answer the runtime
+	// guard's refusal, as when jobs is off; with refusals above 0, jobs
+	// comes back on after that many refusals.
+	off      bool
+	refusals int
+	// states overrides State for a unit; stateFails names the units whose
+	// State fails.
+	states     map[string]core.UnitState
+	stateFails map[string]bool
+	// afterStart runs after a Start that passed.
+	afterStart func(unit string)
+}
+
+// guard is the runtime's jobs unit guard over this client.
+func (u *units) guard(unit string) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if !u.off || !strings.HasPrefix(unit, "darkpanel-job-") {
+		return nil
+	}
+	if u.refusals > 0 {
+		u.refusals--
+		u.off = u.refusals > 0
+	}
+	return errcode.New(errcode.ModuleUnavailable, "jobs is off on this host")
 }
 
 func (u *units) record(call string) {
@@ -61,8 +87,17 @@ func (u *units) StartTransientTimer(context.Context, string, core.TransientTimer
 	return errors.New("not here")
 }
 func (u *units) Start(_ context.Context, unit string) error {
+	if err := u.guard(unit); err != nil {
+		return err
+	}
 	u.record("Start " + unit)
 	u.set(unit, true)
+	u.mu.Lock()
+	after := u.afterStart
+	u.mu.Unlock()
+	if after != nil {
+		after(unit)
+	}
 	return nil
 }
 func (u *units) Stop(_ context.Context, unit string) error {
@@ -74,6 +109,9 @@ func (u *units) Stop(_ context.Context, unit string) error {
 	return nil
 }
 func (u *units) Restart(_ context.Context, unit string) error {
+	if err := u.guard(unit); err != nil {
+		return err
+	}
 	u.record("Restart " + unit)
 	u.set(unit, true)
 	return nil
@@ -81,6 +119,11 @@ func (u *units) Restart(_ context.Context, unit string) error {
 func (u *units) Kill(context.Context, string, syscall.Signal) error { return errors.New("not here") }
 func (u *units) ResetFailed(context.Context, string) error          { return errors.New("not here") }
 func (u *units) Enable(_ context.Context, f ...string) error {
+	for _, unit := range f {
+		if err := u.guard(unit); err != nil {
+			return err
+		}
+	}
 	u.record("Enable " + strings.Join(f, " "))
 	return nil
 }
@@ -95,6 +138,12 @@ func (u *units) List(context.Context, string) ([]core.UnitStatus, error) {
 func (u *units) State(_ context.Context, unit string) (core.UnitState, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if u.stateFails[unit] {
+		return core.UnitState{}, errors.New("state failed")
+	}
+	if st, ok := u.states[unit]; ok {
+		return st, nil
+	}
 	if u.active[unit] {
 		return core.UnitState{LoadState: "loaded", ActiveState: "active"}, nil
 	}
@@ -535,4 +584,137 @@ func TestScriptDelivery(t *testing.T) {
 	if dir, err := os.Stat(filepath.Join(r.root, "jobs")); err != nil || dir.Mode().Perm() != 0o700 {
 		t.Errorf("jobs directory %v, %v; want mode 0700", dir, err)
 	}
+}
+
+func (r *rig) note(cv core.ChangeView) string {
+	r.t.Helper()
+	var out Changed
+	if err := json.Unmarshal(cv.Output, &out); err != nil {
+		r.t.Fatalf("output %s: %v", cv.Output, err)
+	}
+	return out.Note
+}
+
+func (r *rig) isActive(unit string) bool {
+	r.t.Helper()
+	st, err := r.units.State(context.Background(), unit)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return st.ActiveState == "active"
+}
+
+// TestPausedOutcome is the paused outcome of spec section 4: a job change
+// that meets jobs turned off completes with its files written, its timer
+// stopped, disabled and remembered for the on hook, and a note.
+func TestPausedOutcome(t *testing.T) {
+	const timer = "darkpanel-job-backup.timer"
+	ctx := context.Background()
+	t.Run("refused start", func(t *testing.T) {
+		r := newRig(t)
+		r.units.off = true
+		cv := r.apply("jobs.job.create", backupInput)
+		if got := r.note(cv); got != pausedNote {
+			t.Errorf("note %q, want %q", got, pausedNote)
+		}
+		calls := r.units.calls
+		if slices.Contains(calls, "Start "+timer) || !slices.Contains(calls, "Stop "+timer) || !slices.Contains(calls, "Disable "+timer) {
+			t.Errorf("calls %q: want the timer stopped and disabled, never started", calls)
+		}
+		if got := r.paused(); !slices.Equal(got, []string{timer}) {
+			t.Errorf("paused %q, want %q", got, timer)
+		}
+		if r.isActive(timer) {
+			t.Error("the timer runs while jobs is off")
+		}
+		f, err := r.m.readJob(ctx, r.env(adminP), "backup")
+		if err != nil || f == nil || !f.Enabled || f.Service == "" {
+			t.Errorf("readJob = %+v, %v; want the job's files with Enabled true", f, err)
+		}
+	})
+	t.Run("paused while waiting", func(t *testing.T) {
+		r := newRig(t)
+		r.units.afterStart = func(unit string) {
+			if unit != timer {
+				return
+			}
+			// The off hook runs now: it remembers the timer and stops it.
+			if err := r.db.Write(ctx, func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(ctx, `INSERT INTO jobs_paused (timer) VALUES (?)`, unit)
+				return err
+			}); err != nil {
+				t.Error(err)
+			}
+			r.units.mu.Lock()
+			r.units.off, r.units.active[unit] = true, false
+			r.units.mu.Unlock()
+		}
+		start := time.Now()
+		cv := r.apply("jobs.job.create", backupInput)
+		if took := time.Since(start); took >= r.m.wait/2 {
+			t.Errorf("the apply took %s: the wait must end once the timer is remembered, not at its %s deadline", took, r.m.wait)
+		}
+		if got := r.note(cv); got != pausedNote {
+			t.Errorf("note %q, want %q", got, pausedNote)
+		}
+		if got := r.paused(); !slices.Equal(got, []string{timer}) || r.isActive(timer) {
+			t.Errorf("paused %q, active %t; want the timer remembered and stopped", got, r.isActive(timer))
+		}
+	})
+	t.Run("back on", func(t *testing.T) {
+		r := newRig(t)
+		r.units.off, r.units.refusals = true, 1
+		cv := r.apply("jobs.job.create", backupInput)
+		if got := r.note(cv); got != "" {
+			t.Errorf("note %q, want none once jobs is back on", got)
+		}
+		if got := r.paused(); len(got) != 0 || !r.isActive(timer) {
+			t.Errorf("paused %q, active %t; want the timer started and not remembered", got, r.isActive(timer))
+		}
+	})
+	t.Run("undo of a delete", func(t *testing.T) {
+		r := newRig(t)
+		r.apply("jobs.job.create", backupInput)
+		cv := r.apply("jobs.job.delete", `{"slug":"backup"}`)
+		r.units.off = true
+		r.units.calls = nil
+		if v := r.undoChange(cv.ID); v.State != core.StateReverted {
+			t.Fatalf("undo of the delete while jobs is off: %+v %+v", v, v.Error)
+		}
+		if got := r.paused(); !slices.Equal(got, []string{timer}) || r.isActive(timer) {
+			t.Errorf("paused %q, active %t; want the timer remembered and stopped", got, r.isActive(timer))
+		}
+		if calls := r.units.calls; slices.Contains(calls, "Start "+timer) || !slices.Contains(calls, "Disable "+timer) {
+			t.Errorf("calls %q: want the timer disabled, never started", calls)
+		}
+		if r.text(r.path("units", serviceName("backup"))) == "" {
+			t.Error("the undo did not write the service back")
+		}
+	})
+	t.Run("disabled while paused", func(t *testing.T) {
+		r := newRig(t)
+		r.apply("jobs.job.create", backupInput)
+		r.units.off = true
+		if err := r.m.OnEnabled(ctx, r.env(adminP), false); err != nil {
+			t.Fatal(err)
+		}
+		r.apply("jobs.job.disable", `{"slug":"backup"}`)
+		if got := r.paused(); len(got) != 0 {
+			t.Errorf("paused %q after the disable, want none", got)
+		}
+		r.units.off = false
+		r.units.calls = nil
+		if err := r.m.OnEnabled(ctx, r.env(adminP), true); err != nil || len(r.units.calls) != 0 {
+			t.Errorf("on after the disable: calls %q, %v; want none", r.units.calls, err)
+		}
+	})
+	t.Run("refused run", func(t *testing.T) {
+		r := newRig(t)
+		r.apply("jobs.job.create", backupInput)
+		r.units.off = true
+		_, err := runHandler{m: r.m}.Apply(ctx, r.env(adminP), SlugInput{Slug: "backup"})
+		if !core.IsDefinite(err) || errcode.From(err).Code != errcode.ModuleUnavailable {
+			t.Errorf("run while jobs is off: %v (definite %t), want a definite module.unavailable", err, core.IsDefinite(err))
+		}
+	})
 }

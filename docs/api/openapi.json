@@ -13340,6 +13340,10 @@
       },
       "jobs.job.create.v1.output.Changed": {
         "properties": {
+          "note": {
+            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "type": "string"
+          },
           "slug": {
             "type": "string"
           }
@@ -13371,6 +13375,10 @@
       },
       "jobs.job.delete.v1.output.Changed": {
         "properties": {
+          "note": {
+            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "type": "string"
+          },
           "slug": {
             "type": "string"
           }
@@ -13402,6 +13410,10 @@
       },
       "jobs.job.disable.v1.output.Changed": {
         "properties": {
+          "note": {
+            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "type": "string"
+          },
           "slug": {
             "type": "string"
           }
@@ -13433,6 +13445,10 @@
       },
       "jobs.job.enable.v1.output.Changed": {
         "properties": {
+          "note": {
+            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "type": "string"
+          },
           "slug": {
             "type": "string"
           }
@@ -13614,6 +13630,10 @@
       },
       "jobs.job.run.v1.output.Changed": {
         "properties": {
+          "note": {
+            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "type": "string"
+          },
           "slug": {
             "type": "string"
           }
@@ -13688,6 +13708,10 @@
       },
       "jobs.job.update.v1.output.Changed": {
         "properties": {
+          "note": {
+            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on.",
+            "type": "string"
+          },
           "slug": {
             "type": "string"
           }

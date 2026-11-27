@@ -5,11 +5,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/darkraise/darkpanel/internal/core"
 )
 
 // TestModuleOffStopsTimers is M11 spec section 6's module off: flag 0 stops
-// and disables every running job timer, so no reboot starts it, and
-// remembers it; flag 1 enables and starts exactly those; and an agent that
+// and disables every job timer, so no reboot starts it, and remembers the
+// running ones; flag 1 enables and starts exactly those; and an agent that
 // starts with flag 0 stops a timer that runs anyway.
 func TestModuleOffStopsTimers(t *testing.T) {
 	ctx := context.Background()
@@ -24,8 +26,10 @@ func TestModuleOffStopsTimers(t *testing.T) {
 	if err := r.m.OnEnabled(ctx, env, false); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"Stop darkpanel-job-backup.timer", "Disable darkpanel-job-backup.timer", "Stop darkpanel-job-clean.timer", "Disable darkpanel-job-clean.timer"}; !slices.Equal(r.units.calls, want) {
-		t.Errorf("module off: calls %q, want %q", r.units.calls, want)
+	offCalls := []string{"Stop darkpanel-job-backup.timer", "Disable darkpanel-job-backup.timer", "Stop darkpanel-job-clean.timer",
+		"Disable darkpanel-job-clean.timer", "Stop darkpanel-job-idle.timer", "Disable darkpanel-job-idle.timer"}
+	if !slices.Equal(r.units.calls, offCalls) {
+		t.Errorf("module off: calls %q, want %q", r.units.calls, offCalls)
 	}
 	if got := r.paused(); !slices.Equal(got, []string{"darkpanel-job-backup.timer", "darkpanel-job-clean.timer"}) {
 		t.Errorf("remembered %q", got)
@@ -38,8 +42,8 @@ func TestModuleOffStopsTimers(t *testing.T) {
 	if err := r.m.OnEnabled(ctx, env, false); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"Stop darkpanel-job-backup.timer", "Disable darkpanel-job-backup.timer", "Stop darkpanel-job-clean.timer", "Disable darkpanel-job-clean.timer"}; !slices.Equal(r.units.calls, want) {
-		t.Errorf("agent start with the module off: calls %q, want %q", r.units.calls, want)
+	if !slices.Equal(r.units.calls, offCalls) {
+		t.Errorf("agent start with the module off: calls %q, want %q", r.units.calls, offCalls)
 	}
 
 	r.units.calls = nil
@@ -91,5 +95,52 @@ func TestModuleOffStopsTheRest(t *testing.T) {
 	}
 	if want := []string{"Stop darkpanel-job-backup.timer", "Disable darkpanel-job-backup.timer", "Stop darkpanel-job-clean.timer", "Disable darkpanel-job-clean.timer"}; !slices.Equal(r.units.calls, want) {
 		t.Errorf("module off: calls %q, want %q", r.units.calls, want)
+	}
+}
+
+// TestOffStopsEveryTimer: off remembers the timers that run, are starting or
+// have a start queued, stops and disables every job timer whatever its
+// state, and reports a state it cannot read after still stopping that
+// timer; on starts exactly the remembered ones.
+func TestOffStopsEveryTimer(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t)
+	slugs := []string{"activating", "active", "idle", "queued", "unread"}
+	for _, slug := range slugs {
+		r.apply("jobs.job.create", strings.Replace(backupInput, `"backup"`, `"`+slug+`"`, 1))
+	}
+	r.units.states = map[string]core.UnitState{
+		timerName("activating"): {LoadState: "loaded", ActiveState: "activating"},
+		timerName("idle"):       {LoadState: "loaded", ActiveState: "inactive"},
+		timerName("queued"):     {LoadState: "loaded", ActiveState: "inactive", PendingJob: "start"},
+	}
+	r.units.stateFails = map[string]bool{timerName("unread"): true}
+	r.units.calls = nil
+	env := r.env(adminP)
+	if err := r.m.OnEnabled(ctx, env, false); err == nil || !strings.Contains(err.Error(), "state failed") {
+		t.Errorf("off = %v, want the failed state read", err)
+	}
+	var want []string
+	for _, slug := range slugs {
+		want = append(want, "Stop "+timerName(slug), "Disable "+timerName(slug))
+	}
+	if !slices.Equal(r.units.calls, want) {
+		t.Errorf("off: calls %q, want %q", r.units.calls, want)
+	}
+	remembered := []string{timerName("activating"), timerName("active"), timerName("queued")}
+	if got := r.paused(); !slices.Equal(got, remembered) {
+		t.Errorf("remembered %q, want %q", got, remembered)
+	}
+
+	r.units.states, r.units.stateFails, r.units.calls = nil, nil, nil
+	if err := r.m.OnEnabled(ctx, env, true); err != nil {
+		t.Fatal(err)
+	}
+	want = nil
+	for _, timer := range remembered {
+		want = append(want, "Enable "+timer, "Start "+timer)
+	}
+	if !slices.Equal(r.units.calls, want) {
+		t.Errorf("on: calls %q, want %q", r.units.calls, want)
 	}
 }

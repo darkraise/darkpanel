@@ -107,6 +107,7 @@ type SlugInput struct {
 // Changed is the answer of the job actions.
 type Changed struct {
 	Slug string `json:"slug"`
+	Note string `json:"note,omitempty" jsonschema_description:"Set when jobs is off on this host: the job's timer starts when jobs is turned on."`
 }
 
 func invalid(path, msg string) error {
@@ -246,7 +247,7 @@ type change struct {
 }
 
 // apply records the effect, moves the job and marks the effect made.
-func (m module) apply(ctx context.Context, env core.Env, c change) error {
+func (m module) apply(ctx context.Context, env core.Env, c change) (Changed, error) {
 	after := jobDoc(c.want)
 	var before []byte
 	if c.now != nil {
@@ -257,13 +258,21 @@ func (m module) apply(ctx context.Context, env core.Env, c change) error {
 		Before: jobDoc(c.now), After: &after,
 	}, before)
 	if err != nil {
-		return err
+		return Changed{}, err
 	}
-	if err := m.setJob(ctx, env, c.slug, c.now, c.want); err != nil {
-		return err
+	paused, err := m.setJob(ctx, env, c.slug, c.now, c.want)
+	if err != nil {
+		return Changed{}, err
 	}
-	return env.Effects.Made(ctx, seq, effectResource(c.slug), after)
+	out := Changed{Slug: c.slug}
+	if paused {
+		out.Note = pausedNote
+	}
+	return out, env.Effects.Made(ctx, seq, effectResource(c.slug), after)
 }
+
+// pausedNote is the note of a change that left its job paused.
+const pausedNote = "jobs is off on this host; the job starts when jobs is turned on"
 
 // undo is the shared Observe and Inverse of the compensable job actions:
 // the job's effect is its whole state, which the undo puts back.
@@ -288,7 +297,8 @@ func (u undo) Inverse(ctx context.Context, env core.Env, e core.Effect) (core.In
 	if err != nil {
 		return core.InverseResult{}, err
 	}
-	return core.InverseResult{}, u.m.setJob(ctx, env, slug, now, want)
+	_, err = u.m.setJob(ctx, env, slug, now, want)
+	return core.InverseResult{}, err
 }
 
 // writeHandler is jobs.job.create and jobs.job.update.
@@ -342,7 +352,7 @@ func (h writeHandler) Apply(ctx context.Context, env core.Env, in JobInput) (Cha
 	if err != nil {
 		return Changed{}, err
 	}
-	return Changed{Slug: c.slug}, h.m.apply(ctx, env, c)
+	return h.m.apply(ctx, env, c)
 }
 
 func (h writeHandler) Verify(ctx context.Context, env core.Env, in JobInput, _ Changed) error {
@@ -416,7 +426,7 @@ func (h stateHandler) Apply(ctx context.Context, env core.Env, in SlugInput) (Ch
 	if err != nil {
 		return Changed{}, err
 	}
-	return Changed{Slug: c.slug}, h.m.apply(ctx, env, c)
+	return h.m.apply(ctx, env, c)
 }
 
 func (h stateHandler) Verify(ctx context.Context, env core.Env, in SlugInput, _ Changed) error {
@@ -457,7 +467,12 @@ func (h runHandler) Apply(ctx context.Context, env core.Env, in SlugInput) (Chan
 	if _, err := (stateHandler{m: h.m}).exists(ctx, env, in.Slug); err != nil {
 		return Changed{}, err
 	}
-	return Changed(in), env.Units.Start(ctx, serviceName(in.Slug))
+	err := env.Units.Start(ctx, serviceName(in.Slug))
+	if jobsOff(err) {
+		// The guard refused before systemd was asked: nothing ran.
+		err = core.Definite(err)
+	}
+	return Changed{Slug: in.Slug}, err
 }
 
 func (h runHandler) Verify(context.Context, core.Env, SlugInput, Changed) error { return nil }

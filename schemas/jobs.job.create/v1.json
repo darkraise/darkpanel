@@ -75,6 +75,10 @@
         "properties": {
           "slug": {
             "type": "string"
+          },
+          "note": {
+            "type": "string",
+            "description": "Set when jobs is off on this host: the job's timer starts when jobs is turned on."
           }
         },
         "type": "object",
