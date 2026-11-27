@@ -207,6 +207,8 @@ func (e *Engine) compositeSteps(ctx context.Context, p core.Principal, def core.
 			return nil, bug("step %s: %s is a controller-side action and takes no host", st.ID, st.Action)
 		case cdef.Spec.Side == core.SideAgent && st.Host == "":
 			return nil, bug("step %s: %s is an agent action and needs a host", st.ID, st.Action)
+		case cdef.Spec.StepUp:
+			return nil, bug("step %s: %s needs StepUp, which a composite step never does", st.ID, st.Action)
 		}
 		switch {
 		case st.Retires != "" && def.Spec.Unwind != core.UnwindForward:

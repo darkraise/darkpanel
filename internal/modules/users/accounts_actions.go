@@ -88,6 +88,8 @@ func (m module) accountActions() []core.ActionDef {
 	create.StepUp = true
 	sudoAdd := compensated("sudo.add", "Add an account to the sudo group.", "sudo.remove")
 	sudoAdd.StepUp = true
+	sudoRemove := compensated("sudo.remove", "Remove an account from the sudo group.", "sudo.add")
+	sudoRemove.UndoStepUp = true
 	passwordSet := forward("password.set", "Set an account's password; it is never logged or returned.")
 	passwordSet.StepUp = true
 	guarded := func(s core.ActionSpec) core.ActionSpec {
@@ -108,7 +110,7 @@ func (m module) accountActions() []core.ActionDef {
 		core.DefineMutating[GuardedNameInput, Changed](guarded(forward("password.remove", "Remove an account's password: its hash becomes *.")),
 			nameGuarded{h: noPasswordHandler{m: m}, m: m, edit: noPasswordEdit}),
 		core.DefineMutating[NameInput, Changed](sudoAdd, sudoHandler{m: m, add: true}),
-		core.DefineMutating[NameInput, Changed](compensated("sudo.remove", "Remove an account from the sudo group.", "sudo.add"), sudoHandler{m: m}),
+		core.DefineMutating[NameInput, Changed](sudoRemove, sudoHandler{m: m}),
 	}
 }
 

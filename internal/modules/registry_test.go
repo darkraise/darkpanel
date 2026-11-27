@@ -507,3 +507,21 @@ func TestSysctlKeysUnique(t *testing.T) {
 		t.Errorf("the registry declares %d sysctl keys of tuning and firewall, want the 16 and 5 they declare", declared)
 	}
 }
+
+func TestShippedUndoStepUp(t *testing.T) {
+	reg := built(t)
+	for name, want := range map[string]bool{
+		"jobs.job.create": true, "jobs.job.update": true, "jobs.job.delete": true,
+		"users.sudo.remove": true, "users.key.remove": true, "users.user.create": true,
+		"jobs.job.enable": false, "services.unit.start": false,
+	} {
+		def, ok := reg.Action(core.ActionRef{Name: name, Version: 1})
+		if !ok {
+			t.Errorf("%s/v1 is not registered", name)
+			continue
+		}
+		if got := def.UndoNeedsStepUp(); got != want {
+			t.Errorf("%s: UndoNeedsStepUp() = %v, want %v", name, got, want)
+		}
+	}
+}

@@ -77,6 +77,7 @@ func (m module) keyActions() []core.ActionDef {
 	add.StepUp = true
 	remove := spec("remove", "Remove an authorized SSH key from an account.", "add")
 	remove.Guards = []core.GuardSpec{{ID: GuardNoWayIn, Overridable: true}}
+	remove.UndoStepUp = true
 	return []core.ActionDef{
 		core.DefineRead[NameInput, KeyList](core.ActionSpec{
 			Name: ID + ".key.list", Version: 1, Class: core.ClassRead, Side: core.SideAgent, Available: keysAvailable,

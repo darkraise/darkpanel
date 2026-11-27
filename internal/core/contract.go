@@ -388,7 +388,12 @@ type ActionSpec struct {
 	LockKeys      []string
 	// StepUp makes the controller refuse the action to a session that has not
 	// given a fresh TOTP code in the last 15 minutes, and to every API token.
-	StepUp        bool
+	StepUp bool
+	// UndoStepUp makes the controller refuse the undo of a change of this
+	// action as StepUp refuses the action itself; compensable only. An undo
+	// that removes access or deletes work needs the same fresh code as the
+	// action that grants or creates it.
+	UndoStepUp    bool
 	CompensatedBy string // compensable only, an action name
 	ForwardOnly   bool   // compensable: never reversed; requires Converges
 	// TypedConfirmation makes a compensable action's apply repeat the phrase
@@ -697,6 +702,10 @@ type ActionDef struct {
 
 // Ref is the action's name and version.
 func (a ActionDef) Ref() ActionRef { return ActionRef{a.Spec.Name, a.Spec.Version} }
+
+// UndoNeedsStepUp reports whether undoing a change of the action needs a
+// step-up: the action's own StepUp, or UndoStepUp.
+func (a ActionDef) UndoNeedsStepUp() bool { return a.Spec.StepUp || a.Spec.UndoStepUp }
 
 // ResourceDef is a read endpoint without input, named "<module>.<resource>",
 // whose schema version is fixed at 1.

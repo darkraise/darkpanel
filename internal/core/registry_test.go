@@ -927,3 +927,62 @@ func TestCompositeRefusesSecret(t *testing.T) {
 		}
 	}
 }
+
+func TestStepUpCombinations(t *testing.T) {
+	with := func(def ActionDef, edit func(*ActionSpec)) ActionDef {
+		edit(&def.Spec)
+		return def
+	}
+	reveal := DefineReveal(ActionSpec{Name: "demo.admin.reveal-password", Version: 1, Side: SideAgent, MinScope: ScopeAdmin}, rvlReveal)
+	breakGlass := mutating("demo.user.create", ClassCompensable, SideController, "")
+	breakGlass.Spec.BreakGlass = true
+	forward := regCompensable("demo.item.pin", ActionSpec{ForwardOnly: true, Converges: true}, echo{})
+	tests := []struct {
+		name string
+		def  ActionDef
+		want []string // nil when the registry is valid
+	}{
+		{"StepUp on a mutating action", with(forward, func(s *ActionSpec) { s.StepUp = true }), nil},
+		{"UndoStepUp on a compensable action", with(forward, func(s *ActionSpec) { s.UndoStepUp = true }), nil},
+		{"StepUp with Reveal", with(reveal, func(s *ActionSpec) { s.StepUp = true }),
+			[]string{"registry: demo.admin.reveal-password: ", "StepUp"}},
+		{"StepUp with BreakGlass", with(breakGlass, func(s *ActionSpec) { s.StepUp = true }),
+			[]string{"registry: demo.user.create: ", "StepUp"}},
+		{"UndoStepUp with Reveal", with(reveal, func(s *ActionSpec) { s.UndoStepUp = true }),
+			[]string{"registry: demo.admin.reveal-password: ", "UndoStepUp"}},
+		{"UndoStepUp on an irreversible action", with(mutating("demo.item.wipe", ClassIrreversible, SideAgent, ""), func(s *ActionSpec) { s.UndoStepUp = true }),
+			[]string{"registry: demo.item.wipe: ", "UndoStepUp"}},
+		{"UndoStepUp on a revertible action", with(revertible("demo.rule.set", SideAgent), func(s *ActionSpec) { s.UndoStepUp = true }),
+			[]string{"registry: demo.rule.set: ", "UndoStepUp"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(testModule{ID: "demo", Version: 1, Actions: []ActionDef{tt.def}})
+			if tt.want == nil {
+				if err != nil {
+					t.Fatalf("NewRegistry: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("NewRegistry accepted %s, want an error containing %q", tt.name, tt.want)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Fatalf("NewRegistry error = %v, want one containing %q", err, w)
+				}
+			}
+		})
+	}
+}
+
+func TestUndoNeedsStepUp(t *testing.T) {
+	for _, tt := range []struct {
+		stepUp, undoStepUp, want bool
+	}{{false, false, false}, {true, false, true}, {false, true, true}, {true, true, true}} {
+		d := ActionDef{Spec: ActionSpec{StepUp: tt.stepUp, UndoStepUp: tt.undoStepUp}}
+		if got := d.UndoNeedsStepUp(); got != tt.want {
+			t.Errorf("StepUp %v, UndoStepUp %v: UndoNeedsStepUp() = %v, want %v", tt.stepUp, tt.undoStepUp, got, tt.want)
+		}
+	}
+}

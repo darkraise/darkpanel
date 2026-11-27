@@ -638,6 +638,12 @@ func checkAction(moduleID string, a ActionDef) error {
 		return fmt.Errorf("action %s: unknown side %q", ref, s.Side)
 	case s.BreakGlass && s.Side != SideController:
 		return fmt.Errorf("action %s: break-glass actions are controller-side", ref)
+	case (s.StepUp || s.UndoStepUp) && s.Reveal:
+		return fmt.Errorf("registry: %s: a reveal action takes neither StepUp nor UndoStepUp", s.Name)
+	case (s.StepUp || s.UndoStepUp) && s.BreakGlass:
+		return fmt.Errorf("registry: %s: a break-glass action takes neither StepUp nor UndoStepUp", s.Name)
+	case s.UndoStepUp && s.Class != ClassCompensable:
+		return fmt.Errorf("registry: %s: UndoStepUp is for compensable actions only, not %s", s.Name, s.Class)
 	case s.Class == ClassRevertible && s.Side != SideAgent:
 		return fmt.Errorf("action %s: revertible actions are agent-side; controller-side actions have no revert timer", ref)
 	case s.Class == ClassRevertible && s.Side == SideAgent && len(s.LockKeys) == 0:

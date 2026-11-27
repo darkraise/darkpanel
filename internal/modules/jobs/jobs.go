@@ -124,6 +124,8 @@ func (m module) actions() []core.ActionDef {
 	create.StepUp = true
 	update := spec("update", "Change a job's schedule, user, command or limits.", core.ClassCompensable)
 	update.StepUp = true
+	del := spec("delete", "Delete a job: stop its timer and remove its files.", core.ClassCompensable)
+	del.UndoStepUp = true
 	run := spec("run", "Run a job now.", core.ClassCompensable)
 	run.ForwardOnly, run.Converges = true, true
 	return []core.ActionDef{
@@ -137,8 +139,7 @@ func (m module) actions() []core.ActionDef {
 		}, scheduleChecker{}),
 		core.DefineMutating[JobInput, Changed](create, writeHandler{m: m, verb: "create"}),
 		core.DefineMutating[JobInput, Changed](update, writeHandler{m: m, verb: "update"}),
-		core.DefineMutating[SlugInput, Changed](spec("delete", "Delete a job: stop its timer and remove its files.", core.ClassCompensable),
-			stateHandler{m: m, verb: "delete"}),
+		core.DefineMutating[SlugInput, Changed](del, stateHandler{m: m, verb: "delete"}),
 		core.DefineMutating[SlugInput, Changed](spec("enable", "Start a job's timer and start it at boot.", core.ClassCompensable),
 			stateHandler{m: m, verb: "enable"}),
 		core.DefineMutating[SlugInput, Changed](spec("disable", "Stop a job's timer and keep it off at boot.", core.ClassCompensable),
