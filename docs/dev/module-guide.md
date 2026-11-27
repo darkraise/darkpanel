@@ -140,7 +140,7 @@ The function you pass takes the context and the `core.Env` and returns the outpu
 |---|---|---|
 | `core.OwnedFile` | A file | |
 | `core.OwnedBlock` | Marked blocks in a shared file | `BlockIDs`, optional `CommentPrefix` (default `#`) |
-| `core.OwnedDir` | A directory | Optional anchored `Pattern` (`^...$`) for the files it holds, written through `core.UnitSetWriter`, which makes it root-owned with mode 0755 and records each file; `Path` is then absolute and clean |
+| `core.OwnedDir` | A directory | Optional anchored `Pattern` (`^...$`) for the files it holds, made root-owned with mode 0755 by `core.DirMaker` and written through `core.UnitSetWriter`, which records each file; `Path` is then absolute and clean |
 | `core.OwnedUser` | A system user; `Path` is the user name | |
 | `core.OwnedUnit` | A systemd unit file | A module other than the core must use `/etc/systemd/system/darkpanel-<name>.service` |
 | `core.OwnedRestore` | A regular file a snapshot may rewrite or remove | `Path` is absolute and clean |
@@ -279,7 +279,7 @@ Owned paths, units and migrations:
 
 - Owned paths follow the kinds of the table in the owned-paths section: a known kind, a unit path of the form `/etc/systemd/system/darkpanel-<name>.service` for any module but the core, absolute and clean paths for `restore`, `managed-dir` and `service-dir` (never `/`), a valid sysctl key with a `Pattern`, a `Pattern` only on `sysctl`, `managed-dir`, `service-dir`, `dir` and `unit-set`, a unit set under its own `darkpanel-<segment>-` prefix in `/etc/systemd/system`, `User` and `Subdirs` only on `service-dir`, and subdirectories that match `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` without repeats.
 - No other module declares the same owned path, user, or marked block id.
-- A module's external units match `^[A-Za-z0-9@._-]+\.service$`, are listed once, and list at least one operation out of `state`, `start`, `stop` and `restart`, each once.
+- A module's external units match `^[A-Za-z0-9@._-]+\.service$`, are listed once, and list at least one operation out of `state`, `start`, `stop`, `restart` and `reload`, each once.
 - `Migrations` has only the keys `core.SideController` and `core.SideAgent`.
 
 Streams and background tasks:
