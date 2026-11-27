@@ -131,16 +131,18 @@ function Lines({ entries, follow, onPaused }: { entries: JournalEntry[]; follow:
       }}
       className="max-h-[28rem] overflow-auto rounded-md bg-muted p-3 font-mono text-xs"
     >
-      <ol>
+      <ol className="@container">
         {entries.map((e, i) => (
-          <li key={`${e.time}-${i}`} className="grid grid-cols-[9ch_8ch_minmax(0,1fr)] gap-x-2 sm:grid-cols-[9ch_8ch_minmax(0,16ch)_1fr]">
+          <li key={`${e.time}-${i}`} className="grid grid-cols-[9ch_8ch_minmax(0,1fr)] gap-x-2 @xl:grid-cols-[9ch_8ch_minmax(0,16ch)_1fr]">
             <span>{time(e.time)}</span>
             <span>{e.priority === null ? "" : (PRIORITIES[e.priority] ?? String(e.priority))}</span>
             <span className="truncate" title={e.unit}>
               {e.unit ?? ""}
             </span>
-            {/* Below 640 px the message takes its own line, full width. */}
-            <span className="col-span-3 break-all whitespace-pre-wrap sm:col-span-1">{e.truncated ? `${e.message}… (truncated)` : e.message}</span>
+            {/* In a frame under 36rem the message takes its own line, full
+                width: the frame, not the viewport, decides, because the
+                sidebar takes a third of a 768 px screen. */}
+            <span className="col-span-3 break-all whitespace-pre-wrap @xl:col-span-1">{e.truncated ? `${e.message}… (truncated)` : e.message}</span>
           </li>
         ))}
       </ol>
