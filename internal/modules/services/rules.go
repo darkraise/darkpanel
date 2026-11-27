@@ -169,10 +169,10 @@ func refusal(ctx context.Context, u core.UnitInfo, o op, inspect func(context.Co
 
 // demands is what o on u asks of the caller beyond the action's own scope.
 type demands struct {
-	admin  bool   // the caller needs admin on the host
-	phrase bool   // apply repeats the unit name
-	module string // the module whose pending changes refuse the action
-	pulled []pulledUnit
+	admin   bool     // the caller needs admin on the host
+	phrase  bool     // apply repeats the unit name
+	modules []string // the modules whose pending changes refuse the action
+	pulled  []pulledUnit
 }
 
 // pulledUnit is a unit that an op on the target also changes, one level
@@ -257,10 +257,20 @@ func pulledRefusal(pulled []pulledUnit) error {
 	return nil
 }
 
+// merge adds what e asks to d, keeping each module once, in order.
+func (d *demands) merge(e demands) {
+	d.admin, d.phrase = d.admin || e.admin, d.phrase || e.phrase
+	for _, m := range e.modules {
+		if !slices.Contains(d.modules, m) {
+			d.modules = append(d.modules, m)
+		}
+	}
+}
+
 func demandsOf(u core.UnitInfo, o op) demands {
 	var d demands
 	if m, ok := managedBy(u); ok {
-		d = demands{admin: true, phrase: true, module: m}
+		d = demands{admin: true, phrase: true, modules: []string{m}}
 	}
 	if acts(u.FailureAction) || acts(u.JobTimeoutAction) || acts(u.StartLimitAction) {
 		d.admin, d.phrase = true, true
@@ -305,14 +315,21 @@ func (m module) guards(ctx context.Context, env core.Env, u core.UnitInfo, o op,
 		guards = append(guards, core.Guard{ID: GuardNetworkStack, Message: fmt.Sprintf(
 			"The agent reaches the controller through the network stack; %s stays running, and %s", n, p.text)})
 	}
-	if d.module != "" {
-		busy, err := moduleBusy(ctx, env, d.module)
-		if err != nil {
-			return nil, nil, err
+	if len(d.modules) > 0 {
+		var busy []string
+		for _, mod := range d.modules {
+			b, err := moduleBusy(ctx, env, mod)
+			if err != nil {
+				return nil, nil, err
+			}
+			if b {
+				busy = append(busy, mod)
+			}
 		}
-		g := core.Guard{ID: GuardModuleChange, OK: !busy, Message: fmt.Sprintf("module %s has no change in flight", d.module)}
-		if busy {
-			g.Message = fmt.Sprintf("module %s has a change applying or awaiting confirmation; let it finish first", d.module)
+		g := core.Guard{ID: GuardModuleChange, OK: len(busy) == 0,
+			Message: fmt.Sprintf("module %s has no change in flight", strings.Join(d.modules, ", "))}
+		if len(busy) > 0 {
+			g.Message = fmt.Sprintf("module %s has a change applying or awaiting confirmation; let it finish first", strings.Join(busy, ", "))
 		}
 		guards = append(guards, g)
 	}

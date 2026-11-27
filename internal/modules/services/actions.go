@@ -82,11 +82,7 @@ func (h unitHandler) check(ctx context.Context, env core.Env, in UnitInput) (cor
 			if err != nil {
 				return core.UnitInfo{}, demands{}, err
 			}
-			td := demandsOf(t, opStart)
-			d.admin, d.phrase = d.admin || td.admin, d.phrase || td.phrase
-			if d.module == "" {
-				d.module = td.module
-			}
+			d.merge(demandsOf(t, opStart))
 		}
 	}
 	admin, err := unitAdmin(env)
@@ -108,10 +104,7 @@ func (h unitHandler) check(ctx context.Context, env core.Env, in UnitInput) (cor
 		if p.need.admin && core.RequireScope(env, core.ScopeAdmin) != nil {
 			return core.UnitInfo{}, demands{}, core.Definite(errcode.New(errcode.Forbidden, p.text+", which needs admin"))
 		}
-		d.admin, d.phrase = d.admin || p.need.admin, d.phrase || p.need.phrase
-		if d.module == "" {
-			d.module = p.need.module
-		}
+		d.merge(p.need)
 	}
 	if (h.op == opEnable || h.op == opDisable) && u.UnitFileState != "enabled" && u.UnitFileState != "disabled" {
 		state := u.UnitFileState

@@ -303,6 +303,10 @@ func TestDependencyDemands(t *testing.T) {
 		}),
 		unit("dbus.service"),
 		unit("qux.service"),
+		unit("both.service", func(u *core.UnitInfo) {
+			u.Requires = []string{"docker.service"}
+			u.Wants = []string{"nftables.service"}
+		}),
 	)
 	r.onTailnet = true
 	refused := func(o op, name, detail string) {
@@ -348,5 +352,12 @@ func TestDependencyDemands(t *testing.T) {
 	}
 	if out, err := r.plan(opStop, operatorP, "qux.service"); err != nil || len(out.Guards) != 0 {
 		t.Errorf("stop qux.service as an operator: %+v, %v; want a plan with no guard", out, err)
+	}
+
+	// Every module a pulled unit belongs to is checked, not only the first.
+	r.pending("firewall.x.set", core.StateApplying)
+	out, err = r.plan(opStart, adminP, "both.service")
+	if g, ok := guard(out, GuardModuleChange); err != nil || !ok || g.OK || !strings.Contains(g.Message, "firewall") {
+		t.Errorf("start both.service with a firewall change applying: %+v, %v; want %s failing, naming firewall", out, err, GuardModuleChange)
 	}
 }
