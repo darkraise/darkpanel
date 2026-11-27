@@ -3,12 +3,15 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/coretest"
@@ -44,6 +47,7 @@ type preflightGate struct {
 	armed   bool
 	entered chan struct{}
 	release chan struct{}
+	fail    error // what the held check returns once released
 }
 
 func (g *preflightGate) arm() {
@@ -52,15 +56,17 @@ func (g *preflightGate) arm() {
 	g.armed, g.entered, g.release = true, make(chan struct{}), make(chan struct{})
 }
 
-func (g *preflightGate) wait() {
+func (g *preflightGate) wait() error {
 	g.mu.Lock()
-	armed, entered, release := g.armed, g.entered, g.release
+	armed, entered, release, fail := g.armed, g.entered, g.release, g.fail
 	g.armed = false
 	g.mu.Unlock()
 	if armed {
 		close(entered)
 		<-release
+		return fail
 	}
+	return nil
 }
 
 func (m policyModule) Manifest() core.Manifest {
@@ -69,8 +75,7 @@ func (m policyModule) Manifest() core.Manifest {
 	}}
 	if m.gate != nil {
 		man.Preflight = []core.PreflightCheck{{ID: "gate", Run: func(context.Context, core.Env) error {
-			m.gate.wait()
-			return nil
+			return m.gate.wait()
 		}}}
 	}
 	return man
@@ -347,5 +352,81 @@ func TestPolicyReloadDuringPreflight(t *testing.T) {
 	f.wantDenied("jobs")
 	if f.rt.taskModuleAvailable("jobs") {
 		t.Error("background tasks may run for jobs after the reload denied it")
+	}
+}
+
+// TestPreflightAfterReload drops a module check that a policy reload
+// outdated: a jobs check held across a deny and an allow returns a result
+// from before them, which must not overwrite the status the reloads stored.
+// A held jobs check also keeps no other module waiting.
+func TestPreflightAfterReload(t *testing.T) {
+	ctx := context.Background()
+	gate := &preflightGate{}
+	f, _, _ := policyFixtureGated(t, "", gate)
+	gate.arm()
+	gate.fail = errors.New("jobs: the host is not ready")
+	done := make(chan core.ModuleStatus, 1)
+	go func() {
+		st, err := f.rt.Preflight(ctx, "jobs")
+		if err != nil {
+			t.Error(err)
+		}
+		done <- st
+	}()
+	<-gate.entered
+	for _, text := range []string{`{"denyModules":["jobs"]}`, `{"denyModules":[]}`} {
+		writePolicy(t, f.dir, text, 0o644)
+		if err := f.rt.ReloadPolicy(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if st := f.helloStatus("jobs"); !st.Available {
+		t.Fatalf("jobs after the reloads = %+v, want available", st)
+	}
+	close(gate.release)
+	select {
+	case st := <-done:
+		if !st.Available {
+			t.Errorf("Preflight held across the reloads = %+v, want available from a check made after them", st)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the held Preflight never returned")
+	}
+	if st := f.helloStatus("jobs"); !st.Available {
+		t.Errorf("jobs after the held Preflight = %+v, want available", st)
+	}
+
+	gate.arm()
+	gate.fail = nil
+	held := make(chan error, 1)
+	go func() {
+		_, err := f.rt.Preflight(ctx, "jobs")
+		held <- err
+	}()
+	<-gate.entered
+	within := func(name string, call func() error) {
+		t.Helper()
+		res := make(chan error, 1)
+		go func() { res <- call() }()
+		select {
+		case err := <-res:
+			if err != nil {
+				t.Errorf("%s while a jobs check is held: %v", name, err)
+			}
+		case <-time.After(time.Second):
+			t.Errorf("%s waited for the held jobs check", name)
+		}
+	}
+	within(`usable("console.terminal")`, func() error { return f.rt.usable("console.terminal") })
+	within(`Preflight(console)`, func() error {
+		st, err := f.rt.Preflight(ctx, "console")
+		if err == nil && !st.Available {
+			err = fmt.Errorf("console = %+v, want available", st)
+		}
+		return err
+	})
+	close(gate.release)
+	if err := <-held; err != nil {
+		t.Error(err)
 	}
 }

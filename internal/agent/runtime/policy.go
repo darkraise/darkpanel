@@ -16,6 +16,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/darkraise/darkpanel/internal/core"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
@@ -190,6 +191,7 @@ func (r *Runtime) ReloadPolicy(ctx context.Context) error {
 	r.statusMu.Lock()
 	old := r.policy
 	r.policy = p
+	r.policyGen++
 	r.statusMu.Unlock()
 	r.cfg.Log.Info("runtime: policy file read", "policy", p.String())
 	// The policy is in force now, so a failure on one module must not keep
@@ -218,6 +220,29 @@ func (r *Runtime) ReloadPolicy(ctx context.Context) error {
 		return fmt.Errorf("runtime: the policy is in force, but: %w", err)
 	}
 	return nil
+}
+
+// policyGeneration is the count of policy reloads so far.
+func (r *Runtime) policyGeneration() uint64 {
+	r.statusMu.Lock()
+	defer r.statusMu.Unlock()
+	return r.policyGen
+}
+
+// setStatusAt stores st as setStatus does, unless a reload ran since the
+// generation gen that st's check began under; ok is false then, and the
+// status stays the one the reload stored.
+func (r *Runtime) setStatusAt(st core.ModuleStatus, gen uint64) (core.ModuleStatus, bool) {
+	r.statusMu.Lock()
+	defer r.statusMu.Unlock()
+	if r.policyGen != gen {
+		return st, false
+	}
+	if r.policy.Denied(st.ID) {
+		st.Available, st.Reason = false, PolicyReason
+	}
+	r.status[st.ID] = st
+	return st, true
 }
 
 // deniedError is the refusal of an enable the policy file denies.

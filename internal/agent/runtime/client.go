@@ -43,7 +43,17 @@ func (r *Runtime) Preflight(ctx context.Context, moduleID string) (core.ModuleSt
 	if !ok {
 		return core.ModuleStatus{}, errcode.New(errcode.NotFound, fmt.Sprintf("no module %s", moduleID))
 	}
-	st := r.setStatus(r.check(ctx, m))
+	// The check runs without a lock, so other modules never wait on it. A
+	// reload while it ran may have outdated its result, which is then
+	// dropped and the check run again.
+	var st core.ModuleStatus
+	for {
+		gen := r.policyGeneration()
+		var ok bool
+		if st, ok = r.setStatusAt(r.check(ctx, m), gen); ok {
+			break
+		}
+	}
 	if err := r.syncTasks(ctx, moduleID); err != nil {
 		r.cfg.Log.Error("runtime: background tasks after a preflight", "module", moduleID, "error", err)
 	}

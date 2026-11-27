@@ -124,6 +124,9 @@ type Runtime struct {
 	status   map[string]core.ModuleStatus
 	broken   map[string]bool // modules whose migrations failed; unusable until a restart
 	policy   Policy          // the host-local policy file's, from Open on
+	// policyGen counts ReloadPolicy calls, so Preflight can tell that a
+	// reload ran while its check did and drop the check's result.
+	policyGen uint64
 
 	bg *background // the modules' background tasks, from the end of Open
 
