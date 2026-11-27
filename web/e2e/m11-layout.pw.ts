@@ -393,10 +393,12 @@ for (const theme of THEMES) {
       await expect(shown.getByText("Failed", { exact: true })).toHaveCount(2)
       await page.getByLabel("State").selectOption("all")
 
-      // The keyboard walk: the search field, the state filter, then the first row's menu.
+      // The keyboard walk: the search field, the state filter, the table's scroller, then the first row's menu.
       await search.focus()
       await page.keyboard.press("Tab")
       await expect(page.getByLabel("State")).toBeFocused()
+      await page.keyboard.press("Tab")
+      await expect(page.getByRole("region", { name: "Units table" })).toBeFocused()
       await page.keyboard.press("Tab")
       await expect(page.getByRole("button", { name: /^Actions for / }).first()).toBeFocused()
 
@@ -993,7 +995,9 @@ for (const theme of THEMES) {
       await expect(dialog.getByLabel("Authenticator code")).toBeFocused()
       await page.keyboard.press("Escape")
       await expect(dialog).toBeHidden()
-      await expect(add, "focus returns to the button that opened the form").toBeFocused()
+      const back = dialogOf(page, "Add a user on web-1")
+      await expect(back.getByLabel("Name"), "focus returns to the form that asked, its values kept").toBeFocused()
+      await expect(back.getByLabel("Name")).toHaveValue("dave")
     })
 
     // UI-5, UX-8: the terminal connected, its toolbar, key bar, resize and focus shortcut.
@@ -1237,6 +1241,8 @@ for (const theme of THEMES) {
       await snap(page, here, "files", "conflict")
       await page.unroute(/\/files\/write/, conflict)
       await page.getByRole("button", { name: "Close", exact: true }).click()
+      await expect(page.getByText("Discard your changes to /etc/hosts?", { exact: true })).toBeVisible()
+      await page.getByRole("button", { name: "Discard changes", exact: true }).click()
 
       await page.route(/\/files\/read/, (route) => (new URL(route.request().url()).searchParams.get("path") === "/etc" ? route.fulfill({ status: 200, contentType: "text/plain", body: "" }) : route.fallback()))
       await page.route(/\/files\/upload/, () => {})
