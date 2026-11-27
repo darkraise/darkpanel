@@ -18672,6 +18672,7 @@
             ]
           },
           "truncated": {
+            "description": "Whether the unit file text was cut at 64 KiB.",
             "type": "boolean"
           },
           "type": {
@@ -18681,6 +18682,7 @@
             "type": "string"
           },
           "unitFileText": {
+            "description": "The unit file text, at most 64 KiB; empty unless the caller has the admin scope, since a unit can hold secrets.",
             "type": "string"
           }
         },

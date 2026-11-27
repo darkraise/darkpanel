@@ -37,11 +37,16 @@ func (m module) Manifest() core.Manifest {
 // opened from a Tailscale address: the agent dials its controller, and a
 // connection routed through tailscale0 leaves from the node's address.
 func liveAgentOnTailnet(context.Context) (bool, error) {
-	socks, err := netstat.Sockets()
+	return agentOnTailnet(netstat.Sockets, os.Getpid())
+}
+
+// agentOnTailnet is liveAgentOnTailnet over the socket table sockets
+// returns, for the process pid.
+func agentOnTailnet(sockets func() ([]netstat.Socket, error), pid int) (bool, error) {
+	socks, err := sockets()
 	if err != nil {
 		return false, fmt.Errorf("services: read the socket table: %w", err)
 	}
-	pid := os.Getpid()
 	listening := map[uint16]bool{}
 	for _, s := range socks {
 		if s.Proto == netstat.ProtoTCP && s.State == netstat.StateListen {

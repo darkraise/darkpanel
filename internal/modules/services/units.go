@@ -58,8 +58,8 @@ type UnitDetail struct {
 	Restarts      uint32     `json:"restarts"`
 	StartedAt     *time.Time `json:"startedAt,omitempty" jsonschema:"nullable"`
 	UnitFile      string     `json:"unitFile,omitempty"`
-	UnitFileText  string     `json:"unitFileText,omitempty"` // at most 64 KiB
-	Truncated     bool       `json:"truncated,omitempty"`
+	UnitFileText  string     `json:"unitFileText,omitempty" jsonschema_description:"The unit file text, at most 64 KiB; empty unless the caller has the admin scope, since a unit can hold secrets."`
+	Truncated     bool       `json:"truncated,omitempty" jsonschema_description:"Whether the unit file text was cut at 64 KiB."`
 	DropIns       []string   `json:"dropIns"`
 }
 
@@ -144,7 +144,10 @@ func (getHandler) Read(ctx context.Context, env core.Env, in GetInput) (UnitDeta
 		return UnitDetail{}, err
 	}
 	d := UnitDetail{Unit: listUnit(u), MemoryCurrent: u.MemoryCurrent, Tasks: u.TasksCurrent, Restarts: u.Restarts,
-		UnitFile: u.FragmentPath, UnitFileText: u.FileText, Truncated: u.FileTruncated, DropIns: u.DropInPaths}
+		UnitFile: u.FragmentPath, DropIns: u.DropInPaths}
+	if core.RequireScope(env, core.ScopeAdmin) == nil {
+		d.UnitFileText, d.Truncated = u.FileText, u.FileTruncated
+	}
 	if d.DropIns == nil {
 		d.DropIns = []string{}
 	}

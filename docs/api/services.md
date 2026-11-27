@@ -163,10 +163,10 @@ Returned in the `output` field of the response.
 | `startedAt` | string (date-time) or null | no |  |
 | `sub` | string | yes |  |
 | `tasks` | integer or null | no |  |
-| `truncated` | boolean | no |  |
+| `truncated` | boolean | no | Whether the unit file text was cut at 64 KiB. |
 | `type` | string | yes |  |
 | `unitFile` | string | no |  |
-| `unitFileText` | string | no |  |
+| `unitFileText` | string | no | The unit file text, at most 64 KiB; empty unless the caller has the admin scope, since a unit can hold secrets. |
 
 ## services.unit.list v1
 

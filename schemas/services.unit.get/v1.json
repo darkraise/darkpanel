@@ -90,10 +90,12 @@
             "type": "string"
           },
           "unitFileText": {
-            "type": "string"
+            "type": "string",
+            "description": "The unit file text, at most 64 KiB; empty unless the caller has the admin scope, since a unit can hold secrets."
           },
           "truncated": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the unit file text was cut at 64 KiB."
           },
           "dropIns": {
             "items": {

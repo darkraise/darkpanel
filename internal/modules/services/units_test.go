@@ -248,7 +248,7 @@ func TestUnitGet(t *testing.T) {
 		u.FragmentPath, u.FileText, u.FileTruncated = "/lib/systemd/system/nginx.service", text, true
 		u.DropInPaths = []string{"/etc/systemd/system/nginx.service.d/override.conf"}
 	}))
-	got, err := getHandler{}.Read(context.Background(), r.env(operatorP), GetInput{Unit: "nginx.service"})
+	got, err := getHandler{}.Read(context.Background(), r.env(adminP), GetInput{Unit: "nginx.service"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,6 +261,30 @@ func TestUnitGet(t *testing.T) {
 	for name, code := range map[string]errcode.Code{"nginx": errcode.InvalidInput, "missing.service": errcode.NotFound, "a b.service": errcode.InvalidInput} {
 		_, err := getHandler{}.Read(context.Background(), r.env(operatorP), GetInput{Unit: name})
 		wantCode(t, "get "+name, err, code)
+	}
+}
+
+func TestUnitTextNeedsAdmin(t *testing.T) {
+	const text = "[Service]\nEnvironment=DB_PASSWORD=x\nExecStart=/usr/bin/app\n"
+	r := newRig(t, unit("app.service", func(u *core.UnitInfo) {
+		u.FragmentPath, u.FileText = "/etc/systemd/system/app.service", text
+	}))
+	readP := core.Principal{Actor: "user:ro", UserID: "ro", Source: "192.0.2.3", Access: core.Access{All: core.ScopeRead}}
+	for _, p := range []core.Principal{readP, operatorP} {
+		got, err := getHandler{}.Read(context.Background(), r.env(p), GetInput{Unit: "app.service"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.UnitFileText != "" || got.UnitFile != "/etc/systemd/system/app.service" {
+			t.Errorf("get as %s: unitFile %q, unitFileText %q, want the path and no text", p.Actor, got.UnitFile, got.UnitFileText)
+		}
+	}
+	got, err := getHandler{}.Read(context.Background(), r.env(adminP), GetInput{Unit: "app.service"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.UnitFileText, "DB_PASSWORD=x") {
+		t.Errorf("get as admin: unitFileText %q, want the unit text", got.UnitFileText)
 	}
 }
 
