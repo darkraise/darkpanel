@@ -205,6 +205,11 @@ type ModuleJournal interface {
 	Record(ctx context.Context, e JournalEntry) error
 }
 
+// ModuleJournalPhases are the phases a ModuleJournal records: the console's
+// terminal open and close and file intent and result, which the
+// controller's audit admits (migration 0021).
+var ModuleJournalPhases = []string{"open", "close", "intent", "result"}
+
 // HomeFiles reads and writes ~user/.ssh/authorized_keys with sshd's
 // StrictModes checks (ADR 0020). A missing .ssh or file reads as nil.
 type HomeFiles interface {
@@ -935,12 +940,14 @@ type Ownership interface {
 
 // JournalEntry is one lifecycle event of a change.
 type JournalEntry struct {
-	Seq       int64 // assigned by the agent journal; 0 on the controller side
-	At        time.Time
-	Actor     string
-	Action    string
-	Version   int
-	Phase     string // "apply", "confirm", "revert", "recover", "interrupt"
+	Seq     int64 // assigned by the agent journal; 0 on the controller side
+	At      time.Time
+	Actor   string
+	Action  string
+	Version int
+	// Phase is a change's "apply", "confirm", "revert", "recover" or
+	// "interrupt", or a module journal's phase (ModuleJournalPhases).
+	Phase     string
 	ChangeID  string
 	Input     json.RawMessage // already redacted
 	Result    string          // "ok", "error"

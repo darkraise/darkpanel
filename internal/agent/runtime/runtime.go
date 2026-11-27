@@ -506,6 +506,11 @@ func (g filesGuard) RemoveTemp(ctx context.Context, path string) error {
 type moduleJournal struct{ r *Runtime }
 
 func (j moduleJournal) Record(ctx context.Context, e core.JournalEntry) error {
+	// The controller's audit takes a closed list of phases; an entry it
+	// refuses would stop this host's ingestion.
+	if !slices.Contains(core.ModuleJournalPhases, e.Phase) {
+		return fmt.Errorf("runtime: journal phase %q is not one of %v", e.Phase, core.ModuleJournalPhases)
+	}
 	if e.At.IsZero() {
 		e.At = j.r.cfg.Clock.Now()
 	}

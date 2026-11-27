@@ -258,4 +258,12 @@ func TestModuleJournal(t *testing.T) {
 		string(got.Input) != string(e.Input) || got.Source != e.Source || got.Result != e.Result {
 		t.Errorf("journal entry = %+v, want %+v at the runtime's clock", got, e)
 	}
+	// A phase the controller's audit refuses would stop the host's ingestion.
+	e.Phase = "opened"
+	if err := f.rt.moduleEnv("console").Journal.Record(ctx, e); err == nil {
+		t.Error("a module journal entry in phase opened was recorded")
+	}
+	if es2, _ := f.rt.Journal(ctx, 0, 0); len(es2) != len(es) {
+		t.Errorf("the refused entry reached the journal: %d entries, want %d", len(es2), len(es))
+	}
 }
