@@ -235,7 +235,7 @@ Check a calendar expression and show its next three runs.
 |---|---|
 | read | `POST /api/v1/hosts/{host}/actions/jobs.schedule.check/v1/read` |
 
-Minimum scope: `read`.
+Minimum scope: `admin`.
 
 ### Input
 
