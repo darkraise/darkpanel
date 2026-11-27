@@ -247,9 +247,13 @@ func (m *module) recordOp(ctx context.Context, env core.Env, op string, intent f
 	ctx = context.WithoutCancel(ctx)
 	if err := recordFile(ctx, env, action, PhaseResult, env.Principal.Actor, env.Clock.Now(), res, opErr); err != nil {
 		// The row keeps no result, so the next start journals the
-		// operation as interrupted rather than not at all.
+		// operation as interrupted rather than not at all; the caller
+		// learns its result went unrecorded.
 		env.Log.Error("console: journal a file result", "action", action, "error", err)
-		return opErr
+		if opErr != nil {
+			return opErr
+		}
+		return fmt.Errorf("console: the %s was done, but its result was not recorded: %w", op, err)
 	}
 	result := resultOK
 	if opErr != nil {
