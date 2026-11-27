@@ -162,13 +162,12 @@ function KeyRow({ k, admin, draft, onDraft }: { k: SysctlKey; admin: boolean; dr
         {unavailable !== "" ? null : (
           <div className="flex flex-col items-start gap-1">
             {owner !== "" && <Badge variant="outline">{`Managed by ${owner}`}</Badge>}
-            {admin && (
+            {admin && owner === "" && (
               <Input
                 id={id}
                 aria-label={`${k.key} at boot`}
                 value={value}
                 placeholder={k.live}
-                disabled={owner !== ""}
                 onChange={(e) => onDraft(e.target.value)}
                 aria-invalid={error !== null}
                 aria-describedby={error !== null ? `${id}-error` : undefined}

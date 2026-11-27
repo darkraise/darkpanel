@@ -42,10 +42,10 @@ describe("tuning flows", () => {
     expect(screen.getByRole("button", { name: "Review changes" })).toHaveProperty("disabled", false)
   })
 
-  test("a firewall-owned key shows Managed by firewall and is disabled", async () => {
+  test("a firewall-owned key shows Managed by firewall and no input", async () => {
     render()
     expect(await screen.findByText("Managed by firewall")).toBeTruthy()
-    expect(screen.getByLabelText("net.ipv4.ip_forward at boot")).toHaveProperty("disabled", true)
+    expect(screen.queryByLabelText("net.ipv4.ip_forward at boot")).toBeNull()
   })
 
   test("a key a later file sets shows the boot-override warning naming it", async () => {
