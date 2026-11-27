@@ -138,3 +138,25 @@ func TestStepUpRateLimit(t *testing.T) {
 	_, err := s.Login(ctx, LoginRequest{Username: "alice", Password: testPassword, Code: right, Source: "10.0.0.1"})
 	wantStepUpCode(t, "sign-in after the wrong step-up codes", err, errcode.RateLimited)
 }
+
+// TestStepUpOnAnotherUsersSession: a code against a session that is not the
+// caller's elevates nothing, answers auth.required and leaves the code's
+// step unspent, all in one transaction.
+func TestStepUpOnAnotherUsersSession(t *testing.T) {
+	s, clock, _ := newTestService(t)
+	alice, secret := createActive(t, s, clock, "alice")
+	bob, _ := createActive(t, s, clock, "bob")
+	bobs, _ := newSession(t, s, bob.ID)
+	code, err := TOTPCode(secret, clock.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, s.StepUp(context.Background(), stepUpPrincipal(alice), bobs, code), errcode.AuthRequired)
+	if elevated(t, s, bobs) {
+		t.Error("bob's session is elevated by alice's code")
+	}
+	alices, _ := newSession(t, s, alice.ID)
+	if err := s.StepUp(context.Background(), stepUpPrincipal(alice), alices, code); err != nil {
+		t.Errorf("the same code on alice's own session: %v; the refused step-up spent it", err)
+	}
+}
