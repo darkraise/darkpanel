@@ -228,6 +228,10 @@ func TestA26_RuntimeRefusesJobStartsWhileJobsIsOffOrDenied(t *testing.T) {
 	}
 	assertRefused("while jobs is turned off")
 
+	// With the flag back on, only the policy can refuse.
+	if err := f.rt.SetModuleEnabled(ctx, "jobs", true); err != nil {
+		t.Fatal(err)
+	}
 	writePolicy(t, f.dir, `{"denyModules":["jobs"]}`, 0o644)
 	if err := f.rt.ReloadPolicy(ctx); err != nil {
 		t.Fatal(err)
@@ -236,9 +240,6 @@ func TestA26_RuntimeRefusesJobStartsWhileJobsIsOffOrDenied(t *testing.T) {
 
 	writePolicy(t, f.dir, `{"denyModules":[]}`, 0o644)
 	if err := f.rt.ReloadPolicy(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.rt.SetModuleEnabled(ctx, "jobs", true); err != nil {
 		t.Fatal(err)
 	}
 	units.reset()
