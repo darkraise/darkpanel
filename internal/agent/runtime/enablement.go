@@ -59,7 +59,9 @@ func (r *Runtime) SetModuleEnabled(ctx context.Context, moduleID string, enabled
 
 // callHook calls moduleID's EnablementHook, when it has one, with enabled,
 // or with false when the policy file denies the module. The flag is stored
-// already, so a failing or panicking hook is logged and the flag stands.
+// already, so a failing or panicking hook is logged and the flag stands. An
+// off call holds offMu's write side, so it waits for a guarded start that
+// passed its check before the flag changed.
 func (r *Runtime) callHook(ctx context.Context, moduleID string, enabled bool) {
 	h, ok := r.cfg.Registry.EnablementHook(moduleID)
 	if !ok {
@@ -67,6 +69,10 @@ func (r *Runtime) callHook(ctx context.Context, moduleID string, enabled bool) {
 	}
 	enabled = enabled && !r.Policy().Denied(moduleID)
 	err := lifecycle.Protect(r.cfg.Log, moduleID, "enablement hook", func() error {
+		if !enabled {
+			r.offMu.Lock()
+			defer r.offMu.Unlock()
+		}
 		return h.OnEnabled(ctx, r.moduleEnv(moduleID), enabled)
 	})
 	if err != nil {

@@ -15,7 +15,9 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -132,6 +134,11 @@ type Runtime struct {
 	// enableMu orders flag changes and policy reloads, so the last one's
 	// hook call matches the stored flag and the policy in force.
 	enableMu sync.Mutex
+	// offMu orders the jobs unit guard against off hooks: the guard holds
+	// the read side across its check and the start it allows, and callHook
+	// holds the write side while a hook turns a module off, so the hook
+	// stops every timer a start that passed the check started.
+	offMu sync.RWMutex
 
 	// loopMu is held while a purge runs, so Close waits for it.
 	loopMu sync.Mutex
@@ -171,7 +178,14 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	r.base = core.Env{
 		HostID: cfg.HostID, DB: cfg.DB, Exec: cfg.Exec, Files: files, Sealer: cfg.Sealer, Clock: cfg.Clock, Log: cfg.Log,
 	}
-	r.moduleUnits = platform.ModuleUnits(cfg.Units, cfg.Registry)
+	scoped := platform.ModuleUnits(cfg.Units, cfg.Registry)
+	r.moduleUnits = func(module string) core.Units {
+		u := scoped(module)
+		if module == jobsModule && u != nil {
+			return jobsGuard{Units: u, r: r}
+		}
+		return u
+	}
 	r.journal = lifecycle.NewAgentJournal(cfg.DB)
 	eng, err := lifecycle.New(lifecycle.Config{
 		Side: core.SideAgent, Registry: cfg.Registry, Validator: schema.NewValidator(), Journal: r.journal,
@@ -182,11 +196,13 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, fmt.Errorf("runtime: %w", err)
 	}
 	r.engine = eng
+	// Recovery resumes changes through the jobs unit guard, which reads the
+	// policy, so the policy is in force first.
+	r.loadPolicy()
 	if err := eng.Recover(ctx); err != nil {
 		eng.Close()
 		return nil, fmt.Errorf("runtime: recover: %w", err)
 	}
-	r.loadPolicy()
 	for _, m := range r.modules() {
 		r.setStatus(r.check(ctx, m))
 	}
@@ -376,6 +392,84 @@ func (g shellGuard) Start(ctx context.Context, cols, rows uint16) (core.ShellSes
 		return nil, errcode.New(errcode.Unavailable, "this agent cannot start a terminal")
 	}
 	return g.r.cfg.Shell.Start(ctx, cols, rows)
+}
+
+// jobsModule is the one module whose unit client is jobsGuard.
+const jobsModule = "jobs"
+
+// jobUnitPrefix starts the name of each job's service and timer.
+const jobUnitPrefix = "darkpanel-job-"
+
+// jobsGuard is the jobs module's unit client: Start, Restart and Enable of a
+// job unit first check, as the call is made, that the policy file does not
+// deny jobs and that its enabled flag is 1, so no job starts while jobs is
+// off, a change recovery resumes included. The check and the call hold
+// offMu's read side. Stop, Disable and every read take no lock: the off
+// hook makes them through this client while callHook holds the write side.
+type jobsGuard struct {
+	core.Units
+	r *Runtime
+}
+
+var _ core.TimerReader = jobsGuard{}
+
+// jobsOff is the guard's refusal; the jobs module tells it from a unit
+// failure by its code.
+func jobsOff() error {
+	return errcode.New(errcode.ModuleUnavailable, "jobs is off on this host")
+}
+
+func isJobUnit(name string) bool {
+	return strings.HasPrefix(filepath.Base(name), jobUnitPrefix)
+}
+
+// guarded runs call under offMu's read side once the check passes for
+// units; a call that names no job unit runs unchecked.
+func (g jobsGuard) guarded(ctx context.Context, units []string, call func() error) error {
+	if !slices.ContainsFunc(units, isJobUnit) {
+		return call()
+	}
+	g.r.offMu.RLock()
+	defer g.r.offMu.RUnlock()
+	if g.r.Policy().Denied(jobsModule) {
+		return jobsOff()
+	}
+	enabled, err := g.r.moduleEnabled(ctx, jobsModule)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return jobsOff()
+	}
+	return call()
+}
+
+func (g jobsGuard) Start(ctx context.Context, unit string) error {
+	return g.guarded(ctx, []string{unit}, func() error { return g.Units.Start(ctx, unit) })
+}
+
+func (g jobsGuard) Restart(ctx context.Context, unit string) error {
+	return g.guarded(ctx, []string{unit}, func() error { return g.Units.Restart(ctx, unit) })
+}
+
+func (g jobsGuard) Enable(ctx context.Context, unitFiles ...string) error {
+	return g.guarded(ctx, unitFiles, func() error { return g.Units.Enable(ctx, unitFiles...) })
+}
+
+func (g jobsGuard) Timers(ctx context.Context) ([]core.TimerInfo, error) {
+	tr, ok := g.Units.(core.TimerReader)
+	if !ok {
+		return nil, errors.New("runtime: the unit client cannot list timers")
+	}
+	return tr.Timers(ctx)
+}
+
+func (g jobsGuard) LastRun(ctx context.Context, unit string) (core.ServiceRun, error) {
+	tr, ok := g.Units.(core.TimerReader)
+	if !ok {
+		return core.ServiceRun{}, errors.New("runtime: the unit client cannot read runs")
+	}
+	return tr.LastRun(ctx, unit)
 }
 
 // filesGuard is the console's Env.ConsoleFS: each call first checks, as it

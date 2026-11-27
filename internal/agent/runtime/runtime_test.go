@@ -4,17 +4,23 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/coretest"
 	"github.com/darkraise/darkpanel/internal/core/errcode"
 	"github.com/darkraise/darkpanel/internal/core/lifecycle"
+	"github.com/darkraise/darkpanel/internal/core/store"
 )
 
 func TestOpenRequiresItsConfig(t *testing.T) {
@@ -265,5 +271,340 @@ func TestModuleJournal(t *testing.T) {
 	}
 	if es2, _ := f.rt.Journal(ctx, 0, 0); len(es2) != len(es) {
 		t.Errorf("the refused entry reached the journal: %d entries, want %d", len(es2), len(es))
+	}
+}
+
+// guardUnits is Config.Units of the jobs guard tests: it records each call
+// it gets in log and, while block is set, holds Start until block is closed,
+// closing entered as Start arrives.
+type guardUnits struct {
+	core.Units
+	mu      sync.Mutex
+	log     []string
+	entered chan struct{}
+	block   chan struct{}
+}
+
+func (u *guardUnits) record(call string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.log = append(u.log, call)
+}
+
+func (u *guardUnits) calls() []string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return slices.Clone(u.log)
+}
+
+func (u *guardUnits) reset() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.log = nil
+}
+
+func (u *guardUnits) Start(_ context.Context, unit string) error {
+	u.mu.Lock()
+	entered, block := u.entered, u.block
+	u.mu.Unlock()
+	if block != nil {
+		close(entered)
+		<-block
+	}
+	u.record("Start " + unit)
+	return nil
+}
+
+func (u *guardUnits) Stop(_ context.Context, unit string) error {
+	u.record("Stop " + unit)
+	return nil
+}
+
+func (u *guardUnits) Restart(_ context.Context, unit string) error {
+	u.record("Restart " + unit)
+	return nil
+}
+
+func (u *guardUnits) Enable(_ context.Context, files ...string) error {
+	u.record("Enable " + strings.Join(files, " "))
+	return nil
+}
+
+func (u *guardUnits) Disable(_ context.Context, files ...string) error {
+	u.record("Disable " + strings.Join(files, " "))
+	return nil
+}
+
+func (u *guardUnits) Timers(context.Context) ([]core.TimerInfo, error) {
+	u.record("Timers")
+	return []core.TimerInfo{{Name: guardTimer, Unit: "darkpanel-job-a.service"}}, nil
+}
+
+func (u *guardUnits) LastRun(context.Context, string) (core.ServiceRun, error) {
+	return core.ServiceRun{}, nil
+}
+
+const guardTimer = "darkpanel-job-a.timer"
+
+// guardHost is what the guard tests' jobs module reports: ran is closed and
+// reverted gets Start's error when a revert of jobs.timer.set calls Start.
+type guardHost struct {
+	units    *guardUnits
+	once     sync.Once
+	ran      chan struct{}
+	reverted chan error
+}
+
+// gjSet is jobs.timer.set: a revertible action whose revert starts the job
+// timer, as the jobs module's undo of a delete does.
+type gjSet struct{ h *guardHost }
+
+func (gjSet) Plan(context.Context, core.Env, uexIn) (core.PlanOutcome, error) {
+	return core.PlanOutcome{StateHash: "gj"}, nil
+}
+func (gjSet) Apply(_ context.Context, _ core.Env, in uexIn) (uexIn, error) { return in, nil }
+func (gjSet) Verify(context.Context, core.Env, uexIn, uexIn) error         { return nil }
+func (gjSet) Snapshot(context.Context, core.Env, uexIn) ([]byte, error)    { return []byte("{}"), nil }
+func (x gjSet) Revert(ctx context.Context, env core.Env, _ []byte) (core.RevertOutcome, error) {
+	err := env.Units.Start(ctx, guardTimer)
+	x.h.reverted <- err
+	x.h.once.Do(func() { close(x.h.ran) })
+	return core.RevertOutcome{}, nil
+}
+
+// guardJobs is a module named jobs owning the darkpanel-job-* unit set, with
+// jobs.timer.set and an off hook that stops and disables the job timer
+// through its unit client, as the jobs module's does.
+type guardJobs struct{ h *guardHost }
+
+func (m guardJobs) Manifest() core.Manifest {
+	return core.Manifest{
+		ID: "jobs", Version: 1,
+		OwnedPaths: []core.OwnedPath{{Path: core.UnitSetDir, Kind: core.OwnedUnitSet, Pattern: `^darkpanel-job-[a-z]+\.(service|timer)$`}},
+		Actions: []core.ActionDef{
+			core.DefineRevertible(core.ActionSpec{
+				Name: "jobs.timer.set", Version: 1, Side: core.SideAgent, LockKeys: []string{"jobs"}, RepairedBy: "jobs.timer.repair",
+			}, gjSet(m)),
+			core.DefineMutating(core.ActionSpec{
+				Name: "jobs.timer.repair", Version: 1, Class: core.ClassCompensable, Side: core.SideAgent,
+				LockKeys: []string{"jobs"}, ForwardOnly: true, Converges: true,
+			}, repairItem{}),
+		},
+	}
+}
+
+func (m guardJobs) OnEnabled(ctx context.Context, env core.Env, enabled bool) error {
+	m.h.units.record(fmt.Sprintf("OnEnabled %t", enabled))
+	if enabled {
+		return nil
+	}
+	return errors.Join(env.Units.Stop(ctx, guardTimer), env.Units.Disable(ctx, guardTimer))
+}
+
+// guardFixture is a runtime with the jobs module guardJobs over a
+// guardUnits client and a policy file path in its directory, absent until a
+// test writes it.
+func guardFixture(t *testing.T) (*fixture, *guardHost) {
+	t.Helper()
+	h := &guardHost{units: &guardUnits{}, ran: make(chan struct{}), reverted: make(chan error, 1)}
+	reg, err := core.NewRegistry(kvModule{}, guardJobs{h})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fixture{t: t, host: &fixHost{}, clock: coretest.NewFakeClock(t0), reg: reg, dir: t.TempDir(), units: h.units}
+	f.policy = filepath.Join(f.dir, "agent-policy.json")
+	f.open()
+	return f, h
+}
+
+func isJobsOff(err error) bool {
+	var e *errcode.Error
+	return errors.As(err, &e) && e.Code == errcode.ModuleUnavailable && strings.Contains(err.Error(), "jobs is off on this host")
+}
+
+// TestJobsUnitGuard refuses Start, Restart and Enable of a job unit while
+// jobs is off or denied, and passes everything else through.
+func TestJobsUnitGuard(t *testing.T) {
+	f, h := guardFixture(t)
+	ctx := context.Background()
+	if err := f.rt.SetModuleEnabled(ctx, "jobs", false); err != nil {
+		t.Fatal(err)
+	}
+	h.units.reset()
+	u := f.rt.moduleEnv("jobs").Units
+	if err := u.Start(ctx, guardTimer); !isJobsOff(err) {
+		t.Errorf("Start with the flag 0: %v, want module.unavailable: jobs is off on this host", err)
+	}
+	if err := u.Restart(ctx, "darkpanel-job-a.service"); !isJobsOff(err) {
+		t.Errorf("Restart with the flag 0: %v, want jobs is off on this host", err)
+	}
+	if err := u.Enable(ctx, guardTimer); !isJobsOff(err) {
+		t.Errorf("Enable with the flag 0: %v, want jobs is off on this host", err)
+	}
+	if got := h.units.calls(); len(got) != 0 {
+		t.Errorf("the unit client got %q while jobs is off, want no call", got)
+	}
+	if err := u.Stop(ctx, guardTimer); err != nil {
+		t.Errorf("Stop with the flag 0: %v", err)
+	}
+	tr, ok := u.(core.TimerReader)
+	if !ok {
+		t.Fatal("the jobs unit client is no TimerReader")
+	}
+	if timers, err := tr.Timers(ctx); err != nil || len(timers) != 1 {
+		t.Errorf("Timers with the flag 0 = %+v, %v; want the client's one timer", timers, err)
+	}
+	if want := []string{"Stop " + guardTimer, "Timers"}; !slices.Equal(h.units.calls(), want) {
+		t.Errorf("the unit client got %q, want %q", h.units.calls(), want)
+	}
+
+	writePolicy(t, f.dir, `{"denyModules":["jobs"]}`, 0o644)
+	if err := f.rt.ReloadPolicy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.rt.SetModuleEnabled(ctx, "jobs", true); err == nil {
+		t.Fatal("SetModuleEnabled(jobs, true) under a policy denying jobs succeeded")
+	}
+	h.units.reset()
+	if err := u.Enable(ctx, guardTimer); !isJobsOff(err) {
+		t.Errorf("Enable with the flag 1 and jobs denied: %v, want jobs is off on this host", err)
+	}
+	if got := h.units.calls(); len(got) != 0 {
+		t.Errorf("the unit client got %q while jobs is denied, want no call", got)
+	}
+
+	writePolicy(t, f.dir, `{"denyModules":[]}`, 0o644)
+	if err := f.rt.ReloadPolicy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	h.units.reset()
+	if err := u.Enable(ctx, guardTimer); err != nil {
+		t.Errorf("Enable with jobs on and allowed: %v", err)
+	}
+	if err := u.Start(ctx, guardTimer); err != nil {
+		t.Errorf("Start with jobs on and allowed: %v", err)
+	}
+	if want := []string{"Enable " + guardTimer, "Start " + guardTimer}; !slices.Equal(h.units.calls(), want) {
+		t.Errorf("the unit client got %q, want %q", h.units.calls(), want)
+	}
+}
+
+// TestGuardHoldsAgainstOffHook runs the off hook only once a guarded Start
+// that passed its check has returned, so the hook stops the timer it
+// started.
+func TestGuardHoldsAgainstOffHook(t *testing.T) {
+	f, h := guardFixture(t)
+	ctx := context.Background()
+	if err := f.rt.SetModuleEnabled(ctx, "jobs", true); err != nil {
+		t.Fatal(err)
+	}
+	h.units.reset()
+	entered, block := make(chan struct{}), make(chan struct{})
+	h.units.mu.Lock()
+	h.units.entered, h.units.block = entered, block
+	h.units.mu.Unlock()
+	u := f.rt.moduleEnv("jobs").Units
+	started := make(chan error, 1)
+	go func() { started <- u.Start(ctx, guardTimer) }()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the guarded Start never reached the unit client")
+	}
+	h.units.mu.Lock()
+	h.units.block = nil
+	h.units.mu.Unlock()
+	off := make(chan error, 1)
+	go func() { off <- f.rt.SetModuleEnabled(ctx, "jobs", false) }()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if v, _ := f.enMeta("jobs"); v == "0" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("SetModuleEnabled(jobs, false) never stored the flag")
+		}
+	}
+	// Without the guard's lock the off hook runs now, while Start is held.
+	time.Sleep(50 * time.Millisecond)
+	close(block)
+	for name, ch := range map[string]chan error{"Start": started, "SetModuleEnabled(jobs, false)": off} {
+		select {
+		case err := <-ch:
+			if err != nil {
+				t.Errorf("%s: %v", name, err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s did not return: the off hook and the guard deadlock", name)
+		}
+	}
+	want := []string{"Start " + guardTimer, "OnEnabled false", "Stop " + guardTimer, "Disable " + guardTimer}
+	if got := h.units.calls(); !slices.Equal(got, want) {
+		t.Errorf("calls %q, want %q: the off hook must wait for the Start", got, want)
+	}
+}
+
+// policyGate is a log handler that holds the "policy file is invalid" error
+// until the jobs revert has run, but only when recovery has claimed change
+// already: with the policy read after Recover, the revert then runs before
+// the policy is in force.
+type policyGate struct {
+	db     *store.DB
+	change string
+	ran    <-chan struct{}
+}
+
+func (g policyGate) Enabled(context.Context, slog.Level) bool { return true }
+func (g policyGate) Handle(ctx context.Context, rec slog.Record) error {
+	if !strings.HasPrefix(rec.Message, "runtime: the policy file is invalid") {
+		return nil
+	}
+	var owner string
+	if err := g.db.Read().QueryRowContext(ctx, "SELECT recovery_owner FROM core_changes WHERE id = ?", g.change).Scan(&owner); err != nil || owner == "" {
+		return nil
+	}
+	select {
+	case <-g.ran:
+	case <-time.After(10 * time.Second):
+	}
+	return nil
+}
+func (g policyGate) WithAttrs([]slog.Attr) slog.Handler { return g }
+func (g policyGate) WithGroup(string) slog.Handler      { return g }
+
+// TestPolicyLoadedBeforeRecover reads the policy file before recovery runs,
+// so a jobs revert that recovery resumes meets a guard that already denies
+// jobs. The file is invalid, which denies jobs and logs before the policy
+// is set, so the log handler can hold an agent that read it too late.
+func TestPolicyLoadedBeforeRecover(t *testing.T) {
+	f, h := guardFixture(t)
+	ctx := context.Background()
+	if err := f.rt.SetModuleEnabled(ctx, "jobs", true); err != nil {
+		t.Fatal(err)
+	}
+	ref := core.ActionRef{Name: "jobs.timer.set", Version: 1}
+	pl, err := f.rt.engine.Plan(ctx, alice, ref, json.RawMessage(`{"name":"a"}`), core.PlanOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := f.rt.engine.Apply(ctx, alice, pl.PlanID, core.ApplyOptions{ConfirmTimeout: lifecycle.MaxConfirmTimeout})
+	if err != nil || v.State != core.StatePending {
+		t.Fatalf("Apply = %+v, %v; want pending", v, err)
+	}
+	f.rt.Close()
+	writePolicy(t, f.dir, `{`, 0o644)
+	c := f.config()
+	c.Log = slog.New(policyGate{db: f.db, change: v.ID, ran: h.ran})
+	rt, err := Open(ctx, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Close)
+	select {
+	case err := <-h.reverted:
+		if !isJobsOff(err) {
+			t.Errorf("the recovered revert's Start: %v, want jobs is off on this host", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("recovery never reverted the pending jobs change")
 	}
 }

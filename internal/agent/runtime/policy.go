@@ -165,6 +165,8 @@ func (r *Runtime) loadPolicy() {
 		r.cfg.Log.Error("runtime: the policy file is invalid; denying "+strings.Join(PolicyModules, " and "), "error", err)
 		p = denyAll()
 	}
+	r.statusMu.Lock()
+	defer r.statusMu.Unlock()
 	r.policy = p
 }
 
