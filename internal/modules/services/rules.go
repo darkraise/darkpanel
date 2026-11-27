@@ -43,6 +43,11 @@ var powerUnits = []string{
 	"system-update-cleanup.service", "rescue.service", "emergency.service", "debug-shell.service",
 }
 
+// stopsReboot are the units whose stop reboots the host, refused stop by
+// name as well as by their SuccessAction: systemd-storagetm sets
+// SuccessAction=reboot.
+var stopsReboot = []string{"systemd-storagetm.service"}
+
 // finalTargets are the targets a unit that ends the running system pulls in.
 var finalTargets = []string{"sleep.target", "shutdown.target", "umount.target", "final.target"}
 
@@ -141,6 +146,9 @@ func refusal(ctx context.Context, u core.UnitInfo, o op, inspect func(context.Co
 	}
 	if o == opStop && acts(u.SuccessAction) {
 		return protected(fmt.Sprintf("Stopping %s runs %s. %s", u.ID, u.SuccessAction, useReboot))
+	}
+	if n, ok := named(u, stopsReboot); ok && o == opStop {
+		return protected(fmt.Sprintf("Stopping %s reboots the host. %s", n, useReboot))
 	}
 	if o.starts() && (unitType(u.ID) == "timer" || unitType(u.ID) == "socket") {
 		for _, name := range u.Triggers {
