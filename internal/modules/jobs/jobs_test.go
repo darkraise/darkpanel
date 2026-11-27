@@ -378,7 +378,7 @@ func TestScheduleInvalid(t *testing.T) {
 		t.Errorf("plan with every tuesday: %v", err)
 	}
 	var check ScheduleCheck
-	r.read(viewerP, "jobs.schedule.check", `{"schedule":"*-*-* 03:00:00"}`, &check)
+	r.read(adminP, "jobs.schedule.check", `{"schedule":"*-*-* 03:00:00"}`, &check)
 	if want := []string{"2026-11-27T03:00:00Z", "2026-11-28T03:00:00Z", "2026-11-29T03:00:00Z"}; !slices.Equal(check.Next, want) {
 		t.Errorf("next runs %q, want %q", check.Next, want)
 	}

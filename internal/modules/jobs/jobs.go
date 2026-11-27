@@ -132,7 +132,7 @@ func (m module) actions() []core.ActionDef {
 			Summary: "List Darkpanel jobs, the host's other timers and its cron entries.",
 		}, lister{m: m}),
 		core.DefineRead[ScheduleInput, ScheduleCheck](core.ActionSpec{
-			Name: ID + ".schedule.check", Version: 1, Class: core.ClassRead, Side: core.SideAgent,
+			Name: ID + ".schedule.check", Version: 1, Class: core.ClassRead, Side: core.SideAgent, MinScope: core.ScopeAdmin,
 			Summary: "Check a calendar expression and show its next three runs.",
 		}, scheduleChecker{}),
 		core.DefineMutating[JobInput, Changed](create, writeHandler{m: m, verb: "create"}),
