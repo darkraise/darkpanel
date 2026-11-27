@@ -573,7 +573,6 @@ func TestRegistryUnitSet(t *testing.T) {
 		want string // "" when the registry is valid
 	}{
 		{"the job set", []Module{ownModule("jobs", set(jobs))}, ""},
-		{"a set and a unit of its own", []Module{ownModule("jobs", set(jobs), unit("darkpanel-job-x.service"))}, ""},
 		{"sets of two modules", []Module{ownModule("jobs", set(jobs)), ownModule("own", set(`^darkpanel-own-[a-z]+\.timer$`))}, ""},
 		{"a dir with a pattern", []Module{ownModule("jobs", OwnedPath{Path: "/var/lib/darkpanel/jobs", Kind: OwnedDir,
 			Pattern: `^[a-z0-9][a-z0-9-]{0,39}\.sh$`})}, ""},
@@ -984,5 +983,37 @@ func TestUndoNeedsStepUp(t *testing.T) {
 		if got := d.UndoNeedsStepUp(); got != tt.want {
 			t.Errorf("StepUp %v, UndoStepUp %v: UndoNeedsStepUp() = %v, want %v", tt.stepUp, tt.undoStepUp, got, tt.want)
 		}
+	}
+}
+
+func TestUnitOwnershipRules(t *testing.T) {
+	const jobs = `^darkpanel-job-[a-z0-9][a-z0-9-]{0,39}\.(service|timer)$`
+	set := OwnedPath{Path: "/etc/systemd/system", Kind: OwnedUnitSet, Pattern: jobs}
+	ext := func(id, name string, ops ...string) Module {
+		return testModule{ID: id, Version: 1, ExternalUnits: []ExternalUnit{{Name: name, Ops: ops}}}
+	}
+	tests := []struct {
+		name string
+		mods []Module
+		want string // "" when the registry is valid
+	}{
+		{"another module's set prefix", []Module{ownModule("jobs", set), ext("own", "darkpanel-job-x.service", UnitOpState)},
+			"external unit darkpanel-job-x.service of module own is in the unit set darkpanel-job-* of module jobs"},
+		{"starting a darkpanel unit", []Module{ext("own", "darkpanel-controller.service", UnitOpState, UnitOpStart)},
+			"module own: external unit darkpanel-controller.service: a darkpanel- unit takes only op state, not start"},
+		{"reading a darkpanel unit", []Module{ext("own", "darkpanel-controller.service", UnitOpState)}, ""},
+		{"a unit inside its own set", []Module{ownModule("jobs", set, OwnedPath{Path: "/etc/systemd/system/darkpanel-job-x.service", Kind: OwnedUnit})},
+			"unit /etc/systemd/system/darkpanel-job-x.service of module jobs is in the unit set darkpanel-job-* of module jobs"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewRegistry(tt.mods...)
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("NewRegistry: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("NewRegistry error = %v, want one containing %q", err, tt.want)
+			}
+		})
 	}
 }

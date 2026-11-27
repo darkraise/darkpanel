@@ -293,10 +293,20 @@ func checkOwnership(mods []Manifest) []error {
 		if set.path.Kind != OwnedUnitSet || prefix == "" {
 			continue
 		}
+		// A set's own units are written through UnitSetWriter, so a unit of
+		// the same module in the set would hold a second lock on its file.
 		for _, u := range decls {
-			if u.module != set.module && u.path.Kind == OwnedUnit && strings.HasPrefix(path.Base(u.path.Path), prefix) {
+			if u.path.Kind == OwnedUnit && strings.HasPrefix(path.Base(u.path.Path), prefix) {
 				errs = append(errs, fmt.Errorf("unit %s of module %s is in the unit set %s* of module %s",
 					u.path.Path, u.module, prefix, set.module))
+			}
+		}
+		for _, m := range mods {
+			for _, u := range m.ExternalUnits {
+				if m.ID != set.module && strings.HasPrefix(u.Name, prefix) {
+					errs = append(errs, fmt.Errorf("external unit %s of module %s is in the unit set %s* of module %s",
+						u.Name, m.ID, prefix, set.module))
+				}
 			}
 		}
 	}
@@ -477,6 +487,8 @@ func checkExternalUnits(m Manifest) []error {
 		ops := map[string]bool{}
 		for _, op := range u.Ops {
 			switch {
+			case strings.HasPrefix(u.Name, "darkpanel-") && op != UnitOpState:
+				fail("module %s: external unit %s: a darkpanel- unit takes only op state, not %s", m.ID, u.Name, op)
 			case !slices.Contains(known, op):
 				fail("module %s: external unit %s: op %q is not one of %s", m.ID, u.Name, op, strings.Join(known, ", "))
 			case ops[op]:
