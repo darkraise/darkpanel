@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -113,6 +114,9 @@ func (s *Server) handleUndo(w http.ResponseWriter, r *http.Request) {
 		err = s.authorizeChange(p, v)
 	}
 	if err == nil {
+		err = s.requireChangeStepUp(r.Context(), v, undoNeedsStepUp)
+	}
+	if err == nil {
 		v, err = s.cfg.Dispatcher.Undo(r.Context(), p, r.PathValue("id"))
 	}
 	if err != nil {
@@ -134,6 +138,9 @@ func (s *Server) handleRepair(w http.ResponseWriter, r *http.Request) {
 	p, v, err := s.visibleChange(r, core.ScopeRead)
 	if err == nil {
 		err = s.authorizeRepair(p, v)
+	}
+	if err == nil {
+		err = s.requireChangeStepUp(r.Context(), v, s.repairNeedsStepUp)
 	}
 	var body repairRequest
 	if err == nil {
@@ -182,6 +189,44 @@ func (s *Server) authorizeRepair(p core.Principal, v core.ChangeView) error {
 		}
 	}
 	return nil
+}
+
+// requireChangeStepUp asks the caller for a step-up when need holds for the
+// definition of the change's action. A definition the controller lacks needs
+// none here: authorizeChange has already held such a change to admin.
+func (s *Server) requireChangeStepUp(ctx context.Context, v core.ChangeView, need func(core.ActionDef) bool) error {
+	def, ok := s.cfg.Registry.Action(core.ActionRef{Name: v.Action, Version: v.Version})
+	if !ok || !need(def) {
+		return nil
+	}
+	c, _ := callerFrom(ctx)
+	return s.requireElevated(ctx, c)
+}
+
+// undoNeedsStepUp is undo's rule. An action with no undo handler is never
+// undone, so the engine's change.not_pending answers it, not a code prompt.
+func undoNeedsStepUp(def core.ActionDef) bool {
+	return def.Handler.Inverse != nil && def.UndoNeedsStepUp()
+}
+
+// revertNeedsStepUp is revert's rule: the reverted action's own StepUp.
+func revertNeedsStepUp(def core.ActionDef) bool { return def.Spec.StepUp }
+
+// repairNeedsStepUp is repair's rule: the change's action needs step-up to
+// undo, or any registered version of its RepairedBy action needs step-up.
+func (s *Server) repairNeedsStepUp(def core.ActionDef) bool {
+	if def.UndoNeedsStepUp() {
+		return true
+	}
+	if def.Spec.RepairedBy == "" {
+		return false
+	}
+	for _, a := range s.cfg.Registry.Actions() {
+		if a.Spec.Name == def.Spec.RepairedBy && a.Spec.StepUp {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleRelease(w http.ResponseWriter, r *http.Request) {

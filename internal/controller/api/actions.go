@@ -459,6 +459,9 @@ func (s *Server) changeOp(confirm bool) http.HandlerFunc {
 		if err == nil {
 			err = s.authorizeChange(c.principal, v)
 		}
+		if err == nil && !confirm {
+			err = s.requireChangeStepUp(r.Context(), v, revertNeedsStepUp)
+		}
 		if err != nil {
 			writeProblem(w, s.log, err)
 			return

@@ -160,3 +160,14 @@ func TestStepUpOnAnotherUsersSession(t *testing.T) {
 		t.Errorf("the same code on alice's own session: %v; the refused step-up spent it", err)
 	}
 }
+
+func TestStepUpErrorTypes(t *testing.T) {
+	var required *errcode.Error = ErrStepUpRequired()
+	if required.Code != errcode.StepUpRequired {
+		t.Errorf("ErrStepUpRequired().Code = %s, want %s", required.Code, errcode.StepUpRequired)
+	}
+	var unavailable *errcode.Error = ErrStepUpUnavailable()
+	if unavailable.Code != errcode.StepUpUnavailable {
+		t.Errorf("ErrStepUpUnavailable().Code = %s, want %s", unavailable.Code, errcode.StepUpUnavailable)
+	}
+}

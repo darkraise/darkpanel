@@ -31,7 +31,7 @@ func errWrongCode() *errcode.Error {
 
 // ErrStepUpRequired is the refusal of a step-up action or endpoint to a
 // session that is not elevated.
-func ErrStepUpRequired() error {
+func ErrStepUpRequired() *errcode.Error {
 	return errcode.New(errcode.StepUpRequired, "enter an authenticator code to continue")
 }
 
