@@ -6,6 +6,8 @@ import { afterEach, describe, expect, test, vi } from "vitest"
 import type { Scope } from "@/api/types"
 import { useStepUp } from "@/components/step-up-dialog"
 import { FilesView } from "@/modules/console/files-view"
+import type { TerminalSurface } from "@/modules/console/terminal"
+import { TerminalView } from "@/modules/console/terminal-view"
 import { accountsDefault, filesDefault, filesWorst, journalEntries, keysDeploy, sshdState, swapDefault, swapUnsupported, sysctlDefault, unitsDefault } from "@/modules/m11-fixtures"
 import { JournalPanel } from "@/modules/services/journal-panel"
 import { TuningPage } from "@/modules/tuning/tuning-page"
@@ -385,5 +387,91 @@ describe("A67: the users forms", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Delete" }))
     const dialog = await screen.findByRole("dialog")
     expect(await within(dialog).findByLabelText(/alice/)).toBeTruthy()
+  })
+})
+
+class Sock {
+  static all: Sock[] = []
+  readyState = 0
+  binaryType = "blob"
+  onopen: (() => void) | null = null
+  onmessage: ((ev: { data: ArrayBuffer | string }) => void) | null = null
+  onclose: ((ev: { code: number; reason: string }) => void) | null = null
+  sent: unknown[] = []
+  constructor(readonly url: string) {
+    Sock.all.push(this)
+  }
+  send(d: unknown) {
+    this.sent.push(d)
+  }
+  close() {
+    this.end(1000, "")
+  }
+  end(code: number, reason: string) {
+    if (this.readyState === 3) return
+    this.readyState = 3
+    this.onclose?.({ code, reason })
+  }
+}
+
+function surfaceStub(): TerminalSurface {
+  return {
+    cols: 100,
+    rows: 30,
+    write: () => {},
+    onData: () => () => {},
+    onResize: () => () => {},
+    fit: () => {},
+    focus: () => {},
+    dispose: () => {},
+  }
+}
+
+describe("A69: the terminal's states", () => {
+  async function connect(reported = true, online = true) {
+    Sock.all = []
+    stubFetch({ "POST /api/v1/hosts/h1/channels/console/terminal/ticket": { body: { ticket: "T" } } })
+    vi.stubGlobal("WebSocket", Sock)
+    renderWithProviders(<TerminalView hostId="h1" hostName="web-1" online={online} reported={reported} openSurface={() => surfaceStub()} />)
+    const user = userEvent.setup()
+    if (!online || !reported) return user
+    await user.type(await screen.findByLabelText("Authenticator code"), "123456")
+    await user.click(screen.getByRole("button", { name: "Verify" }))
+    await waitFor(() => expect(Sock.all.length).toBeGreaterThan(0))
+    act(() => {
+      const s = Sock.all[Sock.all.length - 1] as Sock
+      s.readyState = 1
+      s.onopen?.()
+    })
+    await screen.findByText("Connected")
+    return user
+  }
+
+  test.each([
+    ["idle", /idle|30 minutes/i, true],
+    ["expired", /expired|signed out|session/i, false],
+    ["console.limit", /too many|limit/i, true],
+    ["agent restarted", /restarted/i, true],
+  ])("A69: closing with %s shows its text", async (reason, text, reconnect) => {
+    await connect()
+    act(() => (Sock.all[Sock.all.length - 1] as Sock).end(1000, reason))
+    expect((await screen.findByRole("alert")).textContent).toMatch(text)
+    if (reconnect) expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy()
+  })
+
+  test("A69: an offline host and a too-old agent say so without asking a code", async () => {
+    await connect(true, false)
+    expect((await screen.findByRole("alert")).textContent).toMatch(/offline/i)
+    expect(screen.queryByLabelText("Authenticator code")).toBeNull()
+  })
+
+  test("A69: Ctrl+Shift+L moves focus to the toolbar", async () => {
+    await connect()
+    const toolbar = screen.getByRole("toolbar", { name: "Terminal" })
+    const inner = document.createElement("textarea")
+    screen.getByTestId("terminal-area").appendChild(inner)
+    inner.focus()
+    fireEvent.keyDown(inner, { key: "L", ctrlKey: true, shiftKey: true })
+    expect(document.activeElement).toBe(toolbar)
   })
 })
