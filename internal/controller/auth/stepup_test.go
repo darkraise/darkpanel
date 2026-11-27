@@ -162,12 +162,13 @@ func TestStepUpOnAnotherUsersSession(t *testing.T) {
 }
 
 func TestStepUpErrorTypes(t *testing.T) {
-	var required *errcode.Error = ErrStepUpRequired()
-	if required.Code != errcode.StepUpRequired {
-		t.Errorf("ErrStepUpRequired().Code = %s, want %s", required.Code, errcode.StepUpRequired)
+	// want takes *errcode.Error, so a step-up error of another type does not compile.
+	want := func(what string, e *errcode.Error, code errcode.Code) {
+		t.Helper()
+		if e == nil || e.Code != code {
+			t.Errorf("%s = %v, want code %s", what, e, code)
+		}
 	}
-	var unavailable *errcode.Error = ErrStepUpUnavailable()
-	if unavailable.Code != errcode.StepUpUnavailable {
-		t.Errorf("ErrStepUpUnavailable().Code = %s, want %s", unavailable.Code, errcode.StepUpUnavailable)
-	}
+	want("ErrStepUpRequired()", ErrStepUpRequired(), errcode.StepUpRequired)
+	want("ErrStepUpUnavailable()", ErrStepUpUnavailable(), errcode.StepUpUnavailable)
 }
