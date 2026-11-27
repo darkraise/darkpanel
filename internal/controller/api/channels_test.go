@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -634,5 +635,59 @@ func TestStuckAgentReleases(t *testing.T) {
 			t.Fatal("the stuck terminal kept its slot")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestOversizeFrame closes the terminal with "bad frame" for a binary
+// message over wire.MaxFramePayload, one past the WebSocket's own read
+// limit included.
+func TestOversizeFrame(t *testing.T) {
+	for _, size := range []int{40 << 10, 2 << 20} {
+		t.Run(fmt.Sprintf("%d bytes", size), func(t *testing.T) {
+			r := newTermRig(t, false, 0)
+			ws, agent, _ := r.dial(r.admin, termHost, r.ticket(r.admin), nil)
+			go func() { _ = ws.Write(context.Background(), websocket.MessageBinary, make([]byte, size)) }()
+			if got := agentClose(t, agent); got != "bad frame" {
+				t.Errorf("the agent's channel closed with %q, want bad frame", got)
+			}
+			if got := closeReason(t, ws); got != "bad frame" {
+				t.Errorf("the terminal closed with %q, want bad frame", got)
+			}
+		})
+	}
+}
+
+// TestRecheckErrorReason closes a terminal whose recheck could not be made
+// with "error", and one whose console was turned off with "revoked".
+func TestRecheckErrorReason(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		cause func(r *termRig)
+		want  string
+	}{
+		{"identity read error", func(r *termRig) { _ = r.h.db.Close() }, "error"},
+		{"database error in ModuleUsable", func(r *termRig) {
+			r.h.disp.ModuleUsableFunc = func(context.Context, string, string) error {
+				return errors.New("dispatch: read the host's modules: database is locked")
+			}
+		}, "error"},
+		{"console disabled", func(r *termRig) {
+			r.h.disp.ModuleUsableFunc = func(context.Context, string, string) error {
+				return errcode.New(errcode.ModuleUnavailable, "module console is disabled")
+			}
+		}, "revoked"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newTermRig(t, false, 0)
+			ws, agent, _ := r.dial(r.admin, termHost, r.ticket(r.admin), nil)
+			tc.cause(r)
+			r.h.clock.Advance(SSERecheck)
+			if got := agentClose(t, agent); got != tc.want {
+				t.Errorf("the agent's channel closed with %q, want %q", got, tc.want)
+			}
+			if got := closeReason(t, ws); got != tc.want {
+				t.Errorf("the terminal closed with %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

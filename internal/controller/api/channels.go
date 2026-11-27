@@ -29,8 +29,11 @@ const (
 	ChannelWriteTimeout = 60 * time.Second
 	sessionTouchEvery   = time.Minute
 	closeWriteWait      = time.Second // the close frame to the agent
-	// maxBrowserMessage bounds what the WebSocket reads; a binary message
-	// above wire.MaxFramePayload closes the terminal with "bad frame".
+	// maxBrowserMessage is the WebSocket's own read limit. The bridge reads
+	// at most wire.MaxFramePayload+1 bytes of a message, so any message
+	// above wire.MaxFramePayload closes the terminal with "bad frame"
+	// before this limit is met; a message the library refuses anyway is a
+	// bad frame too.
 	maxBrowserMessage = 1 << 20
 )
 
@@ -42,6 +45,9 @@ const (
 	closeBrowserGone = "browser gone"
 	closeBadFrame    = "bad frame"
 	closeAgentGone   = "agent restarted"
+	// closeError is a recheck that could not be made: the session or the
+	// host's module state could not be read.
+	closeError = "error"
 )
 
 // ticketChannel is the one channel a ticket opens.
@@ -363,18 +369,28 @@ func (b *bridge) run(ctx context.Context) string {
 func (b *bridge) recheck(ctx context.Context) string {
 	p, reason := b.s.sseRecheck(b.r, &b.expires)
 	if reason != "" {
-		if reason == "error" {
-			return closeRevoked
-		}
-		return reason
+		return reason // "error" is closeError
 	}
 	if authorizeHost(p, b.host, core.ScopeAdmin) != nil {
 		return closeRevoked
 	}
-	if ch, ok := b.s.cfg.Dispatcher.(core.DispatcherChannels); ok && ch.ModuleUsable(ctx, b.host, b.module) != nil {
-		return closeRevoked
+	if ch, ok := b.s.cfg.Dispatcher.(core.DispatcherChannels); ok {
+		return usableReason(ch.ModuleUsable(ctx, b.host, b.module))
 	}
 	return ""
+}
+
+// usableReason is the close reason of a ModuleUsable answer: a module
+// turned off is a revocation, any other failure a check not made.
+func usableReason(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errcode.From(err).Code == errcode.ModuleUnavailable:
+		return closeRevoked
+	default:
+		return closeError
+	}
 }
 
 // pumpAgent relays the agent's frames: data as binary messages, exit as a
@@ -428,9 +444,13 @@ func (b *bridge) pumpAgent(ctx context.Context) {
 // text resize message as a resize frame; anything else is a bad frame.
 func (b *bridge) pumpBrowser(ctx context.Context) {
 	for {
-		typ, p, err := b.ws.Read(ctx)
+		typ, p, err := b.readBrowser(ctx)
 		if err != nil {
-			b.finish(closeBrowserGone)
+			reason := closeBrowserGone
+			if errors.Is(err, errFrameTooBig) || errors.Is(err, websocket.ErrMessageTooBig) {
+				reason = closeBadFrame
+			}
+			b.finish(reason)
 			return
 		}
 		if typ == websocket.MessageBinary {
@@ -463,6 +483,26 @@ func (b *bridge) pumpBrowser(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// errFrameTooBig is a browser message above wire.MaxFramePayload.
+var errFrameTooBig = errors.New("api: browser message above the frame limit")
+
+// readBrowser reads one browser message, at most wire.MaxFramePayload
+// bytes of it: a longer one is errFrameTooBig, read no further.
+func (b *bridge) readBrowser(ctx context.Context) (websocket.MessageType, []byte, error) {
+	typ, rd, err := b.ws.Reader(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
+	p, err := io.ReadAll(io.LimitReader(rd, wire.MaxFramePayload+1))
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(p) > wire.MaxFramePayload {
+		return 0, nil, errFrameTooBig
+	}
+	return typ, p, nil
 }
 
 // touch counts a data frame as session activity at most once a minute.

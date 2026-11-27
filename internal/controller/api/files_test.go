@@ -747,18 +747,22 @@ func advanceUntil(t *testing.T, h *harness, res <-chan *http.Response) *http.Res
 // TestTransferLifecycle: transfers are long-lived requests: at most
 // MaxHostTransfers per host, ended by sign-out or expiry at the next
 // recheck and by CloseStreams, each with its own answer.
-func TestTransferLifecycle(t *testing.T) {
-	newRig := func(t *testing.T) (*harness, *browser, chan struct{}, chan error) {
-		h := newHarness(t)
-		h.cfg.Clock = h.clock
-		srv, err := New(h.cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		h.srv = srv
-		started, ended := heldUploads(h)
-		return h, newBrowser(t, h), started, ended
+// transferRig is a server on h's clock whose uploads the agent holds.
+func transferRig(t *testing.T) (*harness, *browser, chan struct{}, chan error) {
+	t.Helper()
+	h := newHarness(t)
+	h.cfg.Clock = h.clock
+	srv, err := New(h.cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
+	h.srv = srv
+	started, ended := heldUploads(h)
+	return h, newBrowser(t, h), started, ended
+}
+
+func TestTransferLifecycle(t *testing.T) {
+	newRig := transferRig
 
 	t.Run("limit and sign-out", func(t *testing.T) {
 		h, b, started, ended := newRig(t)
@@ -998,5 +1002,24 @@ func TestTransfersOutlastListenerTimeouts(t *testing.T) {
 				t.Errorf("the download went over %s, want HTTP/2", res.Proto)
 			}
 		})
+	}
+}
+
+// TestTransferRecheckError ends a transfer whose recheck could not be made
+// with the "couldn't check your session" answer, not as revoked.
+func TestTransferRecheckError(t *testing.T) {
+	h, b, started, _ := transferRig(t)
+	res, pw := b.openUpload(t)
+	defer func() { _ = pw.Close() }()
+	waitFor(t, "upload start", started)
+	h.disp.ModuleUsableFunc = func(context.Context, string, string) error {
+		return errors.New("dispatch: read the host's modules: database is locked")
+	}
+	r := advanceUntil(t, h, res)
+	defer func() { _ = r.Body.Close() }()
+	var p problem
+	_ = json.NewDecoder(r.Body).Decode(&p)
+	if r.StatusCode != http.StatusForbidden || p.Code != errcode.Forbidden || p.Detail != "The panel couldn't check your session; try again" {
+		t.Errorf("upload after a failed recheck: %d %q %q, want 403 with the couldn't-check text", r.StatusCode, p.Code, p.Detail)
 	}
 }

@@ -319,7 +319,10 @@ var (
 	errTransferExpired = errcode.New(errcode.AuthRequired, "the transfer ended: the session expired")
 	errTransferStopped = errcode.New(errcode.Unavailable, "the transfer ended: the controller is shutting down")
 	errTransferStalled = errcode.New(errcode.Unavailable, "the transfer ended: no data moved for 60 s")
-	transferEnds       = []error{errTransferRevoked, errTransferExpired, errTransferStopped, errTransferStalled}
+	// A 5xx answer hides its detail, so the failed check is refused like a
+	// revocation, with the text that tells the browser to try again.
+	errTransferCheck = errcode.New(errcode.Forbidden, "The panel couldn't check your session; try again")
+	transferEnds     = []error{errTransferRevoked, errTransferExpired, errTransferStopped, errTransferStalled, errTransferCheck}
 )
 
 func (s *Server) startTransfer(w http.ResponseWriter, r *http.Request, c caller, host string, files core.DispatcherFiles) *transfer {
@@ -386,14 +389,21 @@ func (t *transfer) watch(c caller, host string, files core.DispatcherFiles) {
 			return
 		case <-check:
 			p, reason := t.s.sseRecheck(t.r, &expires)
-			switch {
-			case reason == "expired":
-				t.cancel(errTransferExpired)
-			case reason != "" || authorizeHost(p, host, core.ScopeAdmin) != nil ||
-				files.ModuleUsable(t.ctx, host, fileModule) != nil:
-				t.cancel(errTransferRevoked)
-			default:
+			if reason == "" && authorizeHost(p, host, core.ScopeAdmin) != nil {
+				reason = closeRevoked
+			}
+			if reason == "" {
+				reason = usableReason(files.ModuleUsable(t.ctx, host, fileModule))
+			}
+			switch reason {
+			case "":
 				checkT = clock.AfterFunc(SSERecheck, sseSignal(check))
+			case closeExpired:
+				t.cancel(errTransferExpired)
+			case closeError:
+				t.cancel(errTransferCheck)
+			default:
+				t.cancel(errTransferRevoked)
 			}
 		case <-t.touch:
 			t.s.touchSession(t.ctx, t.r, c.session, &touched)
