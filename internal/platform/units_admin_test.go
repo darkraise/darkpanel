@@ -46,7 +46,7 @@ func TestUnitScopeOfServices(t *testing.T) {
 			}
 		}
 	}
-	for _, unit := range []string{"darkpanel-agent.service", "darkpanel-job-x.timer", "home.mount", "multi-user.target", "nginx"} {
+	for _, unit := range []string{"darkpanel-agent.service", "darkpanel-job-x.timer", "/lib/systemd/system/darkpanel-agent.service", "home.mount", "multi-user.target", "nginx"} {
 		for name, call := range map[string]func() error{
 			"Start": func() error { return s.Start(ctx, unit) }, "Stop": func() error { return s.Stop(ctx, unit) },
 			"Restart": func() error { return s.Restart(ctx, unit) }, "ReloadUnit": func() error { return s.ReloadUnit(ctx, unit) },

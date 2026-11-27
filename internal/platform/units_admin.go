@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -24,7 +25,7 @@ var _ core.UnitAdmin = adminUnits{}
 // mutableUnit refuses method on unit unless the services module may drive it.
 func mutableUnit(method, unit string) error {
 	typ := unit[strings.LastIndexByte(unit, '.')+1:]
-	if strings.HasPrefix(unit, "darkpanel") || (typ != "service" && typ != "socket" && typ != "timer") {
+	if strings.HasPrefix(filepath.Base(unit), "darkpanel") || (typ != "service" && typ != "socket" && typ != "timer") {
 		return refuseAdmin(method, unit)
 	}
 	return nil
