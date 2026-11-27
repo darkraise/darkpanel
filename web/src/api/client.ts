@@ -180,7 +180,11 @@ export function upload<T>(path: string, body: Blob, onProgress: (sent: number) =
         xhr.upload.onprogress = (e) => onProgress(e.loaded)
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(JSON.parse(xhr.responseText) as T)
+            try {
+              resolve(JSON.parse(xhr.responseText) as T)
+            } catch {
+              reject(new ApiError(xhr.status, "internal", "The answer to the upload was not understood"))
+            }
             return
           }
           const headers = new Headers()

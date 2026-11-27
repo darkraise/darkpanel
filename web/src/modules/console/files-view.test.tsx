@@ -176,6 +176,21 @@ describe("navigation and states", () => {
     expect(screen.getByLabelText("/etc/hosts")).toHaveProperty("value", "127.0.0.1 localhost\n::1 x")
   })
 
+  test("Download asks the code by a read of the folder, then lets the browser stream the file", async () => {
+    const clicked: { href: string; download: string }[] = []
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push({ href: this.getAttribute("href") ?? "", download: this.download })
+    })
+    const calls = render({ [`GET ${FILES}/read`]: problem(422, "files.not_text") })
+    const user = await menuOf("hosts")
+    await user.click(item("Download"))
+    await waitFor(() => expect(clicked).toHaveLength(1))
+    expect(clicked[0]).toEqual({ href: `${FILES}/download?path=%2Fetc%2Fhosts`, download: "hosts" })
+    expect(calls.filter((c) => c.path.includes("/files/read")).map((c) => query(c).get("path"))).toEqual(["/etc"])
+    expect(calls.some((c) => c.path.includes("/files/download"))).toBe(false)
+    vi.restoreAllMocks()
+  })
+
   test("Reload asks before it drops the edits, then reads the file again", async () => {
     let reads = 0
     render({
@@ -310,6 +325,16 @@ describe("navigation and states", () => {
     expect(screen.getByRole("button", { name: "Upload" })).toHaveProperty("disabled", true)
     await userEvent.setup().click(screen.getByRole("button", { name: "Cancel" }))
     expect(xhr.abort).toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull())
+
+    // An answer that is not JSON ends the upload rather than leaving it
+    // waiting forever.
+    await userEvent.setup().upload(screen.getByTestId("upload-picker"), file)
+    await waitFor(() => expect(sent).toHaveLength(2))
+    const second = sent[1] as FakeXhr
+    second.status = 200
+    second.responseText = "<html>proxy page</html>"
+    second.onload?.()
     await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull())
   })
 

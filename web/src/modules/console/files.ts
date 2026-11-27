@@ -67,31 +67,37 @@ export function changeFile(hostId: string, op: "mkdir" | "rename" | "delete" | "
   return request<void>("POST", filesUrl(hostId, op), change)
 }
 
-// downloadFile saves the file through a link to its bytes, so a refusal or a
-// step-up shows in the page rather than as a broken download.
-export async function downloadFile(hostId: string, path: string): Promise<void> {
-  const res = await rawRequest("GET", filesUrl(hostId, "download", { path }))
-  const href = URL.createObjectURL(await res.blob())
-  const a = document.createElement("a")
-  a.href = href
-  a.download = baseName(path)
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(href)
-}
-
-// uploadFile sends file into dir. The controller refuses an upload outside
-// the step-up window before reading its body, and a browser still sending
-// that body may see the refusal as a dropped connection; so a read, which the
-// same window gates, asks for the code first. Its own answer does not matter.
-export async function uploadFile(hostId: string, dir: string, file: File, onProgress: (sent: number) => void, signal: AbortSignal): Promise<FileWritten> {
+// askCodeFirst reads dir, which the file step-up window gates, so a code is
+// asked in the page before a transfer the page cannot show a refusal of.
+// The read's own answer does not matter.
+async function askCodeFirst(hostId: string, dir: string, signal?: AbortSignal): Promise<void> {
   try {
     await rawRequest("GET", filesUrl(hostId, "read", { path: dir }), { signal })
   } catch (err) {
     if (err instanceof ApiError && err.code === "auth.step_up_required") throw err
-    if (signal.aborted) throw err
+    if (signal?.aborted === true) throw err
   }
+}
+
+// downloadFile has the browser stream the file to disk through a link, so a
+// file of any size never sits in the tab's memory (UX-9). The code is asked
+// first; a refusal after that shows as a failed download in the browser.
+export async function downloadFile(hostId: string, path: string): Promise<void> {
+  await askCodeFirst(hostId, parentPath(path))
+  const a = document.createElement("a")
+  a.href = filesUrl(hostId, "download", { path })
+  a.download = baseName(path)
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+// uploadFile sends file into dir. The controller refuses an upload outside
+// the step-up window before reading its body, and a browser still sending
+// that body may see the refusal as a dropped connection; so the code is
+// asked first.
+export async function uploadFile(hostId: string, dir: string, file: File, onProgress: (sent: number) => void, signal: AbortSignal): Promise<FileWritten> {
+  await askCodeFirst(hostId, dir, signal)
   return upload<FileWritten>(filesUrl(hostId, "upload", { path: childPath(dir, file.name) }), file, onProgress, signal)
 }
 
