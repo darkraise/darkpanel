@@ -90,7 +90,7 @@ function JobsTable({ jobs, admin, onPick }: { jobs: Job[]; admin: boolean; onPic
               <TableCell className="max-w-[24rem] min-w-40 whitespace-normal wrap-anywhere">
                 <span className="font-mono text-sm">{j.slug}</span>
                 {(j.description ?? "") !== "" && <span className="block text-xs text-muted-foreground">{j.description}</span>}
-                {(j.command ?? "") !== "" && <span className="block max-w-48 truncate font-mono text-xs text-muted-foreground md:max-w-96">{j.command}</span>}
+                {(j.command ?? "") !== "" && <span className="block max-w-48 truncate font-mono text-xs text-muted-foreground md:max-w-96" title={j.command}>{j.command}</span>}
               </TableCell>
               <TableCell>
                 {words !== "" && <span className="block">{words}</span>}

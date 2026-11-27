@@ -296,7 +296,7 @@ function DiffLineView({ line }: { line: DiffLine }) {
       <span role={kind ? "img" : undefined} aria-label={kind?.label} className="inline-flex size-3.5 shrink-0 translate-y-px">
         {Icon && <Icon aria-hidden className="size-3.5" />}
       </span>
-      <span className="whitespace-pre-wrap break-all">
+      <span className="whitespace-pre-wrap wrap-anywhere">
         <span aria-hidden className="sr-only">{`${line.op} `}</span>
         {line.text}
       </span>
