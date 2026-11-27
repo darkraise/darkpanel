@@ -52,6 +52,8 @@ type units struct {
 	stateFails map[string]bool
 	// afterStart runs after a Start that passed.
 	afterStart func(unit string)
+	// polls counts the State calls of each unit.
+	polls map[string]int
 }
 
 // guard is the runtime's jobs unit guard over this client.
@@ -138,6 +140,9 @@ func (u *units) List(context.Context, string) ([]core.UnitStatus, error) {
 func (u *units) State(_ context.Context, unit string) (core.UnitState, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if u.polls != nil {
+		u.polls[unit]++
+	}
 	if u.stateFails[unit] {
 		return core.UnitState{}, errors.New("state failed")
 	}
@@ -634,25 +639,14 @@ func TestPausedOutcome(t *testing.T) {
 	})
 	t.Run("paused while waiting", func(t *testing.T) {
 		r := newRig(t)
-		r.units.afterStart = func(unit string) {
-			if unit != timer {
-				return
-			}
-			// The off hook runs now: it remembers the timer and stops it.
-			if err := r.db.Write(ctx, func(tx *sql.Tx) error {
-				_, err := tx.ExecContext(ctx, `INSERT INTO jobs_paused (timer) VALUES (?)`, unit)
-				return err
-			}); err != nil {
-				t.Error(err)
-			}
-			r.units.mu.Lock()
-			r.units.off, r.units.active[unit] = true, false
-			r.units.mu.Unlock()
-		}
-		start := time.Now()
+		r.units.afterStart = r.offHook(t, timer)
 		cv := r.apply("jobs.job.create", backupInput)
-		if took := time.Since(start); took >= r.m.wait/2 {
-			t.Errorf("the apply took %s: the wait must end once the timer is remembered, not at its %s deadline", took, r.m.wait)
+		r.units.mu.Lock()
+		polls := r.units.polls[timer]
+		r.units.mu.Unlock()
+		// Verify reads the state too; a wait to the deadline polls about 20 times.
+		if polls >= 5 {
+			t.Errorf("the timer's state was read %d times after the off hook remembered it: the wait must end at once", polls)
 		}
 		if got := r.note(cv); got != pausedNote {
 			t.Errorf("note %q, want %q", got, pausedNote)
@@ -670,6 +664,18 @@ func TestPausedOutcome(t *testing.T) {
 		}
 		if got := r.paused(); len(got) != 0 || !r.isActive(timer) {
 			t.Errorf("paused %q, active %t; want the timer started and not remembered", got, r.isActive(timer))
+		}
+	})
+	t.Run("off again after the retry", func(t *testing.T) {
+		r := newRig(t)
+		r.units.off, r.units.refusals = true, 1
+		r.units.afterStart = r.offHook(t, timer)
+		cv := r.apply("jobs.job.create", backupInput)
+		if got := r.note(cv); got != pausedNote {
+			t.Errorf("note %q, want %q", got, pausedNote)
+		}
+		if got := r.paused(); !slices.Equal(got, []string{timer}) || r.isActive(timer) {
+			t.Errorf("paused %q, active %t; want the off hook's record kept and the timer stopped", got, r.isActive(timer))
 		}
 	})
 	t.Run("undo of a delete", func(t *testing.T) {
@@ -717,4 +723,25 @@ func TestPausedOutcome(t *testing.T) {
 			t.Errorf("run while jobs is off: %v (definite %t), want a definite module.unavailable", err, core.IsDefinite(err))
 		}
 	})
+}
+
+// offHook is an afterStart that plays the off hook running right after the
+// start of timer passed: it remembers the timer as the hook does, stops it
+// and turns jobs off. It starts counting the timer's State calls.
+func (r *rig) offHook(t *testing.T, timer string) func(string) {
+	return func(unit string) {
+		if unit != timer {
+			return
+		}
+		ctx := context.Background()
+		if err := r.db.Write(ctx, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `INSERT INTO jobs_paused (timer) VALUES (?) ON CONFLICT (timer) DO NOTHING`, unit)
+			return err
+		}); err != nil {
+			t.Error(err)
+		}
+		r.units.mu.Lock()
+		r.units.off, r.units.active[unit], r.units.polls = true, false, map[string]int{}
+		r.units.mu.Unlock()
+	}
 }

@@ -248,10 +248,10 @@ func (m module) setJob(ctx context.Context, env core.Env, slug string, now, want
 // startTimer runs start, which starts or restarts timer, and waits until
 // the timer is active. When jobs is off on this host, the runtime's guard
 // refuses start, or the off hook remembers the timer during the wait; then
-// the timer is remembered, Enable and Start are tried once more through the
-// guard, and if they are refused as well the timer is left stopped and
-// disabled for the on hook, and paused is true. If they pass, jobs came
-// back on and the start goes on as usual.
+// Enable and Start are tried once more through the guard. If they are
+// refused as well, the timer is remembered and left stopped and disabled
+// for the on hook, and paused is true. If they pass, jobs came back on and
+// the start goes on as usual.
 func (m module) startTimer(ctx context.Context, env core.Env, timer string, start func() error) (paused bool, err error) {
 	err = start()
 	if err == nil {
@@ -260,7 +260,9 @@ func (m module) startTimer(ctx context.Context, env core.Env, timer string, star
 	if err == nil || (!jobsOff(err) && !errors.Is(err, errPaused)) {
 		return false, err
 	}
-	if err := remember(ctx, env, timer); err != nil {
+	// The row goes before the retry: an off hook that runs once the retry
+	// passed must find no row, so the row it writes is the one that stays.
+	if err := forget(ctx, env, timer); err != nil {
 		return false, err
 	}
 	err = env.Units.Enable(ctx, timer)
@@ -269,9 +271,6 @@ func (m module) startTimer(ctx context.Context, env core.Env, timer string, star
 	}
 	switch {
 	case err == nil:
-		if err := forget(ctx, env, timer); err != nil {
-			return false, err
-		}
 		err = m.waitTimer(ctx, env, timer, true)
 		if errors.Is(err, errPaused) {
 			// Off again: the off hook remembered and stopped the timer.
@@ -279,6 +278,9 @@ func (m module) startTimer(ctx context.Context, env core.Env, timer string, star
 		}
 		return false, err
 	case !jobsOff(err):
+		return false, err
+	}
+	if err := remember(ctx, env, timer); err != nil {
 		return false, err
 	}
 	if err := errors.Join(env.Units.Stop(ctx, timer), env.Units.Disable(ctx, timer)); err != nil {
