@@ -1,10 +1,13 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Button } from "darkraise-ui/components/button"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import type { Scope } from "@/api/types"
 import { useStepUp } from "@/components/step-up-dialog"
-import { accountsDefault, keysDeploy, sshdState, unitsDefault } from "@/modules/m11-fixtures"
+import { accountsDefault, journalEntries, keysDeploy, sshdState, swapDefault, swapUnsupported, sysctlDefault, unitsDefault } from "@/modules/m11-fixtures"
+import { JournalPanel } from "@/modules/services/journal-panel"
+import { TuningPage } from "@/modules/tuning/tuning-page"
+import { EvtSource } from "@/test/evt-source"
 import { ServicesPage } from "@/modules/services/services-page"
 import { UsersPage } from "@/modules/users/users-page"
 import { expectNoAxeViolations, focusedName } from "@/test/a11y"
@@ -192,5 +195,63 @@ describe("A73: no axe violations", () => {
     services("admin")
     await screen.findByText("nginx.service")
     expect(screen.getAllByText("Failed").length).toBeGreaterThan(0)
+  })
+})
+
+describe("A66: the journal panel", () => {
+  test("A66: scrolling up pauses following with Jump to latest, and a dropped stream shows Reconnecting…", async () => {
+    EvtSource.instances = []
+    stubFetch({})
+    renderWithProviders(<JournalPanel hostId="h1" unit="nginx.service" onUnitChange={() => {}} />)
+    const latest = (): EvtSource => {
+      const all = EvtSource.instances.filter((s) => s.url.includes("/streams/services/"))
+      const s = all[all.length - 1]
+      if (s === undefined) throw new Error("no journal stream opened")
+      return s
+    }
+    act(() => {
+      for (const e of journalEntries(20)) latest().emit("data", e)
+    })
+    const log = screen.getByRole("log")
+    Object.defineProperty(log, "scrollHeight", { configurable: true, value: 1000 })
+    Object.defineProperty(log, "clientHeight", { configurable: true, value: 200 })
+    log.scrollTop = 100
+    fireEvent.scroll(log)
+    expect(screen.getByText("Following paused")).toBeTruthy()
+    await userEvent.setup().click(screen.getByRole("button", { name: "Jump to latest" }))
+    expect(screen.queryByText("Following paused")).toBeNull()
+    act(() => latest().fail())
+    expect(screen.getByText("Reconnecting…")).toBeTruthy()
+  })
+})
+
+describe("A71: the tuning page", () => {
+  const BASE = "POST /api/v1/hosts/h1/actions"
+  function tuning(swap: object = swapDefault) {
+    stubFetch({
+      [`${BASE}/tuning.swap.get/v1/read`]: { body: { output: swap } },
+      [`${BASE}/tuning.sysctl.get/v1/read`]: { body: { output: sysctlDefault } },
+      "GET /api/v1/hosts/h1/modules/tuning/availability": { body: { module: "tuning", available: true, reason: null, actions: [] } },
+    })
+    return renderWithProviders(<TuningPage hostId="h1" />, { hostScope: "admin" })
+  }
+
+  test("A71: an out-of-range value is refused inline with its range and Review changes waits", async () => {
+    tuning()
+    const user = userEvent.setup()
+    const field = await screen.findByLabelText(/vm\.swappiness/)
+    await user.clear(field)
+    await user.type(field, "201")
+    expect(screen.getAllByText(/0.*200/).length).toBeGreaterThan(0)
+    expect(screen.getByRole("button", { name: "Review changes" })).toHaveProperty("disabled", true)
+    await user.clear(field)
+    await user.type(field, "37")
+    expect(screen.getByRole("button", { name: "Review changes" })).toHaveProperty("disabled", false)
+    expect(screen.getAllByRole("button", { name: "Review changes" })).toHaveLength(1)
+  })
+
+  test("A71: a filesystem that cannot hold a swap file names itself", async () => {
+    tuning(swapUnsupported)
+    expect(await screen.findByText(/btrfs/)).toBeTruthy()
   })
 })
