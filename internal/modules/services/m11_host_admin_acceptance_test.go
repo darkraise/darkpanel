@@ -3,8 +3,11 @@ package services_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -300,5 +303,191 @@ func TestA27_UnitListCoversTypesAndFilters(t *testing.T) {
 	}
 	if got := read(`{"state":"failed"}`); len(got.Units) != 1 || got.Units[0].Name != "apt.timer" {
 		t.Errorf("state filter: %+v", got.Units)
+	}
+}
+
+type jr struct {
+	probeStderr string
+	lines       []string
+	args        []string
+}
+
+func (j *jr) Run(_ context.Context, c core.Cmd) (core.CmdResult, error) {
+	return core.CmdResult{Stderr: []byte(j.probeStderr)}, nil
+}
+
+func (j *jr) Stream(_ context.Context, _ string, args []string, onLine func([]byte) error) error {
+	j.args = args
+	for _, l := range j.lines {
+		if err := onLine([]byte(l)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func jline(i int, msg string) string {
+	b, _ := json.Marshal(map[string]string{"__CURSOR": "s=abc;i=" + string(rune('a'+i%26)) + "1", "__REALTIME_TIMESTAMP": "1700000000000000",
+		"PRIORITY": "6", "_SYSTEMD_UNIT": "a.service", "_PID": "1", "MESSAGE": msg})
+	return string(b)
+}
+
+func query(t *testing.T, j *jr, in map[string]any) services.JournalPage {
+	t.Helper()
+	env := core.Env{HostID: "h1", Principal: operator, Exec: j}
+	raw, _ := json.Marshal(in)
+	out, err := newHost(t).action("services.journal.query").Handler.Read(context.Background(), env, raw)
+	if err != nil {
+		t.Fatalf("journal query: %v", err)
+	}
+	var page services.JournalPage
+	if err := json.Unmarshal(out, &page); err != nil {
+		t.Fatal(err)
+	}
+	return page
+}
+
+func TestA28_JournalPageIsAtMostAThousandEntriesAndLongMessagesAreTruncated(t *testing.T) {
+	j := &jr{}
+	for i := 0; i < 1500; i++ {
+		j.lines = append(j.lines, jline(i, "entry"))
+	}
+	page := query(t, j, map[string]any{"unit": "a.service"})
+	if len(page.Entries) != 1000 || !page.More || page.Cursor == "" {
+		t.Errorf("1500 available: %d entries, more %v, cursor %q; want 1000, true and a cursor", len(page.Entries), page.More, page.Cursor)
+	}
+	j = &jr{lines: []string{jline(0, strings.Repeat("x", 9000)), jline(1, "short")}}
+	page = query(t, j, map[string]any{})
+	if len(page.Entries) != 2 || !page.Entries[0].Truncated || len(page.Entries[0].Message) > 8192 || page.Entries[1].Truncated {
+		t.Errorf("entries %+v; want the 9000 byte message cut to 8 KiB and flagged, the short one intact", page.Entries)
+	}
+}
+
+func TestA87_JournalPageEndsAtTwoMiBWithMore(t *testing.T) {
+	j := &jr{}
+	for i := 0; i < 600; i++ {
+		j.lines = append(j.lines, jline(i, strings.Repeat("y", 8000)))
+	}
+	page := query(t, j, map[string]any{})
+	if !page.More || page.Cursor == "" || len(page.Entries) >= 1000 || len(page.Entries) < 200 {
+		t.Errorf("600 entries of 8000 bytes: %d entries, more %v; want a page cut near 2 MiB (about 260 entries) with more", len(page.Entries), page.More)
+	}
+	total := 0
+	for _, e := range page.Entries {
+		b, _ := json.Marshal(e)
+		total += len(b) + 1
+	}
+	if total > 2<<20 {
+		t.Errorf("the page holds %d bytes of encoded entries, over 2 MiB", total)
+	}
+}
+
+func TestA96_SubstringWithRegexCharactersMatchesTheSameThroughGrepAndTheFallback(t *testing.T) {
+	msgs := []string{`call f(x) failed`, `list[0] ok`, `a.b matched`, `axb plain`, `path C:\Eval here`, `UPPER (X) case`, `nothing here`}
+	for _, sub := range []string{"(", "[", ".", `\E`, "f(x)", "(x)", "a.b", `C:\Eval`, "list[0]"} {
+		in := map[string]any{"substring": sub}
+		var all []string
+		for i, m := range msgs {
+			all = append(all, jline(i, m))
+		}
+		fallback := &jr{probeStderr: "unknown option --grep", lines: all}
+		fb := query(t, fallback, in)
+		grep := &jr{lines: all}
+		_ = query(t, grep, in)
+		var pat string
+		for _, a := range grep.args {
+			if strings.HasPrefix(a, "--grep=") {
+				pat = strings.TrimPrefix(a, "--grep=")
+			}
+		}
+		if pat == "" {
+			t.Errorf("%q: journalctl got no --grep argument: %v", sub, grep.args)
+			continue
+		}
+		re, err := regexp.Compile("(?i)" + pat)
+		if err != nil {
+			t.Errorf("%q: the --grep pattern %q is not a valid pattern: %v", sub, pat, err)
+			continue
+		}
+		var viaGrep, viaFallback []string
+		for _, m := range msgs {
+			if re.MatchString(m) {
+				viaGrep = append(viaGrep, m)
+			}
+		}
+		for _, e := range fb.Entries {
+			viaFallback = append(viaFallback, e.Message)
+		}
+		if !slices.Equal(viaGrep, viaFallback) {
+			t.Errorf("%q: --grep %q matches %q; the fallback matches %q", sub, pat, viaGrep, viaFallback)
+		}
+	}
+}
+
+type followRunner struct {
+	started, ended chan struct{}
+}
+
+func (f *followRunner) Run(context.Context, core.Cmd) (core.CmdResult, error) {
+	return core.CmdResult{}, nil
+}
+
+func (f *followRunner) Stream(ctx context.Context, _ string, _ []string, onLine func([]byte) error) error {
+	close(f.started)
+	defer close(f.ended)
+	for i := 0; ; i++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Millisecond):
+		}
+		if err := onLine([]byte(jline(i, "live entry"))); err != nil {
+			return err
+		}
+	}
+}
+
+func TestA29_FollowEmitsEntriesAndEndsJournalctlWhenTheReaderGoesAway(t *testing.T) {
+	var follow core.StreamDef
+	for _, s := range services.Module().(core.Streamer).Streams() {
+		follow = s
+	}
+	if follow.Run == nil {
+		t.Fatal("the services module declares no stream")
+	}
+	fr := &followRunner{started: make(chan struct{}), ended: make(chan struct{})}
+	env := core.Env{HostID: "h1", Principal: operator, Exec: fr}
+	var got int
+	done := make(chan error, 1)
+	go func() {
+		done <- follow.Run(context.Background(), env, json.RawMessage(`{"lines":10}`), func(any) error {
+			got++
+			if got >= 3 {
+				return errors.New("the reader is gone")
+			}
+			return nil
+		})
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the follower kept running after its reader went away")
+	}
+	select {
+	case <-fr.ended:
+	case <-time.After(5 * time.Second):
+		t.Error("the journalctl process was not ended")
+	}
+	if got < 3 {
+		t.Errorf("%d entries emitted; want at least 3", got)
+	}
+}
+
+func TestA2_AnOperatorCanPlanStartStopRestartAndReloadAnOrdinaryService(t *testing.T) {
+	for _, v := range []string{"start", "stop", "restart", "reload"} {
+		h := newHost(t, mk("nginx.service"))
+		if _, err := h.plan(v, operator, "nginx.service"); err != nil {
+			t.Errorf("%s nginx.service as an operator: %v", v, err)
+		}
 	}
 }
