@@ -2,6 +2,8 @@ package users
 
 import (
 	"bytes"
+	"context"
+	"io/fs"
 	"maps"
 	"slices"
 	"strings"
@@ -163,6 +165,7 @@ func TestWildmatch(t *testing.T) {
 		{"alice", "alice", true}, {"al*", "alice", true}, {"a?ice", "alice", true}, {"*", "", true}, {"*", "alice", true},
 		{"?", "", false}, {"a*b*c", "axxbyyc", true}, {"a*b", "ab", true}, {"a*b", "a", false}, {"*x", "abc", false},
 		{"*ice", "alice", true}, {"al*e", "alicee", true}, {"alice", "alic", false}, {"alic", "alice", false}, {"**a", "a", true},
+		{"*b", "*xb", true}, {"?b", "*b", true},
 	} {
 		if got := wildmatch(c.pattern, c.s); got != c.want {
 			t.Errorf("wildmatch(%q, %q) = %v, want %v", c.pattern, c.s, got, c.want)
@@ -181,5 +184,43 @@ func TestWildmatch(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("wildmatch took over 2 s on a 32-character name")
+	}
+}
+
+// TestGuardEarlierDropIn: a drop-in that sorts before 00-darkpanel.conf sets
+// a keyword first, and sshd keeps the first value it reads.
+func TestGuardEarlierDropIn(t *testing.T) {
+	const in = `{"passwordAuthentication":true,"kbdInteractiveAuthentication":true,"allowUsers":["alice"]}`
+	for _, c := range []struct {
+		file string
+		ok   bool
+	}{{"00-cloud.conf", false}, {"50-cloud.conf", true}} {
+		r := newRig(t)
+		r.liveSshd()
+		r.answer(platform.PasswdPath, platform.PasswdStatusAll(), strings.Replace(fxStatus, "alice L", "alice P", 1))
+		r.files[dropInDir+"/"+c.file] = "PasswordAuthentication no\nKbdInteractiveAuthentication no\n"
+		g := guardOf(t, r, "users.sshd.apply", in)
+		if g.OK != c.ok || g.Overridden {
+			t.Errorf("password sign-in for alice alone with %s setting it off: guard %+v, want OK %v", c.file, g, c.ok)
+		}
+	}
+}
+
+func TestGuardReadError(t *testing.T) {
+	r := newRig(t)
+	m := r.module()
+	read := m.d.readFile
+	m.d.readFile = func(name string) ([]byte, error) {
+		if name == sshdConfig {
+			return nil, fs.ErrPermission
+		}
+		return read(name)
+	}
+	g, err := m.accountGuard(context.Background(), r.env(adminP), core.Guarded{}, "alice", lockEdit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(g.Message, "The sshd files could not be read (") || !strings.Contains(g.Message, "so Match blocks were not checked") {
+		t.Errorf("lock with unreadable sshd files: guard message %q, want the note saying Match blocks were not checked", g.Message)
 	}
 }

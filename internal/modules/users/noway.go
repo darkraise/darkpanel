@@ -107,10 +107,10 @@ func wildmatch(pattern, s string) bool {
 	p, i, star, mark := 0, 0, -1, 0
 	for i < len(s) {
 		switch {
-		case p < len(pattern) && (pattern[p] == '?' || pattern[p] == s[i]):
-			p, i = p+1, i+1
 		case p < len(pattern) && pattern[p] == '*':
 			star, mark, p = p, i, p+1
+		case p < len(pattern) && (pattern[p] == '?' || pattern[p] == s[i]):
+			p, i = p+1, i+1
 		case star >= 0:
 			mark++
 			p, i = star+1, mark
@@ -295,12 +295,18 @@ func (m module) accountGuard(ctx context.Context, env core.Env, g core.Guarded, 
 	if ferr == nil {
 		matchIn = f.matchIn()
 	}
-	return noWayIn(v, kept, g, matchIn), nil
+	out := noWayIn(v, kept, g, matchIn)
+	if ferr != nil {
+		out.Message += " The sshd files could not be read (" + ferr.Error() + "), so Match blocks were not checked."
+	}
+	return out, nil
 }
 
 // sshdGuard is users.no_way_in for users.sshd.apply: sshd -T's settings with
-// those the input writes. A setting the input drops from the drop-in falls
-// back to the other files, then to sshd's default. The lists are the input's
+// those the input writes, unless a drop-in read before 00-darkpanel.conf
+// sets the keyword first: sshd keeps the first value. A setting the input
+// drops from the drop-in falls back to the other files, then to sshd's
+// default. The lists are the input's
 // when Darkpanel manages them and sshd -T's otherwise.
 func (m module) sshdGuard(ctx context.Context, env core.Env, in SshdInput, f sshdFiles, t sshdT) (core.Guard, error) {
 	cur := parseSettings(f.ours)
@@ -308,6 +314,9 @@ func (m module) sshdGuard(ctx context.Context, env core.Env, in SshdInput, f ssh
 	for _, k := range []string{"passwordauthentication", "kbdinteractiveauthentication", "permitrootlogin"} {
 		field := sshdFields[slices.IndexFunc(sshdFields, func(f sshdField) bool { return strings.ToLower(f.keyword) == k })]
 		if v, ok := field.text(&in.SshdSettings); ok {
+			if first := f.earlierValue(k); first != "" {
+				v = first
+			}
 			after[k] = []string{v}
 		} else if _, was := field.text(&cur); was {
 			v := f.firstValue(k)
@@ -367,3 +376,15 @@ func (g nameGuarded) Verify(ctx context.Context, env core.Env, in GuardedNameInp
 func lockEdit(c *candidate) bool       { c.locked = true; return true }
 func noPasswordEdit(c *candidate) bool { c.password = false; return true }
 func deleteEdit(*candidate) bool       { return false }
+
+// earlierValue is the value sshd takes for keyword, outside Match blocks,
+// from a drop-in that sorts before 00-darkpanel.conf, "" when none sets it.
+func (f sshdFiles) earlierValue(keyword string) string {
+	early := sshdFiles{}
+	for _, o := range f.others {
+		if strings.HasPrefix(o.path, dropInDir+"/") && o.path < dropInFile {
+			early.others = append(early.others, o)
+		}
+	}
+	return early.firstValue(keyword)
+}
