@@ -678,6 +678,15 @@ func TestPausedOutcome(t *testing.T) {
 			t.Errorf("paused %q, active %t; want the off hook's record kept and the timer stopped", got, r.isActive(timer))
 		}
 	})
+	t.Run("update while paused", func(t *testing.T) {
+		r := newRig(t)
+		r.units.off = true
+		r.apply("jobs.job.create", backupInput)
+		cv := r.apply("jobs.job.update", strings.Replace(backupInput, `"command":"tar`, `"command":"nice tar`, 1))
+		if got := r.note(cv); got != pausedNote {
+			t.Errorf("update of a paused job: note %q, want %q", got, pausedNote)
+		}
+	})
 	t.Run("undo of a delete", func(t *testing.T) {
 		r := newRig(t)
 		r.apply("jobs.job.create", backupInput)

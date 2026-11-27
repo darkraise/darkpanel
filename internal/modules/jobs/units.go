@@ -241,6 +241,9 @@ func (m module) setJob(ctx context.Context, env core.Env, slug string, now, want
 	case want.Enabled && now.Timer != want.Timer:
 		// A running timer keeps the schedule it started with.
 		return m.startTimer(ctx, env, timer, func() error { return env.Units.Restart(ctx, timer) })
+	case want.Enabled:
+		// An enabled job that jobs being off paused stays paused.
+		return remembered(ctx, env, timer)
 	}
 	return false, nil
 }
@@ -278,7 +281,9 @@ func (m module) startTimer(ctx context.Context, env core.Env, timer string, star
 		}
 		return false, err
 	case !jobsOff(err):
-		return false, err
+		// The off hook's row went before the retry; the on hook still owes
+		// this timer its start.
+		return false, errors.Join(err, remember(ctx, env, timer))
 	}
 	if err := remember(ctx, env, timer); err != nil {
 		return false, err
