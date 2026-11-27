@@ -113,7 +113,7 @@ func (h *host) plan(verb string, p core.Principal, name string) (core.PlanOutcom
 	}
 	in, _ := json.Marshal(map[string]string{"unit": name})
 	env := core.Env{HostID: "h1", Principal: p, DB: h.db, Units: h.u}
-	return h.action("services.unit." + verb).Handler.Plan(context.Background(), env, in)
+	return h.action("services.unit."+verb).Handler.Plan(context.Background(), env, in)
 }
 
 func code(err error) errcode.Code {
