@@ -475,9 +475,9 @@ export function FilesView({ hostId }: { hostId: string }) {
               )}
               {entries.map((e) => (
                 <TableRow key={e.raw ?? e.name}>
-                  <TableCell className="max-w-[28rem] min-w-[12rem] break-words whitespace-normal font-mono text-xs">
+                  <TableCell className="max-w-[28rem] min-w-[12rem] whitespace-normal wrap-anywhere font-mono text-xs">
                     {e.type === "dir" && e.escaped !== true ? (
-                      <Button variant="link" size="sm" className="h-auto whitespace-normal break-words p-0 text-start font-mono text-xs" onClick={() => go(childPath(path, e.name))}>
+                      <Button variant="link" size="sm" className="h-auto whitespace-normal wrap-anywhere p-0 text-start font-mono text-xs" onClick={() => go(childPath(path, e.name))}>
                         {shownName(e)}
                       </Button>
                     ) : (
@@ -487,7 +487,7 @@ export function FilesView({ hostId }: { hostId: string }) {
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{e.type === "dir" ? "" : formatSize(e.size)}</TableCell>
                   <TableCell className="font-mono text-xs">{e.mode}</TableCell>
-                  <TableCell className="break-all">{`${e.owner}:${e.group}`}</TableCell>
+                  <TableCell className="min-w-40 whitespace-normal wrap-anywhere">{`${e.owner}:${e.group}`}</TableCell>
                   <TableCell className="whitespace-nowrap">{modified(e.modified)}</TableCell>
                   <TableCell>
                     <EntryMenu entry={e} onPick={onPick} />

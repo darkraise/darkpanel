@@ -5,6 +5,8 @@
 
 const NOW = "2026-11-26T09:40:00Z"
 const LONG = (prefix: string, length: number) => (prefix + "-segment".repeat(Math.ceil(length / 8))).slice(0, length)
+// UNBROKEN is a text of length with no point a browser may break it at.
+const UNBROKEN = (prefix: string, length: number) => (prefix + "x".repeat(length)).slice(0, length)
 
 export interface M11Unit {
   name: string
@@ -206,15 +208,15 @@ export const filesDefault = {
   ],
 }
 
-// filesWorst is a 2000-entry page with a next cursor, 255-byte names and
-// names that are not UTF-8, escaped.
+// filesWorst is a 2000-entry page with a next cursor, 255-byte names (the
+// second one with no break point) and names that are not UTF-8, escaped.
 export const filesWorst = {
   path: "/srv/uploads",
   next: "cursor-2000",
   entries: Array.from({ length: 2000 }, (_, i) =>
     i % 400 === 7
       ? file(`report-\\xff\\xfe-${i}.csv`, "file", 2048 + i, "0644", { escaped: true, raw: "cmVwb3J0LS8tMC5jc3Y=", owner: "deploy", group: "deploy", uid: 1000, gid: 1000 })
-      : file(i % 100 === 1 ? LONG(`upload-${i}`, 255) : `upload-${String(i).padStart(4, "0")}.bin`, "file", 1_048_576 * (i % 50), "0644", { owner: "deploy", group: "deploy", uid: 1000, gid: 1000 }),
+      : file(i === 1 ? UNBROKEN("upload1", 255) : i % 100 === 1 ? LONG(`upload-${i}`, 255) : `upload-${String(i).padStart(4, "0")}.bin`, "file", 1_048_576 * (i % 50), "0644", { owner: "deploy", group: "deploy", uid: 1000, gid: 1000 }),
   ),
 }
 
@@ -250,12 +252,19 @@ export const jobsDefault = {
 
 export const jobsEmpty = { jobs: [] as M11Job[], timers: jobsDefault.timers, cron: [] }
 
-// jobsWorst is 100 jobs with 40-character slugs and long commands.
+// jobsWorst is 100 jobs with 40-character slugs (the first with no break
+// point) and long commands, a timer of 200 characters and a cron command of
+// 255, both with no break point.
 export const jobsWorst = {
   ...jobsDefault,
+  timers: [
+    ...jobsDefault.timers,
+    { name: `${UNBROKEN("worker", 194)}.timer`, unit: "worker.service", source: `/etc/systemd/system/${UNBROKEN("worker", 194)}.timer`, nextRun: "", lastRun: "" },
+  ],
+  cron: [...jobsDefault.cron, { source: "/etc/cron.d/export", schedule: "*/5 * * * *", user: "deploy", command: UNBROKEN("/srv/export", 255) }],
   jobs: Array.from({ length: 100 }, (_, i) => ({
     ...jobsDefault.jobs[0],
-    slug: LONG(`job-${String(i).padStart(3, "0")}`, 40),
+    slug: i === 0 ? UNBROKEN("job000", 40) : LONG(`job-${String(i).padStart(3, "0")}`, 40),
     command: `/srv/app/bin/task --tenant ${i} ${"--flag ".repeat(30)}`,
     lastResult: i % 6 === 2 ? "exit-code" : i % 6 === 4 ? "timeout" : "success",
     exitStatus: i % 6 === 2 ? 1 : i % 6 === 4 ? null : 0,

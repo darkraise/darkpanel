@@ -153,12 +153,12 @@ function KeyRow({ k, admin, draft, onDraft }: { k: SysctlKey; admin: boolean; dr
   const later = k.laterFiles ?? []
   return (
     <TableRow>
-      <TableCell className="max-w-[24rem] min-w-[12rem] whitespace-normal">
-        <span className="break-words font-mono text-xs">{k.key}</span>
+      <TableCell className="max-w-[24rem] min-w-[12rem] whitespace-normal wrap-anywhere">
+        <span className="font-mono text-xs">{k.key}</span>
         {(k.help ?? "") !== "" && <span className="block text-xs text-muted-foreground">{k.help}</span>}
       </TableCell>
-      <TableCell className="break-all font-mono text-xs">{unavailable !== "" ? unavailable : k.live}</TableCell>
-      <TableCell>
+      <TableCell className="min-w-40 whitespace-normal wrap-anywhere font-mono text-xs">{unavailable !== "" ? unavailable : k.live}</TableCell>
+      <TableCell className="min-w-48 whitespace-normal">
         {unavailable !== "" ? null : (
           <div className="flex flex-col items-start gap-1">
             {owner !== "" && <Badge variant="outline">{`Managed by ${owner}`}</Badge>}
@@ -177,7 +177,7 @@ function KeyRow({ k, admin, draft, onDraft }: { k: SysctlKey; admin: boolean; dr
             )}
             {!admin && owner === "" && <span className="font-mono text-xs">{(k.set ?? "") === "" ? "Not set by Darkpanel" : k.set}</span>}
             {error !== null && <FieldError id={`${id}-error`}>{error}</FieldError>}
-            {owner === "" && later.length > 0 && <span className="text-xs text-warning-text">{`${later[later.length - 1] ?? ""} sets it later at boot and wins`}</span>}
+            {owner === "" && later.length > 0 && <span className="text-xs text-warning-text wrap-anywhere">{`${later[later.length - 1] ?? ""} sets it later at boot and wins`}</span>}
           </div>
         )}
       </TableCell>

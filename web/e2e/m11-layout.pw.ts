@@ -265,6 +265,40 @@ async function squeezed(page: Page): Promise<string[]> {
   })
 }
 
+// fits checks that host text wraps inside the columns of the table named
+// name (open-rows spec UI-1). At 1440 px the table is no wider than its
+// container. At 375 and 768 px the tables' own columns are wider than the
+// container, whose scroller scrolls sideways by design, so the table may be
+// at most 1 px wider than a removed copy of it whose unbroken runs are cut
+// to 24 characters. Every row's menu button lies inside the viewport once
+// the scroller is at its end; the scroller is put back at its start.
+async function fits(page: Page, name: string, label: string, wide: boolean) {
+  const got = await page.getByRole("table", { name, exact: true }).evaluate((t) => {
+    const container = t.parentElement ?? t
+    const copy = t.cloneNode(true) as HTMLElement
+    copy.removeAttribute("aria-label")
+    container.appendChild(copy)
+    const walk = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT)
+    for (let node = walk.nextNode(); node !== null; node = walk.nextNode()) {
+      node.textContent = (node.textContent ?? "").replace(/\S{25,}/g, (run) => run.slice(0, 24))
+    }
+    const baseline = copy.scrollWidth
+    copy.remove()
+    container.scrollLeft = container.scrollWidth
+    const out = [...t.querySelectorAll<HTMLElement>('button[aria-label^="Actions for "]')]
+      .filter((b) => {
+        const r = b.getBoundingClientRect()
+        return r.left < 0 || r.right > window.innerWidth
+      })
+      .map((b) => (b.getAttribute("aria-label") ?? "").slice(0, 60))
+    container.scrollLeft = 0
+    return { table: t.scrollWidth, container: container.clientWidth, baseline, out }
+  })
+  if (wide) expect(got.table, `${label}: the ${name} table is no wider than its container`).toBeLessThanOrEqual(got.container)
+  else expect(got.table, `${label}: host text does not widen the ${name} table (baseline ${got.baseline} px)`).toBeLessThanOrEqual(got.baseline + 1)
+  expect(got.out, `${label}: every row menu of the ${name} table is in view`).toEqual([])
+}
+
 // WCAG 2.1 A and AA through axe, colour contrast included.
 async function axeScan(page: Page): Promise<string[]> {
   if (!(await page.evaluate(() => "axe" in window))) await page.addScriptTag({ path: axePath })
@@ -830,6 +864,8 @@ for (const theme of THEMES) {
       await expect(page.getByRole("table", { name: "Other scheduled tasks" })).toBeVisible()
       await expect(page.getByText("/etc/cron.d/certbot").first()).toBeVisible()
       await expect(table.getByText("Failed", { exact: false }).first()).toBeVisible()
+      await fits(page, "Darkpanel jobs", label, vp.width >= 1440)
+      await fits(page, "Other scheduled tasks", label, vp.width >= 1440)
       await snap(page, here, "jobs", "", false)
 
       await forced(page, "jobs.job.list", "loading", () => page.reload(), async () => {
@@ -902,7 +938,7 @@ for (const theme of THEMES) {
         min: "0",
         max: "65535",
         choices: [],
-        live: String(1000 + i),
+        live: i === 1 ? "1".repeat(200) : String(1000 + i),
         set: i % 4 === 1 ? String(2000 + i) : "",
         laterFiles: i % 7 === 3 ? ["/etc/sysctl.d/99-zzz-a-late-override-with-a-long-name.conf"] : [],
         owner: i % 5 === 2 ? "docker-compose-networking" : "",
@@ -915,6 +951,7 @@ for (const theme of THEMES) {
       await expect(page.getByRole("table", { name: "Kernel parameters" }).locator("tbody tr")).toHaveCount(60)
       await expect(page.getByText("Managed by docker-compose-networking").first()).toBeVisible()
       await expect(page.getByText(/sets it later at boot and wins/).first()).toBeVisible()
+      await fits(page, "Kernel parameters", label, vp.width >= 1440)
       await snap(page, here, "tuning", "", false)
       await page.unroute(readRoute("tuning.sysctl.get"))
       await page.unroute(readRoute("tuning.swap.get"))
@@ -1224,6 +1261,7 @@ for (const theme of THEMES) {
       await expect(long).toBeVisible()
       expect(((await long.textContent()) ?? "").length, "a 255-byte name").toBe(255)
       await expect(table.getByText("report-\\xff\\xfe-7.csv", { exact: true })).toBeVisible()
+      await fits(page, "Files in /srv/uploads", label, vp.width >= 1440)
       await snap(page, here, "files", "", false)
       await page.getByRole("button", { name: "Actions for report-\\xff\\xfe-7.csv", exact: true }).click()
       await expect(page.getByRole("menuitem", { name: /^Rename/ })).toHaveAttribute("aria-disabled", "true")

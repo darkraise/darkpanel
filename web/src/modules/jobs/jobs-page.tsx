@@ -87,10 +87,10 @@ function JobsTable({ jobs, admin, onPick }: { jobs: Job[]; admin: boolean; onPic
           const words = scheduleText(j.schedule)
           return (
             <TableRow key={j.slug}>
-              <TableCell className="max-w-[24rem]">
-                <span className="break-all font-mono text-sm">{j.slug}</span>
+              <TableCell className="max-w-[24rem] min-w-40 whitespace-normal wrap-anywhere">
+                <span className="font-mono text-sm">{j.slug}</span>
                 {(j.description ?? "") !== "" && <span className="block text-xs text-muted-foreground">{j.description}</span>}
-                {(j.command ?? "") !== "" && <span className="block truncate font-mono text-xs text-muted-foreground">{j.command}</span>}
+                {(j.command ?? "") !== "" && <span className="block max-w-48 truncate font-mono text-xs text-muted-foreground md:max-w-96">{j.command}</span>}
               </TableCell>
               <TableCell>
                 {words !== "" && <span className="block">{words}</span>}
@@ -134,18 +134,18 @@ function OtherTasks({ list }: { list: JobList }) {
         <TableBody>
           {list.timers.map((t) => (
             <TableRow key={t.name}>
-              <TableCell className="break-all font-mono text-xs">{t.name}</TableCell>
+              <TableCell className="min-w-40 whitespace-normal wrap-anywhere font-mono text-xs">{t.name}</TableCell>
               <TableCell className="whitespace-nowrap">{(t.nextRun ?? "") === "" ? "Not scheduled" : `Next ${formatTime(t.nextRun ?? null)}`}</TableCell>
               <TableCell>root</TableCell>
-              <TableCell className="break-all font-mono text-xs">{t.source}</TableCell>
+              <TableCell className="min-w-40 whitespace-normal wrap-anywhere font-mono text-xs">{t.source}</TableCell>
             </TableRow>
           ))}
           {list.cron.map((c, i) => (
             <TableRow key={`${c.source}-${i}`}>
-              <TableCell className="max-w-[24rem] break-words whitespace-normal font-mono text-xs">{c.command ?? "Cron entry"}</TableCell>
+              <TableCell className="max-w-[24rem] min-w-40 whitespace-normal wrap-anywhere font-mono text-xs">{c.command ?? "Cron entry"}</TableCell>
               <TableCell className="font-mono text-xs">{c.schedule}</TableCell>
               <TableCell>{c.user}</TableCell>
-              <TableCell className="break-all font-mono text-xs">{c.source}</TableCell>
+              <TableCell className="min-w-40 whitespace-normal wrap-anywhere font-mono text-xs">{c.source}</TableCell>
             </TableRow>
           ))}
         </TableBody>
