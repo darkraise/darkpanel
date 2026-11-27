@@ -317,3 +317,73 @@ describe("A70: the file manager", () => {
     expect(screen.getByRole("button", { name: "New folder" })).toHaveProperty("disabled", true)
   })
 })
+
+function sshLine(type: string, ...fields: Uint8Array[]): string {
+  const parts = [new TextEncoder().encode(type), ...fields]
+  const size = parts.reduce((n, p) => n + 4 + p.length, 0)
+  const blob = new Uint8Array(size)
+  let at = 0
+  for (const p of parts) {
+    new DataView(blob.buffer).setUint32(at, p.length)
+    blob.set(p, at + 4)
+    at += 4 + p.length
+  }
+  return `${type} ${btoa(String.fromCharCode(...blob))} test@laptop`
+}
+
+describe("A67: the users forms", () => {
+  const BASE = "POST /api/v1/hosts/h1/actions"
+  function users(extra: Record<string, StubHandler> = {}) {
+    stubFetch({
+      [`${BASE}/users.user.list/v1/read`]: { body: { output: { accounts: accountsDefault } } },
+      [`${BASE}/users.key.list/v1/read`]: { body: { output: keysDeploy } },
+      [`${BASE}/users.sshd.get/v1/read`]: { body: { output: sshdState } },
+      "GET /api/v1/hosts/h1/modules/users/availability": { body: { module: "users", available: true, reason: null, actions: [] } },
+      ...extra,
+    })
+    renderWithProviders(<UsersPage hostId="h1" />, { hostScope: "admin" })
+  }
+
+  test("A67: a short RSA key and junk show their messages under the field", async () => {
+    users()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: "deploy" }))
+    const field = await screen.findByLabelText("Add a public key")
+    const n = new Uint8Array(2048 / 8 + 1)
+    n[1] = 0x80
+    await user.click(field)
+    await user.paste(sshLine("ssh-rsa", Uint8Array.of(1, 0, 1), n))
+    expect(screen.getByText("RSA keys need at least 3072 bits")).toBeTruthy()
+    await user.clear(field)
+    await user.type(field, "hello")
+    expect(screen.getByText("Not a public key line")).toBeTruthy()
+  })
+
+  test("A67: an invalid account name is refused inline as it is typed", async () => {
+    users()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: "Add user" }))
+    await user.type(screen.getByLabelText("Name"), "Alice")
+    expect(screen.getByLabelText("Name").getAttribute("aria-invalid")).toBe("true")
+  })
+
+  test("A67: the root row offers neither Lock nor Delete, and Delete asks the user name", async () => {
+    users({
+      [`${BASE}/users.user.delete/v1/plan`]: {
+        body: {
+          planId: "p1", hostId: "h1", action: "users.user.delete", version: 1, actor: "user:admin", diff: [], guards: [],
+          stateHash: "h", confirmation: "alice", createdAt: "2026-11-26T09:40:00Z", expiresAt: "2026-11-26T09:50:00Z",
+        },
+      },
+    })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: "Actions for root" }))
+    const items = (await screen.findAllByRole("menuitem")).map((i) => i.textContent ?? "")
+    expect(items.some((i) => /^(Lock|Delete)/.test(i))).toBe(false)
+    await user.keyboard("{Escape}")
+    await user.click(screen.getByRole("button", { name: "Actions for alice" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(await within(dialog).findByLabelText(/alice/)).toBeTruthy()
+  })
+})
