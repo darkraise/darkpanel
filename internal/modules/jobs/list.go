@@ -99,8 +99,13 @@ func (l lister) Read(ctx context.Context, env core.Env, _ ListInput) (JobList, e
 	}
 	for _, slug := range slugs {
 		f, err := l.m.readJob(ctx, env, slug)
-		if err != nil || f == nil {
+		if err != nil {
 			return JobList{}, err
+		}
+		// A job deleted between the glob and the read, or half written, is
+		// left out rather than failing the whole list.
+		if f == nil || f.Service == "" {
+			continue
 		}
 		j := parse(slug, f)
 		item := Job{Slug: slug, Description: j.Description, Schedule: j.Schedule, User: j.User, TimeoutSeconds: j.TimeoutSeconds,
@@ -290,7 +295,8 @@ func checkSchedule(ctx context.Context, env core.Env, expr string) ([]string, er
 
 // parseCalendar reads the elapses systemd-analyze calendar prints: the
 // "(in UTC)" lines, or, on a host whose zone is UTC, which prints none, the
-// "Next elapse" and "Iteration" lines.
+// "Next elapse" and "Iteration" lines. A schedule with no next elapse
+// ("Next elapse: never") is refused.
 func parseCalendar(out string) ([]string, error) {
 	var utc, local []string
 	for line := range strings.Lines(out) {
@@ -307,6 +313,9 @@ func parseCalendar(out string) ([]string, error) {
 	}
 	if len(utc) == 0 {
 		utc = local
+	}
+	if len(utc) == 0 || strings.TrimSpace(utc[0]) == "never" {
+		return nil, invalid("/schedule", "This schedule never runs")
 	}
 	next := []string{}
 	for _, v := range utc {

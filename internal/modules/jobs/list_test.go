@@ -1,11 +1,18 @@
 package jobs
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/darkraise/darkpanel/internal/core"
+	"github.com/darkraise/darkpanel/internal/core/errcode"
 )
 
 // TestList lists Darkpanel jobs with their runs, the host's other timers and
@@ -69,4 +76,53 @@ func jobEqual(a, b Job) bool {
 	}
 	a.ExitStatus, b.ExitStatus = nil, nil
 	return a == b
+}
+
+// TestListSkipsVanishedJob lists the jobs it can read: a job whose files are
+// gone between the glob and the read, or whose service text is empty, is
+// left out rather than emptying the list.
+func TestListSkipsVanishedJob(t *testing.T) {
+	r := newRig(t)
+	for _, slug := range []string{"alpha", "bravo", "charlie", "delta"} {
+		r.apply("jobs.job.create", strings.Replace(backupInput, `"backup"`, `"`+slug+`"`, 1))
+	}
+	for _, name := range []string{serviceName("bravo"), timerName("bravo")} {
+		r.gone[r.path("units", name)] = true
+	}
+	r.gone[filepath.Join(r.m.scriptDir, scriptName("bravo"))] = true
+	if err := os.WriteFile(r.path("units", serviceName("delta")), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var got JobList
+	r.read(adminP, "jobs.job.list", `{}`, &got)
+	var slugs []string
+	for _, j := range got.Jobs {
+		slugs = append(slugs, j.Slug)
+	}
+	if want := []string{"alpha", "charlie"}; !slices.Equal(slugs, want) {
+		t.Errorf("listed jobs %q, want %q", slugs, want)
+	}
+	if got.Jobs == nil || got.Timers == nil || got.Cron == nil {
+		t.Errorf("list %+v: want non-nil arrays", got)
+	}
+}
+
+// TestScheduleNever refuses a schedule whose next elapse is never, in the
+// schedule check and in create's plan.
+func TestScheduleNever(t *testing.T) {
+	r := newRig(t)
+	isNever := func(err error) bool {
+		var e *errcode.Error
+		return errors.As(err, &e) && e.Code == errcode.InvalidInput && len(e.Fields) == 1 &&
+			e.Fields[0].Path == "/schedule" && e.Fields[0].Message == "This schedule never runs"
+	}
+	_, err := r.engine.Read(context.Background(), adminP, core.ActionRef{Name: "jobs.schedule.check", Version: 1},
+		json.RawMessage(`{"schedule":"2020-01-01"}`))
+	if !isNever(err) {
+		t.Errorf("schedule check of 2020-01-01: %v, want invalid_input on /schedule: This schedule never runs", err)
+	}
+	if err := r.planErr("jobs.job.create", strings.Replace(backupInput, `*-*-* 03:00:00`, `2020-01-01`, 1)); !isNever(err) {
+		t.Errorf("create with 2020-01-01: %v, want invalid_input on /schedule: This schedule never runs", err)
+	}
 }

@@ -105,16 +105,20 @@ func (u *units) LastRun(_ context.Context, unit string) (core.ServiceRun, error)
 	return u.runs[unit], nil
 }
 
-// runner answers systemd-analyze calendar: "every tuesday" fails as
-// systemd-analyze does, anything else elapses daily at 03:00 UTC.
+// runner answers systemd-analyze calendar: "every tuesday" fails and
+// "2020-01-01" never elapses, as systemd-analyze says, and anything else
+// elapses daily at 03:00 UTC.
 type runner struct{}
 
 func (runner) Run(_ context.Context, cmd core.Cmd) (core.CmdResult, error) {
 	if cmd.Path != platform.SystemdAnalyzePath || len(cmd.Args) != 4 || !slices.Equal(cmd.Args[:3], platform.CalendarArgs("")[:3]) {
 		return core.CmdResult{}, fmt.Errorf("unexpected command %s %q", cmd.Path, cmd.Args)
 	}
-	if cmd.Args[3] == "every tuesday" {
+	switch cmd.Args[3] {
+	case "every tuesday":
 		return core.CmdResult{ExitCode: 1, Stderr: []byte("Failed to parse calendar specification 'every tuesday': Invalid argument\n")}, nil
+	case "2020-01-01":
+		return core.CmdResult{Stdout: []byte("  Original form: 2020-01-01\nNormalized form: 2020-01-01 00:00:00\n    Next elapse: never\n")}, nil
 	}
 	return core.CmdResult{Stdout: []byte("Normalized form: " + cmd.Args[3] + "\n" +
 		"    Next elapse: Fri 2026-11-27 10:00:00 +07\n       (in UTC): Fri 2026-11-27 03:00:00 UTC\n       From now: 10h left\n" +
@@ -135,6 +139,7 @@ type rig struct {
 	m        module
 	units    *units
 	files    map[string]string // canned files, by path
+	gone     map[string]bool   // paths a read finds missing although a glob lists them
 	gid      int               // alice's primary group
 	db       *store.DB
 	engine   *lifecycle.Engine
@@ -146,7 +151,7 @@ type rig struct {
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	root := t.TempDir()
-	r := &rig{t: t, root: root, units: &units{active: map[string]bool{}, runs: map[string]core.ServiceRun{}}, files: map[string]string{}}
+	r := &rig{t: t, root: root, units: &units{active: map[string]bool{}, runs: map[string]core.ServiceRun{}}, files: map[string]string{}, gone: map[string]bool{}}
 	r.gid = os.Getegid()
 	// carol's group is one an unprivileged run can give a file, as alice's is.
 	carolGid := r.gid
@@ -211,6 +216,9 @@ func (r *rig) env(p core.Principal) core.Env {
 
 // readFile serves the canned files and reads the rest from disk.
 func (r *rig) readFile(name string) ([]byte, error) {
+	if r.gone[name] {
+		return nil, fs.ErrNotExist
+	}
 	if s, ok := r.files[name]; ok {
 		return []byte(s), nil
 	}
