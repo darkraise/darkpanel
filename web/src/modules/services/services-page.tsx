@@ -18,6 +18,7 @@ import type { Status } from "@/components/visual/status"
 import { applied } from "@/lib/users"
 import { useCanOnHost } from "@/session/can"
 import { JournalPanel } from "./journal-panel"
+import { focusableScroller } from "@/lib/table"
 
 // Unit is one row of services.unit.list.
 export interface Unit {
@@ -149,7 +150,7 @@ export function ServicesPage({ hostId }: { hostId: string }) {
           }
         />
       ) : (
-        <Table>
+        <Table ref={focusableScroller("Units table")}>
           <TableHeader>
             <TableRow>
               <TableHead>Unit</TableHead>

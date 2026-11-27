@@ -17,6 +17,7 @@ import { ChangeDialog } from "@/components/change-dialog"
 import { formatTime } from "@/lib/format"
 import { applied } from "@/lib/users"
 import { useCanOnHost } from "@/session/can"
+import { focusableScroller } from "@/lib/table"
 
 interface Jail {
   name: string
@@ -143,7 +144,7 @@ function BansTable({ hostId, operate, onUnban }: { hostId: string; operate: bool
   else
     body = (
       <div className="overflow-x-auto">
-        <Table aria-label="Banned addresses">
+        <Table aria-label="Banned addresses" ref={focusableScroller("Banned addresses table")}>
           <TableHeader>
             <TableRow>
               <TableHead>Address</TableHead>

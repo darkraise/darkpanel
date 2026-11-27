@@ -19,6 +19,7 @@ import { JournalPanel } from "@/modules/services/journal-panel"
 import { useCanOnHost } from "@/session/can"
 import { JobForm, type JobInput } from "./job-form"
 import { jobUnit, lastResult, scheduleText, type Job, type JobList } from "./jobs"
+import { focusableScroller } from "@/lib/table"
 
 // Pending is one change a menu or the form asks for, planned in ChangeDialog.
 interface Pending {
@@ -65,7 +66,7 @@ function JobMenu({ job, onPick }: { job: Job; onPick: (j: Job, p: Pick) => void 
 
 function JobsTable({ jobs, admin, onPick }: { jobs: Job[]; admin: boolean; onPick: (j: Job, p: Pick) => void }) {
   return (
-    <Table aria-label="Darkpanel jobs">
+    <Table aria-label="Darkpanel jobs" ref={focusableScroller("Darkpanel jobs table")}>
       <TableHeader>
         <TableRow>
           <TableHead>Name</TableHead>
@@ -121,7 +122,7 @@ function OtherTasks({ list }: { list: JobList }) {
         Other scheduled tasks
       </h3>
       <p className="text-xs text-muted-foreground">Timers and cron entries outside Darkpanel; change them in their files.</p>
-      <Table aria-label="Other scheduled tasks">
+      <Table aria-label="Other scheduled tasks" ref={focusableScroller("Other scheduled tasks table")}>
         <TableHeader>
           <TableRow>
             <TableHead>Task</TableHead>
@@ -186,8 +187,11 @@ export function JobsPage({ hostId }: { hostId: string }) {
     } else setPending(p)
   }
 
+  // Whether the reviewed change applied: only then does the form close.
+  const done = useRef(false)
+
   function review(input: JobInput, job?: Job) {
-    setForm(null)
+    done.current = false
     setPending(
       job === undefined
         ? { action: "jobs.job.create", title: `Add ${input.slug}`, input: { ...input }, done: `${input.slug} added` }
@@ -241,17 +245,33 @@ export function JobsPage({ hostId }: { hostId: string }) {
           <JournalPanel hostId={hostId} unit={output} onUnitChange={setOutput} />
         </section>
       )}
-      {form !== null && <JobForm hostId={hostId} hostName={hostName} job={form.job} onCancel={() => setForm(null)} onReview={(input) => review(input, form.job)} />}
+      {form !== null && (
+        <JobForm
+          hostId={hostId}
+          hostName={hostName}
+          job={form.job}
+          hidden={pending !== null}
+          onCancel={() => setForm(null)}
+          onReview={(input) => review(input, form.job)}
+        />
+      )}
       {pending !== null && (
         <ChangeDialog
           open
-          onOpenChange={(open) => (open ? undefined : setPending(null))}
+          onOpenChange={(open) => {
+            if (open) return
+            setPending(null)
+            if (done.current) setForm(null)
+          }}
           title={pending.title}
           target={{ name: pending.action, version: 1, hostId, module: "jobs" }}
           input={pending.input}
           onApplied={(c: Change) => {
             void client.invalidateQueries({ queryKey: key })
-            if (applied(c)) toast(pending.done)
+            if (applied(c)) {
+              done.current = true
+              toast(pending.done)
+            }
           }}
         />
       )}

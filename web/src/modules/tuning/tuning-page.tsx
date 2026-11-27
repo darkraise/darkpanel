@@ -17,6 +17,7 @@ import { FALLBACK_FOCUS, useFocusFallback } from "@/lib/return-focus"
 import { applied } from "@/lib/users"
 import { useCanOnHost } from "@/session/can"
 import { MIB, normalValue, swapLimit, valueError, type SwapState, type SysctlKey, type SysctlState } from "./tuning"
+import { focusableScroller } from "@/lib/table"
 
 interface Pending {
   action: string
@@ -248,7 +249,7 @@ export function TuningPage({ hostId }: { hostId: string }) {
           <Failed what="kernel parameters" error={sysctl.error} onRetry={() => void sysctl.refetch()} />
         ) : (
           <>
-            <Table aria-label="Kernel parameters">
+            <Table aria-label="Kernel parameters" ref={focusableScroller("Kernel parameters table")}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Key</TableHead>

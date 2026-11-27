@@ -66,7 +66,9 @@ export function StepUpDialog({ reason, submit = stepUp, onVerified, onCancel }: 
 
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onCancel())}>
-      <DialogContent>
+      {/* Opaque: the glass style's translucent fill over the black terminal
+          leaves its text below 4.5:1 in the light theme. */}
+      <DialogContent className="bg-popover">
         <DialogHeader>
           <DialogTitle>Enter your authenticator code</DialogTitle>
           <DialogDescription>{reason}</DialogDescription>
