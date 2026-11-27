@@ -83,9 +83,6 @@ function draftOf(e: SshdSettings): Draft {
   return { bools, numbers, permitRootLogin: e.permitRootLogin ?? "prohibit-password", allowUsers: list(e.allowUsers, ""), allowGroups: list(e.allowGroups, "") }
 }
 
-// settingsOf is what 00-darkpanel.conf holds after the change: the values
-// Darkpanel set already, plus every value the form changed from the
-// effective one; fields another file manages are left out.
 function FieldError({ id, children }: { id: string; children: string }) {
   return (
     <p id={id} className="text-sm text-destructive-text">
@@ -99,6 +96,9 @@ interface FieldProblem {
   message: string
 }
 
+// settingsOf is what 00-darkpanel.conf holds after the change: the values
+// Darkpanel set already, plus every value the form changed from the
+// effective one; fields another file manages are left out.
 function settingsOf(d: Draft, s: SshdState): { settings: SshdSettings; error: FieldProblem | null } {
   const out: Record<string, unknown> = { ...s.set }
   const put = (f: Field, v: unknown) => {
