@@ -355,9 +355,46 @@ func TestRevocationEnds(t *testing.T) {
 	}
 }
 
+// bridgeSteps are the steps a rig's terminal bridge took (Server.bridgeStep).
+type bridgeSteps chan bridgeStep
+
+type bridgeStep struct {
+	step string
+	next time.Time
+}
+
+// watchBridge records the steps of the bridges r serves from now on.
+func watchBridge(r *termRig) bridgeSteps {
+	c := make(bridgeSteps, 4096)
+	r.h.srv.bridgeStep = func(step string, next time.Time) { c <- bridgeStep{step, next} }
+	return c
+}
+
+// await waits for step; for a step with a deadline, for one due after now:
+// an "idle" step due after now has handled every timer the clock fired, with
+// no ping out, so the next Advance reaches its next timer. A value on done
+// ends the wait instead.
+func (c bridgeSteps) await(t *testing.T, step string, now time.Time, done <-chan string) (string, bool) {
+	t.Helper()
+	timeout := time.After(10 * time.Second)
+	for {
+		select {
+		case ev := <-c:
+			if ev.step == step && (now.IsZero() || ev.next.After(now)) {
+				return "", false
+			}
+		case got := <-done:
+			return got, true
+		case <-timeout:
+			t.Fatalf("the bridge never took the step %s", step)
+		}
+	}
+}
+
 func TestKeepaliveAndActivity(t *testing.T) {
 	t.Run("ping", func(t *testing.T) {
 		r := newTermRig(t, false, 0)
+		steps := watchBridge(r)
 		var pings atomic.Int32
 		ws, agent, _ := r.dial(r.admin, termHost, r.ticket(r.admin), &websocket.DialOptions{
 			OnPingReceived: func(context.Context, []byte) bool { pings.Add(1); return true },
@@ -371,17 +408,10 @@ func TestKeepaliveAndActivity(t *testing.T) {
 				}
 			}
 		}()
-		for i := int32(1); i <= 2; i++ {
-			before := r.h.clock.Pending()
+		for range 2 {
 			r.h.clock.Advance(SSEHeartbeat)
-			deadline := time.Now().Add(5 * time.Second)
-			for pings.Load() < i && time.Now().Before(deadline) {
-				time.Sleep(time.Millisecond)
-			}
 			// The next heartbeat is armed once the pong came back.
-			for r.h.clock.Pending() < before && time.Now().Before(deadline) {
-				time.Sleep(time.Millisecond)
-			}
+			steps.await(t, "idle", r.h.clock.Now(), nil)
 		}
 		if n := pings.Load(); n != 2 {
 			t.Errorf("%d pings in two heartbeats, want 2", n)
@@ -390,14 +420,11 @@ func TestKeepaliveAndActivity(t *testing.T) {
 	})
 	t.Run("no pong", func(t *testing.T) {
 		r := newTermRig(t, false, 0)
+		steps := watchBridge(r)
 		_, agent, _ := r.dial(r.admin, termHost, r.ticket(r.admin), nil)
 		// The browser reads nothing, so no pong answers.
-		before := r.h.clock.Pending()
 		r.h.clock.Advance(SSEHeartbeat)
-		deadline := time.Now().Add(5 * time.Second)
-		for r.h.clock.Pending() < before && time.Now().Before(deadline) {
-			time.Sleep(time.Millisecond) // until the ping arms its pong timer
-		}
+		steps.await(t, "ping", r.h.clock.Now(), nil)
 		r.h.clock.Advance(PongTimeout)
 		if got := agentClose(t, agent); got != "browser gone" {
 			t.Errorf("closed with %q, want browser gone", got)
@@ -414,6 +441,7 @@ func TestKeepaliveAndActivity(t *testing.T) {
 	}
 	t.Run("activity", func(t *testing.T) {
 		r := newTermRig(t, false, 0)
+		steps := watchBridge(r)
 		ws, agent, _ := r.dial(r.admin, termHost, r.ticket(r.admin), nil)
 		keep(t, ws)
 		got := make(chan []byte, 64)
@@ -441,8 +469,9 @@ func TestKeepaliveAndActivity(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatalf("after %d minutes the data frame never reached the agent", 5*i)
 			}
-			time.Sleep(20 * time.Millisecond)
+			steps.await(t, "data", time.Time{}, nil)
 			r.h.clock.Advance(5 * time.Minute)
+			steps.await(t, "idle", r.h.clock.Now(), nil)
 		}
 		if err := ws.Write(ctx, websocket.MessageBinary, []byte("z")); err != nil {
 			t.Fatalf("data every 5 minutes did not keep the session past 61 minutes: %v", err)
@@ -453,11 +482,11 @@ func TestKeepaliveAndActivity(t *testing.T) {
 			t.Fatal("the terminal ended although data kept its session alive")
 		}
 
-		time.Sleep(50 * time.Millisecond) // the last frame's touch
+		steps.await(t, "data", time.Time{}, nil) // the last frame's touch
 		before := lastSeen(r, r.admin)
 		for range 58 {
 			r.h.clock.Advance(SSERecheck)
-			time.Sleep(time.Millisecond)
+			steps.await(t, "idle", r.h.clock.Now(), nil)
 		}
 		if after := lastSeen(r, r.admin); after != before {
 			t.Errorf("29 minutes without data moved last_seen_at from %s to %s", before, after)
@@ -465,22 +494,22 @@ func TestKeepaliveAndActivity(t *testing.T) {
 	})
 	t.Run("session expired", func(t *testing.T) {
 		r := newTermRig(t, false, 0)
+		steps := watchBridge(r)
 		ws, agent, _ := r.dial(r.admin, termHost, r.ticket(r.admin), nil)
 		go func() { _, _ = io.Copy(io.Discard, agent) }()
 		reason := make(chan string, 1)
 		go func() { reason <- closeReason(t, ws) }()
 		// Rechecks are passive: without data the session's idle hour runs out.
-		for i := 0; i < 2*61+2; i++ {
-			select {
-			case got := <-reason:
-				if got != "expired" || i < 2*59 {
-					t.Errorf("closed with %q after %d rechecks, want expired after the idle hour", got, i)
-				}
-				return
-			default:
-			}
+		for i := 1; i <= 2*61+2; i++ {
 			r.h.clock.Advance(SSERecheck)
-			time.Sleep(2 * time.Millisecond)
+			got, closed := steps.await(t, "idle", r.h.clock.Now(), reason)
+			if !closed {
+				continue
+			}
+			if got != "expired" || i < 2*59 {
+				t.Errorf("closed with %q after %d rechecks, want expired after the idle hour", got, i)
+			}
+			return
 		}
 		select {
 		case got := <-reason:

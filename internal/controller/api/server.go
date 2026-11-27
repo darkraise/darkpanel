@@ -122,6 +122,11 @@ type Server struct {
 	longLived longLived
 	// transferIdle is TransferChunkTimeout; tests shorten it.
 	transferIdle time.Duration
+	// bridgeStep, set only by tests, sees each step a terminal bridge took:
+	// "idle" as it waits with no ping out, with its next timer's deadline;
+	// "ping" with the pong deadline it armed; and "data" once a browser data
+	// frame has counted as activity.
+	bridgeStep func(step string, next time.Time)
 }
 
 // ListenerState is the listener state the UI footer shows (spec section 13):

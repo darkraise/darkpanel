@@ -299,6 +299,7 @@ func (b *bridge) run(ctx context.Context) string {
 
 	clock := b.s.clock()
 	check, beat := make(chan struct{}, 1), make(chan struct{}, 1)
+	checkAt, beatAt := clock.Now().Add(SSERecheck), clock.Now().Add(SSEHeartbeat)
 	checkT := clock.AfterFunc(SSERecheck, sseSignal(check))
 	beatT := clock.AfterFunc(SSEHeartbeat, sseSignal(beat))
 	var pongT core.Timer
@@ -317,21 +318,31 @@ func (b *bridge) run(ctx context.Context) string {
 	pongs := make(chan error, 1)
 	var reason string
 	for reason == "" {
+		if !pinging {
+			due := checkAt
+			if beatAt.Before(due) {
+				due = beatAt
+			}
+			b.step("idle", due)
+		}
 		select {
 		case reason = <-b.end:
 		case <-check:
 			reason = b.recheck(ctx)
+			checkAt = clock.Now().Add(SSERecheck)
 			checkT = clock.AfterFunc(SSERecheck, sseSignal(check))
 		case <-beat:
 			if !pinging {
 				pinging = true
 				pctx, pcancel := context.WithCancel(ctx)
 				// A pong not back within PongTimeout fails the ping.
+				next := clock.Now().Add(PongTimeout)
 				pongT = clock.AfterFunc(PongTimeout, pcancel)
 				go func() {
 					defer pcancel()
 					pongs <- b.ws.Ping(pctx)
 				}()
+				b.step("ping", next)
 			}
 		case err := <-pongs:
 			pinging = false
@@ -340,6 +351,7 @@ func (b *bridge) run(ctx context.Context) string {
 				reason = closeBrowserGone
 				break
 			}
+			beatAt = clock.Now().Add(SSEHeartbeat)
 			beatT = clock.AfterFunc(SSEHeartbeat, sseSignal(beat))
 		case <-revoked:
 			reason = closeRevoked
@@ -463,6 +475,7 @@ func (b *bridge) pumpBrowser(ctx context.Context) {
 				return
 			}
 			b.touch(ctx)
+			b.step("data", time.Time{})
 			continue
 		}
 		var m struct {
@@ -503,6 +516,13 @@ func (b *bridge) readBrowser(ctx context.Context) (websocket.MessageType, []byte
 		return 0, nil, errFrameTooBig
 	}
 	return typ, p, nil
+}
+
+// step tells a test's bridgeStep, if any, that the bridge took step.
+func (b *bridge) step(step string, next time.Time) {
+	if b.s.bridgeStep != nil {
+		b.s.bridgeStep(step, next)
+	}
 }
 
 // touch counts a data frame as session activity at most once a minute.
