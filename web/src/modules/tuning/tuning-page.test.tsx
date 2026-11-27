@@ -53,6 +53,13 @@ describe("tuning flows", () => {
     expect(await screen.findByText("/etc/sysctl.d/99-zzz-local.conf sets it later at boot and wins")).toBeTruthy()
   })
 
+  test("a port range whose ends are equal is refused inline, as the agent refuses it", async () => {
+    render()
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText("net.ipv4.ip_local_port_range at boot"), "30000 30000")
+    expect(await screen.findByText(/^Use two different ports from/)).toBeTruthy()
+  })
+
   test("one Review changes button plans every changed key in one revertible change", async () => {
     const plans: unknown[] = []
     render({
@@ -69,6 +76,8 @@ describe("tuning flows", () => {
     await user.click(screen.getByRole("button", { name: "Review changes" }))
     expect(await screen.findByRole("dialog", { name: "Set 3 kernel parameters" })).toBeTruthy()
     await screen.findByRole("button", { name: "Apply" })
+    // Revertible: the dialog asks how long until the change reverts.
+    expect(screen.getByLabelText("Revert after (seconds)")).toBeTruthy()
     expect(plans).toHaveLength(1)
     const body = plans[0] as { input: { values: Record<string, string> }; confirmTimeoutSeconds?: number }
     expect(body.input.values).toEqual({

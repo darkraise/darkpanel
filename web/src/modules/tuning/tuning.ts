@@ -55,8 +55,8 @@ export function valueError(k: SysctlKey, value: string): string | null {
       return (k.choices ?? []).includes(v) ? null : `Use one of ${(k.choices ?? []).join(", ")}`
     case "port-range": {
       const m = /^(\d+)\s+(\d+)$/.exec(v)
-      const ok = m !== null && within(m[1] ?? "", k.min, k.max) && within(m[2] ?? "", k.min, k.max) && BigInt(m[1] ?? "0") <= BigInt(m[2] ?? "0")
-      return ok ? null : `Use two ports from ${k.min ?? ""} to ${k.max ?? ""}, the lower first`
+      const ok = m !== null && within(m[1] ?? "", k.min, k.max) && within(m[2] ?? "", k.min, k.max) && BigInt(m[1] ?? "0") < BigInt(m[2] ?? "0")
+      return ok ? null : `Use two different ports from ${k.min ?? ""} to ${k.max ?? ""}, the lower first`
     }
     default:
       return null
