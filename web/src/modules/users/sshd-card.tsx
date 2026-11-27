@@ -12,6 +12,7 @@ import { errorMessage, readAction } from "@/api/client"
 import type { Change } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
 import { applied } from "@/lib/users"
+import { useReopenFocus } from "@/lib/return-focus"
 
 // SshdSettings mirrors users.sshd.get's effective and set values.
 export interface SshdSettings {
@@ -143,6 +144,7 @@ function HardeningForm({
   onReview: (s: SshdSettings) => void
 }) {
   const [draft, setDraft] = useState(() => draftOf(state.effective))
+  const reviewButton = useReopenFocus(hidden)
   const [error, setError] = useState<FieldProblem | null>(null)
   const listsElsewhere = state.listsSetBy !== undefined && state.listsSetBy !== ""
 
@@ -221,7 +223,7 @@ function HardeningForm({
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>
-            <Button type="submit">Review change</Button>
+            <Button ref={reviewButton} type="submit">Review change</Button>
           </DialogFooter>
         </form>
       </DialogContent>

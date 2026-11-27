@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "d
 import { Textarea } from "darkraise-ui/components/textarea"
 import { errorMessage, readAction } from "@/api/client"
 import { formatTime } from "@/lib/format"
+import { useReopenFocus } from "@/lib/return-focus"
 import type { Account } from "@/modules/users/keys"
 import { SLUG_PATTERN, type Job } from "./jobs"
 
@@ -62,6 +63,7 @@ export interface JobFormProps {
 // JobForm asks a job's fields (UI-7, UX-10); the schedule shows the agent's
 // next three runs, or its error, as it is typed.
 export function JobForm({ hostId, hostName, job, hidden = false, onCancel, onReview }: JobFormProps) {
+  const reviewButton = useReopenFocus(hidden)
   const [slug, setSlug] = useState(job?.slug ?? "")
   const [description, setDescription] = useState(job?.description ?? "")
   const [schedule, setSchedule] = useState(job?.schedule ?? "")
@@ -237,7 +239,7 @@ export function JobForm({ hostId, hostName, job, hidden = false, onCancel, onRev
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>
-            <Button type="submit">Review change</Button>
+            <Button ref={reviewButton} type="submit">Review change</Button>
           </DialogFooter>
         </form>
       </DialogContent>

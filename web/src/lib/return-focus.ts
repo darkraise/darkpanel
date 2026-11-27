@@ -79,3 +79,23 @@ export function useFocusFallback(open: boolean) {
     return () => window.clearInterval(id)
   }, [open])
 }
+
+// A form kept mounted, hidden, while its change is reviewed reopens with focus
+// on its submit button, the control that started the review, rather than on
+// the first field. The kit's focus trap picks that field in the dialog's own
+// effect; this effect runs after it, since a parent's effects follow its
+// children's.
+export function useReopenFocus(hidden: boolean) {
+  const submit = useRef<HTMLButtonElement>(null)
+  const wasHidden = useRef(false)
+  useEffect(() => {
+    if (hidden) {
+      wasHidden.current = true
+      return
+    }
+    if (!wasHidden.current) return
+    wasHidden.current = false
+    submit.current?.focus()
+  }, [hidden])
+  return submit
+}

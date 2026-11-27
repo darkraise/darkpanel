@@ -16,7 +16,7 @@ import { Textarea } from "darkraise-ui/components/textarea"
 import { HOSTS_QUERY_KEY, listHosts, readAction } from "@/api/client"
 import type { Change } from "@/api/types"
 import { ChangeDialog } from "@/components/change-dialog"
-import { FALLBACK_FOCUS, useFocusFallback, useMenuDialogFocus } from "@/lib/return-focus"
+import { FALLBACK_FOCUS, useFocusFallback, useMenuDialogFocus, useReopenFocus } from "@/lib/return-focus"
 import { applied } from "@/lib/users"
 import { useCanOnHost } from "@/session/can"
 import { keyError, nameError, passwordError, type Account } from "./keys"
@@ -94,6 +94,7 @@ interface FormProps {
 }
 
 function AddUserDialog({ taken, hostName, hidden, onCancel, onReview }: FormProps & { taken: string[] }) {
+  const reviewButton = useReopenFocus(hidden)
   const [name, setName] = useState("")
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
@@ -160,7 +161,7 @@ function AddUserDialog({ taken, hostName, hidden, onCancel, onReview }: FormProp
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>
-            <Button type="submit">Review change</Button>
+            <Button ref={reviewButton} type="submit">Review change</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -169,6 +170,7 @@ function AddUserDialog({ taken, hostName, hidden, onCancel, onReview }: FormProp
 }
 
 function SetPasswordDialog({ name, hidden, onCancel, onReview }: Omit<FormProps, "hostName"> & { name: string }) {
+  const reviewButton = useReopenFocus(hidden)
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
   const [submitted, setSubmitted] = useState(false)
@@ -195,7 +197,7 @@ function SetPasswordDialog({ name, hidden, onCancel, onReview }: Omit<FormProps,
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>
-            <Button type="submit">Review change</Button>
+            <Button ref={reviewButton} type="submit">Review change</Button>
           </DialogFooter>
         </form>
       </DialogContent>
